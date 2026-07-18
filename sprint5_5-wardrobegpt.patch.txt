@@ -1,0 +1,513 @@
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index aaa1074d1f68719c42726800589829288db2fd96..6783fffb7e88eaae5a5559b8ca1ec806f257be89 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,156 +1,78 @@
+ import 'package:flutter/material.dart';
+ 
++import 'models/assistant_request.dart';
++import 'services/wardrobe_gpt_service.dart';
++
+ class AssistantScreen extends StatefulWidget {
+-  const AssistantScreen({super.key});
++  final WardrobeGptService? service;
++
++  const AssistantScreen({super.key, this.service});
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
+-  final input = TextEditingController();
+-  final List<_Message> messages = [
+-    const _Message(
+-      mine: false,
+-      text:
+-          'Bonjour 👋 Je suis WardrobeGPT. Pour le moment je fonctionne en mode démonstration, mais cette base est prête à être reliée à ton dressing.',
+-    ),
+-  ];
++  late final WardrobeGptService _service;
++  String? _message;
++  bool _isLoading = false;
+ 
+-  void send([String? preset]) {
+-    final text = (preset ?? input.text).trim();
+-    if (text.isEmpty) return;
+-    setState(() {
+-      messages.add(_Message(mine: true, text: text));
+-      messages.add(
+-        const _Message(
+-          mine: false,
+-          text:
+-              'J’ai bien reçu ta demande. L’étape suivante consistera à me connecter aux vêtements enregistrés dans SQLite.',
+-        ),
+-      );
+-    });
+-    input.clear();
++  @override
++  void initState() {
++    super.initState();
++    _service = widget.service ?? WardrobeGptService();
++    _refresh();
+   }
+ 
+-  @override
+-  void dispose() {
+-    input.dispose();
+-    super.dispose();
++  Future<void> _refresh() async {
++    setState(() => _isLoading = true);
++    final response = await _service.generate(const AssistantRequest());
++    if (!mounted) return;
++    setState(() {
++      _message = response.message;
++      _isLoading = false;
++    });
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+-      child: Column(
+-        children: [
+-          const Padding(
+-            padding: EdgeInsets.fromLTRB(18, 18, 18, 8),
+-            child: Row(
++      child: Padding(
++        padding: const EdgeInsets.all(18),
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.stretch,
++          children: [
++            const Row(
+               children: [
+                 Expanded(
+                   child: Text(
+                     'WardrobeGPT',
+                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 CircleAvatar(child: Icon(Icons.auto_awesome)),
+               ],
+             ),
+-          ),
+-          SizedBox(
+-            height: 44,
+-            child: ListView(
+-              padding: const EdgeInsets.symmetric(horizontal: 14),
+-              scrollDirection: Axis.horizontal,
+-              children: [
+-                _Prompt(text: 'Tenue pour ce soir', onTap: send),
+-                _Prompt(text: 'Analyse mon dressing', onTap: send),
+-                _Prompt(text: 'Que dois-je acheter ?', onTap: send),
+-              ],
++            const SizedBox(height: 32),
++            Expanded(
++              child: Center(
++                child: _isLoading
++                    ? const CircularProgressIndicator()
++                    : Text(
++                        _message ?? '',
++                        textAlign: TextAlign.center,
++                        style: Theme.of(context).textTheme.titleMedium,
++                      ),
++              ),
+             ),
+-          ),
+-          Expanded(
+-            child: ListView.builder(
+-              padding: const EdgeInsets.all(16),
+-              itemCount: messages.length,
+-              itemBuilder: (_, index) => _Bubble(message: messages[index]),
++            FilledButton.icon(
++              onPressed: _isLoading ? null : _refresh,
++              icon: const Icon(Icons.refresh),
++              label: const Text('Actualiser'),
+             ),
+-          ),
+-          Padding(
+-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+-            child: Row(
+-              children: [
+-                Expanded(
+-                  child: TextField(
+-                    controller: input,
+-                    onSubmitted: (_) => send(),
+-                    decoration: const InputDecoration(
+-                      hintText: 'Écris ton message…',
+-                    ),
+-                  ),
+-                ),
+-                const SizedBox(width: 8),
+-                IconButton.filled(
+-                  onPressed: send,
+-                  icon: const Icon(Icons.arrow_upward),
+-                ),
+-              ],
+-            ),
+-          ),
+-        ],
+-      ),
+-    );
+-  }
+-}
+-
+-class _Message {
+-  final bool mine;
+-  final String text;
+-  const _Message({required this.mine, required this.text});
+-}
+-
+-class _Prompt extends StatelessWidget {
+-  final String text;
+-  final void Function(String) onTap;
+-
+-  const _Prompt({required this.text, required this.onTap});
+-
+-  @override
+-  Widget build(BuildContext context) {
+-    return Padding(
+-      padding: const EdgeInsets.only(right: 8),
+-      child: ActionChip(label: Text(text), onPressed: () => onTap(text)),
+-    );
+-  }
+-}
+-
+-class _Bubble extends StatelessWidget {
+-  final _Message message;
+-  const _Bubble({required this.message});
+-
+-  @override
+-  Widget build(BuildContext context) {
+-    return Align(
+-      alignment: message.mine ? Alignment.centerRight : Alignment.centerLeft,
+-      child: Container(
+-        constraints: const BoxConstraints(maxWidth: 320),
+-        margin: const EdgeInsets.only(bottom: 12),
+-        padding: const EdgeInsets.all(15),
+-        decoration: BoxDecoration(
+-          color:
+-              message.mine
+-                  ? const Color(0xFFC89B4A)
+-                  : Theme.of(context).cardColor,
+-          borderRadius: BorderRadius.circular(20),
+-        ),
+-        child: Text(
+-          message.text,
+-          style: TextStyle(
+-            color: message.mine ? const Color(0xFF171717) : null,
+-          ),
++          ],
+         ),
+       ),
+     );
+   }
+ }
+diff --git a/lib/features/assistant/builders/context_builder.dart b/lib/features/assistant/builders/context_builder.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b208bc55db8db55b631aeb9f9cc07c104c6c5ad
+--- /dev/null
++++ b/lib/features/assistant/builders/context_builder.dart
+@@ -0,0 +1,51 @@
++import '../models/assistant_context.dart';
++import '../models/assistant_request.dart';
++
++abstract interface class AssistantContextSource {
++  Future<Object?> load(AssistantRequest request);
++}
++
++class ContextBuilder {
++  final AssistantContextSource? weatherSource;
++  final AssistantContextSource? wardrobeSource;
++  final AssistantContextSource? outfitsSource;
++  final AssistantContextSource? wearHistorySource;
++  final AssistantContextSource? statisticsSource;
++
++  const ContextBuilder({
++    this.weatherSource,
++    this.wardrobeSource,
++    this.outfitsSource,
++    this.wearHistorySource,
++    this.statisticsSource,
++  });
++
++  Future<AssistantContext> build(AssistantRequest request) async {
++    final values = await Future.wait<Object?>([
++      _load(weatherSource, request),
++      _load(wardrobeSource, request),
++      _load(outfitsSource, request),
++      _load(wearHistorySource, request),
++      _load(statisticsSource, request),
++    ]);
++
++    return AssistantContext(
++      weather: values[0] as String?,
++      wardrobe: _strings(values[1]),
++      outfits: _strings(values[2]),
++      wearHistory: _strings(values[3]),
++      statistics: _map(values[4]),
++    );
++  }
++
++  Future<Object?> _load(
++    AssistantContextSource? source,
++    AssistantRequest request,
++  ) => source?.load(request) ?? Future<Object?>.value(null);
++
++  List<String> _strings(Object? value) =>
++      value is Iterable ? value.whereType<String>().toList() : const [];
++
++  Map<String, Object?> _map(Object? value) =>
++      value is Map<String, Object?> ? value : const {};
++}
+diff --git a/lib/features/assistant/builders/prompt_builder.dart b/lib/features/assistant/builders/prompt_builder.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..be36c4d4a420911fe8da7dfd036f0e6e7ce8d1dd
+--- /dev/null
++++ b/lib/features/assistant/builders/prompt_builder.dart
+@@ -0,0 +1,38 @@
++import '../models/assistant_context.dart';
++import '../models/assistant_request.dart';
++
++typedef PromptSection = String? Function(
++  AssistantRequest request,
++  AssistantContext context,
++);
++
++class PromptBuilder {
++  final List<PromptSection> sections;
++
++  PromptBuilder({List<PromptSection>? sections})
++      : sections = sections ?? _defaultSections;
++
++  String build(AssistantRequest request, AssistantContext context) {
++    return sections
++        .map((section) => section(request, context))
++        .whereType<String>()
++        .where((section) => section.trim().isNotEmpty)
++        .join('\n\n');
++  }
++
++  static final List<PromptSection> _defaultSections = [
++    (request, context) => '## Demande\n'
++        '${request.message.isEmpty ? "Prépare le conseil du jour." : request.message}',
++    (request, context) =>
++        context.weather == null ? null : '## Météo\n${context.weather}',
++    (request, context) => context.wardrobe.isEmpty
++        ? null
++        : '## Garde-robe\n${context.wardrobe.join('\n')}',
++    (request, context) => request.constraints.isEmpty
++        ? null
++        : '## Contraintes\n${request.constraints}',
++    (request, context) => context.wearHistory.isEmpty
++        ? null
++        : '## Historique\n${context.wearHistory.join('\n')}',
++  ];
++}
+diff --git a/lib/features/assistant/models/assistant_context.dart b/lib/features/assistant/models/assistant_context.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..147d3e0545f3517b7bd78508e8dca8147e071ebd
+--- /dev/null
++++ b/lib/features/assistant/models/assistant_context.dart
+@@ -0,0 +1,15 @@
++class AssistantContext {
++  final String? weather;
++  final List<String> wardrobe;
++  final List<String> outfits;
++  final List<String> wearHistory;
++  final Map<String, Object?> statistics;
++
++  const AssistantContext({
++    this.weather,
++    this.wardrobe = const [],
++    this.outfits = const [],
++    this.wearHistory = const [],
++    this.statistics = const {},
++  });
++}
+diff --git a/lib/features/assistant/models/assistant_request.dart b/lib/features/assistant/models/assistant_request.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..0521d0e8cb77ebad971ebe335ef417a3115e0ea3
+--- /dev/null
++++ b/lib/features/assistant/models/assistant_request.dart
+@@ -0,0 +1,13 @@
++enum AssistantRequestType { conversation, outfitSuggestion, shoppingAdvice, care }
++
++class AssistantRequest {
++  final String message;
++  final AssistantRequestType type;
++  final Map<String, Object?> constraints;
++
++  const AssistantRequest({
++    this.message = '',
++    this.type = AssistantRequestType.conversation,
++    this.constraints = const {},
++  });
++}
+diff --git a/lib/features/assistant/models/assistant_response.dart b/lib/features/assistant/models/assistant_response.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..4bca0ff87988de17abd541c132a747da6f4857fe
+--- /dev/null
++++ b/lib/features/assistant/models/assistant_response.dart
+@@ -0,0 +1,13 @@
++enum AssistantResponseType { conversation, outfitSuggestions, shoppingAdvice, care }
++
++class AssistantResponse {
++  final String message;
++  final AssistantResponseType type;
++  final List<String> suggestions;
++
++  const AssistantResponse({
++    required this.message,
++    this.type = AssistantResponseType.conversation,
++    this.suggestions = const [],
++  });
++}
+diff --git a/lib/features/assistant/services/wardrobe_gpt_service.dart b/lib/features/assistant/services/wardrobe_gpt_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..7a5311662bbfa926300e4f0b76ff263c65602fa3
+--- /dev/null
++++ b/lib/features/assistant/services/wardrobe_gpt_service.dart
+@@ -0,0 +1,27 @@
++import '../builders/context_builder.dart';
++import '../builders/prompt_builder.dart';
++import '../models/assistant_request.dart';
++import '../models/assistant_response.dart';
++
++class WardrobeGptService {
++  final ContextBuilder contextBuilder;
++  final PromptBuilder promptBuilder;
++
++  WardrobeGptService({
++    ContextBuilder? contextBuilder,
++    PromptBuilder? promptBuilder,
++  }) : contextBuilder = contextBuilder ?? const ContextBuilder(),
++       promptBuilder = promptBuilder ?? PromptBuilder();
++
++  Future<AssistantResponse> generate(AssistantRequest request) async {
++    final context = await contextBuilder.build(request);
++    // Le prompt est déjà assemblé pour permettre le branchement futur d'un LLM.
++    promptBuilder.build(request, context);
++
++    final weather = context.weather ?? '23°C';
++    return AssistantResponse(
++      message:
++          'Bonjour 👋\n\nAujourd’hui il fait $weather.\n\nJe prépare mes recommandations.',
++    );
++  }
++}
+diff --git a/test/features/assistant/context_builder_test.dart b/test/features/assistant/context_builder_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..92b867b7fae168e9dcfa1841de52d1f60eda24a4
+--- /dev/null
++++ b/test/features/assistant/context_builder_test.dart
+@@ -0,0 +1,39 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/builders/context_builder.dart';
++import 'package:wardrobeos/features/assistant/models/assistant_request.dart';
++
++class _Source implements AssistantContextSource {
++  final Object? value;
++  const _Source(this.value);
++
++  @override
++  Future<Object?> load(AssistantRequest request) async => value;
++}
++
++void main() {
++  test('rassemble les sources configurées dans un contexte', () async {
++    final context = await const ContextBuilder(
++      weatherSource: _Source('18°C'),
++      wardrobeSource: _Source(['Pantalon noir']),
++      outfitsSource: _Source(['Tenue bureau']),
++      wearHistorySource: _Source(['Pantalon noir: hier']),
++      statisticsSource: _Source({'total': 1}),
++    ).build(const AssistantRequest());
++
++    expect(context.weather, '18°C');
++    expect(context.wardrobe, ['Pantalon noir']);
++    expect(context.outfits, ['Tenue bureau']);
++    expect(context.wearHistory, ['Pantalon noir: hier']);
++    expect(context.statistics, {'total': 1});
++  });
++
++  test('retourne un contexte vide sans source', () async {
++    final context = await const ContextBuilder().build(
++      const AssistantRequest(),
++    );
++
++    expect(context.weather, isNull);
++    expect(context.wardrobe, isEmpty);
++    expect(context.statistics, isEmpty);
++  });
++}
+diff --git a/test/features/assistant/prompt_builder_test.dart b/test/features/assistant/prompt_builder_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..67f975dc178ae19b2c9c6c6a422da7e8165f0399
+--- /dev/null
++++ b/test/features/assistant/prompt_builder_test.dart
+@@ -0,0 +1,30 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/builders/prompt_builder.dart';
++import 'package:wardrobeos/features/assistant/models/assistant_context.dart';
++import 'package:wardrobeos/features/assistant/models/assistant_request.dart';
++
++void main() {
++  test('assemble uniquement les sections disponibles', () {
++    final prompt = PromptBuilder().build(
++      const AssistantRequest(
++        message: 'Que porter ?',
++        constraints: {'occasion': 'travail'},
++      ),
++      const AssistantContext(weather: '23°C', wardrobe: ['Chemise bleue']),
++    );
++
++    expect(prompt, contains('## Demande\nQue porter ?'));
++    expect(prompt, contains('## Météo\n23°C'));
++    expect(prompt, contains('## Garde-robe\nChemise bleue'));
++    expect(prompt, contains('## Contraintes'));
++    expect(prompt, isNot(contains('## Historique')));
++  });
++
++  test('accepte des sections supplémentaires', () {
++    final prompt = PromptBuilder(
++      sections: [(request, context) => '## Calendrier\nAucun événement'],
++    ).build(const AssistantRequest(), const AssistantContext());
++
++    expect(prompt, '## Calendrier\nAucun événement');
++  });
++}
+diff --git a/test/features/assistant/wardrobe_gpt_service_test.dart b/test/features/assistant/wardrobe_gpt_service_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..c5cbacd3927399844431f438e7d93b0f47c5a3ee
+--- /dev/null
++++ b/test/features/assistant/wardrobe_gpt_service_test.dart
+@@ -0,0 +1,28 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/builders/context_builder.dart';
++import 'package:wardrobeos/features/assistant/builders/prompt_builder.dart';
++import 'package:wardrobeos/features/assistant/models/assistant_request.dart';
++import 'package:wardrobeos/features/assistant/services/wardrobe_gpt_service.dart';
++
++class _WeatherSource implements AssistantContextSource {
++  @override
++  Future<Object?> load(AssistantRequest request) async => '19°C';
++}
++
++void main() {
++  test('construit le contexte et retourne la réponse simulée', () async {
++    final service = WardrobeGptService(
++      contextBuilder: ContextBuilder(weatherSource: _WeatherSource()),
++      promptBuilder: PromptBuilder(),
++    );
++
++    final response = await service.generate(
++      const AssistantRequest(message: 'Bonjour'),
++    );
++
++    expect(response.message, contains('Bonjour 👋'));
++    expect(response.message, contains('19°C'));
++    expect(response.message, contains('Je prépare mes recommandations.'));
++    expect(response.suggestions, isEmpty);
++  });
++}
