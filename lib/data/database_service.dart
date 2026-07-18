@@ -246,10 +246,7 @@ class DatabaseService {
     return WearHistory.fromMap(rows.first);
   }
 
-  Future<WearHistory> recordWear(
-    String garmentId, {
-    DateTime? wornAt,
-  }) async {
+  Future<WearHistory> recordWear(String garmentId, {DateTime? wornAt}) async {
     final db = await database;
     final date = wornAt ?? DateTime.now();
     final createdAt = DateTime.now();
@@ -341,9 +338,8 @@ class DatabaseService {
     );
 
     final count = (countRows.first['total'] as int?) ?? 0;
-    final lastWorn = lastRows.isEmpty
-        ? null
-        : lastRows.first['worn_at'] as String;
+    final lastWorn =
+        lastRows.isEmpty ? null : lastRows.first['worn_at'] as String;
 
     await db.update(
       'garments',
@@ -402,25 +398,86 @@ class DatabaseService {
     return rows.map(Outfit.fromMap).toList();
   }
 
+  /// Records one wear for an outfit and every garment that still belongs to it.
+  ///
+  /// Garment history, denormalized garment counters, and outfit counters are
+  /// committed atomically. Returns `false` when the outfit has no existing
+  /// garments (including when all referenced garments were deleted).
+  Future<bool> recordOutfitWear(String outfitId, {DateTime? wornAt}) async {
+    final db = await database;
+    final date = wornAt ?? DateTime.now();
+    final createdAt = DateTime.now();
+    if (date.isAfter(createdAt)) {
+      throw ArgumentError.value(wornAt, 'wornAt', 'Cannot record future wear.');
+    }
+
+    return db.transaction((txn) async {
+      // The join deliberately excludes stale outfit_items references so a
+      // missing garment never prevents the remaining outfit from being worn.
+      final garmentRows = await txn.rawQuery(
+        '''
+        SELECT garments.id FROM outfit_items
+        INNER JOIN garments ON garments.id = outfit_items.garment_id
+        WHERE outfit_items.outfit_id = ?
+      ''',
+        [outfitId],
+      );
+      if (garmentRows.isEmpty) return false;
+
+      final timestamp = date.toIso8601String();
+      final createdTimestamp = createdAt.toIso8601String();
+      for (final row in garmentRows) {
+        final garmentId = row['id'] as String;
+        await txn.insert('wear_history', {
+          'garment_id': garmentId,
+          'worn_at': timestamp,
+          'created_at': createdTimestamp,
+        });
+        await _syncGarmentWearData(txn, garmentId);
+      }
+
+      final updated = await txn.rawUpdate(
+        '''
+          UPDATE outfits
+          SET times_worn = times_worn + 1,
+              last_worn = ?,
+              updated_at = ?
+          WHERE id = ?
+        ''',
+        [timestamp, createdTimestamp, outfitId],
+      );
+      if (updated != 1) {
+        throw StateError('Outfit not found: $outfitId');
+      }
+      return true;
+    });
+  }
+
   Future<List<Garment>> getGarmentsInOutfit(String outfitId) async {
     final db = await database;
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT garments.* FROM garments
       INNER JOIN outfit_items ON outfit_items.garment_id = garments.id
       WHERE outfit_items.outfit_id = ?
       ORDER BY garments.name COLLATE NOCASE
-    ''', [outfitId]);
+    ''',
+      [outfitId],
+    );
     return rows.map(Garment.fromMap).toList();
   }
 
   Future<List<Outfit>> getOutfitsContainingGarment(String garmentId) async {
     final db = await database;
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT outfits.* FROM outfits
       INNER JOIN outfit_items ON outfit_items.outfit_id = outfits.id
       WHERE outfit_items.garment_id = ?
       ORDER BY outfits.favorite DESC, outfits.name COLLATE NOCASE
-    ''', [garmentId]);
+    ''',
+      [garmentId],
+    );
     return rows.map(Outfit.fromMap).toList();
   }
 

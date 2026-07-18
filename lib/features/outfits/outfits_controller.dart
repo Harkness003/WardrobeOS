@@ -8,7 +8,7 @@ class OutfitsController extends ChangeNotifier {
   final DatabaseService _database;
 
   OutfitsController({DatabaseService? database})
-      : _database = database ?? DatabaseService.instance;
+    : _database = database ?? DatabaseService.instance;
 
   List<Outfit> outfits = [];
   final Map<String, List<Garment>> garmentsByOutfit = {};
@@ -23,10 +23,12 @@ class OutfitsController extends ChangeNotifier {
     try {
       outfits = await _database.getAllOutfits();
       final entries = await Future.wait(
-        outfits.map((outfit) async => MapEntry(
-          outfit.id,
-          await _database.getGarmentsInOutfit(outfit.id),
-        )),
+        outfits.map(
+          (outfit) async => MapEntry(
+            outfit.id,
+            await _database.getGarmentsInOutfit(outfit.id),
+          ),
+        ),
       );
       garmentsByOutfit
         ..clear()
@@ -65,6 +67,12 @@ class OutfitsController extends ChangeNotifier {
   Future<void> delete(Outfit outfit) async {
     await _database.deleteOutfit(outfit.id);
     await load();
+  }
+
+  Future<bool> recordWear(Outfit outfit) async {
+    final recorded = await _database.recordOutfitWear(outfit.id);
+    if (recorded) await load();
+    return recorded;
   }
 
   void _notifyListenersIfActive() {
