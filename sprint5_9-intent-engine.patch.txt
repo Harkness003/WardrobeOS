@@ -1,0 +1,446 @@
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index 6078c5838a0b19b1afaeac919ebd92656a85e007..da6cd5777e8145583acb33248210cacee91d8cc7 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,117 +1,143 @@
+ import 'dart:convert';
+ 
+ import 'package:flutter/material.dart';
+ 
+ import 'services/assistant_service.dart';
+ 
+ class AssistantScreen extends StatefulWidget {
+   final AssistantService service;
+ 
+   const AssistantScreen({super.key, required this.service});
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
++  final _controller = TextEditingController();
+   String? _message;
+   bool _isLoading = false;
+   Map<String, Object?> _toolContext = const {};
+ 
+   @override
+-  void initState() {
+-    super.initState();
+-    _refresh();
++  void dispose() {
++    _controller.dispose();
++    super.dispose();
+   }
+ 
+-  Future<void> _refresh() async {
++  Future<void> _send() async {
++    final userMessage = _controller.text.trim();
++    if (userMessage.isEmpty) return;
+     setState(() => _isLoading = true);
+-    final message = await widget.service.generateMessage();
++    final message = await widget.service.generateMessage(
++      userMessage: userMessage,
++    );
+     if (!mounted) return;
+     setState(() {
+       _message = message;
+       _toolContext = widget.service.lastToolContext;
+       _isLoading = false;
+     });
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.stretch,
+           children: [
+             const Row(
+               children: [
+                 Expanded(
+                   child: Text(
+                     'WardrobeGPT',
+                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 CircleAvatar(child: Icon(Icons.auto_awesome)),
+               ],
+             ),
+             const SizedBox(height: 32),
++            if (widget.service.lastIntent case final intent?)
++              Padding(
++                padding: const EdgeInsets.only(bottom: 12),
++                child: Text(
++                  'Intention détectée : ${intent.type.label}',
++                  key: const Key('detected-intent'),
++                  style: Theme.of(context).textTheme.labelLarge,
++                ),
++              ),
+             Expanded(
+               child: ListView(
+                 children: [
+                   SizedBox(
+                     height: 220,
+                     child: Center(
+                       child: _isLoading
+                           ? const CircularProgressIndicator()
+                           : Text(
+                               _message ?? 'WardrobeGPT est prêt.',
+                               textAlign: TextAlign.center,
+                               style: Theme.of(context).textTheme.titleMedium,
+                             ),
+                     ),
+                   ),
+                   if (_toolContext.isNotEmpty)
+                     ExpansionTile(
+                       title: const Text('Données utilisées par WardrobeGPT'),
+                       children: [
+                         _DebugData(
+                           title: 'Météo utilisée',
+                           value: _toolContext['weather'],
+                         ),
+                         _DebugData(
+                           title: 'Informations dressing',
+                           value: _toolContext['wardrobe'],
+                         ),
+                         _DebugData(
+                           title: 'Statistiques utilisées',
+                           value: _toolContext['statistics'],
+                         ),
+                       ],
+                     ),
+                 ],
+               ),
+             ),
++            TextField(
++              controller: _controller,
++              enabled: !_isLoading,
++              textInputAction: TextInputAction.send,
++              onSubmitted: (_) => _send(),
++              decoration: const InputDecoration(
++                labelText: 'Votre demande',
++                hintText: "Que mettre aujourd'hui ?",
++                border: OutlineInputBorder(),
++              ),
++            ),
++            const SizedBox(height: 12),
+             FilledButton.icon(
+-              onPressed: _isLoading ? null : _refresh,
+-              icon: const Icon(Icons.refresh),
+-              label: const Text('Demander un conseil'),
++              onPressed: _isLoading ? null : _send,
++              icon: const Icon(Icons.send),
++              label: const Text('Envoyer'),
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+ }
+ 
+ class _DebugData extends StatelessWidget {
+   final String title;
+   final Object? value;
+ 
+   const _DebugData({required this.title, required this.value});
+ 
+   @override
+   Widget build(BuildContext context) => ListTile(
+     title: Text(title),
+     subtitle: SelectableText(const JsonEncoder.withIndent('  ').convert(value)),
+   );
+ }
+diff --git a/lib/features/assistant/intents/assistant_intent.dart b/lib/features/assistant/intents/assistant_intent.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..072e4d0425d973ab344b3220b3efa51f9866429d
+--- /dev/null
++++ b/lib/features/assistant/intents/assistant_intent.dart
+@@ -0,0 +1,6 @@
++import 'intent_result.dart';
++
++/// Contract for an intent engine, independent from its local or remote implementation.
++abstract interface class AssistantIntent {
++  IntentResult parse(String userMessage);
++}
+diff --git a/lib/features/assistant/intents/intent_parser.dart b/lib/features/assistant/intents/intent_parser.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ba3195ad9aa1625ea89447806bac55e8eff28a01
+--- /dev/null
++++ b/lib/features/assistant/intents/intent_parser.dart
+@@ -0,0 +1,120 @@
++import 'assistant_intent.dart';
++import 'intent_result.dart';
++import 'intent_type.dart';
++
++class IntentParser implements AssistantIntent {
++  const IntentParser();
++
++  @override
++  IntentResult parse(String userMessage) {
++    final text = _normalize(userMessage);
++    final parameters = <String, String>{};
++    final type = _detectType(text);
++
++    _extractDate(text, parameters);
++    if (type == AssistantIntentType.eventOutfit) {
++      _extractOccasion(text, parameters);
++    }
++    _extractSeason(text, parameters);
++    _extractStyle(text, parameters);
++
++    return IntentResult(
++      type: type,
++      originalText: userMessage,
++      parameters: parameters,
++    );
++  }
++
++  AssistantIntentType _detectType(String text) {
++    if (_containsAny(text, ['meteo', 'temps qu il fait', 'temperature'])) {
++      return AssistantIntentType.weatherOutfit;
++    }
++    if (_containsAny(text, [
++      'mariage', 'restaurant', 'evenement', 'soiree', 'entretien',
++      'anniversaire', 'ceremonie',
++    ])) {
++      return AssistantIntentType.eventOutfit;
++    }
++    if (_containsAny(text, [
++      'porte peu', 'porte jamais', 'ne porte plus', 'vetements oublies',
++    ])) {
++      return AssistantIntentType.forgottenGarments;
++    }
++    if (_containsAny(text, ['analyse mon dressing', 'analyse ma garde robe'])) {
++      return AssistantIntentType.wardrobeAnalysis;
++    }
++    if (_containsAny(text, [
++      'devrais je acheter', 'quoi acheter', 'conseil achat', 'shopping',
++    ])) {
++      return AssistantIntentType.shoppingAdvice;
++    }
++    if (_containsAny(text, [
++      'aujourd hui', 'tenue du jour', 'que mettre', 'comment m habiller',
++    ])) {
++      return AssistantIntentType.dailyOutfit;
++    }
++    return AssistantIntentType.generalQuestion;
++  }
++
++  void _extractDate(String text, Map<String, String> parameters) {
++    const dates = [
++      'aujourd hui', 'demain', 'lundi', 'mardi', 'mercredi', 'jeudi',
++      'vendredi', 'samedi', 'dimanche',
++    ];
++    for (final date in dates) {
++      if (text.contains(date)) {
++        parameters['date'] = date == 'aujourd hui' ? "aujourd'hui" : date;
++        return;
++      }
++    }
++  }
++
++  void _extractOccasion(String text, Map<String, String> parameters) {
++    const occasions = [
++      'mariage', 'restaurant', 'soiree', 'entretien', 'anniversaire',
++      'ceremonie',
++    ];
++    for (final occasion in occasions) {
++      if (text.contains(occasion)) {
++        parameters['occasion'] = occasion == 'soiree' ? 'soirée' : occasion;
++        return;
++      }
++    }
++    if (text.contains('evenement')) parameters['occasion'] = 'événement';
++  }
++
++  void _extractSeason(String text, Map<String, String> parameters) {
++    const seasons = ['printemps', 'ete', 'automne', 'hiver'];
++    for (final season in seasons) {
++      if (text.contains(season)) {
++        parameters['saison'] = season == 'ete' ? 'été' : season;
++        return;
++      }
++    }
++  }
++
++  void _extractStyle(String text, Map<String, String> parameters) {
++    const styles = ['casual', 'chic', 'elegant', 'sportif', 'minimaliste'];
++    for (final style in styles) {
++      if (text.contains(style)) {
++        parameters['style'] = style == 'elegant' ? 'élégant' : style;
++        return;
++      }
++    }
++  }
++
++  bool _containsAny(String text, List<String> expressions) =>
++      expressions.any(text.contains);
++
++  String _normalize(String value) => value
++      .toLowerCase()
++      .replaceAll(RegExp(r'[àáâä]'), 'a')
++      .replaceAll(RegExp(r'[éèêë]'), 'e')
++      .replaceAll(RegExp(r'[îï]'), 'i')
++      .replaceAll(RegExp(r'[ôö]'), 'o')
++      .replaceAll(RegExp(r'[ùûü]'), 'u')
++      .replaceAll('ç', 'c')
++      .replaceAll(RegExp(r"[^a-z0-9 ]"), ' ')
++      .replaceAll(RegExp(r'\s+'), ' ')
++      .trim();
++}
+diff --git a/lib/features/assistant/intents/intent_result.dart b/lib/features/assistant/intents/intent_result.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..512269f0fa553a7fa7effd83b6e56e6aba175503
+--- /dev/null
++++ b/lib/features/assistant/intents/intent_result.dart
+@@ -0,0 +1,13 @@
++import 'intent_type.dart';
++
++class IntentResult {
++  final AssistantIntentType type;
++  final String originalText;
++  final Map<String, String> parameters;
++
++  IntentResult({
++    required this.type,
++    required this.originalText,
++    Map<String, String> parameters = const {},
++  }) : parameters = Map.unmodifiable(parameters);
++}
+diff --git a/lib/features/assistant/intents/intent_type.dart b/lib/features/assistant/intents/intent_type.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..5b7369b525a1968dd6fad8893e718339d483437e
+--- /dev/null
++++ b/lib/features/assistant/intents/intent_type.dart
+@@ -0,0 +1,13 @@
++enum AssistantIntentType {
++  dailyOutfit('Tenue quotidienne'),
++  weatherOutfit('Tenue selon la météo'),
++  eventOutfit('Tenue pour un événement'),
++  wardrobeAnalysis('Analyse du dressing'),
++  forgottenGarments('Vêtements oubliés'),
++  shoppingAdvice("Conseil d'achat"),
++  generalQuestion('Question générale');
++
++  const AssistantIntentType(this.label);
++
++  final String label;
++}
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index 13e808a12eeeafa81e4123747ee2accf18bc29b8..e69ca04abaa5d5f31196dd8d6c48b4f0e8ccdc40 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -1,44 +1,60 @@
+ import '../context/assistant_context.dart';
+ import '../context/assistant_context_builder.dart';
+ import '../prompt/prompt_builder.dart';
+ import '../ai/llm_provider.dart';
+ import '../tools/assistant_tool_context_builder.dart';
++import '../intents/assistant_intent.dart';
++import '../intents/intent_parser.dart';
++import '../intents/intent_result.dart';
+ 
+ class AssistantService {
+   final AssistantContextBuilder _contextBuilder;
+   final PromptBuilder _promptBuilder;
+   final LlmProvider _llmProvider;
+   final AssistantToolContextBuilder _toolContextBuilder;
++  final AssistantIntent _intentParser;
+   AssistantToolContext _lastToolContext = const {};
++  IntentResult? _lastIntent;
+ 
+   AssistantService({
+     required AssistantContextBuilder contextBuilder,
+     AssistantToolContextBuilder? toolContextBuilder,
+     required LlmProvider llmProvider,
+     PromptBuilder? promptBuilder,
++    AssistantIntent? intentParser,
+   }) : _contextBuilder = contextBuilder,
+        _llmProvider = llmProvider,
+        _toolContextBuilder =
+            toolContextBuilder ?? AssistantToolContextBuilder(tools: const []),
++       _intentParser = intentParser ?? const IntentParser(),
+        _promptBuilder = promptBuilder ?? PromptBuilder();
+ 
+   AssistantToolContext get lastToolContext => _lastToolContext;
++  IntentResult? get lastIntent => _lastIntent;
+ 
+   Future<AssistantContext> buildContext() => _contextBuilder.build();
+ 
+-  Future<String> generatePrompt() async {
++  Future<String> generatePrompt({String? userMessage}) async {
++    _lastIntent = userMessage == null ? null : _intentParser.parse(userMessage);
+     final context = await buildContext();
+     _lastToolContext = await _toolContextBuilder.build();
+-    return _promptBuilder.build(context, toolContext: _lastToolContext);
++    final prompt = _promptBuilder.build(context, toolContext: _lastToolContext);
++    if (_lastIntent == null) return prompt;
++    return '$prompt\n\n### DEMANDE UTILISATEUR\n'
++        'Intention : ${_lastIntent!.type.name}\n'
++        'Paramètres : ${_lastIntent!.parameters}\n'
++        'Message : ${_lastIntent!.originalText}';
+   }
+ 
+-  Future<String> generateMessage() async {
++  Future<String> generateMessage({String? userMessage}) async {
+     try {
+-      return await _llmProvider.generate(await generatePrompt());
++      return await _llmProvider.generate(
++        await generatePrompt(userMessage: userMessage),
++      );
+     } on LlmException catch (error) {
+       return error.message;
+     } catch (_) {
+       return 'WardrobeGPT est temporairement indisponible. Réessayez.';
+     }
+   }
+ }
+diff --git a/test/features/assistant/intent_parser_test.dart b/test/features/assistant/intent_parser_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..0cae7e3e9c4cf229894c7207575eca1faf690fd7
+--- /dev/null
++++ b/test/features/assistant/intent_parser_test.dart
+@@ -0,0 +1,39 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/intents/intent_parser.dart';
++import 'package:wardrobeos/features/assistant/intents/intent_type.dart';
++
++void main() {
++  const parser = IntentParser();
++
++  test("détecte une tenue quotidienne et aujourd'hui", () {
++    final result = parser.parse("Que mettre aujourd'hui ?");
++    expect(result.type, AssistantIntentType.dailyOutfit);
++    expect(result.parameters, {'date': "aujourd'hui"});
++  });
++
++  test('détecte une sortie au restaurant', () {
++    final result = parser.parse('Je vais au restaurant');
++    expect(result.type, AssistantIntentType.eventOutfit);
++    expect(result.parameters, {'occasion': 'restaurant'});
++  });
++
++  test('détecte les vêtements peu portés', () {
++    final result = parser.parse('Quels vêtements je porte peu ?');
++    expect(result.type, AssistantIntentType.forgottenGarments);
++    expect(result.parameters, isEmpty);
++  });
++
++  test('classe une phrase inconnue comme question générale', () {
++    final result = parser.parse('Raconte-moi une histoire');
++    expect(result.type, AssistantIntentType.generalQuestion);
++    expect(result.parameters, isEmpty);
++  });
++
++  test('extrait la date et occasion pour un mariage', () {
++    final result = parser.parse(
++      "Je vais au mariage samedi, comment m'habiller ?",
++    );
++    expect(result.type, AssistantIntentType.eventOutfit);
++    expect(result.parameters, {'date': 'samedi', 'occasion': 'mariage'});
++  });
++}

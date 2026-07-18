@@ -14,19 +14,24 @@ class AssistantScreen extends StatefulWidget {
 }
 
 class _AssistantScreenState extends State<AssistantScreen> {
+  final _controller = TextEditingController();
   String? _message;
   bool _isLoading = false;
   Map<String, Object?> _toolContext = const {};
 
   @override
-  void initState() {
-    super.initState();
-    _refresh();
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
-  Future<void> _refresh() async {
+  Future<void> _send() async {
+    final userMessage = _controller.text.trim();
+    if (userMessage.isEmpty) return;
     setState(() => _isLoading = true);
-    final message = await widget.service.generateMessage();
+    final message = await widget.service.generateMessage(
+      userMessage: userMessage,
+    );
     if (!mounted) return;
     setState(() {
       _message = message;
@@ -55,6 +60,15 @@ class _AssistantScreenState extends State<AssistantScreen> {
               ],
             ),
             const SizedBox(height: 32),
+            if (widget.service.lastIntent case final intent?)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'Intention détectée : ${intent.type.label}',
+                  key: const Key('detected-intent'),
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ),
             Expanded(
               child: ListView(
                 children: [
@@ -91,10 +105,22 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 ],
               ),
             ),
+            TextField(
+              controller: _controller,
+              enabled: !_isLoading,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _send(),
+              decoration: const InputDecoration(
+                labelText: 'Votre demande',
+                hintText: "Que mettre aujourd'hui ?",
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: _isLoading ? null : _refresh,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Demander un conseil'),
+              onPressed: _isLoading ? null : _send,
+              icon: const Icon(Icons.send),
+              label: const Text('Envoyer'),
             ),
           ],
         ),
