@@ -1,3 +1,4 @@
+import '../../calendar/calendar_event.dart';
 import '../context/assistant_context.dart';
 
 /// A self-contained piece of the prompt.
@@ -43,6 +44,24 @@ class WeatherPromptSection implements PromptSection {
     return 'Ville : ${weather.city}\n'
         'Température : $temperature°C\n'
         'Condition : ${weather.condition}';
+  }
+}
+
+class CalendarPromptSection implements PromptSection {
+  const CalendarPromptSection();
+
+  @override
+  String get title => 'CONTEXTE CALENDRIER';
+
+  @override
+  String? build(AssistantContext context) {
+    final calendar = context.calendar;
+    if (calendar == null) return null;
+    final event = calendar.event;
+    return 'Événement : ${event.title}\n'
+        'Date : ${event.startsAt.toIso8601String()}\n'
+        'Lieu : ${event.location ?? 'non précisé'}\n'
+        'Formalité : ${event.formality.label}';
   }
 }
 

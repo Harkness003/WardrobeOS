@@ -96,6 +96,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
                           title: 'Météo utilisée',
                           value: _toolContext['weather'],
                         ),
+                        if (_toolContext['calendar'] != null)
+                          _DebugData(
+                            title: 'Événement pris en compte',
+                            value: _toolContext['calendar'],
+                          ),
                         _DebugData(
                           title: 'Informations dressing',
                           value: _toolContext['wardrobe'],

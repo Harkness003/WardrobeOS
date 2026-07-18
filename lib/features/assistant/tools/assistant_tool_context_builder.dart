@@ -1,3 +1,4 @@
+import '../../calendar/calendar_context_builder.dart';
 import 'assistant_tool.dart';
 
 typedef AssistantToolContext = Map<String, AssistantToolData>;
@@ -13,8 +14,14 @@ class AssistantToolContextBuilder {
     }
   }
 
-  Future<AssistantToolContext> build() async {
+  Future<AssistantToolContext> build({CalendarContext? calendar}) async {
     final context = <String, AssistantToolData>{};
+    if (calendar != null) {
+      context['calendar'] = {
+        'description': 'Événement pris en compte',
+        'data': calendar.toMap(),
+      };
+    }
     for (final tool in _tools) {
       context[tool.id] = {
         'description': tool.description,

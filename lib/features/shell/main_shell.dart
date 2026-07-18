@@ -22,6 +22,8 @@ import '../assistant/tools/wardrobe_tool.dart';
 import '../assistant/tools/weather_tool.dart';
 import '../assistant/recommendation/outfit_candidate.dart';
 import '../assistant/recommendation/outfit_recommendation_engine.dart';
+import '../calendar/calendar_context_builder.dart';
+import '../calendar/fake_calendar_service.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -52,6 +54,9 @@ class _MainShellState extends State<MainShell> {
       weatherService: widget.weatherService,
       wardrobeController: _assistantWardrobe,
       outfitsController: _assistantOutfits,
+      calendarContextBuilder: CalendarContextBuilder(
+        service: FakeCalendarService(),
+      ),
     ),
     toolContextBuilder: AssistantToolContextBuilder(
       tools: [

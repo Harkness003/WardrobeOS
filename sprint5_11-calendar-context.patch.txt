@@ -1,0 +1,722 @@
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index 3dd268ad7c21577665cdbcfb232761716bebc648..3ce06fe611e0ac49ef1f3a44bc6ca7c97f21ce32 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -74,50 +74,55 @@ class _AssistantScreenState extends State<AssistantScreen> {
+                 ),
+               ),
+             Expanded(
+               child: ListView(
+                 children: [
+                   SizedBox(
+                     height: 220,
+                     child: Center(
+                       child: _isLoading
+                           ? const CircularProgressIndicator()
+                           : Text(
+                               _message ?? 'WardrobeGPT est prêt.',
+                               textAlign: TextAlign.center,
+                               style: Theme.of(context).textTheme.titleMedium,
+                             ),
+                     ),
+                   ),
+                   if (_toolContext.isNotEmpty)
+                     ExpansionTile(
+                       title: const Text('Données utilisées par WardrobeGPT'),
+                       children: [
+                         _DebugData(
+                           title: 'Météo utilisée',
+                           value: _toolContext['weather'],
+                         ),
++                        if (_toolContext['calendar'] != null)
++                          _DebugData(
++                            title: 'Événement pris en compte',
++                            value: _toolContext['calendar'],
++                          ),
+                         _DebugData(
+                           title: 'Informations dressing',
+                           value: _toolContext['wardrobe'],
+                         ),
+                         _DebugData(
+                           title: 'Statistiques utilisées',
+                           value: _toolContext['statistics'],
+                         ),
+                       ],
+                     ),
+                   if (_candidates.isNotEmpty)
+                     ExpansionTile(
+                       title: const Text('Candidats utilisés'),
+                       children: _candidates
+                           .map(
+                             (item) => ListTile(
+                               title: Text(item.name),
+                               subtitle: Text(item.category),
+                             ),
+                           )
+                           .toList(growable: false),
+                     ),
+                 ],
+               ),
+             ),
+diff --git a/lib/features/assistant/context/assistant_context.dart b/lib/features/assistant/context/assistant_context.dart
+index 74cb672b49d063cfca28538f3aa37d77b6210a59..03ff87fcb587a30c973bf0ddfceef725636f79cd 100644
+--- a/lib/features/assistant/context/assistant_context.dart
++++ b/lib/features/assistant/context/assistant_context.dart
+@@ -1,32 +1,36 @@
++import '../../calendar/calendar_context_builder.dart';
++
+ class AssistantContext {
++  final CalendarContext? calendar;
+   final AssistantWeather? weather;
+   final AssistantStatistics statistics;
+   final AssistantHistory history;
+   final AssistantDate date;
+ 
+   const AssistantContext({
++    this.calendar,
+     required this.weather,
+     required this.statistics,
+     required this.history,
+     required this.date,
+   });
+ }
+ 
+ class AssistantWeather {
+   final double temperature;
+   final String condition;
+   final String city;
+ 
+   const AssistantWeather({
+     required this.temperature,
+     required this.condition,
+     required this.city,
+   });
+ }
+ 
+ class AssistantStatistics {
+   final int garmentCount;
+   final int outfitCount;
+   final int recordedWearCount;
+ 
+   const AssistantStatistics({
+diff --git a/lib/features/assistant/context/assistant_context_builder.dart b/lib/features/assistant/context/assistant_context_builder.dart
+index 2c764303312c2822470567868077d9ff73badc6a..5f5e0b66955829213271286fd42dd2498c4fb827 100644
+--- a/lib/features/assistant/context/assistant_context_builder.dart
++++ b/lib/features/assistant/context/assistant_context_builder.dart
+@@ -1,68 +1,74 @@
++import '../../../weather/services/weather_service.dart';
++import '../../calendar/calendar_context_builder.dart';
+ import '../../outfits/outfits_controller.dart';
+ import '../../wardrobe/wardrobe_controller.dart';
+-import '../../../weather/services/weather_service.dart';
+ import 'assistant_context.dart';
+ 
+ typedef AssistantClock = DateTime Function();
+ 
+ class AssistantContextBuilder {
+   final WeatherService _weatherService;
+   final WardrobeController _wardrobeController;
+   final OutfitsController _outfitsController;
+   final AssistantClock _clock;
++  final CalendarContextBuilder? _calendarContextBuilder;
+ 
+   const AssistantContextBuilder({
+     required WeatherService weatherService,
+     required WardrobeController wardrobeController,
+     required OutfitsController outfitsController,
+     AssistantClock clock = DateTime.now,
++    CalendarContextBuilder? calendarContextBuilder,
+   }) : _weatherService = weatherService,
+        _wardrobeController = wardrobeController,
+        _outfitsController = outfitsController,
+-       _clock = clock;
++       _clock = clock,
++       _calendarContextBuilder = calendarContextBuilder;
+ 
+   Future<AssistantContext> build() async {
+     final weatherFuture = _weatherService.getCurrentWeather();
++    final calendarFuture = _calendarContextBuilder?.build();
+     if (_wardrobeController.loading) await _wardrobeController.load();
+     if (_outfitsController.loading) await _outfitsController.load();
+     final weather = await weatherFuture;
+     final now = _clock();
+ 
+     final recentGarments =
+         _wardrobeController.garments
+             .where((garment) => garment.lastWorn != null)
+             .toList()
+           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
+     final wornOutfits =
+         _outfitsController.outfits
+             .where((outfit) => outfit.lastWorn != null)
+             .toList()
+           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
+     final lastOutfit = wornOutfits.isEmpty ? null : wornOutfits.first;
+ 
+     return AssistantContext(
++      calendar: await calendarFuture,
+       weather: AssistantWeather(
+         temperature: weather.temperature,
+         condition: weather.description,
+         city: weather.city,
+       ),
+       statistics: AssistantStatistics(
+         garmentCount: _wardrobeController.garments.length,
+         outfitCount: _outfitsController.outfits.length,
+         recordedWearCount: _wardrobeController.garments.fold(
+           0,
+           (total, garment) => total + garment.wearCount,
+         ),
+       ),
+       history: AssistantHistory(
+         lastWornOutfit:
+             lastOutfit == null
+                 ? null
+                 : WornOutfit(
+                   id: lastOutfit.id,
+                   name: lastOutfit.name,
+                   wornAt: lastOutfit.lastWorn!,
+                 ),
+         recentlyWornGarments: recentGarments
+             .map(
+               (garment) => WornGarment(
+diff --git a/lib/features/assistant/prompt/prompt_builder.dart b/lib/features/assistant/prompt/prompt_builder.dart
+index 0a4e92a8bac82203af04614eec52eac875e0206b..0f6c3687fed128c83b092ea98ca75e0d5b399f2a 100644
+--- a/lib/features/assistant/prompt/prompt_builder.dart
++++ b/lib/features/assistant/prompt/prompt_builder.dart
+@@ -18,32 +18,33 @@ class PromptBuilder {
+     AssistantContext context, {
+     AssistantToolContext toolContext = const {},
+     OutfitRecommendationResult? recommendation,
+   }) {
+     var prompt = composer.compose(context, sections);
+     const encoder = JsonEncoder.withIndent('  ');
+     if (toolContext.isNotEmpty) {
+       prompt = '$prompt\n\n### DONNÉES MÉTIER STRUCTURÉES\n'
+           '${encoder.convert(toolContext)}';
+     }
+     if (recommendation != null) {
+       final request = recommendation.request;
+       prompt = '$prompt\n\n### RECOMMANDATION TENUE\n'
+           'Demande utilisateur : ${request.originalMessage}\n'
+           'Contexte météo : ${encoder.convert(request.weather?.toMap())}\n'
+           'Vêtements candidats : '
+           '${encoder.convert(recommendation.candidates.map((item) => item.toMap()).toList())}\n'
+           'Explique pourquoi la tenue est adaptée, les associations choisies '
+           'et les alternatives possibles. Utilise uniquement ces candidats.';
+     }
+     return prompt;
+   }
+ 
+   static const List<PromptSection> _defaultSections = [
+     SystemPromptSection(),
++    CalendarPromptSection(),
+     WeatherPromptSection(),
+     WardrobePromptSection(),
+     StatisticsPromptSection(),
+     HistoryPromptSection(),
+     DatePromptSection(),
+   ];
+ }
+diff --git a/lib/features/assistant/prompt/prompt_section.dart b/lib/features/assistant/prompt/prompt_section.dart
+index 69db32b8d19c2a7c0d0cedc6904ca73a37ae3007..07874502c4b1b02c01964309b3058166bc546721 100644
+--- a/lib/features/assistant/prompt/prompt_section.dart
++++ b/lib/features/assistant/prompt/prompt_section.dart
+@@ -1,73 +1,92 @@
++import '../../calendar/calendar_event.dart';
+ import '../context/assistant_context.dart';
+ 
+ /// A self-contained piece of the prompt.
+ abstract interface class PromptSection {
+   String get title;
+ 
+   /// Returns no content when this section is not relevant to [context].
+   String? build(AssistantContext context);
+ }
+ 
+ class SystemPromptSection implements PromptSection {
+   static const instructions = [
+     'Tu es WardrobeGPT.',
+     'Tu es un conseiller vestimentaire intelligent.',
+     'Tu privilégies les recommandations utiles.',
+     'Tu expliques toujours tes choix.',
+     "N'invente jamais d'informations absentes du contexte.",
+   ];
+ 
+   const SystemPromptSection();
+ 
+   @override
+   String get title => 'SYSTÈME';
+ 
+   @override
+   String build(AssistantContext context) => instructions.join('\n');
+ }
+ 
+ class WeatherPromptSection implements PromptSection {
+   const WeatherPromptSection();
+ 
+   @override
+   String get title => 'MÉTÉO';
+ 
+   @override
+   String? build(AssistantContext context) {
+     final weather = context.weather;
+     if (weather == null) return null;
+     final temperature =
+         weather.temperature == weather.temperature.roundToDouble()
+             ? weather.temperature.toInt().toString()
+             : weather.temperature.toStringAsFixed(1);
+     return 'Ville : ${weather.city}\n'
+         'Température : $temperature°C\n'
+         'Condition : ${weather.condition}';
+   }
+ }
+ 
++class CalendarPromptSection implements PromptSection {
++  const CalendarPromptSection();
++
++  @override
++  String get title => 'CONTEXTE CALENDRIER';
++
++  @override
++  String? build(AssistantContext context) {
++    final calendar = context.calendar;
++    if (calendar == null) return null;
++    final event = calendar.event;
++    return 'Événement : ${event.title}\n'
++        'Date : ${event.startsAt.toIso8601String()}\n'
++        'Lieu : ${event.location ?? 'non précisé'}\n'
++        'Formalité : ${event.formality.label}';
++  }
++}
++
+ class WardrobePromptSection implements PromptSection {
+   const WardrobePromptSection();
+ 
+   @override
+   String get title => 'GARDE-ROBE';
+ 
+   @override
+   String build(AssistantContext context) =>
+       'Nombre de vêtements : ${context.statistics.garmentCount}\n'
+       'Nombre de tenues : ${context.statistics.outfitCount}';
+ }
+ 
+ class StatisticsPromptSection implements PromptSection {
+   const StatisticsPromptSection();
+ 
+   @override
+   String get title => 'STATISTIQUES';
+ 
+   @override
+   String build(AssistantContext context) =>
+       'Utilisations enregistrées : ${context.statistics.recordedWearCount}';
+ }
+ 
+ /// Extension point for future wear frequency and forgotten-garment insights.
+ class HistoryPromptSection implements PromptSection {
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index cf73fc7bca5a4780c70473ff5852722e241f5365..e199b36087d87f6f5f6f77d53d2480afaba6acf9 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -25,51 +25,53 @@ class AssistantService {
+   AssistantService({
+     required AssistantContextBuilder contextBuilder,
+     AssistantToolContextBuilder? toolContextBuilder,
+     required LlmProvider llmProvider,
+     PromptBuilder? promptBuilder,
+     AssistantIntent? intentParser,
+     OutfitRecommendationEngine? recommendationEngine,
+   }) : _contextBuilder = contextBuilder,
+        _llmProvider = llmProvider,
+        _toolContextBuilder =
+            toolContextBuilder ?? AssistantToolContextBuilder(tools: const []),
+        _intentParser = intentParser ?? const IntentParser(),
+        _recommendationEngine = recommendationEngine,
+        _promptBuilder = promptBuilder ?? PromptBuilder();
+ 
+   AssistantToolContext get lastToolContext => _lastToolContext;
+   IntentResult? get lastIntent => _lastIntent;
+   List<OutfitCandidate> get lastRecommendationCandidates =>
+       _lastRecommendationCandidates;
+ 
+   Future<AssistantContext> buildContext() => _contextBuilder.build();
+ 
+   Future<String> generatePrompt({String? userMessage}) async {
+     _lastIntent = userMessage == null ? null : _intentParser.parse(userMessage);
+     final context = await buildContext();
+-    _lastToolContext = await _toolContextBuilder.build();
++    _lastToolContext = await _toolContextBuilder.build(
++      calendar: context.calendar,
++    );
+     final shouldRecommend = _lastIntent != null && {
+       AssistantIntentType.dailyOutfit,
+       AssistantIntentType.weatherOutfit,
+       AssistantIntentType.eventOutfit,
+       AssistantIntentType.forgottenGarments,
+     }.contains(_lastIntent!.type);
+     final recommendation = shouldRecommend && _recommendationEngine != null
+         ? await _recommendationEngine.recommend(
+             OutfitRecommendationRequest.fromIntent(_lastIntent!, context),
+           )
+         : null;
+     _lastRecommendationCandidates = recommendation?.candidates ?? const [];
+     final prompt = _promptBuilder.build(
+       context,
+       toolContext: _lastToolContext,
+       recommendation: recommendation,
+     );
+     if (_lastIntent == null) return prompt;
+     return '$prompt\n\n### DEMANDE UTILISATEUR\n'
+         'Intention : ${_lastIntent!.type.name}\n'
+         'Paramètres : ${_lastIntent!.parameters}\n'
+         'Message : ${_lastIntent!.originalText}';
+   }
+ 
+   Future<String> generateMessage({String? userMessage}) async {
+diff --git a/lib/features/assistant/tools/assistant_tool_context_builder.dart b/lib/features/assistant/tools/assistant_tool_context_builder.dart
+index 16802a8e4d9b018cf9dac85282c54f309e669ec1..3cfc206f35e56faa460b043604346fbc70af09bc 100644
+--- a/lib/features/assistant/tools/assistant_tool_context_builder.dart
++++ b/lib/features/assistant/tools/assistant_tool_context_builder.dart
+@@ -1,26 +1,33 @@
++import '../../calendar/calendar_context_builder.dart';
+ import 'assistant_tool.dart';
+ 
+ typedef AssistantToolContext = Map<String, AssistantToolData>;
+ 
+ class AssistantToolContextBuilder {
+   final List<AssistantTool> _tools;
+ 
+   AssistantToolContextBuilder({required List<AssistantTool> tools})
+     : _tools = List.unmodifiable(tools) {
+     final ids = _tools.map((tool) => tool.id).toSet();
+     if (ids.length != _tools.length) {
+       throw ArgumentError('Chaque outil assistant doit avoir un identifiant unique.');
+     }
+   }
+ 
+-  Future<AssistantToolContext> build() async {
++  Future<AssistantToolContext> build({CalendarContext? calendar}) async {
+     final context = <String, AssistantToolData>{};
++    if (calendar != null) {
++      context['calendar'] = {
++        'description': 'Événement pris en compte',
++        'data': calendar.toMap(),
++      };
++    }
+     for (final tool in _tools) {
+       context[tool.id] = {
+         'description': tool.description,
+         'data': await tool.getData(),
+       };
+     }
+     return Map.unmodifiable(context);
+   }
+ }
+diff --git a/lib/features/calendar/calendar_context_builder.dart b/lib/features/calendar/calendar_context_builder.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..8d2f2e5ecd45ff19e995e0ab6c3d379ab8b0d9e6
+--- /dev/null
++++ b/lib/features/calendar/calendar_context_builder.dart
+@@ -0,0 +1,41 @@
++import 'calendar_event.dart';
++import 'calendar_service.dart';
++
++class CalendarContext {
++  final CalendarEvent event;
++  final String summary;
++
++  const CalendarContext({required this.event, required this.summary});
++
++  Map<String, Object?> toMap() => {
++    'event': event.title,
++    'type': event.type.label,
++    'date': event.startsAt.toIso8601String(),
++    if (event.location != null) 'location': event.location,
++    'formality': event.formality.label,
++    'summary': summary,
++  };
++}
++
++class CalendarContextBuilder {
++  final CalendarService _service;
++  final DateTime Function() _clock;
++
++  const CalendarContextBuilder({
++    required CalendarService service,
++    DateTime Function() clock = DateTime.now,
++  }) : _service = service,
++       _clock = clock;
++
++  Future<CalendarContext?> build() async {
++    final event = await _service.getNextImportantEvent(from: _clock());
++    if (event == null) return null;
++    final time = '${event.startsAt.hour.toString().padLeft(2, '0')}h'
++        '${event.startsAt.minute == 0 ? '' : event.startsAt.minute.toString().padLeft(2, '0')}';
++    final place = event.location == null ? '' : ' à ${event.location}';
++    return CalendarContext(
++      event: event,
++      summary: '${event.title}$place à $time.\nFormalité : ${event.formality.label}.',
++    );
++  }
++}
+diff --git a/lib/features/calendar/calendar_event.dart b/lib/features/calendar/calendar_event.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..1fca17baee18019674817cb598ec769da22902fb
+--- /dev/null
++++ b/lib/features/calendar/calendar_event.dart
+@@ -0,0 +1,47 @@
++enum CalendarEventType { work, appointment, restaurant, sport, travel, party, other }
++
++enum EventFormality { casual, smartCasual, formal, business, sport }
++
++class CalendarEvent {
++  final String id;
++  final String title;
++  final DateTime startsAt;
++  final DateTime endsAt;
++  final CalendarEventType type;
++  final String? location;
++  final EventFormality formality;
++  final Map<String, Object?> metadata;
++
++  CalendarEvent({
++    required this.id,
++    required this.title,
++    required this.startsAt,
++    required this.endsAt,
++    required this.type,
++    this.location,
++    required this.formality,
++    this.metadata = const {},
++  }) : assert(!endsAt.isBefore(startsAt));
++}
++
++extension CalendarEventLabels on CalendarEventType {
++  String get label => switch (this) {
++    CalendarEventType.work => 'travail',
++    CalendarEventType.appointment => 'rendez-vous',
++    CalendarEventType.restaurant => 'restaurant',
++    CalendarEventType.sport => 'sport',
++    CalendarEventType.travel => 'voyage',
++    CalendarEventType.party => 'soirée',
++    CalendarEventType.other => 'autre',
++  };
++}
++
++extension EventFormalityLabels on EventFormality {
++  String get label => switch (this) {
++    EventFormality.casual => 'décontractée',
++    EventFormality.smartCasual => 'élégante décontractée',
++    EventFormality.formal => 'formelle',
++    EventFormality.business => 'professionnelle',
++    EventFormality.sport => 'sportive',
++  };
++}
+diff --git a/lib/features/calendar/calendar_service.dart b/lib/features/calendar/calendar_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..69a7bdb31affe108ec529bde34042912c6d4d198
+--- /dev/null
++++ b/lib/features/calendar/calendar_service.dart
+@@ -0,0 +1,9 @@
++import 'calendar_event.dart';
++
++abstract interface class CalendarService {
++  Future<List<CalendarEvent>> getUpcomingEvents({DateTime? from});
++
++  Future<List<CalendarEvent>> getTodayEvents({DateTime? day});
++
++  Future<CalendarEvent?> getNextImportantEvent({DateTime? from});
++}
+diff --git a/lib/features/calendar/fake_calendar_service.dart b/lib/features/calendar/fake_calendar_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..596c4edb315da41e4c005fdaf1bab904d5870df8
+--- /dev/null
++++ b/lib/features/calendar/fake_calendar_service.dart
+@@ -0,0 +1,46 @@
++import 'calendar_event.dart';
++import 'calendar_service.dart';
++
++typedef CalendarClock = DateTime Function();
++
++class FakeCalendarService implements CalendarService {
++  final List<CalendarEvent> _events;
++  final CalendarClock _clock;
++
++  FakeCalendarService({
++    List<CalendarEvent> events = const [],
++    CalendarClock clock = DateTime.now,
++  }) : _events = List.unmodifiable(events),
++       _clock = clock;
++
++  @override
++  Future<List<CalendarEvent>> getUpcomingEvents({DateTime? from}) async {
++    final start = from ?? _clock();
++    final events =
++        _events.where((event) => !event.endsAt.isBefore(start)).toList()
++      ..sort((a, b) => a.startsAt.compareTo(b.startsAt));
++    return List.unmodifiable(events);
++  }
++
++  @override
++  Future<List<CalendarEvent>> getTodayEvents({DateTime? day}) async {
++    final date = day ?? _clock();
++    final start = DateTime(date.year, date.month, date.day);
++    final end = start.add(const Duration(days: 1));
++    return List.unmodifiable(
++      _events.where(
++        (event) =>
++            event.startsAt.isBefore(end) && event.endsAt.isAfter(start),
++      ),
++    );
++  }
++
++  @override
++  Future<CalendarEvent?> getNextImportantEvent({DateTime? from}) async {
++    final upcoming = await getUpcomingEvents(from: from);
++    for (final event in upcoming) {
++      if (event.type != CalendarEventType.other) return event;
++    }
++    return upcoming.isEmpty ? null : upcoming.first;
++  }
++}
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index f911123e1ec1a7281cdb7aef668d33367107be01..0751672794329b8f5dbeec605393ae2d6c1f4637 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -1,79 +1,84 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import '../assistant/tools/assistant_tool_context_builder.dart';
+ import '../assistant/tools/outfit_tool.dart';
+ import '../assistant/tools/statistics_tool.dart';
+ import '../assistant/tools/wardrobe_tool.dart';
+ import '../assistant/tools/weather_tool.dart';
+ import '../assistant/recommendation/outfit_candidate.dart';
+ import '../assistant/recommendation/outfit_recommendation_engine.dart';
++import '../calendar/calendar_context_builder.dart';
++import '../calendar/fake_calendar_service.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+       outfitsController: _assistantOutfits,
++      calendarContextBuilder: CalendarContextBuilder(
++        service: FakeCalendarService(),
++      ),
+     ),
+     toolContextBuilder: AssistantToolContextBuilder(
+       tools: [
+         WeatherTool(weatherService: widget.weatherService),
+         WardrobeTool(controller: _assistantWardrobe),
+         OutfitTool(controller: _assistantOutfits),
+         StatisticsTool(controller: _assistantWardrobe),
+       ],
+     ),
+     llmProvider: _openAiProvider,
+     recommendationEngine: OutfitRecommendationEngine(
+       candidateSource: () async => _assistantWardrobe.garments
+           .map(OutfitCandidate.fromGarment)
+           .toList(growable: false),
+     ),
+   );
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _assistantOutfits.dispose();
+     _aiSettings.dispose();
+     super.dispose();
+   }
+ 
+diff --git a/test/features/calendar/calendar_test.dart b/test/features/calendar/calendar_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f77c37d37d7b318dcd76b5d381b3984792b0732
+--- /dev/null
++++ b/test/features/calendar/calendar_test.dart
+@@ -0,0 +1,45 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/calendar/calendar_context_builder.dart';
++import 'package:wardrobeos/features/calendar/calendar_event.dart';
++import 'package:wardrobeos/features/calendar/fake_calendar_service.dart';
++
++void main() {
++  final now = DateTime(2026, 7, 18, 12);
++  final event = CalendarEvent(
++    id: 'dinner',
++    title: 'Restaurant',
++    startsAt: DateTime(2026, 7, 18, 20),
++    endsAt: DateTime(2026, 7, 18, 22),
++    type: CalendarEventType.restaurant,
++    location: 'Lyon',
++    formality: EventFormality.smartCasual,
++  );
++
++  test('crée un événement extensible', () {
++    expect(event.id, 'dinner');
++    expect(event.type, CalendarEventType.restaurant);
++    expect(event.formality.label, 'élégante décontractée');
++  });
++
++  test('récupère le prochain événement important', () async {
++    final service = FakeCalendarService(events: [event], clock: () => now);
++    expect(await service.getNextImportantEvent(), same(event));
++  });
++
++  test('construit le contexte calendrier', () async {
++    final context = await CalendarContextBuilder(
++      service: FakeCalendarService(events: [event]),
++      clock: () => now,
++    ).build();
++    expect(context!.summary, contains('Restaurant à Lyon à 20h'));
++    expect(context.summary, contains('élégante décontractée'));
++  });
++
++  test("retourne null en l'absence d'événement", () async {
++    final context = await CalendarContextBuilder(
++      service: FakeCalendarService(),
++      clock: () => now,
++    ).build();
++    expect(context, isNull);
++  });
++}

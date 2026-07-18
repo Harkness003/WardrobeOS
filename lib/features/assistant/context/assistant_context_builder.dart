@@ -1,6 +1,7 @@
+import '../../../weather/services/weather_service.dart';
+import '../../calendar/calendar_context_builder.dart';
 import '../../outfits/outfits_controller.dart';
 import '../../wardrobe/wardrobe_controller.dart';
-import '../../../weather/services/weather_service.dart';
 import 'assistant_context.dart';
 
 typedef AssistantClock = DateTime Function();
@@ -10,19 +11,23 @@ class AssistantContextBuilder {
   final WardrobeController _wardrobeController;
   final OutfitsController _outfitsController;
   final AssistantClock _clock;
+  final CalendarContextBuilder? _calendarContextBuilder;
 
   const AssistantContextBuilder({
     required WeatherService weatherService,
     required WardrobeController wardrobeController,
     required OutfitsController outfitsController,
     AssistantClock clock = DateTime.now,
+    CalendarContextBuilder? calendarContextBuilder,
   }) : _weatherService = weatherService,
        _wardrobeController = wardrobeController,
        _outfitsController = outfitsController,
-       _clock = clock;
+       _clock = clock,
+       _calendarContextBuilder = calendarContextBuilder;
 
   Future<AssistantContext> build() async {
     final weatherFuture = _weatherService.getCurrentWeather();
+    final calendarFuture = _calendarContextBuilder?.build();
     if (_wardrobeController.loading) await _wardrobeController.load();
     if (_outfitsController.loading) await _outfitsController.load();
     final weather = await weatherFuture;
@@ -41,6 +46,7 @@ class AssistantContextBuilder {
     final lastOutfit = wornOutfits.isEmpty ? null : wornOutfits.first;
 
     return AssistantContext(
+      calendar: await calendarFuture,
       weather: AssistantWeather(
         temperature: weather.temperature,
         condition: weather.description,

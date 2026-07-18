@@ -47,7 +47,9 @@ class AssistantService {
   Future<String> generatePrompt({String? userMessage}) async {
     _lastIntent = userMessage == null ? null : _intentParser.parse(userMessage);
     final context = await buildContext();
-    _lastToolContext = await _toolContextBuilder.build();
+    _lastToolContext = await _toolContextBuilder.build(
+      calendar: context.calendar,
+    );
     final shouldRecommend = _lastIntent != null && {
       AssistantIntentType.dailyOutfit,
       AssistantIntentType.weatherOutfit,

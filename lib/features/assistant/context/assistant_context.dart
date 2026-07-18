@@ -1,10 +1,14 @@
+import '../../calendar/calendar_context_builder.dart';
+
 class AssistantContext {
+  final CalendarContext? calendar;
   final AssistantWeather? weather;
   final AssistantStatistics statistics;
   final AssistantHistory history;
   final AssistantDate date;
 
   const AssistantContext({
+    this.calendar,
     required this.weather,
     required this.statistics,
     required this.history,
