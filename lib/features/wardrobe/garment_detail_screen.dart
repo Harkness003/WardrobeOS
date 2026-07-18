@@ -61,23 +61,26 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     });
   }
 
-  Future<void> recordWearToday() async {
+  Future<void> recordWear() async {
     if (_recordingWear) return;
 
     setState(() => _recordingWear = true);
 
     try {
-      await widget.controller.recordWear(garment);
+      final wornAt = await _pickWearDate();
+      if (wornAt == null) return;
+
+      final wear = await widget.controller.recordWear(garment, wornAt: wornAt);
       _refreshGarment(reloadHistory: true);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Port enregistré pour aujourd’hui.'),
+          content: Text('Port enregistré le ${_formatDate(wear.wornAt)}.'),
           action: SnackBarAction(
             label: 'Annuler',
-            onPressed: undoLastWear,
+            onPressed: () => undoWear(wear),
           ),
         ),
       );
@@ -97,20 +100,68 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     }
   }
 
-  Future<void> undoLastWear() async {
+  Future<DateTime?> _pickWearDate() async {
+    final choice = await showModalBottomSheet<_WearDateChoice>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.today_outlined),
+              title: const Text('Aujourd’hui'),
+              onTap: () => Navigator.pop(context, _WearDateChoice.today),
+            ),
+            ListTile(
+              leading: const Icon(Icons.event_outlined),
+              title: const Text('Choisir une date'),
+              onTap: () => Navigator.pop(context, _WearDateChoice.custom),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (!mounted || choice == null) return null;
+    if (choice == _WearDateChoice.today) return DateTime.now();
+
+    final now = DateTime.now();
+    final selectedDate = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: DateTime(1900),
+      lastDate: DateTime(now.year, now.month, now.day),
+    );
+
+    if (selectedDate == null) return null;
+
+    return DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      now.hour,
+      now.minute,
+      now.second,
+      now.millisecond,
+      now.microsecond,
+    );
+  }
+
+  Future<void> undoWear(WearHistory wear) async {
     try {
-      final removed = await widget.controller.removeLastWear(garment);
+      final removed = await widget.controller.deleteWear(garment, wear);
       _refreshGarment(reloadHistory: true);
 
       if (!mounted || !removed) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Dernier port supprimé.')),
+        const SnackBar(content: Text('Port annulé.')),
       );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Impossible d’annuler le dernier port."),
+          content: Text("Impossible d’annuler ce port."),
         ),
       );
     }
@@ -407,7 +458,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
-            onPressed: _recordingWear ? null : recordWearToday,
+            onPressed: _recordingWear ? null : recordWear,
             icon: _recordingWear
                 ? const SizedBox.square(
                     dimension: 20,
@@ -450,6 +501,8 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     return '${value.toStringAsFixed(decimals).replaceAll('.', ',')} €';
   }
 }
+
+enum _WearDateChoice { today, custom }
 
 class _SectionTitle extends StatelessWidget {
   final String title;

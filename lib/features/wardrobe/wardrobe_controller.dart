@@ -73,9 +73,10 @@ class WardrobeController extends ChangeNotifier {
     return _db.getWearHistory(garmentId, limit: limit);
   }
 
-  Future<void> recordWear(Garment garment, {DateTime? wornAt}) async {
-    await _db.recordWear(garment.id, wornAt: wornAt);
+  Future<WearHistory> recordWear(Garment garment, {DateTime? wornAt}) async {
+    final wear = await _db.recordWear(garment.id, wornAt: wornAt);
     await load();
+    return wear;
   }
 
   Future<bool> removeLastWear(Garment garment) async {

@@ -187,6 +187,9 @@ class DatabaseService {
     final db = await database;
     final date = wornAt ?? DateTime.now();
     final createdAt = DateTime.now();
+    if (date.isAfter(createdAt)) {
+      throw ArgumentError.value(wornAt, 'wornAt', 'Cannot record future wear.');
+    }
 
     return db.transaction((txn) async {
       final id = await txn.insert('wear_history', {
