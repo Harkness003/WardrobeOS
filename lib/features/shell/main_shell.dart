@@ -12,6 +12,9 @@ import '../wishlist/wishlist_screen.dart';
 import '../../weather/services/weather_service.dart';
 import '../assistant/context/assistant_context_builder.dart';
 import '../assistant/services/assistant_service.dart';
+import '../assistant/ai/openai_provider.dart';
+import '../assistant/settings/ai_settings_controller.dart';
+import '../assistant/settings/api_key_storage.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -31,18 +34,26 @@ class _MainShellState extends State<MainShell> {
   int index = 0;
   late final _assistantWardrobe = WardrobeController();
   late final _assistantOutfits = OutfitsController();
+  late final _apiKeyStorage = ApiKeyStorage();
+  late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+  late final _aiSettings = AiSettingsController(
+    storage: _apiKeyStorage,
+    provider: _openAiProvider,
+  )..load();
   late final _assistantService = AssistantService(
     contextBuilder: AssistantContextBuilder(
       weatherService: widget.weatherService,
       wardrobeController: _assistantWardrobe,
       outfitsController: _assistantOutfits,
     ),
+    llmProvider: _openAiProvider,
   );
 
   @override
   void dispose() {
     _assistantWardrobe.dispose();
     _assistantOutfits.dispose();
+    _aiSettings.dispose();
     super.dispose();
   }
 
@@ -73,7 +84,7 @@ class _MainShellState extends State<MainShell> {
       const OutfitsScreen(),
       AssistantScreen(service: _assistantService),
       const WishlistScreen(),
-      ProfileScreen(settings: widget.settings),
+      ProfileScreen(settings: widget.settings, aiSettings: _aiSettings),
     ];
 
     return Scaffold(

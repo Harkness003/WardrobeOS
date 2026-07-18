@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import '../../core/settings/app_settings.dart';
+import '../assistant/settings/ai_settings_controller.dart';
 
 class ProfileScreen extends StatelessWidget {
   final AppSettings settings;
-  const ProfileScreen({super.key, required this.settings});
+  final AiSettingsController aiSettings;
+  const ProfileScreen({
+    super.key,
+    required this.settings,
+    required this.aiSettings,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +72,7 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           _Tile(icon: Icons.cloud_outlined, title: 'Sauvegarde & export'),
+          _WardrobeGptSettings(controller: aiSettings),
           _Tile(icon: Icons.info_outline, title: 'À propos'),
           const SizedBox(height: 18),
           Center(
@@ -76,6 +83,114 @@ class ProfileScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _WardrobeGptSettings extends StatefulWidget {
+  final AiSettingsController controller;
+
+  const _WardrobeGptSettings({required this.controller});
+
+  @override
+  State<_WardrobeGptSettings> createState() => _WardrobeGptSettingsState();
+}
+
+class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
+  final _apiKeyController = TextEditingController();
+  bool _obscureKey = true;
+
+  @override
+  void dispose() {
+    _apiKeyController.dispose();
+    super.dispose();
+  }
+
+  void _show(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _save() async {
+    try {
+      await widget.controller.save(_apiKeyController.text);
+      _apiKeyController.clear();
+      _show('Clé API enregistrée');
+    } catch (_) {
+      _show('Saisissez une clé API OpenAI valide.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final busy = widget.controller.busy;
+        return Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '🤖 WardrobeGPT',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Statut IA : '
+                  '${widget.controller.configured ? "Connectée" : "Non configurée"}',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _apiKeyController,
+                  obscureText: _obscureKey,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: InputDecoration(
+                    labelText: 'Clé API OpenAI',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      onPressed:
+                          () => setState(() => _obscureKey = !_obscureKey),
+                      icon: Icon(
+                        _obscureKey ? Icons.visibility : Icons.visibility_off,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: busy ? null : _save,
+                  child: const Text('Enregistrer'),
+                ),
+                OutlinedButton(
+                  onPressed:
+                      busy
+                          ? null
+                          : () async =>
+                              _show(await widget.controller.testConnection()),
+                  child: const Text('Tester la connexion'),
+                ),
+                TextButton(
+                  onPressed:
+                      busy || !widget.controller.configured
+                          ? null
+                          : () async {
+                            await widget.controller.delete();
+                            _show('Clé API supprimée');
+                          },
+                  child: const Text('Supprimer la clé'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

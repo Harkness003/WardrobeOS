@@ -1,0 +1,961 @@
+diff --git a/lib/features/assistant/ai/fake_llm_provider.dart b/lib/features/assistant/ai/fake_llm_provider.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..823d8262864dd952b7c03de69c93320ff0223a0c
+--- /dev/null
++++ b/lib/features/assistant/ai/fake_llm_provider.dart
+@@ -0,0 +1,12 @@
++import 'llm_provider.dart';
++
++class FakeLlmProvider implements LlmProvider {
++  final String response;
++
++  const FakeLlmProvider({
++    this.response = 'Je suis WardrobeGPT en mode démonstration.',
++  });
++
++  @override
++  Future<String> generate(String prompt) async => response;
++}
+diff --git a/lib/features/assistant/ai/llm_provider.dart b/lib/features/assistant/ai/llm_provider.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..61da3852a9724a411497d30eb62db3ebb4fa6a4a
+--- /dev/null
++++ b/lib/features/assistant/ai/llm_provider.dart
+@@ -0,0 +1,30 @@
++abstract interface class LlmProvider {
++  Future<String> generate(String prompt);
++}
++
++sealed class LlmException implements Exception {
++  final String message;
++
++  const LlmException(this.message);
++
++  @override
++  String toString() => message;
++}
++
++class MissingApiKeyException extends LlmException {
++  const MissingApiKeyException() : super('Aucune clé API OpenAI configurée.');
++}
++
++class LlmNetworkException extends LlmException {
++  const LlmNetworkException()
++    : super('Impossible de joindre le service IA. Vérifiez votre connexion.');
++}
++
++class LlmTimeoutException extends LlmException {
++  const LlmTimeoutException()
++    : super('Le service IA met trop de temps à répondre. Réessayez.');
++}
++
++class LlmApiException extends LlmException {
++  const LlmApiException(super.message);
++}
+diff --git a/lib/features/assistant/ai/openai_provider.dart b/lib/features/assistant/ai/openai_provider.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..b88b328601f765d759cb6bae0f20b8c8e0fdcfea
+--- /dev/null
++++ b/lib/features/assistant/ai/openai_provider.dart
+@@ -0,0 +1,99 @@
++import 'dart:async';
++import 'dart:convert';
++import 'dart:io';
++
++import 'package:http/http.dart' as http;
++
++import '../settings/api_key_storage.dart';
++import 'llm_provider.dart';
++
++class OpenAiProvider implements LlmProvider {
++  static const _endpoint = 'https://api.openai.com/v1/responses';
++
++  final ApiKeyStorage _apiKeyStorage;
++  final http.Client _client;
++  final Duration timeout;
++  final String model;
++
++  OpenAiProvider({
++    required ApiKeyStorage apiKeyStorage,
++    http.Client? client,
++    this.timeout = const Duration(seconds: 30),
++    this.model = 'gpt-5-mini',
++  }) : _apiKeyStorage = apiKeyStorage,
++       _client = client ?? http.Client();
++
++  @override
++  Future<String> generate(String prompt) async {
++    final apiKey = await _apiKeyStorage.read();
++    if (apiKey == null) throw const MissingApiKeyException();
++
++    try {
++      final response = await _client
++          .post(
++            Uri.parse(_endpoint),
++            headers: {
++              HttpHeaders.authorizationHeader: 'Bearer $apiKey',
++              HttpHeaders.contentTypeHeader: 'application/json',
++            },
++            body: jsonEncode({'model': model, 'input': prompt}),
++          )
++          .timeout(timeout);
++
++      final body = _decode(response.body);
++      if (response.statusCode < 200 || response.statusCode >= 300) {
++        final apiMessage = _apiError(body);
++        throw LlmApiException(
++          response.statusCode == 401
++              ? 'La clé API OpenAI est invalide.'
++              : apiMessage ?? 'Le service IA a refusé la requête.',
++        );
++      }
++
++      final text = _outputText(body);
++      if (text == null || text.trim().isEmpty) {
++        throw const LlmApiException('Le service IA a renvoyé une réponse vide.');
++      }
++      return text.trim();
++    } on TimeoutException {
++      throw const LlmTimeoutException();
++    } on SocketException {
++      throw const LlmNetworkException();
++    } on http.ClientException {
++      throw const LlmNetworkException();
++    }
++  }
++
++  Map<String, dynamic> _decode(String value) {
++    try {
++      final decoded = jsonDecode(value);
++      return decoded is Map<String, dynamic> ? decoded : const {};
++    } on FormatException {
++      return const {};
++    }
++  }
++
++  String? _apiError(Map<String, dynamic> body) {
++    final error = body['error'];
++    return error is Map<String, dynamic> && error['message'] is String
++        ? error['message'] as String
++        : null;
++  }
++
++  String? _outputText(Map<String, dynamic> body) {
++    final direct = body['output_text'];
++    if (direct is String) return direct;
++    final output = body['output'];
++    if (output is! List) return null;
++    for (final item in output.whereType<Map>()) {
++      final content = item['content'];
++      if (content is! List) continue;
++      for (final part in content.whereType<Map>()) {
++        if (part['type'] == 'output_text' && part['text'] is String) {
++          return part['text'] as String;
++        }
++      }
++    }
++    return null;
++  }
++}
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index 69c930fc2725319877a027b58e34e660357d905d..88dae17b8d74793fa5f841b977f6875d79b3c7be 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,85 +1,76 @@
+ import 'package:flutter/material.dart';
+ 
+ import 'services/assistant_service.dart';
+ 
+ class AssistantScreen extends StatefulWidget {
+   final AssistantService service;
+ 
+   const AssistantScreen({super.key, required this.service});
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
+-  String? _prompt;
++  String? _message;
+   bool _isLoading = false;
+ 
+   @override
+   void initState() {
+     super.initState();
+     _refresh();
+   }
+ 
+   Future<void> _refresh() async {
+     setState(() => _isLoading = true);
+-    final prompt = await widget.service.generatePrompt();
++    final message = await widget.service.generateMessage();
+     if (!mounted) return;
+     setState(() {
+-      _prompt = prompt;
++      _message = message;
+       _isLoading = false;
+     });
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.stretch,
+           children: [
+             const Row(
+               children: [
+                 Expanded(
+                   child: Text(
+                     'WardrobeGPT',
+                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 CircleAvatar(child: Icon(Icons.auto_awesome)),
+               ],
+             ),
+             const SizedBox(height: 32),
+             Expanded(
+               child: Center(
+                 child:
+                     _isLoading
+                         ? const CircularProgressIndicator()
+                         : Text(
+-                          'Le contexte WardrobeGPT est prêt.',
++                          _message ?? 'WardrobeGPT est prêt.',
+                           textAlign: TextAlign.center,
+                           style: Theme.of(context).textTheme.titleMedium,
+                         ),
+               ),
+             ),
+-            Card(
+-              child: ExpansionTile(
+-                title: const Text('Prompt généré'),
+-                leading: const Icon(Icons.bug_report_outlined),
+-                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+-                children: [SelectableText(_prompt ?? '')],
+-              ),
+-            ),
+-            const SizedBox(height: 12),
+             FilledButton.icon(
+               onPressed: _isLoading ? null : _refresh,
+               icon: const Icon(Icons.refresh),
+-              label: const Text('Actualiser'),
++              label: const Text('Demander un conseil'),
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+ }
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index 7244d9032d5d3cb4695bb57c9ae1e9b2983deb31..d7f8994fb5d518c811e34debc796b666e8ee3d63 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -1,21 +1,33 @@
+ import '../context/assistant_context.dart';
+ import '../context/assistant_context_builder.dart';
+ import '../prompt/prompt_builder.dart';
++import '../ai/llm_provider.dart';
+ 
+ class AssistantService {
+   final AssistantContextBuilder _contextBuilder;
+   final PromptBuilder _promptBuilder;
++  final LlmProvider _llmProvider;
+ 
+   AssistantService({
+     required AssistantContextBuilder contextBuilder,
++    required LlmProvider llmProvider,
+     PromptBuilder? promptBuilder,
+   }) : _contextBuilder = contextBuilder,
++       _llmProvider = llmProvider,
+        _promptBuilder = promptBuilder ?? PromptBuilder();
+ 
+   Future<AssistantContext> buildContext() => _contextBuilder.build();
+ 
+   Future<String> generatePrompt() async =>
+       _promptBuilder.build(await buildContext());
+ 
+-  Future<String> generateMessage() => generatePrompt();
++  Future<String> generateMessage() async {
++    try {
++      return await _llmProvider.generate(await generatePrompt());
++    } on LlmException catch (error) {
++      return error.message;
++    } catch (_) {
++      return 'WardrobeGPT est temporairement indisponible. Réessayez.';
++    }
++  }
+ }
+diff --git a/lib/features/assistant/settings/ai_settings_controller.dart b/lib/features/assistant/settings/ai_settings_controller.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..1619b8b00a105cd025e8f311e11d6e813f15f06e
+--- /dev/null
++++ b/lib/features/assistant/settings/ai_settings_controller.dart
+@@ -0,0 +1,69 @@
++import 'package:flutter/foundation.dart';
++
++import '../ai/llm_provider.dart';
++import 'api_key_storage.dart';
++
++class AiSettingsController extends ChangeNotifier {
++  final ApiKeyStorage _storage;
++  final LlmProvider _provider;
++
++  bool _configured = false;
++  bool _busy = false;
++
++  AiSettingsController({
++    required ApiKeyStorage storage,
++    required LlmProvider provider,
++  }) : _storage = storage,
++       _provider = provider;
++
++  bool get configured => _configured;
++  bool get busy => _busy;
++
++  Future<void> load() async {
++    _configured = await _storage.exists();
++    notifyListeners();
++  }
++
++  Future<void> save(String apiKey) async {
++    await _run(() async {
++      await _storage.save(apiKey);
++      _configured = true;
++    });
++  }
++
++  Future<void> delete() async {
++    await _run(() async {
++      await _storage.delete();
++      _configured = false;
++    });
++  }
++
++  Future<String> testConnection() async {
++    try {
++      final response = await _run(
++        () => _provider.generate(
++          'Réponds uniquement par OK pour tester la connexion.',
++        ),
++      );
++      if (response.trim().isEmpty) {
++        return 'Le service IA a renvoyé une réponse vide.';
++      }
++      return 'Connexion IA réussie';
++    } on LlmException catch (error) {
++      return error.message;
++    } catch (_) {
++      return 'Impossible de tester la connexion IA.';
++    }
++  }
++
++  Future<T> _run<T>(Future<T> Function() action) async {
++    _busy = true;
++    notifyListeners();
++    try {
++      return await action();
++    } finally {
++      _busy = false;
++      notifyListeners();
++    }
++  }
++}
+diff --git a/lib/features/assistant/settings/api_key_storage.dart b/lib/features/assistant/settings/api_key_storage.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..a95c30c7b148af8b9059c6dfd411536b51c08e22
+--- /dev/null
++++ b/lib/features/assistant/settings/api_key_storage.dart
+@@ -0,0 +1,48 @@
++import 'package:flutter_secure_storage/flutter_secure_storage.dart';
++
++abstract interface class SecureKeyValueStorage {
++  Future<void> write({required String key, required String? value});
++  Future<String?> read({required String key});
++  Future<void> delete({required String key});
++}
++
++class FlutterSecureKeyValueStorage implements SecureKeyValueStorage {
++  final FlutterSecureStorage _storage;
++
++  const FlutterSecureKeyValueStorage([
++    this._storage = const FlutterSecureStorage(),
++  ]);
++
++  @override
++  Future<void> write({required String key, required String? value}) =>
++      _storage.write(key: key, value: value);
++
++  @override
++  Future<String?> read({required String key}) => _storage.read(key: key);
++
++  @override
++  Future<void> delete({required String key}) => _storage.delete(key: key);
++}
++
++class ApiKeyStorage {
++  static const storageKey = 'openai_api_key';
++  final SecureKeyValueStorage _storage;
++
++  const ApiKeyStorage({SecureKeyValueStorage? storage})
++    : _storage = storage ?? const FlutterSecureKeyValueStorage();
++
++  Future<void> save(String apiKey) async {
++    final value = apiKey.trim();
++    if (value.isEmpty) throw ArgumentError.value(apiKey, 'apiKey');
++    await _storage.write(key: storageKey, value: value);
++  }
++
++  Future<String?> read() async {
++    final value = (await _storage.read(key: storageKey))?.trim();
++    return value == null || value.isEmpty ? null : value;
++  }
++
++  Future<void> delete() => _storage.delete(key: storageKey);
++
++  Future<bool> exists() async => await read() != null;
++}
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index 79ae0b67f0859cecc2051f1dad955a25388c5170..8e9a3ef6d29075067fbf1c0db1455f5cfc4ad255 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -1,31 +1,37 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
++import '../assistant/settings/ai_settings_controller.dart';
+ 
+ class ProfileScreen extends StatelessWidget {
+   final AppSettings settings;
+-  const ProfileScreen({super.key, required this.settings});
++  final AiSettingsController aiSettings;
++  const ProfileScreen({
++    super.key,
++    required this.settings,
++    required this.aiSettings,
++  });
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
+         children: [
+           const Text(
+             'Profil',
+             style: TextStyle(
+               fontSize: 30,
+               fontWeight: FontWeight.w900,
+               letterSpacing: -1,
+             ),
+           ),
+           const SizedBox(height: 18),
+           const Card(
+             child: Padding(
+               padding: EdgeInsets.all(18),
+               child: Row(
+                 children: [
+                   CircleAvatar(radius: 31, child: Icon(Icons.person, size: 32)),
+                   SizedBox(width: 15),
+                   Expanded(
+                     child: Column(
+@@ -44,56 +50,165 @@ class ProfileScreen extends StatelessWidget {
+                   ),
+                 ],
+               ),
+             ),
+           ),
+           const SizedBox(height: 18),
+           _Tile(
+             icon: Icons.accessibility_new,
+             title: 'Morphologie & proportions',
+           ),
+           _Tile(icon: Icons.style_outlined, title: 'Préférences de style'),
+           _Tile(icon: Icons.notifications_none, title: 'Notifications'),
+           Card(
+             margin: const EdgeInsets.only(bottom: 10),
+             child: SwitchListTile(
+               secondary: const Icon(Icons.dark_mode_outlined),
+               title: const Text(
+                 'Mode sombre',
+                 style: TextStyle(fontWeight: FontWeight.w800),
+               ),
+               value: settings.darkMode,
+               onChanged: settings.setDarkMode,
+             ),
+           ),
+           _Tile(icon: Icons.cloud_outlined, title: 'Sauvegarde & export'),
++          _WardrobeGptSettings(controller: aiSettings),
+           _Tile(icon: Icons.info_outline, title: 'À propos'),
+           const SizedBox(height: 18),
+           Center(
+             child: Text(
+               'WardrobeOS Sprint 2 · Premium UI',
+               style: Theme.of(context).textTheme.bodySmall,
+             ),
+           ),
+         ],
+       ),
+     );
+   }
+ }
+ 
++class _WardrobeGptSettings extends StatefulWidget {
++  final AiSettingsController controller;
++
++  const _WardrobeGptSettings({required this.controller});
++
++  @override
++  State<_WardrobeGptSettings> createState() => _WardrobeGptSettingsState();
++}
++
++class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
++  final _apiKeyController = TextEditingController();
++  bool _obscureKey = true;
++
++  @override
++  void dispose() {
++    _apiKeyController.dispose();
++    super.dispose();
++  }
++
++  void _show(String message) {
++    if (!mounted) return;
++    ScaffoldMessenger.of(context)
++      ..hideCurrentSnackBar()
++      ..showSnackBar(SnackBar(content: Text(message)));
++  }
++
++  Future<void> _save() async {
++    try {
++      await widget.controller.save(_apiKeyController.text);
++      _apiKeyController.clear();
++      _show('Clé API enregistrée');
++    } catch (_) {
++      _show('Saisissez une clé API OpenAI valide.');
++    }
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    return AnimatedBuilder(
++      animation: widget.controller,
++      builder: (context, _) {
++        final busy = widget.controller.busy;
++        return Card(
++          margin: const EdgeInsets.only(bottom: 10),
++          child: Padding(
++            padding: const EdgeInsets.all(16),
++            child: Column(
++              crossAxisAlignment: CrossAxisAlignment.stretch,
++              children: [
++                const Text(
++                  '🤖 WardrobeGPT',
++                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
++                ),
++                const SizedBox(height: 8),
++                Text(
++                  'Statut IA : '
++                  '${widget.controller.configured ? "Connectée" : "Non configurée"}',
++                ),
++                const SizedBox(height: 12),
++                TextField(
++                  controller: _apiKeyController,
++                  obscureText: _obscureKey,
++                  autocorrect: false,
++                  enableSuggestions: false,
++                  decoration: InputDecoration(
++                    labelText: 'Clé API OpenAI',
++                    border: const OutlineInputBorder(),
++                    suffixIcon: IconButton(
++                      onPressed:
++                          () => setState(() => _obscureKey = !_obscureKey),
++                      icon: Icon(
++                        _obscureKey ? Icons.visibility : Icons.visibility_off,
++                      ),
++                    ),
++                  ),
++                ),
++                const SizedBox(height: 12),
++                FilledButton(
++                  onPressed: busy ? null : _save,
++                  child: const Text('Enregistrer'),
++                ),
++                OutlinedButton(
++                  onPressed:
++                      busy
++                          ? null
++                          : () async =>
++                              _show(await widget.controller.testConnection()),
++                  child: const Text('Tester la connexion'),
++                ),
++                TextButton(
++                  onPressed:
++                      busy || !widget.controller.configured
++                          ? null
++                          : () async {
++                            await widget.controller.delete();
++                            _show('Clé API supprimée');
++                          },
++                  child: const Text('Supprimer la clé'),
++                ),
++              ],
++            ),
++          ),
++        );
++      },
++    );
++  }
++}
++
+ class _Tile extends StatelessWidget {
+   final IconData icon;
+   final String title;
+   const _Tile({required this.icon, required this.title});
+ 
+   @override
+   Widget build(BuildContext context) {
+     return Card(
+       margin: const EdgeInsets.only(bottom: 10),
+       child: ListTile(
+         leading: Icon(icon),
+         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+         trailing: const Icon(Icons.chevron_right),
+       ),
+     );
+   }
+ }
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 0a0bee5023f0c227a37fc3081bbf0cef47166c60..dad974d0081b46cf7e689bd469c35eff142c3f20 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -1,101 +1,112 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
++import '../assistant/ai/openai_provider.dart';
++import '../assistant/settings/ai_settings_controller.dart';
++import '../assistant/settings/api_key_storage.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
++  late final _apiKeyStorage = ApiKeyStorage();
++  late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
++  late final _aiSettings = AiSettingsController(
++    storage: _apiKeyStorage,
++    provider: _openAiProvider,
++  )..load();
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+       outfitsController: _assistantOutfits,
+     ),
++    llmProvider: _openAiProvider,
+   );
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _assistantOutfits.dispose();
++    _aiSettings.dispose();
+     super.dispose();
+   }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(3),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+             MaterialPageRoute(builder: (_) => const ScannerScreen()),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+           }
+         },
+       ),
+       const WardrobeScreen(),
+       const OutfitsScreen(),
+       AssistantScreen(service: _assistantService),
+       const WishlistScreen(),
+-      ProfileScreen(settings: widget.settings),
++      ProfileScreen(settings: widget.settings, aiSettings: _aiSettings),
+     ];
+ 
+     return Scaffold(
+       body: AnimatedSwitcher(
+         duration: const Duration(milliseconds: 240),
+         transitionBuilder: (child, animation) {
+           return FadeTransition(
+             opacity: animation,
+             child: SlideTransition(
+               position: Tween<Offset>(
+                 begin: const Offset(.02, 0),
+                 end: Offset.zero,
+               ).animate(animation),
+               child: child,
+             ),
+           );
+         },
+         child: KeyedSubtree(key: ValueKey(index), child: pages[index]),
+       ),
+       bottomNavigationBar: NavigationBar(
+         selectedIndex: index,
+         onDestinationSelected: goTo,
+         destinations: const [
+           NavigationDestination(
+             icon: Icon(Icons.home_outlined),
+diff --git a/pubspec.yaml b/pubspec.yaml
+index a1e0f7d5278042f38ed66d1b49d385368b774c9e..2141cc190c3a34fbb34f6fb183c4bff868730cc8 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -1,30 +1,31 @@
+ name: wardrobeos
+ description: Base complete et evolutive de WardrobeOS.
+ publish_to: "none"
+ version: 0.8.0+9
+ 
+ environment:
+   sdk: ">=3.7.0 <4.0.0"
+ 
+ dependencies:
+   flutter:
+     sdk: flutter
+   cupertino_icons: ^1.0.8
+   sqflite: ^2.4.3
+   path: ^1.9.1
+   path_provider: ^2.1.5
+   image_picker: ^1.2.1
+   uuid: ^4.5.3
+   image: ^4.9.1
+   google_mlkit_image_labeling: ^0.14.1
+   geolocator: ^14.0.2
+   geocoding: ^4.0.0
+   http: ^1.4.0
++  flutter_secure_storage: ^9.2.4
+ 
+ dev_dependencies:
+   flutter_test:
+     sdk: flutter
+   flutter_lints: ^5.0.0
+ 
+ flutter:
+   uses-material-design: true
+diff --git a/test/features/assistant/api_key_storage_test.dart b/test/features/assistant/api_key_storage_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e6a53e051d96b7f397f904c2b79bbfa9ab28f9bc
+--- /dev/null
++++ b/test/features/assistant/api_key_storage_test.dart
+@@ -0,0 +1,39 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/settings/api_key_storage.dart';
++
++class _MemoryStorage implements SecureKeyValueStorage {
++  final Map<String, String> values = {};
++
++  @override
++  Future<void> delete({required String key}) async => values.remove(key);
++
++  @override
++  Future<String?> read({required String key}) async => values[key];
++
++  @override
++  Future<void> write({required String key, required String? value}) async {
++    if (value == null) {
++      values.remove(key);
++    } else {
++      values[key] = value;
++    }
++  }
++}
++
++void main() {
++  test('sauvegarde, récupère et supprime la clé', () async {
++    final storage = ApiKeyStorage(storage: _MemoryStorage());
++
++    expect(await storage.exists(), isFalse);
++    await storage.save('  sk-test  ');
++    expect(await storage.read(), 'sk-test');
++    expect(await storage.exists(), isTrue);
++    await storage.delete();
++    expect(await storage.read(), isNull);
++  });
++
++  test('refuse une clé vide', () async {
++    final storage = ApiKeyStorage(storage: _MemoryStorage());
++    expect(() => storage.save('  '), throwsArgumentError);
++  });
++}
+diff --git a/test/features/assistant/assistant_service_test.dart b/test/features/assistant/assistant_service_test.dart
+index ecaa798835dd1d5b505da57b60c9f97cf7b4615c..8ce6c12e600e8aec68fe588d9050623e37474e7d 100644
+--- a/test/features/assistant/assistant_service_test.dart
++++ b/test/features/assistant/assistant_service_test.dart
+@@ -1,58 +1,75 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
+ import 'package:wardrobeos/features/assistant/services/assistant_service.dart';
++import 'package:wardrobeos/features/assistant/ai/fake_llm_provider.dart';
+ import 'package:wardrobeos/features/outfits/outfits_controller.dart';
+ import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/outfit.dart';
+ import 'package:wardrobeos/weather/models/weather_data.dart';
+ import 'package:wardrobeos/weather/services/weather_service.dart';
+ 
+ class _WeatherService implements WeatherService {
+   @override
+   void clearCache() {}
+   @override
+   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
+       WeatherData(
+         city: 'Lyon', latitude: 0, longitude: 0, temperature: 22,
+         apparentTemperature: 22, humidity: 0, windSpeed: 0, windDirection: 0,
+         weatherCode: 0, description: 'Clair', measuredAt: DateTime(2026),
+       );
+ }
+ 
+ void main() {
+   test('génère un prompt à partir du contexte', () async {
+     final wardrobe = WardrobeController()
+       ..loading = false
+       ..garments = List.generate(
+         2,
+         (index) => Garment(
+           id: '$index', name: 'Vêtement $index', category: 'Haut',
+           createdAt: DateTime(2026), updatedAt: DateTime(2026),
+         ),
+       );
+     final outfits = OutfitsController()
+       ..loading = false
+       ..outfits = [
+         Outfit(
+           id: 'o1', name: 'Tenue', createdAt: DateTime(2026),
+           updatedAt: DateTime(2026),
+         ),
+       ];
+     final service = AssistantService(
+       contextBuilder: AssistantContextBuilder(
+         weatherService: _WeatherService(), wardrobeController: wardrobe,
+         outfitsController: outfits,
+         clock: () => DateTime(2026, 7, 14),
+       ),
++      llmProvider: const FakeLlmProvider(response: 'Conseil généré'),
+     );
+ 
+     final message = await service.generatePrompt();
+ 
+     expect(message, contains('Jour : mardi'));
+     expect(message, contains('Température : 22°C'));
+     expect(message, contains('Ville : Lyon'));
+     expect(message, contains('Nombre de vêtements : 2'));
+     expect(message, contains('Nombre de tenues : 1'));
+   });
++
++  test('génère une réponse avec le fournisseur injecté', () async {
++    final wardrobe = WardrobeController()..loading = false;
++    final outfits = OutfitsController()..loading = false;
++    final service = AssistantService(
++      contextBuilder: AssistantContextBuilder(
++        weatherService: _WeatherService(),
++        wardrobeController: wardrobe,
++        outfitsController: outfits,
++      ),
++      llmProvider: const FakeLlmProvider(response: 'Conseil hors ligne'),
++    );
++
++    expect(await service.generateMessage(), 'Conseil hors ligne');
++  });
+ }
+diff --git a/test/features/assistant/fake_llm_provider_test.dart b/test/features/assistant/fake_llm_provider_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..b19bc522d6f65523c3b674b903e634938b958548
+--- /dev/null
++++ b/test/features/assistant/fake_llm_provider_test.dart
+@@ -0,0 +1,13 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/ai/fake_llm_provider.dart';
++
++void main() {
++  test('retourne une réponse de démonstration sans appel réseau', () async {
++    const provider = FakeLlmProvider();
++
++    expect(
++      await provider.generate('Un prompt'),
++      'Je suis WardrobeGPT en mode démonstration.',
++    );
++  });
++}
+diff --git a/test/features/assistant/openai_provider_test.dart b/test/features/assistant/openai_provider_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..aca9b6f160205f40a1f88c230c500a13e73509e1
+--- /dev/null
++++ b/test/features/assistant/openai_provider_test.dart
+@@ -0,0 +1,26 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/ai/llm_provider.dart';
++import 'package:wardrobeos/features/assistant/ai/openai_provider.dart';
++import 'package:wardrobeos/features/assistant/settings/api_key_storage.dart';
++
++class _EmptyStorage implements SecureKeyValueStorage {
++  @override
++  Future<void> delete({required String key}) async {}
++  @override
++  Future<String?> read({required String key}) async => null;
++  @override
++  Future<void> write({required String key, required String? value}) async {}
++}
++
++void main() {
++  test('signale proprement une clé absente', () async {
++    final provider = OpenAiProvider(
++      apiKeyStorage: ApiKeyStorage(storage: _EmptyStorage()),
++    );
++
++    expect(
++      () => provider.generate('Bonjour'),
++      throwsA(isA<MissingApiKeyException>()),
++    );
++  });
++}

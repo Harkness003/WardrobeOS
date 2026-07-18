@@ -9,6 +9,7 @@
       "dependencies": [
         "cupertino_icons",
         "flutter",
+        "flutter_secure_storage",
         "geocoding",
         "geolocator",
         "google_mlkit_image_labeling",
@@ -51,36 +52,42 @@
       ]
     },
     {
-      "name": "http",
-      "version": "1.6.0",
+      "name": "flutter_secure_storage",
+      "version": "9.2.4",
       "dependencies": [
-        "async",
-        "http_parser",
-        "meta",
-        "web"
+        "flutter",
+        "flutter_secure_storage_linux",
+        "flutter_secure_storage_macos",
+        "flutter_secure_storage_platform_interface",
+        "flutter_secure_storage_web",
+        "flutter_secure_storage_windows",
+        "meta"
       ]
     },
     {
-      "name": "geocoding",
-      "version": "4.0.0",
+      "name": "flutter_secure_storage_web",
+      "version": "1.2.1",
       "dependencies": [
         "flutter",
-        "geocoding_android",
-        "geocoding_ios",
-        "geocoding_platform_interface"
+        "flutter_secure_storage_platform_interface",
+        "flutter_web_plugins",
+        "js"
       ]
     },
     {
-      "name": "geolocator",
-      "version": "14.0.3",
+      "name": "flutter_secure_storage_platform_interface",
+      "version": "1.1.2",
       "dependencies": [
         "flutter",
-        "geolocator_android",
-        "geolocator_apple",
-        "geolocator_linux",
-        "geolocator_platform_interface",
-        "geolocator_web",
-        "geolocator_windows"
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "flutter_secure_storage_macos",
+      "version": "3.1.3",
+      "dependencies": [
+        "flutter",
+        "flutter_secure_storage_platform_interface"
       ]
     },
     {
@@ -252,109 +259,62 @@
       ]
     },
     {
-      "name": "web",
-      "version": "1.1.1",
-      "dependencies": []
-    },
-    {
-      "name": "http_parser",
-      "version": "4.1.2",
+      "name": "flutter_secure_storage_windows",
+      "version": "3.1.2",
       "dependencies": [
-        "collection",
-        "source_span",
-        "string_scanner",
-        "typed_data"
-      ]
-    },
-    {
-      "name": "async",
-      "version": "2.13.1",
-      "dependencies": [
-        "collection",
-        "meta"
-      ]
-    },
-    {
-      "name": "geocoding_ios",
-      "version": "3.1.0",
-      "dependencies": [
+        "ffi",
         "flutter",
-        "geocoding_platform_interface"
+        "flutter_secure_storage_platform_interface",
+        "path",
+        "path_provider",
+        "win32"
       ]
     },
     {
-      "name": "geocoding_android",
-      "version": "4.0.1",
+      "name": "http",
+      "version": "1.6.0",
       "dependencies": [
-        "flutter",
-        "geocoding_platform_interface"
-      ]
-    },
-    {
-      "name": "geocoding_platform_interface",
-      "version": "3.2.0",
-      "dependencies": [
-        "flutter",
+        "async",
+        "http_parser",
         "meta",
-        "plugin_platform_interface"
-      ]
-    },
-    {
-      "name": "geolocator_linux",
-      "version": "0.2.6",
-      "dependencies": [
-        "dbus",
-        "flutter",
-        "geoclue",
-        "geolocator_platform_interface",
-        "gsettings",
-        "package_info_plus"
-      ]
-    },
-    {
-      "name": "geolocator_windows",
-      "version": "0.2.5",
-      "dependencies": [
-        "flutter",
-        "geolocator_platform_interface"
-      ]
-    },
-    {
-      "name": "geolocator_web",
-      "version": "4.1.4",
-      "dependencies": [
-        "flutter",
-        "flutter_web_plugins",
-        "geolocator_platform_interface",
         "web"
       ]
     },
     {
-      "name": "geolocator_apple",
-      "version": "2.3.14",
+      "name": "geocoding",
+      "version": "4.0.0",
       "dependencies": [
         "flutter",
-        "geolocator_platform_interface"
+        "geocoding_android",
+        "geocoding_ios",
+        "geocoding_platform_interface"
       ]
     },
     {
-      "name": "geolocator_android",
-      "version": "5.0.3",
+      "name": "geolocator",
+      "version": "14.0.2",
       "dependencies": [
         "flutter",
+        "geolocator_android",
+        "geolocator_apple",
+        "geolocator_linux",
         "geolocator_platform_interface",
-        "meta",
-        "uuid"
+        "geolocator_web",
+        "geolocator_windows"
       ]
     },
     {
-      "name": "geolocator_platform_interface",
-      "version": "4.2.8",
+      "name": "flutter_web_plugins",
+      "version": "0.0.0",
       "dependencies": [
-        "flutter",
-        "meta",
-        "plugin_platform_interface",
-        "vector_math"
+        "flutter"
+      ]
+    },
+    {
+      "name": "plugin_platform_interface",
+      "version": "2.1.8",
+      "dependencies": [
+        "meta"
       ]
     },
     {
@@ -571,6 +531,14 @@
       "dependencies": []
     },
     {
+      "name": "async",
+      "version": "2.13.1",
+      "dependencies": [
+        "collection",
+        "meta"
+      ]
+    },
+    {
       "name": "leak_tracker_testing",
       "version": "3.0.2",
       "dependencies": [
@@ -620,66 +588,94 @@
       ]
     },
     {
-      "name": "typed_data",
-      "version": "1.4.0",
+      "name": "ffi",
+      "version": "2.2.0",
+      "dependencies": []
+    },
+    {
+      "name": "web",
+      "version": "1.1.1",
+      "dependencies": []
+    },
+    {
+      "name": "http_parser",
+      "version": "4.1.2",
       "dependencies": [
-        "collection"
+        "collection",
+        "source_span",
+        "string_scanner",
+        "typed_data"
       ]
     },
     {
-      "name": "plugin_platform_interface",
-      "version": "2.1.8",
+      "name": "geocoding_ios",
+      "version": "3.1.0",
       "dependencies": [
-        "meta"
+        "flutter",
+        "geocoding_platform_interface"
       ]
     },
     {
-      "name": "package_info_plus",
-      "version": "10.2.1",
+      "name": "geocoding_android",
+      "version": "4.0.1",
       "dependencies": [
-        "clock",
-        "ffi",
+        "flutter",
+        "geocoding_platform_interface"
+      ]
+    },
+    {
+      "name": "geocoding_platform_interface",
+      "version": "3.2.0",
+      "dependencies": [
+        "flutter",
+        "meta",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "geolocator_windows",
+      "version": "0.2.5",
+      "dependencies": [
+        "flutter",
+        "geolocator_platform_interface"
+      ]
+    },
+    {
+      "name": "geolocator_web",
+      "version": "4.1.4",
+      "dependencies": [
         "flutter",
         "flutter_web_plugins",
-        "http",
+        "geolocator_platform_interface",
+        "web"
+      ]
+    },
+    {
+      "name": "geolocator_platform_interface",
+      "version": "4.2.8",
+      "dependencies": [
+        "flutter",
         "meta",
-        "package_info_plus_platform_interface",
-        "path",
-        "web",
-        "win32"
+        "plugin_platform_interface",
+        "vector_math"
       ]
     },
     {
-      "name": "gsettings",
-      "version": "0.2.8",
+      "name": "geolocator_apple",
+      "version": "2.3.14",
       "dependencies": [
-        "dbus",
-        "xdg_directories"
+        "flutter",
+        "geolocator_platform_interface"
       ]
     },
     {
-      "name": "geoclue",
-      "version": "0.1.1",
+      "name": "geolocator_android",
+      "version": "5.0.3",
       "dependencies": [
-        "dbus",
-        "meta"
-      ]
-    },
-    {
-      "name": "dbus",
-      "version": "0.7.13",
-      "dependencies": [
-        "args",
-        "ffi",
+        "flutter",
+        "geolocator_platform_interface",
         "meta",
-        "xml"
-      ]
-    },
-    {
-      "name": "flutter_web_plugins",
-      "version": "0.0.0",
-      "dependencies": [
-        "flutter"
+        "uuid"
       ]
     },
     {
@@ -697,6 +693,13 @@
         "ffi",
         "meta",
         "path"
+      ]
+    },
+    {
+      "name": "typed_data",
+      "version": "1.4.0",
+      "dependencies": [
+        "collection"
       ]
     },
     {
@@ -757,11 +760,6 @@
       ]
     },
     {
-      "name": "ffi",
-      "version": "2.2.0",
-      "dependencies": []
-    },
-    {
       "name": "platform",
       "version": "3.1.6",
       "dependencies": []
@@ -819,29 +817,6 @@
       "dependencies": []
     },
     {
-      "name": "win32",
-      "version": "6.3.0",
-      "dependencies": [
-        "ffi",
-        "ffi_leak_tracker",
-        "meta"
-      ]
-    },
-    {
-      "name": "package_info_plus_platform_interface",
-      "version": "4.1.0",
-      "dependencies": [
-        "flutter",
-        "meta",
-        "plugin_platform_interface"
-      ]
-    },
-    {
-      "name": "args",
-      "version": "2.7.0",
-      "dependencies": []
-    },
-    {
       "name": "pub_semver",
       "version": "2.2.0",
       "dependencies": [
@@ -882,11 +857,9 @@
       ]
     },
     {
-      "name": "ffi_leak_tracker",
-      "version": "0.1.2",
-      "dependencies": [
-        "ffi"
-      ]
+      "name": "args",
+      "version": "2.7.0",
+      "dependencies": []
     },
     {
       "name": "yaml",
@@ -904,6 +877,91 @@
         "collection",
         "meta",
         "pub_semver"
+      ]
+    },
+    {
+      "name": "flutter_secure_storage_linux",
+      "version": "1.2.3",
+      "dependencies": [
+        "flutter",
+        "flutter_secure_storage_platform_interface"
+      ]
+    },
+    {
+      "name": "gsettings",
+      "version": "0.2.8",
+      "dependencies": [
+        "dbus",
+        "xdg_directories"
+      ]
+    },
+    {
+      "name": "geoclue",
+      "version": "0.1.1",
+      "dependencies": [
+        "dbus",
+        "meta"
+      ]
+    },
+    {
+      "name": "dbus",
+      "version": "0.7.13",
+      "dependencies": [
+        "args",
+        "ffi",
+        "meta",
+        "xml"
+      ]
+    },
+    {
+      "name": "geolocator_linux",
+      "version": "0.2.4",
+      "dependencies": [
+        "dbus",
+        "flutter",
+        "geoclue",
+        "geolocator_platform_interface",
+        "gsettings",
+        "package_info_plus"
+      ]
+    },
+    {
+      "name": "package_info_plus",
+      "version": "9.0.1",
+      "dependencies": [
+        "clock",
+        "ffi",
+        "flutter",
+        "flutter_web_plugins",
+        "http",
+        "meta",
+        "package_info_plus_platform_interface",
+        "path",
+        "web",
+        "win32"
+      ]
+    },
+    {
+      "name": "package_info_plus_platform_interface",
+      "version": "3.2.1",
+      "dependencies": [
+        "flutter",
+        "meta",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "js",
+      "version": "0.6.7",
+      "dependencies": [
+        "meta"
+      ]
+    },
+    {
+      "name": "win32",
+      "version": "5.15.0",
+      "dependencies": [
+        "ffi"
       ]
     }
   ],

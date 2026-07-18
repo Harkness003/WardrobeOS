@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
 import 'package:wardrobeos/features/assistant/services/assistant_service.dart';
+import 'package:wardrobeos/features/assistant/ai/fake_llm_provider.dart';
 import 'package:wardrobeos/features/outfits/outfits_controller.dart';
 import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
 import 'package:wardrobeos/models/garment.dart';
@@ -45,6 +46,7 @@ void main() {
         outfitsController: outfits,
         clock: () => DateTime(2026, 7, 14),
       ),
+      llmProvider: const FakeLlmProvider(response: 'Conseil généré'),
     );
 
     final message = await service.generatePrompt();
@@ -54,5 +56,20 @@ void main() {
     expect(message, contains('Ville : Lyon'));
     expect(message, contains('Nombre de vêtements : 2'));
     expect(message, contains('Nombre de tenues : 1'));
+  });
+
+  test('génère une réponse avec le fournisseur injecté', () async {
+    final wardrobe = WardrobeController()..loading = false;
+    final outfits = OutfitsController()..loading = false;
+    final service = AssistantService(
+      contextBuilder: AssistantContextBuilder(
+        weatherService: _WeatherService(),
+        wardrobeController: wardrobe,
+        outfitsController: outfits,
+      ),
+      llmProvider: const FakeLlmProvider(response: 'Conseil hors ligne'),
+    );
+
+    expect(await service.generateMessage(), 'Conseil hors ligne');
   });
 }
