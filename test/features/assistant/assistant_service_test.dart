@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
 import 'package:wardrobeos/features/assistant/services/assistant_service.dart';
 import 'package:wardrobeos/features/assistant/ai/fake_llm_provider.dart';
+import 'package:wardrobeos/features/assistant/tools/assistant_tool.dart';
+import 'package:wardrobeos/features/assistant/tools/assistant_tool_context_builder.dart';
 import 'package:wardrobeos/features/outfits/outfits_controller.dart';
 import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
 import 'package:wardrobeos/models/garment.dart';
@@ -19,6 +21,15 @@ class _WeatherService implements WeatherService {
         apparentTemperature: 22, humidity: 0, windSpeed: 0, windDirection: 0,
         weatherCode: 0, description: 'Clair', measuredAt: DateTime(2026),
       );
+}
+
+class _BusinessTool implements AssistantTool {
+  @override
+  String get id => 'business';
+  @override
+  String get description => 'Données de test';
+  @override
+  Future<AssistantToolData> getData() async => {'available': true};
 }
 
 void main() {
@@ -67,9 +78,13 @@ void main() {
         wardrobeController: wardrobe,
         outfitsController: outfits,
       ),
+      toolContextBuilder: AssistantToolContextBuilder(
+        tools: [_BusinessTool()],
+      ),
       llmProvider: const FakeLlmProvider(response: 'Conseil hors ligne'),
     );
 
     expect(await service.generateMessage(), 'Conseil hors ligne');
+    expect(service.lastToolContext['business']?['data'], {'available': true});
   });
 }

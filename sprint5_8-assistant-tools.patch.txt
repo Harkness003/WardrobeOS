@@ -1,0 +1,760 @@
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index 88dae17b8d74793fa5f841b977f6875d79b3c7be..6078c5838a0b19b1afaeac919ebd92656a85e007 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,76 +1,117 @@
++import 'dart:convert';
++
+ import 'package:flutter/material.dart';
+ 
+ import 'services/assistant_service.dart';
+ 
+ class AssistantScreen extends StatefulWidget {
+   final AssistantService service;
+ 
+   const AssistantScreen({super.key, required this.service});
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
+   String? _message;
+   bool _isLoading = false;
++  Map<String, Object?> _toolContext = const {};
+ 
+   @override
+   void initState() {
+     super.initState();
+     _refresh();
+   }
+ 
+   Future<void> _refresh() async {
+     setState(() => _isLoading = true);
+     final message = await widget.service.generateMessage();
+     if (!mounted) return;
+     setState(() {
+       _message = message;
++      _toolContext = widget.service.lastToolContext;
+       _isLoading = false;
+     });
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.stretch,
+           children: [
+             const Row(
+               children: [
+                 Expanded(
+                   child: Text(
+                     'WardrobeGPT',
+                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 CircleAvatar(child: Icon(Icons.auto_awesome)),
+               ],
+             ),
+             const SizedBox(height: 32),
+             Expanded(
+-              child: Center(
+-                child:
+-                    _isLoading
+-                        ? const CircularProgressIndicator()
+-                        : Text(
+-                          _message ?? 'WardrobeGPT est prêt.',
+-                          textAlign: TextAlign.center,
+-                          style: Theme.of(context).textTheme.titleMedium,
++              child: ListView(
++                children: [
++                  SizedBox(
++                    height: 220,
++                    child: Center(
++                      child: _isLoading
++                          ? const CircularProgressIndicator()
++                          : Text(
++                              _message ?? 'WardrobeGPT est prêt.',
++                              textAlign: TextAlign.center,
++                              style: Theme.of(context).textTheme.titleMedium,
++                            ),
++                    ),
++                  ),
++                  if (_toolContext.isNotEmpty)
++                    ExpansionTile(
++                      title: const Text('Données utilisées par WardrobeGPT'),
++                      children: [
++                        _DebugData(
++                          title: 'Météo utilisée',
++                          value: _toolContext['weather'],
++                        ),
++                        _DebugData(
++                          title: 'Informations dressing',
++                          value: _toolContext['wardrobe'],
+                         ),
++                        _DebugData(
++                          title: 'Statistiques utilisées',
++                          value: _toolContext['statistics'],
++                        ),
++                      ],
++                    ),
++                ],
+               ),
+             ),
+             FilledButton.icon(
+               onPressed: _isLoading ? null : _refresh,
+               icon: const Icon(Icons.refresh),
+               label: const Text('Demander un conseil'),
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+ }
++
++class _DebugData extends StatelessWidget {
++  final String title;
++  final Object? value;
++
++  const _DebugData({required this.title, required this.value});
++
++  @override
++  Widget build(BuildContext context) => ListTile(
++    title: Text(title),
++    subtitle: SelectableText(const JsonEncoder.withIndent('  ').convert(value)),
++  );
++}
+diff --git a/lib/features/assistant/prompt/prompt_builder.dart b/lib/features/assistant/prompt/prompt_builder.dart
+index 37b133346ebae6620161ef1e9c917104efd72f6d..acec191df6f8e091abb75495757954fc35f3b334 100644
+--- a/lib/features/assistant/prompt/prompt_builder.dart
++++ b/lib/features/assistant/prompt/prompt_builder.dart
+@@ -1,23 +1,35 @@
++import 'dart:convert';
++
+ import '../context/assistant_context.dart';
++import '../tools/assistant_tool_context_builder.dart';
+ import 'prompt_composer.dart';
+ import 'prompt_section.dart';
+ 
+ class PromptBuilder {
+   final PromptComposer composer;
+   final List<PromptSection> sections;
+ 
+   PromptBuilder({PromptComposer? composer, List<PromptSection>? sections})
+     : composer = composer ?? const PromptComposer(),
+       sections = List.unmodifiable(sections ?? _defaultSections);
+ 
+-  String build(AssistantContext context) => composer.compose(context, sections);
++  String build(
++    AssistantContext context, {
++    AssistantToolContext toolContext = const {},
++  }) {
++    final prompt = composer.compose(context, sections);
++    if (toolContext.isEmpty) return prompt;
++    const encoder = JsonEncoder.withIndent('  ');
++    return '$prompt\n\n### DONNÉES MÉTIER STRUCTURÉES\n'
++        '${encoder.convert(toolContext)}';
++  }
+ 
+   static const List<PromptSection> _defaultSections = [
+     SystemPromptSection(),
+     WeatherPromptSection(),
+     WardrobePromptSection(),
+     StatisticsPromptSection(),
+     HistoryPromptSection(),
+     DatePromptSection(),
+   ];
+ }
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index d7f8994fb5d518c811e34debc796b666e8ee3d63..13e808a12eeeafa81e4123747ee2accf18bc29b8 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -1,33 +1,44 @@
+ import '../context/assistant_context.dart';
+ import '../context/assistant_context_builder.dart';
+ import '../prompt/prompt_builder.dart';
+ import '../ai/llm_provider.dart';
++import '../tools/assistant_tool_context_builder.dart';
+ 
+ class AssistantService {
+   final AssistantContextBuilder _contextBuilder;
+   final PromptBuilder _promptBuilder;
+   final LlmProvider _llmProvider;
++  final AssistantToolContextBuilder _toolContextBuilder;
++  AssistantToolContext _lastToolContext = const {};
+ 
+   AssistantService({
+     required AssistantContextBuilder contextBuilder,
++    AssistantToolContextBuilder? toolContextBuilder,
+     required LlmProvider llmProvider,
+     PromptBuilder? promptBuilder,
+   }) : _contextBuilder = contextBuilder,
+        _llmProvider = llmProvider,
++       _toolContextBuilder =
++           toolContextBuilder ?? AssistantToolContextBuilder(tools: const []),
+        _promptBuilder = promptBuilder ?? PromptBuilder();
+ 
++  AssistantToolContext get lastToolContext => _lastToolContext;
++
+   Future<AssistantContext> buildContext() => _contextBuilder.build();
+ 
+-  Future<String> generatePrompt() async =>
+-      _promptBuilder.build(await buildContext());
++  Future<String> generatePrompt() async {
++    final context = await buildContext();
++    _lastToolContext = await _toolContextBuilder.build();
++    return _promptBuilder.build(context, toolContext: _lastToolContext);
++  }
+ 
+   Future<String> generateMessage() async {
+     try {
+       return await _llmProvider.generate(await generatePrompt());
+     } on LlmException catch (error) {
+       return error.message;
+     } catch (_) {
+       return 'WardrobeGPT est temporairement indisponible. Réessayez.';
+     }
+   }
+ }
+diff --git a/lib/features/assistant/tools/assistant_tool.dart b/lib/features/assistant/tools/assistant_tool.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..9381f7e7f89b4708a1d35de0dd9f4681d7fdd908
+--- /dev/null
++++ b/lib/features/assistant/tools/assistant_tool.dart
+@@ -0,0 +1,9 @@
++typedef AssistantToolData = Map<String, Object?>;
++
++/// A self-contained source of structured business data for WardrobeGPT.
++abstract interface class AssistantTool {
++  String get id;
++  String get description;
++
++  Future<AssistantToolData> getData();
++}
+diff --git a/lib/features/assistant/tools/assistant_tool_context_builder.dart b/lib/features/assistant/tools/assistant_tool_context_builder.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..16802a8e4d9b018cf9dac85282c54f309e669ec1
+--- /dev/null
++++ b/lib/features/assistant/tools/assistant_tool_context_builder.dart
+@@ -0,0 +1,26 @@
++import 'assistant_tool.dart';
++
++typedef AssistantToolContext = Map<String, AssistantToolData>;
++
++class AssistantToolContextBuilder {
++  final List<AssistantTool> _tools;
++
++  AssistantToolContextBuilder({required List<AssistantTool> tools})
++    : _tools = List.unmodifiable(tools) {
++    final ids = _tools.map((tool) => tool.id).toSet();
++    if (ids.length != _tools.length) {
++      throw ArgumentError('Chaque outil assistant doit avoir un identifiant unique.');
++    }
++  }
++
++  Future<AssistantToolContext> build() async {
++    final context = <String, AssistantToolData>{};
++    for (final tool in _tools) {
++      context[tool.id] = {
++        'description': tool.description,
++        'data': await tool.getData(),
++      };
++    }
++    return Map.unmodifiable(context);
++  }
++}
+diff --git a/lib/features/assistant/tools/outfit_tool.dart b/lib/features/assistant/tools/outfit_tool.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..55b7fd7c883cf225b5ee3161dcbb35d34bb2dac0
+--- /dev/null
++++ b/lib/features/assistant/tools/outfit_tool.dart
+@@ -0,0 +1,40 @@
++import '../../outfits/outfits_controller.dart';
++import 'assistant_tool.dart';
++
++class OutfitTool implements AssistantTool {
++  final OutfitsController _controller;
++
++  const OutfitTool({required OutfitsController controller})
++    : _controller = controller;
++
++  @override
++  String get id => 'outfits';
++
++  @override
++  String get description => 'Tenues, suggestions et fréquence de port.';
++
++  @override
++  Future<AssistantToolData> getData() async {
++    if (_controller.loading) await _controller.load();
++    final worn = _controller.outfits.where((outfit) => outfit.lastWorn != null).toList()
++      ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
++    final last = worn.isEmpty ? null : worn.first;
++
++    return {
++      'totalOutfits': _controller.outfits.length,
++      'suggestions': _controller.suggestions
++          .map((outfit) => {'id': outfit.id, 'name': outfit.name})
++          .toList(growable: false),
++      'lastWorn': last == null
++          ? null
++          : {
++              'id': last.id,
++              'name': last.name,
++              'wornAt': last.lastWorn!.toIso8601String(),
++            },
++      'wearFrequency': {
++        for (final outfit in _controller.outfits) outfit.id: outfit.timesWorn,
++      },
++    };
++  }
++}
+diff --git a/lib/features/assistant/tools/statistics_tool.dart b/lib/features/assistant/tools/statistics_tool.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..af2427ad34c3efc36ef9309896c04db6950ac7f5
+--- /dev/null
++++ b/lib/features/assistant/tools/statistics_tool.dart
+@@ -0,0 +1,42 @@
++import '../../wardrobe/wardrobe_controller.dart';
++import 'assistant_tool.dart';
++
++class StatisticsTool implements AssistantTool {
++  final WardrobeController _controller;
++
++  const StatisticsTool({required WardrobeController controller})
++    : _controller = controller;
++
++  @override
++  String get id => 'statistics';
++
++  @override
++  String get description => 'Statistiques d’utilisation des vêtements.';
++
++  @override
++  Future<AssistantToolData> getData() async {
++    if (_controller.loading) await _controller.load();
++    final garments = _controller.garments;
++    final ranked = garments.toList()
++      ..sort((a, b) => b.wearCount.compareTo(a.wearCount));
++    return {
++      'garmentCount': garments.length,
++      'wearCount': garments.fold<int>(0, (total, garment) => total + garment.wearCount),
++      'mostUsed': ranked
++          .where((garment) => garment.wearCount > 0)
++          .take(5)
++          .map(
++            (garment) => {
++              'id': garment.id,
++              'name': garment.name,
++              'wearCount': garment.wearCount,
++            },
++          )
++          .toList(growable: false),
++      'forgotten': garments
++          .where((garment) => garment.wearCount == 0)
++          .map((garment) => {'id': garment.id, 'name': garment.name})
++          .toList(growable: false),
++    };
++  }
++}
+diff --git a/lib/features/assistant/tools/wardrobe_tool.dart b/lib/features/assistant/tools/wardrobe_tool.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..3a7c73646a338510bb8b8c5342996bf190817889
+--- /dev/null
++++ b/lib/features/assistant/tools/wardrobe_tool.dart
+@@ -0,0 +1,54 @@
++import '../../wardrobe/wardrobe_controller.dart';
++import 'assistant_tool.dart';
++
++class WardrobeTool implements AssistantTool {
++  final WardrobeController _controller;
++
++  const WardrobeTool({required WardrobeController controller})
++    : _controller = controller;
++
++  @override
++  String get id => 'wardrobe';
++
++  @override
++  String get description => 'Contenu et utilisation actuelle du dressing.';
++
++  @override
++  Future<AssistantToolData> getData() async {
++    if (_controller.loading) await _controller.load();
++    final garments = _controller.garments;
++    final recentlyWorn = garments.where((garment) => garment.lastWorn != null).toList()
++      ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
++
++    return {
++      'totalGarments': garments.length,
++      'categories': _values(garments.map((garment) => garment.category)),
++      'mainColors': _values(garments.map((garment) => garment.color)),
++      'recentlyWorn': recentlyWorn
++          .take(5)
++          .map(
++            (garment) => {
++              'id': garment.id,
++              'name': garment.name,
++              'lastWorn': garment.lastWorn!.toIso8601String(),
++            },
++          )
++          .toList(growable: false),
++      'neverWorn': garments
++          .where((garment) => garment.wearCount == 0)
++          .map((garment) => {'id': garment.id, 'name': garment.name})
++          .toList(growable: false),
++    };
++  }
++
++  static List<String> _values(Iterable<String?> values) {
++    final unique = values
++        .whereType<String>()
++        .map((value) => value.trim())
++        .where((value) => value.isNotEmpty)
++        .toSet()
++        .toList();
++    unique.sort();
++    return unique;
++  }
++}
+diff --git a/lib/features/assistant/tools/weather_tool.dart b/lib/features/assistant/tools/weather_tool.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..817538ad045312f3ddf6724724dc8a602f597ca6
+--- /dev/null
++++ b/lib/features/assistant/tools/weather_tool.dart
+@@ -0,0 +1,25 @@
++import '../../../weather/services/weather_service.dart';
++import 'assistant_tool.dart';
++
++class WeatherTool implements AssistantTool {
++  final WeatherService _weatherService;
++
++  const WeatherTool({required WeatherService weatherService})
++    : _weatherService = weatherService;
++
++  @override
++  String get id => 'weather';
++
++  @override
++  String get description => 'Conditions météo à la position actuelle.';
++
++  @override
++  Future<AssistantToolData> getData() async {
++    final weather = await _weatherService.getCurrentWeather();
++    return {
++      'city': weather.city,
++      'temperature': weather.temperature,
++      'condition': weather.description,
++    };
++  }
++}
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index dad974d0081b46cf7e689bd469c35eff142c3f20..7524cadaea3e76e890f7666d666b35b864905407 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -1,73 +1,86 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
++import '../assistant/tools/assistant_tool_context_builder.dart';
++import '../assistant/tools/outfit_tool.dart';
++import '../assistant/tools/statistics_tool.dart';
++import '../assistant/tools/wardrobe_tool.dart';
++import '../assistant/tools/weather_tool.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+       outfitsController: _assistantOutfits,
+     ),
++    toolContextBuilder: AssistantToolContextBuilder(
++      tools: [
++        WeatherTool(weatherService: widget.weatherService),
++        WardrobeTool(controller: _assistantWardrobe),
++        OutfitTool(controller: _assistantOutfits),
++        StatisticsTool(controller: _assistantWardrobe),
++      ],
++    ),
+     llmProvider: _openAiProvider,
+   );
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _assistantOutfits.dispose();
+     _aiSettings.dispose();
+     super.dispose();
+   }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(3),
+         openScanner: () async {
+diff --git a/test/features/assistant/assistant_service_test.dart b/test/features/assistant/assistant_service_test.dart
+index 8ce6c12e600e8aec68fe588d9050623e37474e7d..a06534969b49c99f0fe00a525d162901709bf4f8 100644
+--- a/test/features/assistant/assistant_service_test.dart
++++ b/test/features/assistant/assistant_service_test.dart
+@@ -1,75 +1,90 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
+ import 'package:wardrobeos/features/assistant/services/assistant_service.dart';
+ import 'package:wardrobeos/features/assistant/ai/fake_llm_provider.dart';
++import 'package:wardrobeos/features/assistant/tools/assistant_tool.dart';
++import 'package:wardrobeos/features/assistant/tools/assistant_tool_context_builder.dart';
+ import 'package:wardrobeos/features/outfits/outfits_controller.dart';
+ import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/outfit.dart';
+ import 'package:wardrobeos/weather/models/weather_data.dart';
+ import 'package:wardrobeos/weather/services/weather_service.dart';
+ 
+ class _WeatherService implements WeatherService {
+   @override
+   void clearCache() {}
+   @override
+   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
+       WeatherData(
+         city: 'Lyon', latitude: 0, longitude: 0, temperature: 22,
+         apparentTemperature: 22, humidity: 0, windSpeed: 0, windDirection: 0,
+         weatherCode: 0, description: 'Clair', measuredAt: DateTime(2026),
+       );
+ }
+ 
++class _BusinessTool implements AssistantTool {
++  @override
++  String get id => 'business';
++  @override
++  String get description => 'Données de test';
++  @override
++  Future<AssistantToolData> getData() async => {'available': true};
++}
++
+ void main() {
+   test('génère un prompt à partir du contexte', () async {
+     final wardrobe = WardrobeController()
+       ..loading = false
+       ..garments = List.generate(
+         2,
+         (index) => Garment(
+           id: '$index', name: 'Vêtement $index', category: 'Haut',
+           createdAt: DateTime(2026), updatedAt: DateTime(2026),
+         ),
+       );
+     final outfits = OutfitsController()
+       ..loading = false
+       ..outfits = [
+         Outfit(
+           id: 'o1', name: 'Tenue', createdAt: DateTime(2026),
+           updatedAt: DateTime(2026),
+         ),
+       ];
+     final service = AssistantService(
+       contextBuilder: AssistantContextBuilder(
+         weatherService: _WeatherService(), wardrobeController: wardrobe,
+         outfitsController: outfits,
+         clock: () => DateTime(2026, 7, 14),
+       ),
+       llmProvider: const FakeLlmProvider(response: 'Conseil généré'),
+     );
+ 
+     final message = await service.generatePrompt();
+ 
+     expect(message, contains('Jour : mardi'));
+     expect(message, contains('Température : 22°C'));
+     expect(message, contains('Ville : Lyon'));
+     expect(message, contains('Nombre de vêtements : 2'));
+     expect(message, contains('Nombre de tenues : 1'));
+   });
+ 
+   test('génère une réponse avec le fournisseur injecté', () async {
+     final wardrobe = WardrobeController()..loading = false;
+     final outfits = OutfitsController()..loading = false;
+     final service = AssistantService(
+       contextBuilder: AssistantContextBuilder(
+         weatherService: _WeatherService(),
+         wardrobeController: wardrobe,
+         outfitsController: outfits,
+       ),
++      toolContextBuilder: AssistantToolContextBuilder(
++        tools: [_BusinessTool()],
++      ),
+       llmProvider: const FakeLlmProvider(response: 'Conseil hors ligne'),
+     );
+ 
+     expect(await service.generateMessage(), 'Conseil hors ligne');
++    expect(service.lastToolContext['business']?['data'], {'available': true});
+   });
+ }
+diff --git a/test/features/assistant/assistant_tools_test.dart b/test/features/assistant/assistant_tools_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..5b0d22524620e07852fc2acc9d54ae7c5f438bea
+--- /dev/null
++++ b/test/features/assistant/assistant_tools_test.dart
+@@ -0,0 +1,114 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/tools/assistant_tool.dart';
++import 'package:wardrobeos/features/assistant/tools/assistant_tool_context_builder.dart';
++import 'package:wardrobeos/features/assistant/tools/outfit_tool.dart';
++import 'package:wardrobeos/features/assistant/tools/statistics_tool.dart';
++import 'package:wardrobeos/features/assistant/tools/wardrobe_tool.dart';
++import 'package:wardrobeos/features/assistant/tools/weather_tool.dart';
++import 'package:wardrobeos/features/outfits/outfits_controller.dart';
++import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
++import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/models/outfit.dart';
++import 'package:wardrobeos/weather/models/weather_data.dart';
++import 'package:wardrobeos/weather/services/weather_service.dart';
++
++class _WeatherService implements WeatherService {
++  @override
++  void clearCache() {}
++
++  @override
++  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
++      WeatherData(
++        city: 'Paris',
++        latitude: 0,
++        longitude: 0,
++        temperature: 18,
++        apparentTemperature: 18,
++        humidity: 50,
++        windSpeed: 5,
++        windDirection: 0,
++        weatherCode: 1,
++        description: 'Peu nuageux',
++        measuredAt: DateTime(2026),
++      );
++}
++
++class _Tool implements AssistantTool {
++  @override
++  String get id => 'test';
++  @override
++  String get description => 'Description';
++  @override
++  Future<AssistantToolData> getData() async => {'value': 42};
++}
++
++void main() {
++  final now = DateTime(2026, 7, 18);
++  late WardrobeController wardrobe;
++  late OutfitsController outfits;
++
++  setUp(() {
++    wardrobe = WardrobeController()
++      ..loading = false
++      ..garments = [
++        Garment(
++          id: 'g1',
++          name: 'Chemise',
++          category: 'Haut',
++          color: 'Bleu',
++          wearCount: 3,
++          lastWorn: now,
++          createdAt: now,
++          updatedAt: now,
++        ),
++        Garment(
++          id: 'g2',
++          name: 'Jean',
++          category: 'Bas',
++          color: 'Bleu',
++          createdAt: now,
++          updatedAt: now,
++        ),
++      ];
++    outfits = OutfitsController()
++      ..loading = false
++      ..outfits = [
++        Outfit(
++          id: 'o1',
++          name: 'Bureau',
++          timesWorn: 2,
++          lastWorn: now,
++          createdAt: now,
++          updatedAt: now,
++        ),
++      ];
++  });
++
++  test('chaque outil retourne une structure valide', () async {
++    final wardrobeData = await WardrobeTool(controller: wardrobe).getData();
++    final outfitData = await OutfitTool(controller: outfits).getData();
++    final weatherData = await WeatherTool(
++      weatherService: _WeatherService(),
++    ).getData();
++    final statisticsData = await StatisticsTool(
++      controller: wardrobe,
++    ).getData();
++
++    expect(wardrobeData['totalGarments'], 2);
++    expect(wardrobeData['categories'], ['Bas', 'Haut']);
++    expect(outfitData['totalOutfits'], 1);
++    expect((outfitData['suggestions'] as List), isNotEmpty);
++    expect(weatherData, containsPair('city', 'Paris'));
++    expect(statisticsData['wearCount'], 3);
++    expect((statisticsData['forgotten'] as List), hasLength(1));
++  });
++
++  test('assemble les données sous l’identifiant de chaque outil', () async {
++    final context = await AssistantToolContextBuilder(
++      tools: [_Tool()],
++    ).build();
++
++    expect(context['test']?['description'], 'Description');
++    expect(context['test']?['data'], {'value': 42});
++  });
++}

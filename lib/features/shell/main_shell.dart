@@ -15,6 +15,11 @@ import '../assistant/services/assistant_service.dart';
 import '../assistant/ai/openai_provider.dart';
 import '../assistant/settings/ai_settings_controller.dart';
 import '../assistant/settings/api_key_storage.dart';
+import '../assistant/tools/assistant_tool_context_builder.dart';
+import '../assistant/tools/outfit_tool.dart';
+import '../assistant/tools/statistics_tool.dart';
+import '../assistant/tools/wardrobe_tool.dart';
+import '../assistant/tools/weather_tool.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -45,6 +50,14 @@ class _MainShellState extends State<MainShell> {
       weatherService: widget.weatherService,
       wardrobeController: _assistantWardrobe,
       outfitsController: _assistantOutfits,
+    ),
+    toolContextBuilder: AssistantToolContextBuilder(
+      tools: [
+        WeatherTool(weatherService: widget.weatherService),
+        WardrobeTool(controller: _assistantWardrobe),
+        OutfitTool(controller: _assistantOutfits),
+        StatisticsTool(controller: _assistantWardrobe),
+      ],
     ),
     llmProvider: _openAiProvider,
   );
