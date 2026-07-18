@@ -21,6 +21,7 @@ class GarmentDetailScreen extends StatefulWidget {
 
 class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   late Garment garment;
+  bool _recordingWear = false;
 
   @override
   void initState() {
@@ -45,6 +46,62 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final match = widget.controller.garments.where((item) => item.id == garment.id);
     if (match.isNotEmpty && mounted) {
       setState(() => garment = match.first);
+    }
+  }
+
+
+  Future<void> recordWearToday() async {
+    if (_recordingWear) return;
+
+    setState(() => _recordingWear = true);
+
+    try {
+      await widget.controller.recordWear(garment);
+      _refreshGarment();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Port enregistré pour aujourd’hui.'),
+          action: SnackBarAction(
+            label: 'Annuler',
+            onPressed: undoLastWear,
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Impossible d’enregistrer ce port. Réessaie dans quelques instants.",
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _recordingWear = false);
+      }
+    }
+  }
+
+  Future<void> undoLastWear() async {
+    try {
+      final removed = await widget.controller.removeLastWear(garment);
+      _refreshGarment();
+
+      if (!mounted || !removed) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Dernier port supprimé.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Impossible d’annuler le dernier port."),
+        ),
+      );
     }
   }
 
@@ -291,17 +348,18 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    "L'enregistrement d'un port arrive à l'étape suivante.",
-                  ),
-                ),
-              );
-            },
-            icon: const Icon(Icons.check_circle_outline),
-            label: const Text("Je l'ai portée aujourd'hui"),
+            onPressed: _recordingWear ? null : recordWearToday,
+            icon: _recordingWear
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.check_circle_outline),
+            label: Text(
+              _recordingWear
+                  ? 'Enregistrement…'
+                  : "Je l'ai portée aujourd'hui",
+            ),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(52),
               shape: RoundedRectangleBorder(
