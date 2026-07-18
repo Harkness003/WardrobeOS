@@ -1,6 +1,7 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import '../models/garment.dart';
+import '../models/wear_history.dart';
 
 class DatabaseService {
   DatabaseService._();
@@ -161,6 +162,101 @@ class DatabaseService {
       garment.toMap(),
       where: 'id = ?',
       whereArgs: [garment.id],
+    );
+  }
+
+  Future<List<WearHistory>> getWearHistory(
+    String garmentId, {
+    int? limit,
+  }) async {
+    final db = await database;
+    final rows = await db.query(
+      'wear_history',
+      where: 'garment_id = ?',
+      whereArgs: [garmentId],
+      orderBy: 'worn_at DESC, id DESC',
+      limit: limit,
+    );
+    return rows.map(WearHistory.fromMap).toList();
+  }
+
+  Future<WearHistory> recordWear(
+    String garmentId, {
+    DateTime? wornAt,
+  }) async {
+    final db = await database;
+    final date = wornAt ?? DateTime.now();
+    final createdAt = DateTime.now();
+
+    return db.transaction((txn) async {
+      final id = await txn.insert('wear_history', {
+        'garment_id': garmentId,
+        'worn_at': date.toIso8601String(),
+        'created_at': createdAt.toIso8601String(),
+      });
+
+      await _syncGarmentWearData(txn, garmentId);
+
+      return WearHistory(
+        id: id,
+        garmentId: garmentId,
+        wornAt: date,
+        createdAt: createdAt,
+      );
+    });
+  }
+
+  Future<bool> removeLastWear(String garmentId) async {
+    final db = await database;
+
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'wear_history',
+        columns: ['id'],
+        where: 'garment_id = ?',
+        whereArgs: [garmentId],
+        orderBy: 'worn_at DESC, id DESC',
+        limit: 1,
+      );
+
+      if (rows.isEmpty) return false;
+
+      final id = rows.first['id'] as int;
+      await txn.delete('wear_history', where: 'id = ?', whereArgs: [id]);
+      await _syncGarmentWearData(txn, garmentId);
+      return true;
+    });
+  }
+
+  Future<void> _syncGarmentWearData(
+    DatabaseExecutor db,
+    String garmentId,
+  ) async {
+    final countRows = await db.rawQuery(
+      'SELECT COUNT(*) AS total FROM wear_history WHERE garment_id = ?',
+      [garmentId],
+    );
+    final lastRows = await db.query(
+      'wear_history',
+      columns: ['worn_at'],
+      where: 'garment_id = ?',
+      whereArgs: [garmentId],
+      orderBy: 'worn_at DESC, id DESC',
+      limit: 1,
+    );
+
+    final count = (countRows.first['total'] as int?) ?? 0;
+    final lastWorn = lastRows.isEmpty ? null : lastRows.first['worn_at'] as String;
+
+    await db.update(
+      'garments',
+      {
+        'wear_count': count,
+        'last_worn': lastWorn,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [garmentId],
     );
   }
 
