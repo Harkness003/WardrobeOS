@@ -15,7 +15,22 @@ class WardrobeController extends ChangeNotifier {
   String search = '';
   String category = 'Tout';
   bool favoritesOnly = false;
+  String season = '';
+  String brand = '';
+  String color = '';
+  String material = '';
+  String style = '';
+  String occasion = '';
   bool _disposed = false;
+
+  int get advancedFilterCount => [
+        season,
+        brand,
+        color,
+        material,
+        style,
+        occasion,
+      ].where((value) => value.trim().isNotEmpty).length;
 
   Future<void> load() async {
     loading = true;
@@ -26,6 +41,12 @@ class WardrobeController extends ChangeNotifier {
         search: search,
         category: category,
         favoritesOnly: favoritesOnly,
+        season: season,
+        brand: brand,
+        color: color,
+        material: material,
+        style: style,
+        occasion: occasion,
       );
     } catch (exception) {
       error = exception;
@@ -47,6 +68,32 @@ class WardrobeController extends ChangeNotifier {
     favoritesOnly = !favoritesOnly;
     await load();
   }
+
+  Future<void> applyAdvancedFilters({
+    required String season,
+    required String brand,
+    required String color,
+    required String material,
+    required String style,
+    required String occasion,
+  }) async {
+    this.season = season.trim();
+    this.brand = brand.trim();
+    this.color = color.trim();
+    this.material = material.trim();
+    this.style = style.trim();
+    this.occasion = occasion.trim();
+    await load();
+  }
+
+  Future<void> resetAdvancedFilters() => applyAdvancedFilters(
+        season: '',
+        brand: '',
+        color: '',
+        material: '',
+        style: '',
+        occasion: '',
+      );
 
   Future<void> save(Garment garment, {required bool isNew}) async {
     if (isNew) {

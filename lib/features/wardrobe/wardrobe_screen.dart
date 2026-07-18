@@ -18,6 +18,14 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   final controller = WardrobeController();
   final searchController = TextEditingController();
 
+  static const seasons = [
+    'Printemps',
+    'Été',
+    'Automne',
+    'Hiver',
+    'Toute saison',
+  ];
+
   final categories = const [
     'Tout',
     'Hauts',
@@ -118,6 +126,109 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     );
   }
 
+  Future<void> _showAdvancedFilters() async {
+    String selectedSeason = controller.season;
+    final brand = TextEditingController(text: controller.brand);
+    final color = TextEditingController(text: controller.color);
+    final material = TextEditingController(text: controller.material);
+    final style = TextEditingController(text: controller.style);
+    final occasion = TextEditingController(text: controller.occasion);
+
+    final action = await showModalBottomSheet<_FilterAction>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => AnimatedPadding(
+          duration: const Duration(milliseconds: 150),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Filtres avancés',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue:
+                      selectedSeason.isEmpty ? null : selectedSeason,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Saison'),
+                  hint: const Text('Toutes les saisons'),
+                  items: seasons
+                      .map((value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ))
+                      .toList(),
+                  onChanged: (value) => setSheetState(
+                    () => selectedSeason = value ?? '',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _FilterTextField(controller: brand, label: 'Marque'),
+                const SizedBox(height: 12),
+                _FilterTextField(controller: color, label: 'Couleur'),
+                const SizedBox(height: 12),
+                _FilterTextField(controller: material, label: 'Matière'),
+                const SizedBox(height: 12),
+                _FilterTextField(controller: style, label: 'Style'),
+                const SizedBox(height: 12),
+                _FilterTextField(
+                  controller: occasion,
+                  label: 'Occasion',
+                  textInputAction: TextInputAction.done,
+                ),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: () => Navigator.pop(
+                    sheetContext,
+                    _FilterAction.apply,
+                  ),
+                  child: const Text('Appliquer'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(
+                    sheetContext,
+                    _FilterAction.reset,
+                  ),
+                  child: const Text('Réinitialiser les filtres'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (action == _FilterAction.apply) {
+      await controller.applyAdvancedFilters(
+        season: selectedSeason,
+        brand: brand.text,
+        color: color.text,
+        material: material.text,
+        style: style.text,
+        occasion: occasion.text,
+      );
+    } else if (action == _FilterAction.reset) {
+      await controller.resetAdvancedFilters();
+    }
+    brand.dispose();
+    color.dispose();
+    material.dispose();
+    style.dispose();
+    occasion.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -171,10 +282,18 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
               child: TextField(
                 controller: searchController,
                 onChanged: controller.setSearch,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search),
                   hintText: 'Nom, marque ou couleur',
-                  suffixIcon: Icon(Icons.tune),
+                  suffixIcon: IconButton(
+                    tooltip: 'Filtres avancés',
+                    onPressed: _showAdvancedFilters,
+                    icon: Badge(
+                      isLabelVisible: controller.advancedFilterCount > 0,
+                      label: Text('${controller.advancedFilterCount}'),
+                      child: const Icon(Icons.tune),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -211,7 +330,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     if (controller.garments.isEmpty) {
       final noSearch = controller.search.isEmpty &&
           controller.category == 'Tout' &&
-          !controller.favoritesOnly;
+          !controller.favoritesOnly &&
+          controller.advancedFilterCount == 0;
 
       return Center(
         child: Padding(
@@ -270,7 +390,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
         duration: const Duration(milliseconds: 220),
         child: GridView.builder(
           key: ValueKey(
-            '${controller.category}-${controller.search}-${controller.favoritesOnly}',
+            '${controller.category}-${controller.search}-${controller.favoritesOnly}-${controller.season}-${controller.brand}-${controller.color}-${controller.material}-${controller.style}-${controller.occasion}',
           ),
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 110),
           itemCount: controller.garments.length,
@@ -292,6 +412,27 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       ),
     );
   }
+}
+
+enum _FilterAction { apply, reset }
+
+class _FilterTextField extends StatelessWidget {
+  const _FilterTextField({
+    required this.controller,
+    required this.label,
+    this.textInputAction = TextInputAction.next,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final TextInputAction textInputAction;
+
+  @override
+  Widget build(BuildContext context) => TextField(
+        controller: controller,
+        textInputAction: textInputAction,
+        decoration: InputDecoration(labelText: label),
+      );
 }
 
 class _GarmentCard extends StatelessWidget {

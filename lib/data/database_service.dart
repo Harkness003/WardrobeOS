@@ -121,6 +121,12 @@ class DatabaseService {
     String search = '',
     String category = 'Tout',
     bool favoritesOnly = false,
+    String season = '',
+    String brand = '',
+    String color = '',
+    String material = '',
+    String style = '',
+    String occasion = '',
   }) async {
     final db = await database;
     final where = <String>[];
@@ -137,6 +143,22 @@ class DatabaseService {
       args.add(category);
     }
     if (favoritesOnly) where.add('is_favorite = 1');
+    if (season.trim().isNotEmpty) {
+      where.add('season = ?');
+      args.add(season.trim());
+    }
+    for (final filter in <(String, String)>[
+      ('brand', brand),
+      ('color', color),
+      ('material', material),
+      ('style', style),
+      ('occasion', occasion),
+    ]) {
+      if (filter.$2.trim().isNotEmpty) {
+        where.add('${filter.$1} LIKE ?');
+        args.add('%${filter.$2.trim()}%');
+      }
+    }
     final rows = await db.query(
       'garments',
       where: where.isEmpty ? null : where.join(' AND '),
