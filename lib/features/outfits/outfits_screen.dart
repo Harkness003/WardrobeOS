@@ -39,8 +39,8 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
     await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            OutfitFormScreen(controller: controller, outfit: outfit),
+        builder:
+            (_) => OutfitFormScreen(controller: controller, outfit: outfit),
       ),
     );
   }
@@ -175,9 +175,10 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
   Widget _suggestionCard(Outfit outfit) {
     final garments = controller.garmentsByOutfit[outfit.id] ?? [];
     final recording = _recordingOutfitIds.contains(outfit.id);
-    final lastWornLabel = outfit.lastWorn == null
-        ? '🔥 Jamais portée'
-        : 'Portée il y a ${OutfitsController.suggestionScore(outfit)} jours';
+    final lastWornLabel =
+        outfit.lastWorn == null
+            ? '🔥 Jamais portée'
+            : 'Portée il y a ${OutfitsController.suggestionScore(outfit)} jours';
     return Card(
       clipBehavior: Clip.antiAlias,
       margin: const EdgeInsets.only(bottom: 10),
@@ -212,12 +213,13 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
               const SizedBox(width: 8),
               FilledButton(
                 onPressed: recording ? null : () => _recordWear(outfit),
-                child: recording
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Porter'),
+                child:
+                    recording
+                        ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Text('Porter'),
               ),
             ],
           ),

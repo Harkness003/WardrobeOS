@@ -7,7 +7,7 @@ import '../../models/wear_history.dart';
 class WardrobeController extends ChangeNotifier {
   final DatabaseService _db;
   WardrobeController({DatabaseService? database})
-      : _db = database ?? DatabaseService.instance;
+    : _db = database ?? DatabaseService.instance;
 
   List<Garment> garments = [];
   bool loading = true;
@@ -23,7 +23,8 @@ class WardrobeController extends ChangeNotifier {
   String occasion = '';
   bool _disposed = false;
 
-  int get advancedFilterCount => [
+  int get advancedFilterCount =>
+      [
         season,
         brand,
         color,
@@ -60,10 +61,12 @@ class WardrobeController extends ChangeNotifier {
     search = value;
     await load();
   }
+
   Future<void> setCategory(String value) async {
     category = value;
     await load();
   }
+
   Future<void> toggleFavoritesFilter() async {
     favoritesOnly = !favoritesOnly;
     await load();
@@ -87,13 +90,13 @@ class WardrobeController extends ChangeNotifier {
   }
 
   Future<void> resetAdvancedFilters() => applyAdvancedFilters(
-        season: '',
-        brand: '',
-        color: '',
-        material: '',
-        style: '',
-        occasion: '',
-      );
+    season: '',
+    brand: '',
+    color: '',
+    material: '',
+    style: '',
+    occasion: '',
+  );
 
   Future<void> save(Garment garment, {required bool isNew}) async {
     if (isNew) {
@@ -120,10 +123,7 @@ class WardrobeController extends ChangeNotifier {
     await load();
   }
 
-  Future<List<WearHistory>> getWearHistory(
-    String garmentId, {
-    int? limit,
-  }) {
+  Future<List<WearHistory>> getWearHistory(String garmentId, {int? limit}) {
     return _db.getWearHistory(garmentId, limit: limit);
   }
 

@@ -7,11 +7,17 @@ import '../profile/profile_screen.dart';
 import '../scanner/scanner_screen.dart';
 import '../wardrobe/wardrobe_screen.dart';
 import '../wishlist/wishlist_screen.dart';
+import '../../weather/services/weather_service.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
+  final WeatherService weatherService;
 
-  const MainShell({super.key, required this.settings});
+  const MainShell({
+    super.key,
+    required this.settings,
+    required this.weatherService,
+  });
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -29,6 +35,7 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final pages = [
       DashboardScreen(
+        weatherService: widget.weatherService,
         openWardrobe: () => goTo(1),
         openOutfits: () => goTo(2),
         openAssistant: () => goTo(3),
@@ -64,10 +71,7 @@ class _MainShellState extends State<MainShell> {
             ),
           );
         },
-        child: KeyedSubtree(
-          key: ValueKey(index),
-          child: pages[index],
-        ),
+        child: KeyedSubtree(key: ValueKey(index), child: pages[index]),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,

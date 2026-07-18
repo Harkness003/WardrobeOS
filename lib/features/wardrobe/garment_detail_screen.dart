@@ -46,10 +46,11 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => GarmentFormScreen(
-          controller: widget.controller,
-          garment: garment,
-        ),
+        builder:
+            (_) => GarmentFormScreen(
+              controller: widget.controller,
+              garment: garment,
+            ),
       ),
     );
     if (changed == true) _refreshGarment();
@@ -121,23 +122,24 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final choice = await showModalBottomSheet<_WearDateChoice>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.today_outlined),
-              title: const Text('Aujourd’hui'),
-              onTap: () => Navigator.pop(context, _WearDateChoice.today),
+      builder:
+          (context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.today_outlined),
+                  title: const Text('Aujourd’hui'),
+                  onTap: () => Navigator.pop(context, _WearDateChoice.today),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.event_outlined),
+                  title: const Text('Choisir une date'),
+                  onTap: () => Navigator.pop(context, _WearDateChoice.custom),
+                ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.event_outlined),
-              title: const Text('Choisir une date'),
-              onTap: () => Navigator.pop(context, _WearDateChoice.custom),
-            ),
-          ],
-        ),
-      ),
+          ),
     );
 
     if (!mounted || choice == null) return null;
@@ -171,15 +173,13 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
       _refreshGarment(reloadHistory: true);
 
       if (!mounted || !removed) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Port annulé.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Port annulé.')));
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Impossible d’annuler ce port."),
-        ),
+        const SnackBar(content: Text("Impossible d’annuler ce port.")),
       );
     }
   }
@@ -187,22 +187,23 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   Future<void> deleteWear(WearHistory wear) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Supprimer ce port ?'),
-        content: Text(
-          'Le port du ${_formatDate(wear.wornAt)} à ${_formatTime(wear.wornAt)} sera supprimé définitivement.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Supprimer ce port ?'),
+            content: Text(
+              'Le port du ${_formatDate(wear.wornAt)} à ${_formatTime(wear.wornAt)} sera supprimé définitivement.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Supprimer'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Supprimer'),
-          ),
-        ],
-      ),
     );
 
     if (confirmed != true) return;
@@ -212,9 +213,9 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
       _refreshGarment(reloadHistory: true);
 
       if (!mounted || !removed) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Port supprimé.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Port supprimé.')));
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -226,22 +227,23 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   Future<void> remove() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Supprimer cette pièce ?'),
-        content: const Text(
-          'Le vêtement et sa photo locale seront supprimés définitivement.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Supprimer cette pièce ?'),
+            content: const Text(
+              'Le vêtement et sa photo locale seront supprimés définitivement.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Supprimer'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Supprimer'),
-          ),
-        ],
-      ),
     );
 
     if (confirmed == true) {
@@ -265,31 +267,34 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => OutfitFormScreen(
-          controller: controller,
-          outfit: outfit,
-        ),
+        builder:
+            (_) => OutfitFormScreen(controller: controller, outfit: outfit),
       ),
     );
     controller.dispose();
     if (mounted) {
       setState(() {
-        _outfitsFuture = DatabaseService.instance
-            .getOutfitsContainingGarment(garment.id);
+        _outfitsFuture = DatabaseService.instance.getOutfitsContainingGarment(
+          garment.id,
+        );
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final identityChips = [
-      garment.category,
-      garment.color,
-      garment.material,
-      garment.season,
-      garment.style,
-      garment.occasion,
-    ].whereType<String>().where((value) => value.trim().isNotEmpty).toList();
+    final identityChips =
+        [
+              garment.category,
+              garment.color,
+              garment.material,
+              garment.season,
+              garment.style,
+              garment.occasion,
+            ]
+            .whereType<String>()
+            .where((value) => value.trim().isNotEmpty)
+            .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -304,18 +309,19 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
             onSelected: (value) {
               if (value == 'delete') remove();
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline),
-                    SizedBox(width: 10),
-                    Text('Supprimer'),
-                  ],
-                ),
-              ),
-            ],
+            itemBuilder:
+                (_) => const [
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_outline),
+                        SizedBox(width: 10),
+                        Text('Supprimer'),
+                      ],
+                    ),
+                  ),
+                ],
           ),
         ],
       ),
@@ -358,9 +364,10 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
                 ),
               ),
               IconButton.filledTonal(
-                tooltip: garment.isFavorite
-                    ? 'Retirer des favoris'
-                    : 'Ajouter aux favoris',
+                tooltip:
+                    garment.isFavorite
+                        ? 'Retirer des favoris'
+                        : 'Ajouter aux favoris',
                 onPressed: toggleFavorite,
                 icon: Icon(
                   garment.isFavorite ? Icons.favorite : Icons.favorite_border,
@@ -373,9 +380,10 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: identityChips
-                  .map((value) => Chip(label: Text(value)))
-                  .toList(),
+              children:
+                  identityChips
+                      .map((value) => Chip(label: Text(value)))
+                      .toList(),
             ),
           ],
           const SizedBox(height: 26),
@@ -406,20 +414,21 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
               }
               return Card(
                 child: Column(
-                  children: outfits
-                      .map(
-                        (outfit) => ListTile(
-                          leading: Icon(
-                            outfit.favorite
-                                ? Icons.favorite
-                                : Icons.style_outlined,
-                          ),
-                          title: Text(outfit.name),
-                          trailing: const Icon(Icons.arrow_downward),
-                          onTap: () => _openOutfit(outfit),
-                        ),
-                      )
-                      .toList(),
+                  children:
+                      outfits
+                          .map(
+                            (outfit) => ListTile(
+                              leading: Icon(
+                                outfit.favorite
+                                    ? Icons.favorite
+                                    : Icons.style_outlined,
+                              ),
+                              title: Text(outfit.name),
+                              trailing: const Icon(Icons.arrow_downward),
+                              onTap: () => _openOutfit(outfit),
+                            ),
+                          )
+                          .toList(),
                 ),
               );
             },
@@ -463,7 +472,8 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
               ],
             ),
           ),
-          if (garment.purchasePrice != null || garment.purchaseDate != null) ...[
+          if (garment.purchasePrice != null ||
+              garment.purchaseDate != null) ...[
             const SizedBox(height: 24),
             const _SectionTitle('Achat'),
             const SizedBox(height: 10),
@@ -529,16 +539,15 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
           const SizedBox(height: 10),
           OutlinedButton.icon(
             onPressed: _recordingWear ? null : recordWear,
-            icon: _recordingWear
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.check_circle_outline),
+            icon:
+                _recordingWear
+                    ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.check_circle_outline),
             label: Text(
-              _recordingWear
-                  ? 'Enregistrement…'
-                  : "Je l'ai portée aujourd'hui",
+              _recordingWear ? 'Enregistrement…' : "Je l'ai portée aujourd'hui",
             ),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(52),
@@ -552,7 +561,8 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     );
   }
 
-  static bool _hasText(String? value) => value != null && value.trim().isNotEmpty;
+  static bool _hasText(String? value) =>
+      value != null && value.trim().isNotEmpty;
 
   static String _formatDate(DateTime date) {
     final day = date.day.toString().padLeft(2, '0');
@@ -602,7 +612,8 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final remainingMonths = (days % 365) ~/ 30;
     if (remainingMonths == 0) return years == 1 ? '1 an' : '$years ans';
     final yearLabel = years == 1 ? '1 an' : '$years ans';
-    final monthLabel = remainingMonths == 1 ? '1 mois' : '$remainingMonths mois';
+    final monthLabel =
+        remainingMonths == 1 ? '1 mois' : '$remainingMonths mois';
     return '$yearLabel $monthLabel';
   }
 }
@@ -643,9 +654,10 @@ class _GarmentStatsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final costPerWear = garment.purchasePrice == null || garment.wearCount == 0
-        ? 'Non disponible'
-        : formatPrice(garment.purchasePrice! / garment.wearCount);
+    final costPerWear =
+        garment.purchasePrice == null || garment.wearCount == 0
+            ? 'Non disponible'
+            : formatPrice(garment.purchasePrice! / garment.wearCount);
     final ageStart = garment.purchaseDate ?? garment.createdAt;
 
     return FutureBuilder<WearHistory?>(
@@ -656,8 +668,8 @@ class _GarmentStatsGrid extends StatelessWidget {
             snapshot.connectionState == ConnectionState.waiting
                 ? 'Chargement…'
                 : firstWear == null
-                    ? 'Jamais porté'
-                    : formatDate(firstWear);
+                ? 'Jamais porté'
+                : formatDate(firstWear);
 
         return LayoutBuilder(
           builder: (context, constraints) {
@@ -671,50 +683,51 @@ class _GarmentStatsGrid extends StatelessWidget {
               mainAxisSpacing: 10,
               childAspectRatio: 1.18,
               children: [
-            _StatCard(
-              icon: Icons.repeat_outlined,
-              label: 'Total ports',
-              value: '${garment.wearCount}',
-              color: colorScheme.primaryContainer,
-              foregroundColor: colorScheme.onPrimaryContainer,
-            ),
-            _StatCard(
-              icon: Icons.event_available_outlined,
-              label: 'Premier port',
-              value: firstWearLabel,
-              color: colorScheme.secondaryContainer,
-              foregroundColor: colorScheme.onSecondaryContainer,
-            ),
-            _StatCard(
-              icon: Icons.history_outlined,
-              label: 'Dernier port',
-              value: garment.lastWorn == null
-                  ? 'Jamais porté'
-                  : formatDate(garment.lastWorn!),
-              color: colorScheme.tertiaryContainer,
-              foregroundColor: colorScheme.onTertiaryContainer,
-            ),
-            _StatCard(
-              icon: Icons.today_outlined,
-              label: 'Depuis dernier port',
-              value: daysSinceLastWearLabel(garment.lastWorn),
-              color: colorScheme.surfaceVariant,
-              foregroundColor: colorScheme.onSurfaceVariant,
-            ),
-            _StatCard(
-              icon: Icons.calculate_outlined,
-              label: 'Coût par port',
-              value: costPerWear,
-              color: colorScheme.surfaceVariant,
-              foregroundColor: colorScheme.onSurfaceVariant,
-            ),
-            _StatCard(
-              icon: Icons.hourglass_bottom_outlined,
-              label: 'Ancienneté dressing',
-              value: formatCalendarAge(ageStart),
-              color: colorScheme.surfaceVariant,
-              foregroundColor: colorScheme.onSurfaceVariant,
-            ),
+                _StatCard(
+                  icon: Icons.repeat_outlined,
+                  label: 'Total ports',
+                  value: '${garment.wearCount}',
+                  color: colorScheme.primaryContainer,
+                  foregroundColor: colorScheme.onPrimaryContainer,
+                ),
+                _StatCard(
+                  icon: Icons.event_available_outlined,
+                  label: 'Premier port',
+                  value: firstWearLabel,
+                  color: colorScheme.secondaryContainer,
+                  foregroundColor: colorScheme.onSecondaryContainer,
+                ),
+                _StatCard(
+                  icon: Icons.history_outlined,
+                  label: 'Dernier port',
+                  value:
+                      garment.lastWorn == null
+                          ? 'Jamais porté'
+                          : formatDate(garment.lastWorn!),
+                  color: colorScheme.tertiaryContainer,
+                  foregroundColor: colorScheme.onTertiaryContainer,
+                ),
+                _StatCard(
+                  icon: Icons.today_outlined,
+                  label: 'Depuis dernier port',
+                  value: daysSinceLastWearLabel(garment.lastWorn),
+                  color: colorScheme.surfaceVariant,
+                  foregroundColor: colorScheme.onSurfaceVariant,
+                ),
+                _StatCard(
+                  icon: Icons.calculate_outlined,
+                  label: 'Coût par port',
+                  value: costPerWear,
+                  color: colorScheme.surfaceVariant,
+                  foregroundColor: colorScheme.onSurfaceVariant,
+                ),
+                _StatCard(
+                  icon: Icons.hourglass_bottom_outlined,
+                  label: 'Ancienneté dressing',
+                  value: formatCalendarAge(ageStart),
+                  color: colorScheme.surfaceVariant,
+                  foregroundColor: colorScheme.onSurfaceVariant,
+                ),
               ],
             );
           },
@@ -756,9 +769,9 @@ class _StatCard extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: foregroundColor.withOpacity(.78),
-                    fontWeight: FontWeight.w700,
-                  ),
+                color: foregroundColor.withOpacity(.78),
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 5),
             Text(
@@ -766,10 +779,10 @@ class _StatCard extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: foregroundColor,
-                    fontWeight: FontWeight.w900,
-                    height: 1.05,
-                  ),
+                color: foregroundColor,
+                fontWeight: FontWeight.w900,
+                height: 1.05,
+              ),
             ),
           ],
         ),
@@ -805,10 +818,7 @@ class _InfoTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  label,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+                Text(label, style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 2),
                 Text(
                   value,

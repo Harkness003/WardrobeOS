@@ -10,7 +10,8 @@ class ImageStorageService {
     final docs = await getApplicationDocumentsDirectory();
     final folder = Directory(p.join(docs.path, 'garment_images'));
     if (!await folder.exists()) await folder.create(recursive: true);
-    final extension = p.extension(sourcePath).isEmpty ? '.jpg' : p.extension(sourcePath);
+    final extension =
+        p.extension(sourcePath).isEmpty ? '.jpg' : p.extension(sourcePath);
     final target = p.join(folder.path, '${_uuid.v4()}$extension');
     await File(sourcePath).copy(target);
     return target;

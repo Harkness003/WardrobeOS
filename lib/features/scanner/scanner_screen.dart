@@ -109,22 +109,23 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (imagePath != null) {
       final replace = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Remplacer la photo ?'),
-          content: const Text(
-            'La photo actuelle sera conservée si le nouvel import échoue.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Annuler'),
+        builder:
+            (context) => AlertDialog(
+              title: const Text('Remplacer la photo ?'),
+              content: const Text(
+                'La photo actuelle sera conservée si le nouvel import échoue.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Annuler'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Remplacer'),
+                ),
+              ],
             ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Remplacer'),
-            ),
-          ],
-        ),
       );
       if (!mounted || replace != true) return;
     }
@@ -132,23 +133,24 @@ class _ScannerScreenState extends State<ScannerScreen> {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       showDragHandle: true,
-      builder: (_) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
-              title: const Text('Prendre une photo'),
-              subtitle: const Text('Idéalement sur un fond uni'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
+      builder:
+          (_) => SafeArea(
+            child: Wrap(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.camera_alt_outlined),
+                  title: const Text('Prendre une photo'),
+                  subtitle: const Text('Idéalement sur un fond uni'),
+                  onTap: () => Navigator.pop(context, ImageSource.camera),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.photo_library_outlined),
+                  title: const Text('Choisir dans la galerie'),
+                  onTap: () => Navigator.pop(context, ImageSource.gallery),
+                ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choisir dans la galerie'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-          ],
-        ),
-      ),
+          ),
     );
     if (!mounted || source == null) return;
     await pick(source);
@@ -204,9 +206,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
       color: color.text.trim().isEmpty ? null : color.text.trim(),
       material: material.text.trim().isEmpty ? null : material.text.trim(),
       season: season,
-      notes: result == null
-          ? 'Ajout manuel depuis le scanner.'
-          : 'Analyse locale bêta · confiance ${(result!.confidence * 100).round()} %.',
+      notes:
+          result == null
+              ? 'Ajout manuel depuis le scanner.'
+              : 'Analyse locale bêta · confiance ${(result!.confidence * 100).round()} %.',
       imagePath: imagePath,
       createdAt: now,
       updatedAt: now,
@@ -248,15 +251,17 @@ class _ScannerScreenState extends State<ScannerScreen> {
           actions: [
             IconButton(
               tooltip: 'Conseils photo',
-              onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) => const AlertDialog(
-                  title: Text('Pour une meilleure analyse'),
-                  content: Text(
-                    'Photographie une seule pièce, bien éclairée, à plat ou sur un cintre, avec un fond aussi neutre que possible.',
+              onPressed:
+                  () => showDialog<void>(
+                    context: context,
+                    builder:
+                        (_) => const AlertDialog(
+                          title: Text('Pour une meilleure analyse'),
+                          content: Text(
+                            'Photographie une seule pièce, bien éclairée, à plat ou sur un cintre, avec un fond aussi neutre que possible.',
+                          ),
+                        ),
                   ),
-                ),
-              ),
               icon: const Icon(Icons.help_outline),
             ),
           ],
@@ -264,130 +269,137 @@ class _ScannerScreenState extends State<ScannerScreen> {
         body: ListView(
           padding: const EdgeInsets.fromLTRB(18, 4, 18, 32),
           children: [
-          _PhotoArea(
-            imagePath: imagePath,
-            analyzing: analyzing,
-            importing: importing,
-            onTap: busy ? null : chooseSource,
-          ),
-          const SizedBox(height: 18),
-          if (imagePath == null) ...[
-            const _IntroCard(),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: busy ? null : chooseSource,
-              icon: const Icon(Icons.camera_alt_outlined),
-              label: const Text('Prendre ou choisir une photo'),
+            _PhotoArea(
+              imagePath: imagePath,
+              analyzing: analyzing,
+              importing: importing,
+              onTap: busy ? null : chooseSource,
             ),
-          ] else ...[
-            if (result != null) _AnalysisSummary(result: result!),
-            if (result != null) const SizedBox(height: 14),
-            TextField(
-              controller: name,
-              decoration: const InputDecoration(
-                labelText: 'Nom de la pièce',
-                prefixIcon: Icon(Icons.edit_outlined),
+            const SizedBox(height: 18),
+            if (imagePath == null) ...[
+              const _IntroCard(),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: busy ? null : chooseSource,
+                icon: const Icon(Icons.camera_alt_outlined),
+                label: const Text('Prendre ou choisir une photo'),
               ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: brand,
-              decoration: const InputDecoration(
-                labelText: 'Marque (facultatif)',
-                prefixIcon: Icon(Icons.sell_outlined),
+            ] else ...[
+              if (result != null) _AnalysisSummary(result: result!),
+              if (result != null) const SizedBox(height: 14),
+              TextField(
+                controller: name,
+                decoration: const InputDecoration(
+                  labelText: 'Nom de la pièce',
+                  prefixIcon: Icon(Icons.edit_outlined),
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              initialValue: category,
-              decoration: const InputDecoration(
-                labelText: 'Catégorie',
-                prefixIcon: Icon(Icons.category_outlined),
+              const SizedBox(height: 10),
+              TextField(
+                controller: brand,
+                decoration: const InputDecoration(
+                  labelText: 'Marque (facultatif)',
+                  prefixIcon: Icon(Icons.sell_outlined),
+                ),
               ),
-              items: categories
-                  .map((value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(value),
-                      ))
-                  .toList(),
-              onChanged: (value) => setState(() => category = value!),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: color,
-              decoration: const InputDecoration(
-                labelText: 'Couleur',
-                prefixIcon: Icon(Icons.palette_outlined),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue: category,
+                decoration: const InputDecoration(
+                  labelText: 'Catégorie',
+                  prefixIcon: Icon(Icons.category_outlined),
+                ),
+                items:
+                    categories
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) => setState(() => category = value!),
               ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: material,
-              decoration: const InputDecoration(
-                labelText: 'Matière',
-                prefixIcon: Icon(Icons.texture_outlined),
+              const SizedBox(height: 10),
+              TextField(
+                controller: color,
+                decoration: const InputDecoration(
+                  labelText: 'Couleur',
+                  prefixIcon: Icon(Icons.palette_outlined),
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              initialValue: season,
-              decoration: const InputDecoration(
-                labelText: 'Saison',
-                prefixIcon: Icon(Icons.calendar_month_outlined),
+              const SizedBox(height: 10),
+              TextField(
+                controller: material,
+                decoration: const InputDecoration(
+                  labelText: 'Matière',
+                  prefixIcon: Icon(Icons.texture_outlined),
+                ),
               ),
-              items: seasons
-                  .map((value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(value),
-                      ))
-                  .toList(),
-              onChanged: (value) => setState(() => season = value!),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: busy ? null : analyze,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Réanalyser'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue: season,
+                decoration: const InputDecoration(
+                  labelText: 'Saison',
+                  prefixIcon: Icon(Icons.calendar_month_outlined),
+                ),
+                items:
+                    seasons
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) => setState(() => season = value!),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: busy ? null : analyze,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Réanalyser'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(52),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: busy ? null : chooseSource,
-                    icon: const Icon(Icons.photo_camera_back_outlined),
-                    label: const Text('Changer'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: busy ? null : chooseSource,
+                      icon: const Icon(Icons.photo_camera_back_outlined),
+                      label: const Text('Changer'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(52),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            FilledButton.icon(
-              onPressed: busy ? null : save,
-              icon: saving
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.check),
-              label: Text(
-                saving ? 'Ajout en cours…' : 'Valider et ajouter au dressing',
+                ],
               ),
-            ),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: busy ? null : save,
+                icon:
+                    saving
+                        ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.check),
+                label: Text(
+                  saving ? 'Ajout en cours…' : 'Valider et ajouter au dressing',
+                ),
+              ),
             ],
           ],
         ),
@@ -512,10 +524,7 @@ class _IntroCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'Scanner intelligent — bêta',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                    ),
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
                   ),
                 ),
               ],

@@ -12,7 +12,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
   final List<_Message> messages = [
     const _Message(
       mine: false,
-      text: 'Bonjour 👋 Je suis WardrobeGPT. Pour le moment je fonctionne en mode démonstration, mais cette base est prête à être reliée à ton dressing.',
+      text:
+          'Bonjour 👋 Je suis WardrobeGPT. Pour le moment je fonctionne en mode démonstration, mais cette base est prête à être reliée à ton dressing.',
     ),
   ];
 
@@ -21,10 +22,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (text.isEmpty) return;
     setState(() {
       messages.add(_Message(mine: true, text: text));
-      messages.add(const _Message(
-        mine: false,
-        text: 'J’ai bien reçu ta demande. L’étape suivante consistera à me connecter aux vêtements enregistrés dans SQLite.',
-      ));
+      messages.add(
+        const _Message(
+          mine: false,
+          text:
+              'J’ai bien reçu ta demande. L’étape suivante consistera à me connecter aux vêtements enregistrés dans SQLite.',
+        ),
+      );
     });
     input.clear();
   }
@@ -45,7 +49,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
             child: Row(
               children: [
                 Expanded(
-                  child: Text('WardrobeGPT', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+                  child: Text(
+                    'WardrobeGPT',
+                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                  ),
                 ),
                 CircleAvatar(child: Icon(Icons.auto_awesome)),
               ],
@@ -78,11 +85,16 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   child: TextField(
                     controller: input,
                     onSubmitted: (_) => send(),
-                    decoration: const InputDecoration(hintText: 'Écris ton message…'),
+                    decoration: const InputDecoration(
+                      hintText: 'Écris ton message…',
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                IconButton.filled(onPressed: send, icon: const Icon(Icons.arrow_upward)),
+                IconButton.filled(
+                  onPressed: send,
+                  icon: const Icon(Icons.arrow_upward),
+                ),
               ],
             ),
           ),
@@ -126,10 +138,18 @@ class _Bubble extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: message.mine ? const Color(0xFFC89B4A) : Theme.of(context).cardColor,
+          color:
+              message.mine
+                  ? const Color(0xFFC89B4A)
+                  : Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Text(message.text, style: TextStyle(color: message.mine ? const Color(0xFF171717) : null)),
+        child: Text(
+          message.text,
+          style: TextStyle(
+            color: message.mine ? const Color(0xFF171717) : null,
+          ),
+        ),
       ),
     );
   }

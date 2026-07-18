@@ -11,7 +11,14 @@ class ProfileScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
         children: [
-          const Text('Profil', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: -1)),
+          const Text(
+            'Profil',
+            style: TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -1,
+            ),
+          ),
           const SizedBox(height: 18),
           const Card(
             child: Padding(
@@ -24,7 +31,13 @@ class ProfileScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Alex', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+                        Text(
+                          'Alex',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
                         Text('Profil local WardrobeOS'),
                       ],
                     ),
@@ -34,14 +47,20 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
-          _Tile(icon: Icons.accessibility_new, title: 'Morphologie & proportions'),
+          _Tile(
+            icon: Icons.accessibility_new,
+            title: 'Morphologie & proportions',
+          ),
           _Tile(icon: Icons.style_outlined, title: 'Préférences de style'),
           _Tile(icon: Icons.notifications_none, title: 'Notifications'),
           Card(
             margin: const EdgeInsets.only(bottom: 10),
             child: SwitchListTile(
               secondary: const Icon(Icons.dark_mode_outlined),
-              title: const Text('Mode sombre', style: TextStyle(fontWeight: FontWeight.w800)),
+              title: const Text(
+                'Mode sombre',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
               value: settings.darkMode,
               onChanged: settings.setDarkMode,
             ),
@@ -49,7 +68,12 @@ class ProfileScreen extends StatelessWidget {
           _Tile(icon: Icons.cloud_outlined, title: 'Sauvegarde & export'),
           _Tile(icon: Icons.info_outline, title: 'À propos'),
           const SizedBox(height: 18),
-          Center(child: Text('WardrobeOS Sprint 2 · Premium UI', style: Theme.of(context).textTheme.bodySmall)),
+          Center(
+            child: Text(
+              'WardrobeOS Sprint 2 · Premium UI',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
         ],
       ),
     );

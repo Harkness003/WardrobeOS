@@ -17,18 +17,17 @@ class GarmentScannerService {
       await labeler.close();
     }
 
-    final labels = detected
-        .take(10)
-        .map((label) => label.label.toLowerCase())
-        .toList();
+    final labels =
+        detected.take(10).map((label) => label.label.toLowerCase()).toList();
 
     final category = _categoryFrom(labels);
     final material = _materialFrom(labels, category);
     final season = _seasonFrom(category, material);
     final color = await _dominantColorName(imagePath);
-    final confidence = detected.isEmpty
-        ? 0.35
-        : detected.map((label) => label.confidence).reduce(math.max);
+    final confidence =
+        detected.isEmpty
+            ? 0.35
+            : detected.map((label) => label.confidence).reduce(math.max);
 
     return GarmentScanResult(
       suggestedName: _suggestedName(category, color),
@@ -46,32 +45,49 @@ class GarmentScannerService {
         labels.any((label) => words.any(label.contains));
 
     if (containsAny([
-      'shoe', 'footwear', 'sneaker', 'boot', 'sandal', 'high heels',
+      'shoe',
+      'footwear',
+      'sneaker',
+      'boot',
+      'sandal',
+      'high heels',
     ])) {
       return 'Chaussures';
     }
     if (containsAny([
-      'jacket', 'coat', 'blazer', 'outerwear', 'hoodie', 'suit',
+      'jacket',
+      'coat',
+      'blazer',
+      'outerwear',
+      'hoodie',
+      'suit',
     ])) {
       return 'Vestes';
     }
-    if (containsAny([
-      'shirt', 'dress shirt', 'collar', 'blouse',
-    ])) {
+    if (containsAny(['shirt', 'dress shirt', 'collar', 'blouse'])) {
       return 'Chemises';
     }
-    if (containsAny([
-      'trousers', 'pants', 'jeans', 'shorts', 'skirt',
-    ])) {
+    if (containsAny(['trousers', 'pants', 'jeans', 'shorts', 'skirt'])) {
       return 'Bas';
     }
     if (containsAny([
-      'bag', 'handbag', 'watch', 'belt', 'hat', 'glasses', 'jewellery',
+      'bag',
+      'handbag',
+      'watch',
+      'belt',
+      'hat',
+      'glasses',
+      'jewellery',
     ])) {
       return 'Accessoires';
     }
     if (containsAny([
-      'clothing', 't-shirt', 'sweater', 'jersey', 'top', 'sportswear',
+      'clothing',
+      't-shirt',
+      'sweater',
+      'jersey',
+      'top',
+      'sportswear',
     ])) {
       return 'Hauts';
     }

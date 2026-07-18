@@ -5,12 +5,15 @@ import '../../widgets/garment_image.dart';
 import '../../widgets/section_title.dart';
 import '../wardrobe/garment_detail_screen.dart';
 import '../wardrobe/wardrobe_controller.dart';
+import '../../weather/models/weather_data.dart';
+import '../../weather/services/weather_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   final VoidCallback openWardrobe;
   final VoidCallback openAssistant;
   final VoidCallback openOutfits;
   final VoidCallback openScanner;
+  final WeatherService weatherService;
 
   const DashboardScreen({
     super.key,
@@ -18,6 +21,7 @@ class DashboardScreen extends StatefulWidget {
     required this.openAssistant,
     required this.openOutfits,
     required this.openScanner,
+    required this.weatherService,
   });
 
   @override
@@ -26,11 +30,13 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   late final WardrobeController _wardrobeController;
+  late Future<WeatherData> _weather;
 
   @override
   void initState() {
     super.initState();
     _wardrobeController = WardrobeController()..load();
+    _weather = widget.weatherService.getCurrentWeather();
   }
 
   @override
@@ -43,10 +49,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => GarmentDetailScreen(
-          controller: _wardrobeController,
-          garment: garment,
-        ),
+        builder:
+            (_) => GarmentDetailScreen(
+              controller: _wardrobeController,
+              garment: garment,
+            ),
       ),
     );
 
@@ -60,9 +67,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 16, 18, 30),
         children: [
-          _Header(onNotification: () => _toast(context, 'Aucune notification pour le moment')),
+          _Header(
+            onNotification:
+                () => _toast(context, 'Aucune notification pour le moment'),
+          ),
           const SizedBox(height: 22),
           _DailyAssistantCard(onTap: widget.openAssistant),
+          const SizedBox(height: 14),
+          _WeatherDebug(
+            weather: _weather,
+            onRefresh:
+                () => setState(() {
+                  _weather = widget.weatherService.getCurrentWeather(
+                    forceRefresh: true,
+                  );
+                }),
+          ),
           const SizedBox(height: 14),
           const Row(
             children: [
@@ -152,6 +172,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   static void _toast(BuildContext context, String text) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+}
+
+class _WeatherDebug extends StatelessWidget {
+  final Future<WeatherData> weather;
+  final VoidCallback onRefresh;
+
+  const _WeatherDebug({required this.weather, required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: FutureBuilder<WeatherData>(
+          future: weather,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const LinearProgressIndicator();
+            }
+            if (snapshot.hasError) {
+              return Row(
+                children: [
+                  const Expanded(child: Text('Météo indisponible')),
+                  IconButton(
+                    onPressed: onRefresh,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              );
+            }
+            final data = snapshot.requireData;
+            final updated = TimeOfDay.fromDateTime(
+              data.measuredAt.toLocal(),
+            ).format(context);
+            return Row(
+              children: [
+                const Icon(Icons.cloud_outlined),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '${data.city} · ${data.temperature.round()}°C · ${data.description}\nMis à jour à $updated',
+                  ),
+                ),
+                IconButton(
+                  onPressed: onRefresh,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
   }
 }
 
@@ -358,7 +432,10 @@ class _SuggestedLook extends StatelessWidget {
                         SizedBox(width: 12),
                         _LookPiece(icon: Icons.straighten, label: 'Pantalon'),
                         SizedBox(width: 12),
-                        _LookPiece(icon: Icons.directions_walk, label: 'Sneakers'),
+                        _LookPiece(
+                          icon: Icons.directions_walk,
+                          label: 'Sneakers',
+                        ),
                       ],
                     ),
                   ),
@@ -505,12 +582,19 @@ class _ForgottenGarmentsSection extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
-              for (var index = 0; index < forgottenGarments.length; index++) ...[
+              for (
+                var index = 0;
+                index < forgottenGarments.length;
+                index++
+              ) ...[
                 _ForgottenGarmentTile(
                   garment: forgottenGarments[index],
-                  daysSinceLastWear: forgottenGarments[index].lastWorn == null
-                      ? null
-                      : _daysSinceLastWear(forgottenGarments[index].lastWorn!),
+                  daysSinceLastWear:
+                      forgottenGarments[index].lastWorn == null
+                          ? null
+                          : _daysSinceLastWear(
+                            forgottenGarments[index].lastWorn!,
+                          ),
                   onTap: () => onOpenGarment(forgottenGarments[index]),
                 ),
                 if (index < forgottenGarments.length - 1)
@@ -524,11 +608,12 @@ class _ForgottenGarmentsSection extends StatelessWidget {
   }
 
   static List<Garment> _forgottenGarments(List<Garment> garments) {
-    final forgotten = garments.where((garment) {
-      final lastWorn = garment.lastWorn;
-      return lastWorn == null ||
-          _daysSinceLastWear(lastWorn) > _forgottenAfterDays;
-    }).toList();
+    final forgotten =
+        garments.where((garment) {
+          final lastWorn = garment.lastWorn;
+          return lastWorn == null ||
+              _daysSinceLastWear(lastWorn) > _forgottenAfterDays;
+        }).toList();
 
     forgotten.sort((a, b) {
       if (a.lastWorn == null && b.lastWorn != null) return -1;
@@ -537,9 +622,9 @@ class _ForgottenGarmentsSection extends StatelessWidget {
         return a.name.toLowerCase().compareTo(b.name.toLowerCase());
       }
 
-      return _daysSinceLastWear(b.lastWorn!).compareTo(
-        _daysSinceLastWear(a.lastWorn!),
-      );
+      return _daysSinceLastWear(
+        b.lastWorn!,
+      ).compareTo(_daysSinceLastWear(a.lastWorn!));
     });
 
     return forgotten.take(_maxGarments).toList();

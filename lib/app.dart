@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'core/settings/app_settings.dart';
 import 'core/theme/app_theme.dart';
 import 'features/shell/main_shell.dart';
+import 'weather/api/open_meteo_api.dart';
+import 'weather/location/geolocator_location_service.dart';
+import 'weather/services/cached_weather_service.dart';
 
 class WardrobeOSApp extends StatefulWidget {
   const WardrobeOSApp({super.key});
@@ -12,6 +15,10 @@ class WardrobeOSApp extends StatefulWidget {
 
 class _WardrobeOSAppState extends State<WardrobeOSApp> {
   final settings = AppSettings();
+  late final weatherService = CachedWeatherService(
+    locationService: GeolocatorLocationService(),
+    weatherApi: OpenMeteoApi(),
+  );
 
   @override
   void initState() {
@@ -36,7 +43,7 @@ class _WardrobeOSAppState extends State<WardrobeOSApp> {
       theme: AppTheme.light,
       darkTheme: AppTheme.darkTheme,
       themeMode: settings.themeMode,
-      home: MainShell(settings: settings),
+      home: MainShell(settings: settings, weatherService: weatherService),
     );
   }
 }

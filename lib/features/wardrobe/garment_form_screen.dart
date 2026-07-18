@@ -12,11 +12,7 @@ class GarmentFormScreen extends StatefulWidget {
   final WardrobeController controller;
   final Garment? garment;
 
-  const GarmentFormScreen({
-    super.key,
-    required this.controller,
-    this.garment,
-  });
+  const GarmentFormScreen({super.key, required this.controller, this.garment});
 
   @override
   State<GarmentFormScreen> createState() => _GarmentFormScreenState();
@@ -107,11 +103,12 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     color = TextEditingController(text: g?.color ?? '');
     material = TextEditingController(text: g?.material ?? '');
     price = TextEditingController(
-      text: g?.purchasePrice == null
-          ? ''
-          : g!.purchasePrice!.toStringAsFixed(
-              g.purchasePrice! % 1 == 0 ? 0 : 2,
-            ),
+      text:
+          g?.purchasePrice == null
+              ? ''
+              : g!.purchasePrice!.toStringAsFixed(
+                g.purchasePrice! % 1 == 0 ? 0 : 2,
+              ),
     );
     size = TextEditingController(text: g?.size ?? '');
     composition = TextEditingController(text: g?.composition ?? '');
@@ -166,40 +163,41 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (_) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
-              title: const Text('Prendre une photo'),
-              onTap: () {
-                Navigator.pop(context);
-                chooseImage(ImageSource.camera);
-              },
+      builder:
+          (_) => SafeArea(
+            child: Wrap(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.camera_alt_outlined),
+                  title: const Text('Prendre une photo'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    chooseImage(ImageSource.camera);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.photo_library_outlined),
+                  title: const Text('Choisir dans la galerie'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    chooseImage(ImageSource.gallery);
+                  },
+                ),
+                if (imagePath != null)
+                  ListTile(
+                    leading: const Icon(Icons.delete_outline),
+                    title: const Text('Retirer la photo'),
+                    onTap: () async {
+                      Navigator.pop(context);
+                      if (imagePath != widget.garment?.imagePath) {
+                        await ImageStorageService.remove(imagePath);
+                      }
+                      if (mounted) setState(() => imagePath = null);
+                    },
+                  ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choisir dans la galerie'),
-              onTap: () {
-                Navigator.pop(context);
-                chooseImage(ImageSource.gallery);
-              },
-            ),
-            if (imagePath != null)
-              ListTile(
-                leading: const Icon(Icons.delete_outline),
-                title: const Text('Retirer la photo'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  if (imagePath != widget.garment?.imagePath) {
-                    await ImageStorageService.remove(imagePath);
-                  }
-                  if (mounted) setState(() => imagePath = null);
-                },
-              ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -326,9 +324,11 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
                 controller: name,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(labelText: 'Nom *'),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Le nom est obligatoire'
-                    : null,
+                validator:
+                    (value) =>
+                        value == null || value.trim().isEmpty
+                            ? 'Le nom est obligatoire'
+                            : null,
               ),
               const SizedBox(height: 10),
               TextFormField(
@@ -340,12 +340,13 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
               DropdownButtonFormField<String>(
                 initialValue: category,
                 decoration: const InputDecoration(labelText: 'Catégorie'),
-                items: categories
-                    .map((item) => DropdownMenuItem(
-                          value: item,
-                          child: Text(item),
-                        ))
-                    .toList(),
+                items:
+                    categories
+                        .map(
+                          (item) =>
+                              DropdownMenuItem(value: item, child: Text(item)),
+                        )
+                        .toList(),
                 onChanged: (value) => setState(() => category = value!),
               ),
               const SizedBox(height: 10),
@@ -375,36 +376,39 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
               DropdownButtonFormField<String>(
                 initialValue: season,
                 decoration: const InputDecoration(labelText: 'Saison'),
-                items: seasons
-                    .map((item) => DropdownMenuItem(
-                          value: item,
-                          child: Text(item),
-                        ))
-                    .toList(),
+                items:
+                    seasons
+                        .map(
+                          (item) =>
+                              DropdownMenuItem(value: item, child: Text(item)),
+                        )
+                        .toList(),
                 onChanged: (value) => setState(() => season = value!),
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
                 initialValue: style,
                 decoration: const InputDecoration(labelText: 'Style'),
-                items: styles
-                    .map((item) => DropdownMenuItem(
-                          value: item,
-                          child: Text(item),
-                        ))
-                    .toList(),
+                items:
+                    styles
+                        .map(
+                          (item) =>
+                              DropdownMenuItem(value: item, child: Text(item)),
+                        )
+                        .toList(),
                 onChanged: (value) => setState(() => style = value!),
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
                 initialValue: occasion,
                 decoration: const InputDecoration(labelText: 'Occasion'),
-                items: occasions
-                    .map((item) => DropdownMenuItem(
-                          value: item,
-                          child: Text(item),
-                        ))
-                    .toList(),
+                items:
+                    occasions
+                        .map(
+                          (item) =>
+                              DropdownMenuItem(value: item, child: Text(item)),
+                        )
+                        .toList(),
                 onChanged: (value) => setState(() => occasion = value!),
               ),
               const SizedBox(height: 22),
@@ -427,12 +431,15 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
                       initialValue: fit,
                       isExpanded: true,
                       decoration: const InputDecoration(labelText: 'Coupe'),
-                      items: fits
-                          .map((item) => DropdownMenuItem(
-                                value: item,
-                                child: Text(item),
-                              ))
-                          .toList(),
+                      items:
+                          fits
+                              .map(
+                                (item) => DropdownMenuItem(
+                                  value: item,
+                                  child: Text(item),
+                                ),
+                              )
+                              .toList(),
                       onChanged: (value) => setState(() => fit = value!),
                     ),
                   ),
@@ -456,12 +463,13 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
               DropdownButtonFormField<String>(
                 initialValue: condition,
                 decoration: const InputDecoration(labelText: 'État'),
-                items: conditions
-                    .map((item) => DropdownMenuItem(
-                          value: item,
-                          child: Text(item),
-                        ))
-                    .toList(),
+                items:
+                    conditions
+                        .map(
+                          (item) =>
+                              DropdownMenuItem(value: item, child: Text(item)),
+                        )
+                        .toList(),
                 onChanged: (value) => setState(() => condition = value!),
               ),
               const SizedBox(height: 10),
@@ -489,13 +497,15 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
                 child: InputDecorator(
                   decoration: InputDecoration(
                     labelText: "Date d'achat",
-                    suffixIcon: purchaseDate == null
-                        ? const Icon(Icons.calendar_month_outlined)
-                        : IconButton(
-                            tooltip: 'Effacer la date',
-                            onPressed: () => setState(() => purchaseDate = null),
-                            icon: const Icon(Icons.close),
-                          ),
+                    suffixIcon:
+                        purchaseDate == null
+                            ? const Icon(Icons.calendar_month_outlined)
+                            : IconButton(
+                              tooltip: 'Effacer la date',
+                              onPressed:
+                                  () => setState(() => purchaseDate = null),
+                              icon: const Icon(Icons.close),
+                            ),
                   ),
                   child: Text(
                     purchaseDate == null
@@ -532,12 +542,13 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
               const SizedBox(height: 10),
               FilledButton.icon(
                 onPressed: saving ? null : save,
-                icon: saving
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save_outlined),
+                icon:
+                    saving
+                        ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.save_outlined),
                 label: Text(saving ? 'Enregistrement…' : 'Enregistrer'),
               ),
             ],

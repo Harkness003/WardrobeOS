@@ -1,0 +1,877 @@
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+index 2f17cdbcbacb8811ae0c1358c62d0f45e6195743..3ab07c958fdfe689b1707a0c48a0aa9d30371a10 100644
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -1,26 +1,29 @@
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
++    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
++    <uses-permission android:name="android.permission.INTERNET" />
+     <application
+         android:label="wardrobeos"
+         android:name="${applicationName}"
+         android:icon="@mipmap/ic_launcher">
+         <activity
+             android:name=".MainActivity"
+             android:exported="true"
+             android:launchMode="singleTop"
+             android:taskAffinity=""
+             android:theme="@style/LaunchTheme"
+             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+             android:hardwareAccelerated="true"
+             android:windowSoftInputMode="adjustResize">
+             <!-- Specifies an Android theme to apply to this Activity as soon as
+                  the Android process has started. This theme is visible to the user
+                  while the Flutter UI initializes. After that, this theme continues
+                  to determine the Window background behind the Flutter UI. -->
+             <meta-data
+               android:name="io.flutter.embedding.android.NormalTheme"
+               android:resource="@style/NormalTheme"
+               />
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN"/>
+                 <category android:name="android.intent.category.LAUNCHER"/>
+             </intent-filter>
+diff --git a/lib/app.dart b/lib/app.dart
+index abdde15658f232a205633a0db44ab44f465f2674..49f90624f7afb05cf80552d2c127bf93fe0af8c1 100644
+--- a/lib/app.dart
++++ b/lib/app.dart
+@@ -1,42 +1,49 @@
+ import 'package:flutter/material.dart';
+ import 'core/settings/app_settings.dart';
+ import 'core/theme/app_theme.dart';
+ import 'features/shell/main_shell.dart';
++import 'weather/api/open_meteo_api.dart';
++import 'weather/location/geolocator_location_service.dart';
++import 'weather/services/cached_weather_service.dart';
+ 
+ class WardrobeOSApp extends StatefulWidget {
+   const WardrobeOSApp({super.key});
+ 
+   @override
+   State<WardrobeOSApp> createState() => _WardrobeOSAppState();
+ }
+ 
+ class _WardrobeOSAppState extends State<WardrobeOSApp> {
+   final settings = AppSettings();
++  late final weatherService = CachedWeatherService(
++    locationService: GeolocatorLocationService(),
++    weatherApi: OpenMeteoApi(),
++  );
+ 
+   @override
+   void initState() {
+     super.initState();
+     settings.addListener(_refresh);
+   }
+ 
+   void _refresh() => setState(() {});
+ 
+   @override
+   void dispose() {
+     settings.removeListener(_refresh);
+     settings.dispose();
+     super.dispose();
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return MaterialApp(
+       debugShowCheckedModeBanner: false,
+       title: 'WardrobeOS',
+       theme: AppTheme.light,
+       darkTheme: AppTheme.darkTheme,
+       themeMode: settings.themeMode,
+-      home: MainShell(settings: settings),
++      home: MainShell(settings: settings, weatherService: weatherService),
+     );
+   }
+ }
+diff --git a/lib/features/dashboard/dashboard_screen.dart b/lib/features/dashboard/dashboard_screen.dart
+index 37ebec43b57a72b53336fc2813106a61ac2701ec..62c20e1170b8110724c3c8b35302b0234aeec43a 100644
+--- a/lib/features/dashboard/dashboard_screen.dart
++++ b/lib/features/dashboard/dashboard_screen.dart
+@@ -1,91 +1,104 @@
+ import 'package:flutter/material.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../models/garment.dart';
+ import '../../widgets/garment_image.dart';
+ import '../../widgets/section_title.dart';
+ import '../wardrobe/garment_detail_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
++import '../../weather/models/weather_data.dart';
++import '../../weather/services/weather_service.dart';
+ 
+ class DashboardScreen extends StatefulWidget {
+   final VoidCallback openWardrobe;
+   final VoidCallback openAssistant;
+   final VoidCallback openOutfits;
+   final VoidCallback openScanner;
++  final WeatherService weatherService;
+ 
+   const DashboardScreen({
+     super.key,
+     required this.openWardrobe,
+     required this.openAssistant,
+     required this.openOutfits,
+     required this.openScanner,
++    required this.weatherService,
+   });
+ 
+   @override
+   State<DashboardScreen> createState() => _DashboardScreenState();
+ }
+ 
+ class _DashboardScreenState extends State<DashboardScreen> {
+   late final WardrobeController _wardrobeController;
++  late Future<WeatherData> _weather;
+ 
+   @override
+   void initState() {
+     super.initState();
+     _wardrobeController = WardrobeController()..load();
++    _weather = widget.weatherService.getCurrentWeather();
+   }
+ 
+   @override
+   void dispose() {
+     _wardrobeController.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> _openGarment(Garment garment) async {
+     await Navigator.push<void>(
+       context,
+       MaterialPageRoute(
+         builder: (_) => GarmentDetailScreen(
+           controller: _wardrobeController,
+           garment: garment,
+         ),
+       ),
+     );
+ 
+     if (!mounted) return;
+     await _wardrobeController.load();
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 16, 18, 30),
+         children: [
+           _Header(onNotification: () => _toast(context, 'Aucune notification pour le moment')),
+           const SizedBox(height: 22),
+           _DailyAssistantCard(onTap: widget.openAssistant),
+           const SizedBox(height: 14),
++          _WeatherDebug(
++            weather: _weather,
++            onRefresh: () => setState(() {
++              _weather = widget.weatherService.getCurrentWeather(forceRefresh: true);
++            }),
++          ),
++          const SizedBox(height: 14),
+           const Row(
+             children: [
+               Expanded(
+                 child: _MiniMetric(
+                   icon: Icons.wb_sunny_outlined,
+                   value: '18°',
+                   label: 'Clair',
+                   detail: 'Météo locale',
+                 ),
+               ),
+               SizedBox(width: 12),
+               Expanded(
+                 child: _MiniMetric(
+                   icon: Icons.calendar_today_outlined,
+                   value: '20h',
+                   label: 'Dîner',
+                   detail: 'Prochain événement',
+                 ),
+               ),
+             ],
+           ),
+           const SizedBox(height: 28),
+           SectionTitle(
+             title: 'Tenue suggérée',
+             action: 'Générer',
+@@ -133,50 +146,96 @@ class _DashboardScreenState extends State<DashboardScreen> {
+                 subtitle: 'Ajouter une pièce',
+                 onTap: widget.openScanner,
+               ),
+               _ActionCard(
+                 icon: Icons.chat_bubble_outline,
+                 title: 'WardrobeGPT',
+                 subtitle: 'Poser une question',
+                 onTap: widget.openAssistant,
+               ),
+             ],
+           ),
+           const SizedBox(height: 28),
+           const SectionTitle(title: 'Insight du dressing'),
+           const SizedBox(height: 12),
+           const _InsightCard(),
+         ],
+       ),
+     );
+   }
+ 
+   static void _toast(BuildContext context, String text) {
+     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+   }
+ }
+ 
++class _WeatherDebug extends StatelessWidget {
++  final Future<WeatherData> weather;
++  final VoidCallback onRefresh;
++
++  const _WeatherDebug({required this.weather, required this.onRefresh});
++
++  @override
++  Widget build(BuildContext context) {
++    return Card(
++      child: Padding(
++        padding: const EdgeInsets.all(16),
++        child: FutureBuilder<WeatherData>(
++          future: weather,
++          builder: (context, snapshot) {
++            if (snapshot.connectionState != ConnectionState.done) {
++              return const LinearProgressIndicator();
++            }
++            if (snapshot.hasError) {
++              return Row(
++                children: [
++                  const Expanded(child: Text('Météo indisponible')),
++                  IconButton(onPressed: onRefresh, icon: const Icon(Icons.refresh)),
++                ],
++              );
++            }
++            final data = snapshot.requireData;
++            final updated = TimeOfDay.fromDateTime(data.measuredAt.toLocal()).format(context);
++            return Row(
++              children: [
++                const Icon(Icons.cloud_outlined),
++                const SizedBox(width: 12),
++                Expanded(
++                  child: Text(
++                    '${data.city} · ${data.temperature.round()}°C · ${data.description}\nMis à jour à $updated',
++                  ),
++                ),
++                IconButton(onPressed: onRefresh, icon: const Icon(Icons.refresh)),
++              ],
++            );
++          },
++        ),
++      ),
++    );
++  }
++}
++
+ class _Header extends StatelessWidget {
+   final VoidCallback onNotification;
+   const _Header({required this.onNotification});
+ 
+   @override
+   Widget build(BuildContext context) {
+     return Row(
+       children: [
+         const Expanded(
+           child: Column(
+             crossAxisAlignment: CrossAxisAlignment.start,
+             children: [
+               Text(
+                 'Bonjour',
+                 style: TextStyle(
+                   fontSize: 31,
+                   fontWeight: FontWeight.w900,
+                   letterSpacing: -1,
+                 ),
+               ),
+               SizedBox(height: 3),
+               Text('Ton style, simplifié chaque jour'),
+             ],
+           ),
+         ),
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 25d05b5b823be016e4cbfcca89fe3a711a12ff34..1935fb8f3bd3db504b0a25a5a5bd1962771219d7 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -1,56 +1,63 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wishlist/wishlist_screen.dart';
++import '../../weather/services/weather_service.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
++  final WeatherService weatherService;
+ 
+-  const MainShell({super.key, required this.settings});
++  const MainShell({
++    super.key,
++    required this.settings,
++    required this.weatherService,
++  });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
++        weatherService: widget.weatherService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(3),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+             MaterialPageRoute(builder: (_) => const ScannerScreen()),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+           }
+         },
+       ),
+       const WardrobeScreen(),
+       const OutfitsScreen(),
+       const AssistantScreen(),
+       const WishlistScreen(),
+       ProfileScreen(settings: widget.settings),
+     ];
+ 
+     return Scaffold(
+       body: AnimatedSwitcher(
+         duration: const Duration(milliseconds: 240),
+         transitionBuilder: (child, animation) {
+           return FadeTransition(
+diff --git a/lib/weather/api/open_meteo_api.dart b/lib/weather/api/open_meteo_api.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..53320249df5cdabfa89119dd7bab286cbb5e14ec
+--- /dev/null
++++ b/lib/weather/api/open_meteo_api.dart
+@@ -0,0 +1,42 @@
++import 'dart:convert';
++
++import 'package:http/http.dart' as http;
++
++import 'weather_api.dart';
++
++class OpenMeteoApi implements WeatherApi {
++  final http.Client _client;
++  OpenMeteoApi({http.Client? client}) : _client = client ?? http.Client();
++
++  @override
++  Future<Map<String, dynamic>> fetchCurrent({
++    required double latitude,
++    required double longitude,
++  }) async {
++    final uri = Uri.https('api.open-meteo.com', '/v1/forecast', {
++      'latitude': '$latitude',
++      'longitude': '$longitude',
++      'current': [
++        'temperature_2m',
++        'apparent_temperature',
++        'relative_humidity_2m',
++        'wind_speed_10m',
++        'wind_direction_10m',
++        'weather_code',
++      ].join(','),
++      'timezone': 'auto',
++    });
++    final response = await _client.get(uri);
++    if (response.statusCode != 200) {
++      throw WeatherApiException(response.statusCode);
++    }
++    return jsonDecode(response.body) as Map<String, dynamic>;
++  }
++}
++
++class WeatherApiException implements Exception {
++  final int statusCode;
++  const WeatherApiException(this.statusCode);
++  @override
++  String toString() => 'Erreur météo HTTP $statusCode';
++}
+diff --git a/lib/weather/api/weather_api.dart b/lib/weather/api/weather_api.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..c94e4abe35d07c23e7c5eabac57fe205df73a62c
+--- /dev/null
++++ b/lib/weather/api/weather_api.dart
+@@ -0,0 +1,6 @@
++abstract interface class WeatherApi {
++  Future<Map<String, dynamic>> fetchCurrent({
++    required double latitude,
++    required double longitude,
++  });
++}
+diff --git a/lib/weather/location/geolocator_location_service.dart b/lib/weather/location/geolocator_location_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e02922619ab6992a6e169207563466d2212b3ccb
+--- /dev/null
++++ b/lib/weather/location/geolocator_location_service.dart
+@@ -0,0 +1,36 @@
++import 'package:geocoding/geocoding.dart';
++import 'package:geolocator/geolocator.dart';
++
++import 'location_service.dart';
++
++class GeolocatorLocationService implements LocationService {
++  @override
++  Future<LocationData> getCurrentLocation() async {
++    if (!await Geolocator.isLocationServiceEnabled()) {
++      throw const LocationServicesDisabledException();
++    }
++    var permission = await Geolocator.checkPermission();
++    if (permission == LocationPermission.denied) {
++      permission = await Geolocator.requestPermission();
++    }
++    if (permission == LocationPermission.denied) {
++      throw const LocationPermissionDeniedException();
++    }
++    if (permission == LocationPermission.deniedForever) {
++      throw const LocationPermissionPermanentlyDeniedException();
++    }
++    final position = await Geolocator.getCurrentPosition();
++    final places = await placemarkFromCoordinates(
++      position.latitude,
++      position.longitude,
++    );
++    final city = places.isEmpty
++        ? 'Position actuelle'
++        : (places.first.locality ?? 'Position actuelle');
++    return LocationData(
++      latitude: position.latitude,
++      longitude: position.longitude,
++      city: city,
++    );
++  }
++}
+diff --git a/lib/weather/location/location_service.dart b/lib/weather/location/location_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..dfa46c762c54fba8404ebec6eefbdb6e6f90bbaa
+--- /dev/null
++++ b/lib/weather/location/location_service.dart
+@@ -0,0 +1,35 @@
++class LocationData {
++  final double latitude;
++  final double longitude;
++  final String city;
++
++  const LocationData({
++    required this.latitude,
++    required this.longitude,
++    required this.city,
++  });
++}
++
++sealed class LocationException implements Exception {
++  final String message;
++  const LocationException(this.message);
++  @override
++  String toString() => message;
++}
++
++class LocationServicesDisabledException extends LocationException {
++  const LocationServicesDisabledException() : super('Le GPS est désactivé.');
++}
++
++class LocationPermissionDeniedException extends LocationException {
++  const LocationPermissionDeniedException() : super('Permission de localisation refusée.');
++}
++
++class LocationPermissionPermanentlyDeniedException extends LocationException {
++  const LocationPermissionPermanentlyDeniedException()
++      : super('Permission de localisation refusée définitivement.');
++}
++
++abstract interface class LocationService {
++  Future<LocationData> getCurrentLocation();
++}
+diff --git a/lib/weather/mapping/weather_code_mapper.dart b/lib/weather/mapping/weather_code_mapper.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..47905bb9bf14a69250ba5f3b8084e4230c8852ae
+--- /dev/null
++++ b/lib/weather/mapping/weather_code_mapper.dart
+@@ -0,0 +1,20 @@
++class WeatherCodeMapper {
++  const WeatherCodeMapper._();
++
++  static String description(int code) => switch (code) {
++        0 => 'Ciel dégagé',
++        1 => 'Peu nuageux',
++        2 => 'Partiellement nuageux',
++        3 => 'Couvert',
++        45 || 48 => 'Brouillard',
++        51 || 53 || 55 => 'Bruine',
++        56 || 57 => 'Bruine verglaçante',
++        61 || 63 || 65 => 'Pluie',
++        66 || 67 => 'Pluie verglaçante',
++        71 || 73 || 75 || 77 => 'Neige',
++        80 || 81 || 82 => 'Averses',
++        85 || 86 => 'Averses de neige',
++        95 || 96 || 99 => 'Orage',
++        _ => 'Condition inconnue',
++      };
++}
+diff --git a/lib/weather/models/weather_data.dart b/lib/weather/models/weather_data.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ba2f01fc3a1415adc07a0aa404381d2c14af6dc5
+--- /dev/null
++++ b/lib/weather/models/weather_data.dart
+@@ -0,0 +1,84 @@
++class WeatherData {
++  final String city;
++  final double latitude;
++  final double longitude;
++  final double temperature;
++  final double apparentTemperature;
++  final int humidity;
++  final double windSpeed;
++  final int windDirection;
++  final int weatherCode;
++  final String description;
++  final DateTime measuredAt;
++
++  const WeatherData({
++    required this.city,
++    required this.latitude,
++    required this.longitude,
++    required this.temperature,
++    required this.apparentTemperature,
++    required this.humidity,
++    required this.windSpeed,
++    required this.windDirection,
++    required this.weatherCode,
++    required this.description,
++    required this.measuredAt,
++  });
++
++  factory WeatherData.fromOpenMeteoJson(
++    Map<String, dynamic> json, {
++    required String city,
++  }) {
++    final current = json['current'] as Map<String, dynamic>?;
++    if (current == null) throw const FormatException('Champ current manquant');
++    double number(String key) => (current[key] as num).toDouble();
++
++    return WeatherData(
++      city: city,
++      latitude: (json['latitude'] as num).toDouble(),
++      longitude: (json['longitude'] as num).toDouble(),
++      temperature: number('temperature_2m'),
++      apparentTemperature: number('apparent_temperature'),
++      humidity: (current['relative_humidity_2m'] as num).toInt(),
++      windSpeed: number('wind_speed_10m'),
++      windDirection: (current['wind_direction_10m'] as num).toInt(),
++      weatherCode: (current['weather_code'] as num).toInt(),
++      description: '',
++      measuredAt: DateTime.parse(current['time'] as String),
++    );
++  }
++
++  WeatherData copyWith({String? description}) => WeatherData(
++        city: city,
++        latitude: latitude,
++        longitude: longitude,
++        temperature: temperature,
++        apparentTemperature: apparentTemperature,
++        humidity: humidity,
++        windSpeed: windSpeed,
++        windDirection: windDirection,
++        weatherCode: weatherCode,
++        description: description ?? this.description,
++        measuredAt: measuredAt,
++      );
++
++  @override
++  bool operator ==(Object other) =>
++      other is WeatherData &&
++      city == other.city &&
++      latitude == other.latitude &&
++      longitude == other.longitude &&
++      temperature == other.temperature &&
++      apparentTemperature == other.apparentTemperature &&
++      humidity == other.humidity &&
++      windSpeed == other.windSpeed &&
++      windDirection == other.windDirection &&
++      weatherCode == other.weatherCode &&
++      description == other.description &&
++      measuredAt == other.measuredAt;
++
++  @override
++  int get hashCode => Object.hash(city, latitude, longitude, temperature,
++      apparentTemperature, humidity, windSpeed, windDirection, weatherCode,
++      description, measuredAt);
++}
+diff --git a/lib/weather/services/cached_weather_service.dart b/lib/weather/services/cached_weather_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e4ed695606c2e5062f3d8736fde62a6eca0e6dd2
+--- /dev/null
++++ b/lib/weather/services/cached_weather_service.dart
+@@ -0,0 +1,47 @@
++import '../api/weather_api.dart';
++import '../location/location_service.dart';
++import '../mapping/weather_code_mapper.dart';
++import '../models/weather_data.dart';
++import 'weather_service.dart';
++
++class CachedWeatherService implements WeatherService {
++  static const cacheDuration = Duration(minutes: 15);
++  final LocationService locationService;
++  final WeatherApi weatherApi;
++  final DateTime Function() _now;
++  WeatherData? _cached;
++  DateTime? _cachedAt;
++
++  CachedWeatherService({
++    required this.locationService,
++    required this.weatherApi,
++    DateTime Function()? now,
++  })
++      : _now = now ?? DateTime.now;
++
++  @override
++  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async {
++    if (!forceRefresh &&
++        _cached != null &&
++        _now().difference(_cachedAt!) < cacheDuration) {
++      return _cached!;
++    }
++    final location = await locationService.getCurrentLocation();
++    final json = await weatherApi.fetchCurrent(
++      latitude: location.latitude,
++      longitude: location.longitude,
++    );
++    final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city);
++    _cached = parsed.copyWith(
++      description: WeatherCodeMapper.description(parsed.weatherCode),
++    );
++    _cachedAt = _now();
++    return _cached!;
++  }
++
++  @override
++  void clearCache() {
++    _cached = null;
++    _cachedAt = null;
++  }
++}
+diff --git a/lib/weather/services/weather_service.dart b/lib/weather/services/weather_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..d79d424084065503fc0d61b548e854ee266cc16f
+--- /dev/null
++++ b/lib/weather/services/weather_service.dart
+@@ -0,0 +1,6 @@
++import '../models/weather_data.dart';
++
++abstract interface class WeatherService {
++  Future<WeatherData> getCurrentWeather({bool forceRefresh = false});
++  void clearCache();
++}
+diff --git a/pubspec.yaml b/pubspec.yaml
+index 27cbc8189d1b1e7467e75348e743cb96dc0dc7ac..a1e0f7d5278042f38ed66d1b49d385368b774c9e 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -1,27 +1,30 @@
+ name: wardrobeos
+ description: Base complete et evolutive de WardrobeOS.
+ publish_to: "none"
+ version: 0.8.0+9
+ 
+ environment:
+   sdk: ">=3.7.0 <4.0.0"
+ 
+ dependencies:
+   flutter:
+     sdk: flutter
+   cupertino_icons: ^1.0.8
+   sqflite: ^2.4.3
+   path: ^1.9.1
+   path_provider: ^2.1.5
+   image_picker: ^1.2.1
+   uuid: ^4.5.3
+   image: ^4.9.1
+   google_mlkit_image_labeling: ^0.14.1
++  geolocator: ^14.0.2
++  geocoding: ^4.0.0
++  http: ^1.4.0
+ 
+ dev_dependencies:
+   flutter_test:
+     sdk: flutter
+   flutter_lints: ^5.0.0
+ 
+ flutter:
+   uses-material-design: true
+diff --git a/test/weather/cached_weather_service_test.dart b/test/weather/cached_weather_service_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..234a6f0f405aaa67830b7bed94852704834a56ce
+--- /dev/null
++++ b/test/weather/cached_weather_service_test.dart
+@@ -0,0 +1,72 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/weather/api/weather_api.dart';
++import 'package:wardrobeos/weather/location/location_service.dart';
++import 'package:wardrobeos/weather/services/cached_weather_service.dart';
++
++void main() {
++  late _FakeLocationService location;
++  late _FakeWeatherApi api;
++  late DateTime now;
++  late CachedWeatherService service;
++
++  setUp(() {
++    location = _FakeLocationService();
++    api = _FakeWeatherApi();
++    now = DateTime(2026, 7, 18, 10);
++    service = CachedWeatherService(locationService: location, weatherApi: api, now: () => now);
++  });
++
++  test('réutilise la météo pendant moins de quinze minutes', () async {
++    final first = await service.getCurrentWeather();
++    now = now.add(const Duration(minutes: 14, seconds: 59));
++    final second = await service.getCurrentWeather();
++    expect(identical(first, second), isTrue);
++    expect(api.calls, 1);
++    expect(location.calls, 1);
++  });
++
++  test('rafraîchit un cache arrivé à expiration', () async {
++    await service.getCurrentWeather();
++    now = now.add(const Duration(minutes: 15));
++    await service.getCurrentWeather();
++    expect(api.calls, 2);
++  });
++
++  test('force le rafraîchissement et permet de vider le cache', () async {
++    await service.getCurrentWeather();
++    await service.getCurrentWeather(forceRefresh: true);
++    service.clearCache();
++    await service.getCurrentWeather();
++    expect(api.calls, 3);
++  });
++}
++
++class _FakeLocationService implements LocationService {
++  int calls = 0;
++  @override
++  Future<LocationData> getCurrentLocation() async {
++    calls++;
++    return const LocationData(latitude: 48.86, longitude: 2.35, city: 'Paris');
++  }
++}
++
++class _FakeWeatherApi implements WeatherApi {
++  int calls = 0;
++  @override
++  Future<Map<String, dynamic>> fetchCurrent({required double latitude, required double longitude}) async {
++    calls++;
++    return {
++      'latitude': latitude,
++      'longitude': longitude,
++      'current': {
++        'temperature_2m': 20,
++        'apparent_temperature': 19,
++        'relative_humidity_2m': 60,
++        'wind_speed_10m': 8,
++        'wind_direction_10m': 180,
++        'weather_code': 1,
++        'time': '2026-07-18T10:00',
++      },
++    };
++  }
++}
+diff --git a/test/weather/weather_code_mapper_test.dart b/test/weather/weather_code_mapper_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..391406e7be28e400e39b0084c6acdd76321f344c
+--- /dev/null
++++ b/test/weather/weather_code_mapper_test.dart
+@@ -0,0 +1,16 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/weather/mapping/weather_code_mapper.dart';
++
++void main() {
++  test('convertit les principaux groupes de codes WMO', () {
++    expect(WeatherCodeMapper.description(0), 'Ciel dégagé');
++    expect(WeatherCodeMapper.description(45), 'Brouillard');
++    expect(WeatherCodeMapper.description(63), 'Pluie');
++    expect(WeatherCodeMapper.description(75), 'Neige');
++    expect(WeatherCodeMapper.description(95), 'Orage');
++  });
++
++  test('conserve une description sûre pour un code futur', () {
++    expect(WeatherCodeMapper.description(123), 'Condition inconnue');
++  });
++}
+diff --git a/test/weather/weather_data_test.dart b/test/weather/weather_data_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..c80ac95f8d96b8a30f781ba6ee053d6a71792b3c
+--- /dev/null
++++ b/test/weather/weather_data_test.dart
+@@ -0,0 +1,47 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/weather/models/weather_data.dart';
++
++void main() {
++  const json = <String, dynamic>{
++    'latitude': 48.86,
++    'longitude': 2.35,
++    'current': <String, dynamic>{
++      'temperature_2m': 18.4,
++      'apparent_temperature': 17.2,
++      'relative_humidity_2m': 72,
++      'wind_speed_10m': 12.5,
++      'wind_direction_10m': 245,
++      'weather_code': 2,
++      'time': '2026-07-18T10:15',
++    },
++  };
++
++  test('parse tous les champs courants Open-Meteo', () {
++    final weather = WeatherData.fromOpenMeteoJson(json, city: 'Paris');
++    expect(weather.city, 'Paris');
++    expect(weather.latitude, 48.86);
++    expect(weather.longitude, 2.35);
++    expect(weather.temperature, 18.4);
++    expect(weather.apparentTemperature, 17.2);
++    expect(weather.humidity, 72);
++    expect(weather.windSpeed, 12.5);
++    expect(weather.windDirection, 245);
++    expect(weather.weatherCode, 2);
++    expect(weather.measuredAt, DateTime(2026, 7, 18, 10, 15));
++  });
++
++  test('WeatherData fournit une égalité métier stable et copyWith', () {
++    final first = WeatherData.fromOpenMeteoJson(json, city: 'Paris').copyWith(description: 'Nuageux');
++    final second = WeatherData.fromOpenMeteoJson(json, city: 'Paris').copyWith(description: 'Nuageux');
++    expect(first, second);
++    expect(first.hashCode, second.hashCode);
++    expect(first.copyWith(description: 'Clair').description, 'Clair');
++  });
++
++  test('rejette une réponse sans météo courante', () {
++    expect(
++      () => WeatherData.fromOpenMeteoJson(const {'latitude': 0, 'longitude': 0}, city: 'Test'),
++      throwsFormatException,
++    );
++  });
++}

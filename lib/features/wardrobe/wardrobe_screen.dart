@@ -60,45 +60,53 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const ListTile(
-                title: Text(
-                  'Ajouter une pièce',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-                ),
-                subtitle: Text('Choisis la méthode la plus rapide.'),
+      builder:
+          (sheetContext) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const ListTile(
+                    title: Text(
+                      'Ajouter une pièce',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    subtitle: Text('Choisis la méthode la plus rapide.'),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.document_scanner_outlined),
+                    title: const Text('Scanner un vêtement'),
+                    subtitle: const Text(
+                      'Photo et pré-remplissage automatique',
+                    ),
+                    onTap: () async {
+                      Navigator.pop(sheetContext);
+                      final added = await Navigator.push<bool>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const ScannerScreen(),
+                        ),
+                      );
+                      if (added == true) await controller.load();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.edit_note_outlined),
+                    title: const Text('Ajout manuel'),
+                    subtitle: const Text('Remplir directement la fiche'),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _openForm();
+                    },
+                  ),
+                ],
               ),
-              ListTile(
-                leading: const Icon(Icons.document_scanner_outlined),
-                title: const Text('Scanner un vêtement'),
-                subtitle: const Text('Photo et pré-remplissage automatique'),
-                onTap: () async {
-                  Navigator.pop(sheetContext);
-                  final added = await Navigator.push<bool>(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ScannerScreen()),
-                  );
-                  if (added == true) await controller.load();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.edit_note_outlined),
-                title: const Text('Ajout manuel'),
-                subtitle: const Text('Remplir directement la fiche'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _openForm();
-                },
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -106,10 +114,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => GarmentFormScreen(
-          controller: controller,
-          garment: garment,
-        ),
+        builder:
+            (_) => GarmentFormScreen(controller: controller, garment: garment),
       ),
     );
   }
@@ -118,10 +124,9 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => GarmentDetailScreen(
-          controller: controller,
-          garment: garment,
-        ),
+        builder:
+            (_) =>
+                GarmentDetailScreen(controller: controller, garment: garment),
       ),
     );
   }
@@ -139,75 +144,87 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       isScrollControlled: true,
       showDragHandle: true,
       useSafeArea: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => AnimatedPadding(
-          duration: const Duration(milliseconds: 150),
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
+      builder:
+          (sheetContext) => StatefulBuilder(
+            builder:
+                (context, setSheetState) => AnimatedPadding(
+                  duration: const Duration(milliseconds: 150),
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.viewInsetsOf(context).bottom,
+                  ),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Filtres avancés',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          initialValue:
+                              selectedSeason.isEmpty ? null : selectedSeason,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Saison',
+                          ),
+                          hint: const Text('Toutes les saisons'),
+                          items:
+                              seasons
+                                  .map(
+                                    (value) => DropdownMenuItem(
+                                      value: value,
+                                      child: Text(value),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged:
+                              (value) => setSheetState(
+                                () => selectedSeason = value ?? '',
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        _FilterTextField(controller: brand, label: 'Marque'),
+                        const SizedBox(height: 12),
+                        _FilterTextField(controller: color, label: 'Couleur'),
+                        const SizedBox(height: 12),
+                        _FilterTextField(
+                          controller: material,
+                          label: 'Matière',
+                        ),
+                        const SizedBox(height: 12),
+                        _FilterTextField(controller: style, label: 'Style'),
+                        const SizedBox(height: 12),
+                        _FilterTextField(
+                          controller: occasion,
+                          label: 'Occasion',
+                          textInputAction: TextInputAction.done,
+                        ),
+                        const SizedBox(height: 20),
+                        FilledButton(
+                          onPressed:
+                              () => Navigator.pop(
+                                sheetContext,
+                                _FilterAction.apply,
+                              ),
+                          child: const Text('Appliquer'),
+                        ),
+                        TextButton(
+                          onPressed:
+                              () => Navigator.pop(
+                                sheetContext,
+                                _FilterAction.reset,
+                              ),
+                          child: const Text('Réinitialiser les filtres'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
           ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Filtres avancés',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  initialValue:
-                      selectedSeason.isEmpty ? null : selectedSeason,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Saison'),
-                  hint: const Text('Toutes les saisons'),
-                  items: seasons
-                      .map((value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value),
-                          ))
-                      .toList(),
-                  onChanged: (value) => setSheetState(
-                    () => selectedSeason = value ?? '',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _FilterTextField(controller: brand, label: 'Marque'),
-                const SizedBox(height: 12),
-                _FilterTextField(controller: color, label: 'Couleur'),
-                const SizedBox(height: 12),
-                _FilterTextField(controller: material, label: 'Matière'),
-                const SizedBox(height: 12),
-                _FilterTextField(controller: style, label: 'Style'),
-                const SizedBox(height: 12),
-                _FilterTextField(
-                  controller: occasion,
-                  label: 'Occasion',
-                  textInputAction: TextInputAction.done,
-                ),
-                const SizedBox(height: 20),
-                FilledButton(
-                  onPressed: () => Navigator.pop(
-                    sheetContext,
-                    _FilterAction.apply,
-                  ),
-                  child: const Text('Appliquer'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(
-                    sheetContext,
-                    _FilterAction.reset,
-                  ),
-                  child: const Text('Réinitialiser les filtres'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
 
     if (action == _FilterAction.apply) {
@@ -328,7 +345,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     }
 
     if (controller.garments.isEmpty) {
-      final noSearch = controller.search.isEmpty &&
+      final noSearch =
+          controller.search.isEmpty &&
           controller.category == 'Tout' &&
           !controller.favoritesOnly &&
           controller.advancedFilterCount == 0;
@@ -429,10 +447,10 @@ class _FilterTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => TextField(
-        controller: controller,
-        textInputAction: textInputAction,
-        decoration: InputDecoration(labelText: label),
-      );
+    controller: controller,
+    textInputAction: textInputAction,
+    decoration: InputDecoration(labelText: label),
+  );
 }
 
 class _GarmentCard extends StatelessWidget {
