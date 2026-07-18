@@ -1,6 +1,8 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import '../models/garment.dart';
+import '../models/outfit.dart';
+import '../models/outfit_item.dart';
 import '../models/wear_history.dart';
 
 class DatabaseService {
@@ -14,7 +16,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 3,
+      version: 4,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -46,6 +48,7 @@ class DatabaseService {
           )
         ''');
         await _createWearHistoryTable(db);
+        await _createOutfitTables(db);
         await _createIndexes(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -69,6 +72,7 @@ class DatabaseService {
         if (oldVersion < 3) {
           await _createWearHistoryTable(db);
         }
+        if (oldVersion < 4) await _createOutfitTables(db);
         await _createIndexes(db);
       },
     );
@@ -81,6 +85,30 @@ class DatabaseService {
         garment_id TEXT NOT NULL,
         worn_at TEXT NOT NULL,
         created_at TEXT NOT NULL,
+        FOREIGN KEY (garment_id) REFERENCES garments(id) ON DELETE CASCADE
+      )
+    ''');
+  }
+
+  Future<void> _createOutfitTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS outfits(
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        season TEXT,
+        favorite INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        times_worn INTEGER NOT NULL DEFAULT 0,
+        last_worn TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS outfit_items(
+        outfit_id TEXT NOT NULL,
+        garment_id TEXT NOT NULL,
+        PRIMARY KEY (outfit_id, garment_id),
+        FOREIGN KEY (outfit_id) REFERENCES outfits(id) ON DELETE CASCADE,
         FOREIGN KEY (garment_id) REFERENCES garments(id) ON DELETE CASCADE
       )
     ''');
@@ -114,6 +142,9 @@ class DatabaseService {
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_wear_history_worn_at ON wear_history(worn_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_outfit_items_garment ON outfit_items(garment_id)',
     );
   }
 
@@ -329,5 +360,88 @@ class DatabaseService {
   Future<void> deleteGarment(String id) async {
     final db = await database;
     await db.delete('garments', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> createOutfit(Outfit outfit) async {
+    final db = await database;
+    await db.insert('outfits', outfit.toMap());
+  }
+
+  Future<void> updateOutfit(Outfit outfit) async {
+    final db = await database;
+    await db.update(
+      'outfits',
+      outfit.toMap(),
+      where: 'id = ?',
+      whereArgs: [outfit.id],
+    );
+  }
+
+  Future<void> deleteOutfit(String id) async {
+    final db = await database;
+    await db.delete('outfits', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<Outfit?> getOutfitById(String id) async {
+    final db = await database;
+    final rows = await db.query(
+      'outfits',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : Outfit.fromMap(rows.first);
+  }
+
+  Future<List<Outfit>> getAllOutfits() async {
+    final db = await database;
+    final rows = await db.query(
+      'outfits',
+      orderBy: 'favorite DESC, updated_at DESC',
+    );
+    return rows.map(Outfit.fromMap).toList();
+  }
+
+  Future<List<Garment>> getGarmentsInOutfit(String outfitId) async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT garments.* FROM garments
+      INNER JOIN outfit_items ON outfit_items.garment_id = garments.id
+      WHERE outfit_items.outfit_id = ?
+      ORDER BY garments.name COLLATE NOCASE
+    ''', [outfitId]);
+    return rows.map(Garment.fromMap).toList();
+  }
+
+  Future<List<Outfit>> getOutfitsContainingGarment(String garmentId) async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT outfits.* FROM outfits
+      INNER JOIN outfit_items ON outfit_items.outfit_id = outfits.id
+      WHERE outfit_items.garment_id = ?
+      ORDER BY outfits.favorite DESC, outfits.name COLLATE NOCASE
+    ''', [garmentId]);
+    return rows.map(Outfit.fromMap).toList();
+  }
+
+  Future<void> addGarmentToOutfit(String outfitId, String garmentId) async {
+    final db = await database;
+    await db.insert(
+      'outfit_items',
+      OutfitItem(outfitId: outfitId, garmentId: garmentId).toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<void> removeGarmentFromOutfit(
+    String outfitId,
+    String garmentId,
+  ) async {
+    final db = await database;
+    await db.delete(
+      'outfit_items',
+      where: 'outfit_id = ? AND garment_id = ?',
+      whereArgs: [outfitId, garmentId],
+    );
   }
 }

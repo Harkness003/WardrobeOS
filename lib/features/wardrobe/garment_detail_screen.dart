@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../data/database_service.dart';
 import '../../models/garment.dart';
+import '../../models/outfit.dart';
 import '../../models/wear_history.dart';
 import '../../widgets/garment_image.dart';
+import '../outfits/outfit_form_screen.dart';
+import '../outfits/outfits_controller.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
 
@@ -25,6 +29,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   bool _recordingWear = false;
   late Future<List<WearHistory>> _wearHistoryFuture;
   late Future<WearHistory?> _firstWearFuture;
+  late Future<List<Outfit>> _outfitsFuture;
 
   @override
   void initState() {
@@ -32,6 +37,9 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     garment = widget.garment;
     _wearHistoryFuture = _loadWearHistory();
     _firstWearFuture = _loadFirstWear();
+    _outfitsFuture = DatabaseService.instance.getOutfitsContainingGarment(
+      garment.id,
+    );
   }
 
   Future<void> edit() async {
@@ -247,6 +255,31 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     _refreshGarment();
   }
 
+  Future<void> _openOutfit(Outfit outfit) async {
+    final controller = OutfitsController();
+    await controller.load();
+    if (!mounted) {
+      controller.dispose();
+      return;
+    }
+    await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OutfitFormScreen(
+          controller: controller,
+          outfit: outfit,
+        ),
+      ),
+    );
+    controller.dispose();
+    if (mounted) {
+      setState(() {
+        _outfitsFuture = DatabaseService.instance
+            .getOutfitsContainingGarment(garment.id);
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final identityChips = [
@@ -345,6 +378,52 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
                   .toList(),
             ),
           ],
+          const SizedBox(height: 26),
+          const _SectionTitle('Utilisé dans'),
+          const SizedBox(height: 10),
+          FutureBuilder<List<Outfit>>(
+            future: _outfitsFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(18),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                );
+              }
+              final outfits = snapshot.data ?? [];
+              if (outfits.isEmpty) {
+                return const Card(
+                  child: ListTile(
+                    leading: Icon(Icons.style_outlined),
+                    title: Text('Aucune tenue'),
+                    subtitle: Text(
+                      'Cette pièce ne fait encore partie d’aucune tenue.',
+                    ),
+                  ),
+                );
+              }
+              return Card(
+                child: Column(
+                  children: outfits
+                      .map(
+                        (outfit) => ListTile(
+                          leading: Icon(
+                            outfit.favorite
+                                ? Icons.favorite
+                                : Icons.style_outlined,
+                          ),
+                          title: Text(outfit.name),
+                          trailing: const Icon(Icons.arrow_downward),
+                          onTap: () => _openOutfit(outfit),
+                        ),
+                      )
+                      .toList(),
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 26),
           const _SectionTitle('Informations'),
           const SizedBox(height: 10),
