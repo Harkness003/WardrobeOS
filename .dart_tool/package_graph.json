@@ -8,6 +8,7 @@
       "version": "0.8.0+9",
       "dependencies": [
         "cupertino_icons",
+        "file_picker",
         "flutter",
         "flutter_secure_storage",
         "geocoding",
@@ -962,6 +963,22 @@
         "collection",
         "meta",
         "pub_semver"
+      ]
+    },
+    {
+      "name": "file_picker",
+      "version": "10.3.10",
+      "dependencies": [
+        "cross_file",
+        "dbus",
+        "ffi",
+        "flutter",
+        "flutter_plugin_android_lifecycle",
+        "flutter_web_plugins",
+        "path",
+        "plugin_platform_interface",
+        "web",
+        "win32"
       ]
     }
   ],

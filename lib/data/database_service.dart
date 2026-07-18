@@ -501,4 +501,43 @@ class DatabaseService {
       whereArgs: [outfitId, garmentId],
     );
   }
+
+  /// Returns a consistent, JSON-ready view of every persisted wardrobe table.
+  Future<Map<String, List<Map<String, Object?>>>> exportBackupData() async {
+    final db = await database;
+    return db.transaction((txn) async => {
+      'garments': await txn.query('garments'),
+      'outfits': await txn.query('outfits'),
+      'outfitItems': await txn.query('outfit_items'),
+      // Wishlist V1 is currently UI-only and therefore has no persisted rows.
+      'wishlist': <Map<String, Object?>>[],
+      'wearHistory': await txn.query('wear_history'),
+    });
+  }
+
+  /// Atomically replaces all persisted wardrobe data with a validated backup.
+  Future<void> restoreBackupData(
+    Map<String, List<Map<String, Object?>>> data,
+  ) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('outfit_items');
+      await txn.delete('wear_history');
+      await txn.delete('outfits');
+      await txn.delete('garments');
+
+      for (final row in data['garments']!) {
+        await txn.insert('garments', row);
+      }
+      for (final row in data['outfits']!) {
+        await txn.insert('outfits', row);
+      }
+      for (final row in data['outfitItems']!) {
+        await txn.insert('outfit_items', row);
+      }
+      for (final row in data['wearHistory']!) {
+        await txn.insert('wear_history', row);
+      }
+    });
+  }
 }

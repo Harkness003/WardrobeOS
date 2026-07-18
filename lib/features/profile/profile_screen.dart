@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../core/settings/app_settings.dart';
 import '../assistant/settings/ai_settings_controller.dart';
+import '../backup/backup_controller.dart';
 
 class ProfileScreen extends StatelessWidget {
   final AppSettings settings;
   final AiSettingsController aiSettings;
+  final BackupController backupController;
   const ProfileScreen({
     super.key,
     required this.settings,
     required this.aiSettings,
+    required this.backupController,
   });
 
   @override
@@ -71,7 +74,7 @@ class ProfileScreen extends StatelessWidget {
               onChanged: settings.setDarkMode,
             ),
           ),
-          _Tile(icon: Icons.cloud_outlined, title: 'Sauvegarde & export'),
+          _BackupSettings(controller: backupController),
           _WardrobeGptSettings(controller: aiSettings),
           _Tile(icon: Icons.info_outline, title: 'À propos'),
           const SizedBox(height: 18),
@@ -85,6 +88,77 @@ class ProfileScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _BackupSettings extends StatelessWidget {
+  final BackupController controller;
+  const _BackupSettings({required this.controller});
+
+  Future<void> _confirmRestore(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Restaurer la sauvegarde ?'),
+        content: const Text(
+          'Cette opération remplacera les données actuelles.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Restaurer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await controller.restoreBackup();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (context, _) => Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              '💾 Sauvegarde',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              controller.lastBackupAt == null
+                  ? 'Dernière sauvegarde : aucune'
+                  : 'Dernière sauvegarde : ${controller.lastBackupAt!.toLocal()}',
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: controller.busy ? null : controller.createBackup,
+              icon: const Icon(Icons.save_alt),
+              label: const Text('Créer une sauvegarde'),
+            ),
+            OutlinedButton.icon(
+              onPressed:
+                  controller.busy ? null : () => _confirmRestore(context),
+              icon: const Icon(Icons.settings_backup_restore),
+              label: const Text('Restaurer une sauvegarde'),
+            ),
+            if (controller.busy) const LinearProgressIndicator(),
+            if (controller.result != null) ...[
+              const SizedBox(height: 8),
+              Text(controller.result!),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _WardrobeGptSettings extends StatefulWidget {

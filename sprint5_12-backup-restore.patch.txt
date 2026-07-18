@@ -1,0 +1,903 @@
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index 742b3550eea86876d33c52ebd458756ca8ce58aa..9b1f2d03eb3387aebb3a68a08a02c2ed848b9d17 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -479,26 +479,65 @@ class DatabaseService {
+       [garmentId],
+     );
+     return rows.map(Outfit.fromMap).toList();
+   }
+ 
+   Future<void> addGarmentToOutfit(String outfitId, String garmentId) async {
+     final db = await database;
+     await db.insert(
+       'outfit_items',
+       OutfitItem(outfitId: outfitId, garmentId: garmentId).toMap(),
+       conflictAlgorithm: ConflictAlgorithm.ignore,
+     );
+   }
+ 
+   Future<void> removeGarmentFromOutfit(
+     String outfitId,
+     String garmentId,
+   ) async {
+     final db = await database;
+     await db.delete(
+       'outfit_items',
+       where: 'outfit_id = ? AND garment_id = ?',
+       whereArgs: [outfitId, garmentId],
+     );
+   }
++
++  /// Returns a consistent, JSON-ready view of every persisted wardrobe table.
++  Future<Map<String, List<Map<String, Object?>>>> exportBackupData() async {
++    final db = await database;
++    return db.transaction((txn) async => {
++      'garments': await txn.query('garments'),
++      'outfits': await txn.query('outfits'),
++      'outfitItems': await txn.query('outfit_items'),
++      // Wishlist V1 is currently UI-only and therefore has no persisted rows.
++      'wishlist': <Map<String, Object?>>[],
++      'wearHistory': await txn.query('wear_history'),
++    });
++  }
++
++  /// Atomically replaces all persisted wardrobe data with a validated backup.
++  Future<void> restoreBackupData(
++    Map<String, List<Map<String, Object?>>> data,
++  ) async {
++    final db = await database;
++    await db.transaction((txn) async {
++      await txn.delete('outfit_items');
++      await txn.delete('wear_history');
++      await txn.delete('outfits');
++      await txn.delete('garments');
++
++      for (final row in data['garments']!) {
++        await txn.insert('garments', row);
++      }
++      for (final row in data['outfits']!) {
++        await txn.insert('outfits', row);
++      }
++      for (final row in data['outfitItems']!) {
++        await txn.insert('outfit_items', row);
++      }
++      for (final row in data['wearHistory']!) {
++        await txn.insert('wear_history', row);
++      }
++    });
++  }
+ }
+diff --git a/lib/features/backup/backup_controller.dart b/lib/features/backup/backup_controller.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..7cb5c600e3eb43a057efe0e272fea5fb2ce082a4
+--- /dev/null
++++ b/lib/features/backup/backup_controller.dart
+@@ -0,0 +1,59 @@
++import 'package:file_picker/file_picker.dart';
++import 'package:flutter/foundation.dart';
++
++import 'backup_service.dart';
++import 'restore_service.dart';
++
++class BackupController extends ChangeNotifier {
++  final BackupService backupService;
++  final RestoreService restoreService;
++  bool busy = false;
++  DateTime? lastBackupAt;
++  String? result;
++
++  BackupController({required this.backupService, required this.restoreService});
++
++  Future<void> createBackup() async {
++    final path = await FilePicker.platform.saveFile(
++      dialogTitle: 'Enregistrer la sauvegarde WardrobeOS',
++      fileName: 'wardrobeos-backup-${DateTime.now().toIso8601String().substring(0, 10)}.json',
++      type: FileType.custom,
++      allowedExtensions: const ['json'],
++    );
++    if (path == null) return;
++    await _run(() async {
++      final backup = await backupService.createBackup();
++      await backupService.writeBackup(backup, path);
++      lastBackupAt = backup.createdAt;
++      result = 'Sauvegarde créée avec succès.';
++    });
++  }
++
++  Future<void> restoreBackup() async {
++    final selection = await FilePicker.platform.pickFiles(
++      dialogTitle: 'Choisir une sauvegarde WardrobeOS',
++      type: FileType.custom,
++      allowedExtensions: const ['json'],
++    );
++    final path = selection?.files.single.path;
++    if (path == null) return;
++    await _run(() async {
++      await restoreService.restoreFile(path);
++      result = 'Sauvegarde restaurée avec succès.';
++    });
++  }
++
++  Future<void> _run(Future<void> Function() operation) async {
++    busy = true;
++    result = null;
++    notifyListeners();
++    try {
++      await operation();
++    } catch (error) {
++      result = 'Échec de l’opération : $error';
++    } finally {
++      busy = false;
++      notifyListeners();
++    }
++  }
++}
+diff --git a/lib/features/backup/backup_file.dart b/lib/features/backup/backup_file.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..912f53d0d25953c14563f369fc5a46b8ffd9238a
+--- /dev/null
++++ b/lib/features/backup/backup_file.dart
+@@ -0,0 +1,97 @@
++import 'dart:convert';
++
++class BackupFormatException implements Exception {
++  final String message;
++  const BackupFormatException(this.message);
++
++  @override
++  String toString() => message;
++}
++
++class BackupFile {
++  static const currentVersion = 1;
++
++  final int version;
++  final DateTime createdAt;
++  final List<Map<String, Object?>> garments;
++  final List<Map<String, Object?>> images;
++  final List<Map<String, Object?>> outfits;
++  final List<Map<String, Object?>> outfitItems;
++  final List<Map<String, Object?>> wishlist;
++  final List<Map<String, Object?>> wearHistory;
++
++  const BackupFile({
++    required this.version,
++    required this.createdAt,
++    required this.garments,
++    required this.images,
++    required this.outfits,
++    required this.outfitItems,
++    required this.wishlist,
++    required this.wearHistory,
++  });
++
++  Map<String, Object?> toJson() => {
++    'version': version,
++    'createdAt': createdAt.toUtc().toIso8601String(),
++    'garments': garments,
++    'images': images,
++    'outfits': outfits,
++    'outfitItems': outfitItems,
++    'wishlist': wishlist,
++    'wearHistory': wearHistory,
++  };
++
++  String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
++
++  factory BackupFile.decode(String source) {
++    final Object? decoded;
++    try {
++      decoded = jsonDecode(source);
++    } on FormatException {
++      throw const BackupFormatException('Le fichier JSON est invalide.');
++    }
++    if (decoded is! Map<String, Object?>) {
++      throw const BackupFormatException(
++        'Le contenu de la sauvegarde est invalide.',
++      );
++    }
++    final document = decoded;
++    final version = document['version'];
++    if (version != currentVersion) {
++      throw BackupFormatException(
++        'Version de sauvegarde non prise en charge : $version.',
++      );
++    }
++    final createdAt = DateTime.tryParse(
++      document['createdAt'] as String? ?? '',
++    );
++    if (createdAt == null) {
++      throw const BackupFormatException('La date de sauvegarde est invalide.');
++    }
++
++    List<Map<String, Object?>> rows(String key) {
++      final value = document[key];
++      if (value is! List) {
++        throw BackupFormatException('Section « $key » invalide.');
++      }
++      return value.map((row) {
++        if (row is! Map) {
++          throw BackupFormatException('Entrée « $key » invalide.');
++        }
++        return row.map((key, value) => MapEntry(key.toString(), value));
++      }).toList(growable: false);
++    }
++
++    return BackupFile(
++      version: version as int,
++      createdAt: createdAt,
++      garments: rows('garments'),
++      images: rows('images'),
++      outfits: rows('outfits'),
++      outfitItems: rows('outfitItems'),
++      wishlist: rows('wishlist'),
++      wearHistory: rows('wearHistory'),
++    );
++  }
++}
+diff --git a/lib/features/backup/backup_service.dart b/lib/features/backup/backup_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ccdb3230b4e890764497af61f57e1f0c7b4758c2
+--- /dev/null
++++ b/lib/features/backup/backup_service.dart
+@@ -0,0 +1,75 @@
++import 'dart:convert';
++import 'dart:io';
++
++import '../../data/database_service.dart';
++import 'backup_file.dart';
++
++abstract interface class BackupRepository {
++  Future<Map<String, List<Map<String, Object?>>>> exportData();
++  Future<void> restoreData(Map<String, List<Map<String, Object?>>> data);
++}
++
++class DatabaseBackupRepository implements BackupRepository {
++  final DatabaseService databaseService;
++  const DatabaseBackupRepository(this.databaseService);
++
++  @override
++  Future<Map<String, List<Map<String, Object?>>>> exportData() =>
++      databaseService.exportBackupData();
++
++  @override
++  Future<void> restoreData(Map<String, List<Map<String, Object?>>> data) =>
++      databaseService.restoreBackupData(data);
++}
++
++class BackupService {
++  final BackupRepository repository;
++  final DateTime Function() now;
++
++  BackupService({required this.repository, DateTime Function()? now})
++    : now = now ?? DateTime.now;
++
++  Future<BackupFile> createBackup() async {
++    final data = await repository.exportData();
++    final garments = data['garments'] ?? const [];
++    final images = <Map<String, Object?>>[];
++    final exportedGarments = <Map<String, Object?>>[];
++
++    for (final garment in garments) {
++      final exported = Map<String, Object?>.from(garment);
++      final path = garment['image_path'] as String?;
++      exported['image_path'] = null;
++      if (path != null && path.isNotEmpty) {
++        final file = File(path);
++        try {
++          if (await file.exists()) {
++            final reference = 'garment:${garment['id']}';
++            images.add({
++              'reference': reference,
++              'fileName': file.uri.pathSegments.last,
++              'data': base64Encode(await file.readAsBytes()),
++            });
++            exported['image_reference'] = reference;
++          }
++        } on FileSystemException {
++          // The garment remains usable even when its image cannot be read.
++        }
++      }
++      exportedGarments.add(exported);
++    }
++
++    return BackupFile(
++      version: BackupFile.currentVersion,
++      createdAt: now(),
++      garments: exportedGarments,
++      images: images,
++      outfits: data['outfits'] ?? const [],
++      outfitItems: data['outfitItems'] ?? const [],
++      wishlist: data['wishlist'] ?? const [],
++      wearHistory: data['wearHistory'] ?? const [],
++    );
++  }
++
++  Future<void> writeBackup(BackupFile backup, String path) =>
++      File(path).writeAsString(backup.encode(), flush: true);
++}
+diff --git a/lib/features/backup/restore_service.dart b/lib/features/backup/restore_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..b9033f361d1818a9a095c9781d7e7ba2a2a933ae
+--- /dev/null
++++ b/lib/features/backup/restore_service.dart
+@@ -0,0 +1,63 @@
++import 'dart:convert';
++import 'dart:io';
++
++import 'package:path/path.dart' as p;
++import 'package:path_provider/path_provider.dart';
++
++import 'backup_file.dart';
++import 'backup_service.dart';
++
++class RestoreService {
++  final BackupRepository repository;
++  final Future<Directory> Function() imageDirectory;
++
++  RestoreService({
++    required this.repository,
++    Future<Directory> Function()? imageDirectory,
++  }) : imageDirectory = imageDirectory ?? _defaultImageDirectory;
++
++  static Future<Directory> _defaultImageDirectory() async {
++    final documents = await getApplicationDocumentsDirectory();
++    return Directory(p.join(documents.path, 'garment_images'));
++  }
++
++  Future<BackupFile> restoreFile(String path) async =>
++      restore(await File(path).readAsString());
++
++  Future<BackupFile> restore(String source) async {
++    final backup = BackupFile.decode(source);
++    final imagePaths = <String, String>{};
++    Directory? directory;
++
++    for (final image in backup.images) {
++      try {
++        directory ??= await imageDirectory();
++        await directory.create(recursive: true);
++        final reference = image['reference'] as String;
++        final safeName = p.basename(image['fileName'] as String? ?? '$reference.jpg');
++        final timestamp = DateTime.now().microsecondsSinceEpoch;
++        final target = File(p.join(directory.path, '${timestamp}_$safeName'));
++        await target.writeAsBytes(base64Decode(image['data'] as String), flush: true);
++        imagePaths[reference] = target.path;
++      } catch (_) {
++        // Image restoration is best-effort; relational data must still restore.
++      }
++    }
++
++    final garments = backup.garments.map((row) {
++      final restored = Map<String, Object?>.from(row);
++      final reference = restored.remove('image_reference') as String?;
++      restored['image_path'] = reference == null ? null : imagePaths[reference];
++      return restored;
++    }).toList(growable: false);
++
++    await repository.restoreData({
++      'garments': garments,
++      'outfits': backup.outfits,
++      'outfitItems': backup.outfitItems,
++      'wishlist': backup.wishlist,
++      'wearHistory': backup.wearHistory,
++    });
++    return backup;
++  }
++}
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index 8e9a3ef6d29075067fbf1c0db1455f5cfc4ad255..c474d4842b30598246ae399784592c27153ff29d 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -1,36 +1,39 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
++import '../backup/backup_controller.dart';
+ 
+ class ProfileScreen extends StatelessWidget {
+   final AppSettings settings;
+   final AiSettingsController aiSettings;
++  final BackupController backupController;
+   const ProfileScreen({
+     super.key,
+     required this.settings,
+     required this.aiSettings,
++    required this.backupController,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
+         children: [
+           const Text(
+             'Profil',
+             style: TextStyle(
+               fontSize: 30,
+               fontWeight: FontWeight.w900,
+               letterSpacing: -1,
+             ),
+           ),
+           const SizedBox(height: 18),
+           const Card(
+             child: Padding(
+               padding: EdgeInsets.all(18),
+               child: Row(
+                 children: [
+                   CircleAvatar(radius: 31, child: Icon(Icons.person, size: 32)),
+                   SizedBox(width: 15),
+                   Expanded(
+@@ -49,66 +52,137 @@ class ProfileScreen extends StatelessWidget {
+                     ),
+                   ),
+                 ],
+               ),
+             ),
+           ),
+           const SizedBox(height: 18),
+           _Tile(
+             icon: Icons.accessibility_new,
+             title: 'Morphologie & proportions',
+           ),
+           _Tile(icon: Icons.style_outlined, title: 'Préférences de style'),
+           _Tile(icon: Icons.notifications_none, title: 'Notifications'),
+           Card(
+             margin: const EdgeInsets.only(bottom: 10),
+             child: SwitchListTile(
+               secondary: const Icon(Icons.dark_mode_outlined),
+               title: const Text(
+                 'Mode sombre',
+                 style: TextStyle(fontWeight: FontWeight.w800),
+               ),
+               value: settings.darkMode,
+               onChanged: settings.setDarkMode,
+             ),
+           ),
+-          _Tile(icon: Icons.cloud_outlined, title: 'Sauvegarde & export'),
++          _BackupSettings(controller: backupController),
+           _WardrobeGptSettings(controller: aiSettings),
+           _Tile(icon: Icons.info_outline, title: 'À propos'),
+           const SizedBox(height: 18),
+           Center(
+             child: Text(
+               'WardrobeOS Sprint 2 · Premium UI',
+               style: Theme.of(context).textTheme.bodySmall,
+             ),
+           ),
+         ],
+       ),
+     );
+   }
+ }
+ 
++class _BackupSettings extends StatelessWidget {
++  final BackupController controller;
++  const _BackupSettings({required this.controller});
++
++  Future<void> _confirmRestore(BuildContext context) async {
++    final confirmed = await showDialog<bool>(
++      context: context,
++      builder: (context) => AlertDialog(
++        title: const Text('Restaurer la sauvegarde ?'),
++        content: const Text(
++          'Cette opération remplacera les données actuelles.',
++        ),
++        actions: [
++          TextButton(
++            onPressed: () => Navigator.pop(context, false),
++            child: const Text('Annuler'),
++          ),
++          FilledButton(
++            onPressed: () => Navigator.pop(context, true),
++            child: const Text('Restaurer'),
++          ),
++        ],
++      ),
++    );
++    if (confirmed == true) await controller.restoreBackup();
++  }
++
++  @override
++  Widget build(BuildContext context) => AnimatedBuilder(
++    animation: controller,
++    builder: (context, _) => Card(
++      margin: const EdgeInsets.only(bottom: 10),
++      child: Padding(
++        padding: const EdgeInsets.all(16),
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.stretch,
++          children: [
++            const Text(
++              '💾 Sauvegarde',
++              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
++            ),
++            const SizedBox(height: 8),
++            Text(
++              controller.lastBackupAt == null
++                  ? 'Dernière sauvegarde : aucune'
++                  : 'Dernière sauvegarde : ${controller.lastBackupAt!.toLocal()}',
++            ),
++            const SizedBox(height: 12),
++            FilledButton.icon(
++              onPressed: controller.busy ? null : controller.createBackup,
++              icon: const Icon(Icons.save_alt),
++              label: const Text('Créer une sauvegarde'),
++            ),
++            OutlinedButton.icon(
++              onPressed:
++                  controller.busy ? null : () => _confirmRestore(context),
++              icon: const Icon(Icons.settings_backup_restore),
++              label: const Text('Restaurer une sauvegarde'),
++            ),
++            if (controller.busy) const LinearProgressIndicator(),
++            if (controller.result != null) ...[
++              const SizedBox(height: 8),
++              Text(controller.result!),
++            ],
++          ],
++        ),
++      ),
++    ),
++  );
++}
++
+ class _WardrobeGptSettings extends StatefulWidget {
+   final AiSettingsController controller;
+ 
+   const _WardrobeGptSettings({required this.controller});
+ 
+   @override
+   State<_WardrobeGptSettings> createState() => _WardrobeGptSettingsState();
+ }
+ 
+ class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
+   final _apiKeyController = TextEditingController();
+   bool _obscureKey = true;
+ 
+   @override
+   void dispose() {
+     _apiKeyController.dispose();
+     super.dispose();
+   }
+ 
+   void _show(String message) {
+     if (!mounted) return;
+     ScaffoldMessenger.of(context)
+       ..hideCurrentSnackBar()
+       ..showSnackBar(SnackBar(content: Text(message)));
+   }
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 0751672794329b8f5dbeec605393ae2d6c1f4637..110014b71e4a10aa297135793eb3988df17c3d89 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -2,136 +2,152 @@ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import '../assistant/tools/assistant_tool_context_builder.dart';
+ import '../assistant/tools/outfit_tool.dart';
+ import '../assistant/tools/statistics_tool.dart';
+ import '../assistant/tools/wardrobe_tool.dart';
+ import '../assistant/tools/weather_tool.dart';
+ import '../assistant/recommendation/outfit_candidate.dart';
+ import '../assistant/recommendation/outfit_recommendation_engine.dart';
+ import '../calendar/calendar_context_builder.dart';
+ import '../calendar/fake_calendar_service.dart';
++import '../../data/database_service.dart';
++import '../backup/backup_controller.dart';
++import '../backup/backup_service.dart';
++import '../backup/restore_service.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
++  late final _backupRepository = DatabaseBackupRepository(
++    DatabaseService.instance,
++  );
++  late final _backupController = BackupController(
++    backupService: BackupService(repository: _backupRepository),
++    restoreService: RestoreService(repository: _backupRepository),
++  );
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+       outfitsController: _assistantOutfits,
+       calendarContextBuilder: CalendarContextBuilder(
+         service: FakeCalendarService(),
+       ),
+     ),
+     toolContextBuilder: AssistantToolContextBuilder(
+       tools: [
+         WeatherTool(weatherService: widget.weatherService),
+         WardrobeTool(controller: _assistantWardrobe),
+         OutfitTool(controller: _assistantOutfits),
+         StatisticsTool(controller: _assistantWardrobe),
+       ],
+     ),
+     llmProvider: _openAiProvider,
+     recommendationEngine: OutfitRecommendationEngine(
+       candidateSource: () async => _assistantWardrobe.garments
+           .map(OutfitCandidate.fromGarment)
+           .toList(growable: false),
+     ),
+   );
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _assistantOutfits.dispose();
+     _aiSettings.dispose();
++    _backupController.dispose();
+     super.dispose();
+   }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(3),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+             MaterialPageRoute(builder: (_) => const ScannerScreen()),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+           }
+         },
+       ),
+       const WardrobeScreen(),
+       const OutfitsScreen(),
+       AssistantScreen(service: _assistantService),
+       const WishlistScreen(),
+-      ProfileScreen(settings: widget.settings, aiSettings: _aiSettings),
++      ProfileScreen(
++        settings: widget.settings,
++        aiSettings: _aiSettings,
++        backupController: _backupController,
++      ),
+     ];
+ 
+     return Scaffold(
+       body: AnimatedSwitcher(
+         duration: const Duration(milliseconds: 240),
+         transitionBuilder: (child, animation) {
+           return FadeTransition(
+             opacity: animation,
+             child: SlideTransition(
+               position: Tween<Offset>(
+                 begin: const Offset(.02, 0),
+                 end: Offset.zero,
+               ).animate(animation),
+               child: child,
+             ),
+           );
+         },
+         child: KeyedSubtree(key: ValueKey(index), child: pages[index]),
+       ),
+       bottomNavigationBar: NavigationBar(
+         selectedIndex: index,
+         onDestinationSelected: goTo,
+         destinations: const [
+           NavigationDestination(
+             icon: Icon(Icons.home_outlined),
+diff --git a/pubspec.yaml b/pubspec.yaml
+index 2141cc190c3a34fbb34f6fb183c4bff868730cc8..cdedc05d9e3fa80de703927bdf8fc44ef31b1f7f 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -1,31 +1,32 @@
+ name: wardrobeos
+ description: Base complete et evolutive de WardrobeOS.
+ publish_to: "none"
+ version: 0.8.0+9
+ 
+ environment:
+   sdk: ">=3.7.0 <4.0.0"
+ 
+ dependencies:
+   flutter:
+     sdk: flutter
+   cupertino_icons: ^1.0.8
+   sqflite: ^2.4.3
+   path: ^1.9.1
+   path_provider: ^2.1.5
+   image_picker: ^1.2.1
+   uuid: ^4.5.3
+   image: ^4.9.1
+   google_mlkit_image_labeling: ^0.14.1
+   geolocator: ^14.0.2
+   geocoding: ^4.0.0
+   http: ^1.4.0
+   flutter_secure_storage: ^9.2.4
++  file_picker: ^10.3.3
+ 
+ dev_dependencies:
+   flutter_test:
+     sdk: flutter
+   flutter_lints: ^5.0.0
+ 
+ flutter:
+   uses-material-design: true
+diff --git a/test/backup/backup_services_test.dart b/test/backup/backup_services_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e8d10ca9267c7db14aa3b3f053122800ceac68d7
+--- /dev/null
++++ b/test/backup/backup_services_test.dart
+@@ -0,0 +1,131 @@
++import 'dart:io';
++
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/backup/backup_file.dart';
++import 'package:wardrobeos/features/backup/backup_service.dart';
++import 'package:wardrobeos/features/backup/restore_service.dart';
++
++void main() {
++  group('BackupService', () {
++    test('génère un backup versionné avec toutes les sections', () async {
++      final repository = _MemoryRepository(_sampleData());
++      final service = BackupService(
++        repository: repository,
++        now: () => DateTime.utc(2026, 7, 18),
++      );
++
++      final backup = await service.createBackup();
++
++      expect(backup.version, 1);
++      expect(backup.createdAt, DateTime.utc(2026, 7, 18));
++      expect(backup.garments.single['id'], 'g1');
++      expect(backup.outfits.single['id'], 'o1');
++      expect(backup.outfitItems, hasLength(1));
++      expect(backup.wearHistory, hasLength(1));
++      expect(BackupFile.decode(backup.encode()).version, 1);
++    });
++
++    test('génère un backup vide valide', () async {
++      final backup = await BackupService(
++        repository: _MemoryRepository(_emptyData()),
++      ).createBackup();
++
++      expect(backup.garments, isEmpty);
++      expect(backup.outfits, isEmpty);
++      expect(backup.wearHistory, isEmpty);
++      expect(backup.images, isEmpty);
++    });
++  });
++
++  group('RestoreService', () {
++    test('refuse une version inconnue', () {
++      expect(
++        () => BackupFile.decode('''
++          {"version":2,"createdAt":"2026-07-18T00:00:00Z"}
++        '''),
++        throwsA(isA<BackupFormatException>()),
++      );
++    });
++
++    test('restaure avec succès toutes les relations', () async {
++      final source = await BackupService(
++        repository: _MemoryRepository(_sampleData()),
++      ).createBackup();
++      final target = _MemoryRepository(_emptyData());
++      final directory = await Directory.systemTemp.createTemp('wardrobe-test');
++      addTearDown(() => directory.delete(recursive: true));
++
++      await RestoreService(
++        repository: target,
++        imageDirectory: () async => directory,
++      ).restore(source.encode());
++
++      expect(target.data['garments'], hasLength(1));
++      expect(target.data['outfitItems'], hasLength(1));
++      expect(target.data['wearHistory'], hasLength(1));
++    });
++
++    test('une restauration échouée ne remplace aucune donnée', () async {
++      final initial = _sampleData();
++      final repository = _MemoryRepository(initial, failRestore: true);
++      final backup = await BackupService(
++        repository: _MemoryRepository(_emptyData()),
++      ).createBackup();
++
++      await expectLater(
++        RestoreService(repository: repository).restore(backup.encode()),
++        throwsStateError,
++      );
++      expect(repository.data['garments']!.single['id'], 'g1');
++    });
++  });
++}
++
++Map<String, List<Map<String, Object?>>> _emptyData() => {
++  'garments': [],
++  'outfits': [],
++  'outfitItems': [],
++  'wishlist': [],
++  'wearHistory': [],
++};
++
++Map<String, List<Map<String, Object?>>> _sampleData() => {
++  'garments': [
++    {
++      'id': 'g1',
++      'name': 'Chemise',
++      'category': 'Hauts',
++      'image_path': null,
++      'created_at': '2026-01-01T00:00:00Z',
++      'updated_at': '2026-01-01T00:00:00Z',
++    },
++  ],
++  'outfits': [
++    {'id': 'o1', 'name': 'Bureau'},
++  ],
++  'outfitItems': [
++    {'outfit_id': 'o1', 'garment_id': 'g1'},
++  ],
++  'wishlist': [],
++  'wearHistory': [
++    {'id': 1, 'garment_id': 'g1', 'worn_at': '2026-01-02T00:00:00Z'},
++  ],
++};
++
++class _MemoryRepository implements BackupRepository {
++  Map<String, List<Map<String, Object?>>> data;
++  final bool failRestore;
++
++  _MemoryRepository(this.data, {this.failRestore = false});
++
++  @override
++  Future<Map<String, List<Map<String, Object?>>>> exportData() async => data;
++
++  @override
++  Future<void> restoreData(
++    Map<String, List<Map<String, Object?>>> restored,
++  ) async {
++    if (failRestore) throw StateError('simulated transaction failure');
++    data = restored;
++  }
++}

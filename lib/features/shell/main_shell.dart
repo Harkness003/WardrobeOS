@@ -24,6 +24,10 @@ import '../assistant/recommendation/outfit_candidate.dart';
 import '../assistant/recommendation/outfit_recommendation_engine.dart';
 import '../calendar/calendar_context_builder.dart';
 import '../calendar/fake_calendar_service.dart';
+import '../../data/database_service.dart';
+import '../backup/backup_controller.dart';
+import '../backup/backup_service.dart';
+import '../backup/restore_service.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -49,6 +53,13 @@ class _MainShellState extends State<MainShell> {
     storage: _apiKeyStorage,
     provider: _openAiProvider,
   )..load();
+  late final _backupRepository = DatabaseBackupRepository(
+    DatabaseService.instance,
+  );
+  late final _backupController = BackupController(
+    backupService: BackupService(repository: _backupRepository),
+    restoreService: RestoreService(repository: _backupRepository),
+  );
   late final _assistantService = AssistantService(
     contextBuilder: AssistantContextBuilder(
       weatherService: widget.weatherService,
@@ -79,6 +90,7 @@ class _MainShellState extends State<MainShell> {
     _assistantWardrobe.dispose();
     _assistantOutfits.dispose();
     _aiSettings.dispose();
+    _backupController.dispose();
     super.dispose();
   }
 
@@ -109,7 +121,11 @@ class _MainShellState extends State<MainShell> {
       const OutfitsScreen(),
       AssistantScreen(service: _assistantService),
       const WishlistScreen(),
-      ProfileScreen(settings: widget.settings, aiSettings: _aiSettings),
+      ProfileScreen(
+        settings: widget.settings,
+        aiSettings: _aiSettings,
+        backupController: _backupController,
+      ),
     ];
 
     return Scaffold(
