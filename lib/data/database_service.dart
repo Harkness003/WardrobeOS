@@ -180,6 +180,19 @@ class DatabaseService {
     return rows.map(WearHistory.fromMap).toList();
   }
 
+  Future<WearHistory?> getFirstWear(String garmentId) async {
+    final db = await database;
+    final rows = await db.query(
+      'wear_history',
+      where: 'garment_id = ?',
+      whereArgs: [garmentId],
+      orderBy: 'worn_at ASC, id ASC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return WearHistory.fromMap(rows.first);
+  }
+
   Future<WearHistory> recordWear(
     String garmentId, {
     DateTime? wornAt,

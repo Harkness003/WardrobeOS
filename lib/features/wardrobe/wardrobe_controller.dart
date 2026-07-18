@@ -15,11 +15,12 @@ class WardrobeController extends ChangeNotifier {
   String search = '';
   String category = 'Tout';
   bool favoritesOnly = false;
+  bool _disposed = false;
 
   Future<void> load() async {
     loading = true;
     error = null;
-    notifyListeners();
+    _notifyListenersIfActive();
     try {
       garments = await _db.getGarments(
         search: search,
@@ -30,7 +31,7 @@ class WardrobeController extends ChangeNotifier {
       error = exception;
     } finally {
       loading = false;
-      notifyListeners();
+      _notifyListenersIfActive();
     }
   }
 
@@ -73,6 +74,10 @@ class WardrobeController extends ChangeNotifier {
     return _db.getWearHistory(garmentId, limit: limit);
   }
 
+  Future<WearHistory?> getFirstWear(String garmentId) {
+    return _db.getFirstWear(garmentId);
+  }
+
   Future<WearHistory> recordWear(Garment garment, {DateTime? wornAt}) async {
     final wear = await _db.recordWear(garment.id, wornAt: wornAt);
     await load();
@@ -98,5 +103,15 @@ class WardrobeController extends ChangeNotifier {
     await _db.deleteGarment(garment.id);
     await ImageStorageService.remove(garment.imagePath);
     await load();
+  }
+
+  void _notifyListenersIfActive() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }

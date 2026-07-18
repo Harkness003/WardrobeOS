@@ -24,12 +24,14 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   late Garment garment;
   bool _recordingWear = false;
   late Future<List<WearHistory>> _wearHistoryFuture;
+  late Future<WearHistory?> _firstWearFuture;
 
   @override
   void initState() {
     super.initState();
     garment = widget.garment;
     _wearHistoryFuture = _loadWearHistory();
+    _firstWearFuture = _loadFirstWear();
   }
 
   Future<void> edit() async {
@@ -49,6 +51,10 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     return widget.controller.getWearHistory(garment.id);
   }
 
+  Future<WearHistory?> _loadFirstWear() {
+    return widget.controller.getFirstWear(garment.id);
+  }
+
   void _refreshGarment({bool reloadHistory = false}) {
     final match = widget.controller.garments.where(
       (item) => item.id == garment.id,
@@ -57,7 +63,10 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
 
     setState(() {
       if (match.isNotEmpty) garment = match.first;
-      if (reloadHistory) _wearHistoryFuture = _loadWearHistory();
+      if (reloadHistory) {
+        _wearHistoryFuture = _loadWearHistory();
+        _firstWearFuture = _loadFirstWear();
+      }
     });
   }
 
@@ -399,33 +408,15 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
             ),
           ],
           const SizedBox(height: 24),
-          const _SectionTitle('Utilisation'),
+          const _SectionTitle('Statistiques'),
           const SizedBox(height: 10),
-          Card(
-            child: Column(
-              children: [
-                _InfoTile(
-                  icon: Icons.repeat_outlined,
-                  label: 'Nombre de ports',
-                  value: '${garment.wearCount}',
-                ),
-                _InfoTile(
-                  icon: Icons.history_outlined,
-                  label: 'Dernier port',
-                  value: garment.lastWorn == null
-                      ? 'Jamais renseigné'
-                      : _formatDate(garment.lastWorn!),
-                ),
-                if (garment.purchasePrice != null && garment.wearCount > 0)
-                  _InfoTile(
-                    icon: Icons.calculate_outlined,
-                    label: 'Coût par port',
-                    value: _formatPrice(
-                      garment.purchasePrice! / garment.wearCount,
-                    ),
-                  ),
-              ],
-            ),
+          _GarmentStatsGrid(
+            garment: garment,
+            firstWearFuture: _firstWearFuture,
+            formatDate: _formatDate,
+            formatPrice: _formatPrice,
+            formatCalendarAge: _formatCalendarAge,
+            daysSinceLastWearLabel: _daysSinceLastWearLabel,
           ),
           const SizedBox(height: 24),
           const _SectionTitle('Historique des ports'),
@@ -500,6 +491,41 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final decimals = value % 1 == 0 ? 0 : 2;
     return '${value.toStringAsFixed(decimals).replaceAll('.', ',')} €';
   }
+
+  static DateTime _dateOnly(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
+  }
+
+  static String _daysSinceLastWearLabel(DateTime? lastWorn) {
+    if (lastWorn == null) return 'Jamais porté';
+
+    final today = _dateOnly(DateTime.now());
+    final lastWearDay = _dateOnly(lastWorn);
+    final days = today.difference(lastWearDay).inDays;
+    if (days <= 0) return 'Aujourd’hui';
+    if (days == 1) return '1 jour';
+    return '$days jours';
+  }
+
+  static String _formatCalendarAge(DateTime since) {
+    final today = _dateOnly(DateTime.now());
+    final start = _dateOnly(since);
+    final days = today.difference(start).inDays;
+
+    if (days <= 0) return 'Aujourd’hui';
+    if (days == 1) return '1 jour';
+    if (days < 30) return '$days jours';
+
+    final months = days ~/ 30;
+    if (months < 12) return months == 1 ? '1 mois' : '$months mois';
+
+    final years = days ~/ 365;
+    final remainingMonths = (days % 365) ~/ 30;
+    if (remainingMonths == 0) return years == 1 ? '1 an' : '$years ans';
+    final yearLabel = years == 1 ? '1 an' : '$years ans';
+    final monthLabel = remainingMonths == 1 ? '1 mois' : '$remainingMonths mois';
+    return '$yearLabel $monthLabel';
+  }
 }
 
 enum _WearDateChoice { today, custom }
@@ -514,6 +540,161 @@ class _SectionTitle extends StatelessWidget {
     return Text(
       title,
       style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+    );
+  }
+}
+
+class _GarmentStatsGrid extends StatelessWidget {
+  final Garment garment;
+  final Future<WearHistory?> firstWearFuture;
+  final String Function(DateTime date) formatDate;
+  final String Function(double value) formatPrice;
+  final String Function(DateTime date) formatCalendarAge;
+  final String Function(DateTime? date) daysSinceLastWearLabel;
+
+  const _GarmentStatsGrid({
+    required this.garment,
+    required this.firstWearFuture,
+    required this.formatDate,
+    required this.formatPrice,
+    required this.formatCalendarAge,
+    required this.daysSinceLastWearLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final costPerWear = garment.purchasePrice == null || garment.wearCount == 0
+        ? 'Non disponible'
+        : formatPrice(garment.purchasePrice! / garment.wearCount);
+    final ageStart = garment.purchaseDate ?? garment.createdAt;
+
+    return FutureBuilder<WearHistory?>(
+      future: firstWearFuture,
+      builder: (context, snapshot) {
+        final firstWear = snapshot.data?.wornAt;
+        final firstWearLabel =
+            snapshot.connectionState == ConnectionState.waiting
+                ? 'Chargement…'
+                : firstWear == null
+                    ? 'Jamais porté'
+                    : formatDate(firstWear);
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 700 ? 3 : 2;
+
+            return GridView.count(
+              crossAxisCount: columns,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 1.18,
+              children: [
+            _StatCard(
+              icon: Icons.repeat_outlined,
+              label: 'Total ports',
+              value: '${garment.wearCount}',
+              color: colorScheme.primaryContainer,
+              foregroundColor: colorScheme.onPrimaryContainer,
+            ),
+            _StatCard(
+              icon: Icons.event_available_outlined,
+              label: 'Premier port',
+              value: firstWearLabel,
+              color: colorScheme.secondaryContainer,
+              foregroundColor: colorScheme.onSecondaryContainer,
+            ),
+            _StatCard(
+              icon: Icons.history_outlined,
+              label: 'Dernier port',
+              value: garment.lastWorn == null
+                  ? 'Jamais porté'
+                  : formatDate(garment.lastWorn!),
+              color: colorScheme.tertiaryContainer,
+              foregroundColor: colorScheme.onTertiaryContainer,
+            ),
+            _StatCard(
+              icon: Icons.today_outlined,
+              label: 'Depuis dernier port',
+              value: daysSinceLastWearLabel(garment.lastWorn),
+              color: colorScheme.surfaceVariant,
+              foregroundColor: colorScheme.onSurfaceVariant,
+            ),
+            _StatCard(
+              icon: Icons.calculate_outlined,
+              label: 'Coût par port',
+              value: costPerWear,
+              color: colorScheme.surfaceVariant,
+              foregroundColor: colorScheme.onSurfaceVariant,
+            ),
+            _StatCard(
+              icon: Icons.hourglass_bottom_outlined,
+              label: 'Ancienneté dressing',
+              value: formatCalendarAge(ageStart),
+              color: colorScheme.surfaceVariant,
+              foregroundColor: colorScheme.onSurfaceVariant,
+            ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+  final Color foregroundColor;
+
+  const _StatCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.foregroundColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: color,
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: foregroundColor, size: 22),
+            const Spacer(),
+            Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: foregroundColor.withOpacity(.78),
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: foregroundColor,
+                    fontWeight: FontWeight.w900,
+                    height: 1.05,
+                  ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
