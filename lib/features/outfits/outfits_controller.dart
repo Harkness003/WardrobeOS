@@ -5,6 +5,7 @@ import '../../models/garment.dart';
 import '../../models/outfit.dart';
 
 class OutfitsController extends ChangeNotifier {
+  static const int neverWornScore = 100000;
   final DatabaseService _database;
 
   OutfitsController({DatabaseService? database})
@@ -15,6 +16,33 @@ class OutfitsController extends ChangeNotifier {
   bool loading = true;
   Object? error;
   bool _disposed = false;
+
+  /// Returns the business score used to rank an outfit for today's suggestions.
+  static int suggestionScore(Outfit outfit, {DateTime? now}) {
+    final lastWorn = outfit.lastWorn;
+    if (lastWorn == null) return neverWornScore;
+
+    final todayValue = now ?? DateTime.now();
+    final today = DateTime(todayValue.year, todayValue.month, todayValue.day);
+    final wornDay = DateTime(lastWorn.year, lastWorn.month, lastWorn.day);
+    return today.difference(wornDay).inDays;
+  }
+
+  static List<Outfit> selectSuggestions(
+    Iterable<Outfit> outfits, {
+    DateTime? now,
+  }) {
+    final ranked = outfits.toList();
+    ranked.sort(
+      (first, second) => suggestionScore(
+        second,
+        now: now,
+      ).compareTo(suggestionScore(first, now: now)),
+    );
+    return ranked.take(3).toList(growable: false);
+  }
+
+  List<Outfit> get suggestions => selectSuggestions(outfits);
 
   Future<void> load() async {
     loading = true;

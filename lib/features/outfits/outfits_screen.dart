@@ -15,6 +15,7 @@ class OutfitsScreen extends StatefulWidget {
 
 class _OutfitsScreenState extends State<OutfitsScreen> {
   final controller = OutfitsController();
+  final Set<String> _recordingOutfitIds = {};
 
   @override
   void initState() {
@@ -38,12 +39,38 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
     await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => OutfitFormScreen(
-          controller: controller,
-          outfit: outfit,
-        ),
+        builder: (_) =>
+            OutfitFormScreen(controller: controller, outfit: outfit),
       ),
     );
+  }
+
+  Future<void> _recordWear(Outfit outfit) async {
+    if (_recordingOutfitIds.contains(outfit.id)) return;
+    setState(() => _recordingOutfitIds.add(outfit.id));
+    try {
+      final recorded = await controller.recordWear(outfit);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            recorded
+                ? 'Tenue enregistrée avec succès.'
+                : "Impossible d'enregistrer cette tenue.",
+          ),
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Impossible d'enregistrer cette tenue."),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _recordingOutfitIds.remove(outfit.id));
+    }
   }
 
   @override
@@ -124,70 +151,136 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
     }
     return RefreshIndicator(
       onRefresh: controller.load,
-      child: ListView.separated(
+      child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 0, 18, 100),
-        itemCount: controller.outfits.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (_, index) {
-          final outfit = controller.outfits[index];
-          final garments = controller.garmentsByOutfit[outfit.id] ?? [];
-          return Card(
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () => _open(outfit),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
+        children: [
+          const Text(
+            'Suggestions du jour',
+            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 8),
+          ...controller.suggestions.map(_suggestionCard),
+          const SizedBox(height: 14),
+          const Text(
+            'Toutes les tenues',
+            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 8),
+          ...controller.outfits.map(_outfitCard),
+        ],
+      ),
+    );
+  }
+
+  Widget _suggestionCard(Outfit outfit) {
+    final garments = controller.garmentsByOutfit[outfit.id] ?? [];
+    final recording = _recordingOutfitIds.contains(outfit.id);
+    final lastWornLabel = outfit.lastWorn == null
+        ? '🔥 Jamais portée'
+        : 'Portée il y a ${OutfitsController.suggestionScore(outfit)} jours';
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      margin: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        onTap: () => _open(outfit),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              _ThumbnailGrid(paths: garments.map((g) => g.imagePath).toList()),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _ThumbnailGrid(
-                      paths: garments.map((g) => g.imagePath).toList(),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  outfit.name,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                              if (outfit.favorite)
-                                const Icon(
-                                  Icons.favorite,
-                                  color: AppTheme.gold,
-                                  size: 20,
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '${garments.length} vêtement${garments.length > 1 ? 's' : ''}',
-                          ),
-                          const SizedBox(height: 3),
-                          Text('Portée ${outfit.timesWorn} fois'),
-                          Text(
-                            outfit.lastWorn == null
-                                ? 'Jamais portée'
-                                : 'Dernière fois : ${_date(outfit.lastWorn!)}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
+                    Text(
+                      outfit.name,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const Icon(Icons.chevron_right),
+                    const SizedBox(height: 5),
+                    Text(
+                      '${garments.length} vêtement${garments.length > 1 ? 's' : ''}',
+                    ),
+                    const SizedBox(height: 3),
+                    Text(lastWornLabel),
                   ],
                 ),
               ),
-            ),
-          );
-        },
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: recording ? null : () => _recordWear(outfit),
+                child: recording
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Porter'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _outfitCard(Outfit outfit) {
+    final garments = controller.garmentsByOutfit[outfit.id] ?? [];
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      margin: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        onTap: () => _open(outfit),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              _ThumbnailGrid(paths: garments.map((g) => g.imagePath).toList()),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            outfit.name,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        if (outfit.favorite)
+                          const Icon(
+                            Icons.favorite,
+                            color: AppTheme.gold,
+                            size: 20,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${garments.length} vêtement${garments.length > 1 ? 's' : ''}',
+                    ),
+                    const SizedBox(height: 3),
+                    Text('Portée ${outfit.timesWorn} fois'),
+                    Text(
+                      outfit.lastWorn == null
+                          ? 'Jamais portée'
+                          : 'Dernière fois : ${_date(outfit.lastWorn!)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+        ),
       ),
     );
   }
