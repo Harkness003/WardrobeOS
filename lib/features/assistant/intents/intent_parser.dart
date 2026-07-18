@@ -17,6 +17,7 @@ class IntentParser implements AssistantIntent {
     }
     _extractSeason(text, parameters);
     _extractStyle(text, parameters);
+    _extractCategory(text, parameters);
 
     return IntentResult(
       type: type,
@@ -98,6 +99,23 @@ class IntentParser implements AssistantIntent {
     for (final style in styles) {
       if (text.contains(style)) {
         parameters['style'] = style == 'elegant' ? 'élégant' : style;
+        return;
+      }
+    }
+  }
+
+  void _extractCategory(String text, Map<String, String> parameters) {
+    const categories = {
+      'manteau': 'Manteaux',
+      'veste': 'Vestes',
+      'pull': 'Pulls',
+      'pantalon': 'Pantalons',
+      'robe': 'Robes',
+      'chaussure': 'Chaussures',
+    };
+    for (final entry in categories.entries) {
+      if (text.contains(entry.key)) {
+        parameters['catégorie'] = entry.value;
         return;
       }
     }

@@ -10,6 +10,8 @@ import 'package:wardrobeos/models/garment.dart';
 import 'package:wardrobeos/models/outfit.dart';
 import 'package:wardrobeos/weather/models/weather_data.dart';
 import 'package:wardrobeos/weather/services/weather_service.dart';
+import 'package:wardrobeos/features/assistant/recommendation/outfit_candidate.dart';
+import 'package:wardrobeos/features/assistant/recommendation/outfit_recommendation_engine.dart';
 
 class _WeatherService implements WeatherService {
   @override
@@ -86,5 +88,39 @@ void main() {
 
     expect(await service.generateMessage(), 'Conseil hors ligne');
     expect(service.lastToolContext['business']?['data'], {'available': true});
+  });
+
+  test('génère une recommandation avec FakeLlmProvider', () async {
+    final wardrobe = WardrobeController()..loading = false;
+    final outfits = OutfitsController()..loading = false;
+    final service = AssistantService(
+      contextBuilder: AssistantContextBuilder(
+        weatherService: _WeatherService(),
+        wardrobeController: wardrobe,
+        outfitsController: outfits,
+        clock: () => DateTime(2026, 7, 18),
+      ),
+      recommendationEngine: OutfitRecommendationEngine(
+        candidateSource: () async => const [
+          OutfitCandidate(
+            id: 'shirt', name: 'Chemise bleue', category: 'Hauts',
+            season: 'été',
+          ),
+        ],
+        clock: () => DateTime(2026, 7, 18),
+      ),
+      llmProvider: const FakeLlmProvider(response: 'Portez la chemise bleue.'),
+    );
+
+    final response = await service.generateMessage(
+      userMessage: "Que mettre aujourd'hui ?",
+    );
+
+    expect(response, 'Portez la chemise bleue.');
+    expect(service.lastRecommendationCandidates.single.id, 'shirt');
+    expect(
+      await service.generatePrompt(userMessage: "Que mettre aujourd'hui ?"),
+      contains('### RECOMMANDATION TENUE'),
+    );
   });
 }

@@ -18,6 +18,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   String? _message;
   bool _isLoading = false;
   Map<String, Object?> _toolContext = const {};
+  List<({String name, String category})> _candidates = const [];
 
   @override
   void dispose() {
@@ -36,6 +37,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
     setState(() {
       _message = message;
       _toolContext = widget.service.lastToolContext;
+      _candidates = widget.service.lastRecommendationCandidates
+          .map((item) => (name: item.name, category: item.category))
+          .toList(growable: false);
       _isLoading = false;
     });
   }
@@ -101,6 +105,18 @@ class _AssistantScreenState extends State<AssistantScreen> {
                           value: _toolContext['statistics'],
                         ),
                       ],
+                    ),
+                  if (_candidates.isNotEmpty)
+                    ExpansionTile(
+                      title: const Text('Candidats utilisés'),
+                      children: _candidates
+                          .map(
+                            (item) => ListTile(
+                              title: Text(item.name),
+                              subtitle: Text(item.category),
+                            ),
+                          )
+                          .toList(growable: false),
                     ),
                 ],
               ),

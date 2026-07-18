@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../context/assistant_context.dart';
 import '../tools/assistant_tool_context_builder.dart';
+import '../recommendation/outfit_recommendation_result.dart';
 import 'prompt_composer.dart';
 import 'prompt_section.dart';
 
@@ -16,12 +17,25 @@ class PromptBuilder {
   String build(
     AssistantContext context, {
     AssistantToolContext toolContext = const {},
+    OutfitRecommendationResult? recommendation,
   }) {
-    final prompt = composer.compose(context, sections);
-    if (toolContext.isEmpty) return prompt;
+    var prompt = composer.compose(context, sections);
     const encoder = JsonEncoder.withIndent('  ');
-    return '$prompt\n\n### DONNÉES MÉTIER STRUCTURÉES\n'
-        '${encoder.convert(toolContext)}';
+    if (toolContext.isNotEmpty) {
+      prompt = '$prompt\n\n### DONNÉES MÉTIER STRUCTURÉES\n'
+          '${encoder.convert(toolContext)}';
+    }
+    if (recommendation != null) {
+      final request = recommendation.request;
+      prompt = '$prompt\n\n### RECOMMANDATION TENUE\n'
+          'Demande utilisateur : ${request.originalMessage}\n'
+          'Contexte météo : ${encoder.convert(request.weather?.toMap())}\n'
+          'Vêtements candidats : '
+          '${encoder.convert(recommendation.candidates.map((item) => item.toMap()).toList())}\n'
+          'Explique pourquoi la tenue est adaptée, les associations choisies '
+          'et les alternatives possibles. Utilise uniquement ces candidats.';
+    }
+    return prompt;
   }
 
   static const List<PromptSection> _defaultSections = [

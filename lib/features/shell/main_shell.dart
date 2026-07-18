@@ -20,6 +20,8 @@ import '../assistant/tools/outfit_tool.dart';
 import '../assistant/tools/statistics_tool.dart';
 import '../assistant/tools/wardrobe_tool.dart';
 import '../assistant/tools/weather_tool.dart';
+import '../assistant/recommendation/outfit_candidate.dart';
+import '../assistant/recommendation/outfit_recommendation_engine.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -60,6 +62,11 @@ class _MainShellState extends State<MainShell> {
       ],
     ),
     llmProvider: _openAiProvider,
+    recommendationEngine: OutfitRecommendationEngine(
+      candidateSource: () async => _assistantWardrobe.garments
+          .map(OutfitCandidate.fromGarment)
+          .toList(growable: false),
+    ),
   );
 
   @override

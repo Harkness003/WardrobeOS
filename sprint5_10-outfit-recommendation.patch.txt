@@ -1,0 +1,912 @@
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index da6cd5777e8145583acb33248210cacee91d8cc7..3dd268ad7c21577665cdbcfb232761716bebc648 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,63 +1,67 @@
+ import 'dart:convert';
+ 
+ import 'package:flutter/material.dart';
+ 
+ import 'services/assistant_service.dart';
+ 
+ class AssistantScreen extends StatefulWidget {
+   final AssistantService service;
+ 
+   const AssistantScreen({super.key, required this.service});
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
+   final _controller = TextEditingController();
+   String? _message;
+   bool _isLoading = false;
+   Map<String, Object?> _toolContext = const {};
++  List<({String name, String category})> _candidates = const [];
+ 
+   @override
+   void dispose() {
+     _controller.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> _send() async {
+     final userMessage = _controller.text.trim();
+     if (userMessage.isEmpty) return;
+     setState(() => _isLoading = true);
+     final message = await widget.service.generateMessage(
+       userMessage: userMessage,
+     );
+     if (!mounted) return;
+     setState(() {
+       _message = message;
+       _toolContext = widget.service.lastToolContext;
++      _candidates = widget.service.lastRecommendationCandidates
++          .map((item) => (name: item.name, category: item.category))
++          .toList(growable: false);
+       _isLoading = false;
+     });
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.stretch,
+           children: [
+             const Row(
+               children: [
+                 Expanded(
+                   child: Text(
+                     'WardrobeGPT',
+                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 CircleAvatar(child: Icon(Icons.auto_awesome)),
+               ],
+             ),
+             const SizedBox(height: 32),
+             if (widget.service.lastIntent case final intent?)
+@@ -80,50 +84,62 @@ class _AssistantScreenState extends State<AssistantScreen> {
+                           : Text(
+                               _message ?? 'WardrobeGPT est prêt.',
+                               textAlign: TextAlign.center,
+                               style: Theme.of(context).textTheme.titleMedium,
+                             ),
+                     ),
+                   ),
+                   if (_toolContext.isNotEmpty)
+                     ExpansionTile(
+                       title: const Text('Données utilisées par WardrobeGPT'),
+                       children: [
+                         _DebugData(
+                           title: 'Météo utilisée',
+                           value: _toolContext['weather'],
+                         ),
+                         _DebugData(
+                           title: 'Informations dressing',
+                           value: _toolContext['wardrobe'],
+                         ),
+                         _DebugData(
+                           title: 'Statistiques utilisées',
+                           value: _toolContext['statistics'],
+                         ),
+                       ],
+                     ),
++                  if (_candidates.isNotEmpty)
++                    ExpansionTile(
++                      title: const Text('Candidats utilisés'),
++                      children: _candidates
++                          .map(
++                            (item) => ListTile(
++                              title: Text(item.name),
++                              subtitle: Text(item.category),
++                            ),
++                          )
++                          .toList(growable: false),
++                    ),
+                 ],
+               ),
+             ),
+             TextField(
+               controller: _controller,
+               enabled: !_isLoading,
+               textInputAction: TextInputAction.send,
+               onSubmitted: (_) => _send(),
+               decoration: const InputDecoration(
+                 labelText: 'Votre demande',
+                 hintText: "Que mettre aujourd'hui ?",
+                 border: OutlineInputBorder(),
+               ),
+             ),
+             const SizedBox(height: 12),
+             FilledButton.icon(
+               onPressed: _isLoading ? null : _send,
+               icon: const Icon(Icons.send),
+               label: const Text('Envoyer'),
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+diff --git a/lib/features/assistant/intents/intent_parser.dart b/lib/features/assistant/intents/intent_parser.dart
+index ba3195ad9aa1625ea89447806bac55e8eff28a01..d3419347df67fa5251baf2c4b22cc3a096ed639b 100644
+--- a/lib/features/assistant/intents/intent_parser.dart
++++ b/lib/features/assistant/intents/intent_parser.dart
+@@ -1,44 +1,45 @@
+ import 'assistant_intent.dart';
+ import 'intent_result.dart';
+ import 'intent_type.dart';
+ 
+ class IntentParser implements AssistantIntent {
+   const IntentParser();
+ 
+   @override
+   IntentResult parse(String userMessage) {
+     final text = _normalize(userMessage);
+     final parameters = <String, String>{};
+     final type = _detectType(text);
+ 
+     _extractDate(text, parameters);
+     if (type == AssistantIntentType.eventOutfit) {
+       _extractOccasion(text, parameters);
+     }
+     _extractSeason(text, parameters);
+     _extractStyle(text, parameters);
++    _extractCategory(text, parameters);
+ 
+     return IntentResult(
+       type: type,
+       originalText: userMessage,
+       parameters: parameters,
+     );
+   }
+ 
+   AssistantIntentType _detectType(String text) {
+     if (_containsAny(text, ['meteo', 'temps qu il fait', 'temperature'])) {
+       return AssistantIntentType.weatherOutfit;
+     }
+     if (_containsAny(text, [
+       'mariage', 'restaurant', 'evenement', 'soiree', 'entretien',
+       'anniversaire', 'ceremonie',
+     ])) {
+       return AssistantIntentType.eventOutfit;
+     }
+     if (_containsAny(text, [
+       'porte peu', 'porte jamais', 'ne porte plus', 'vetements oublies',
+     ])) {
+       return AssistantIntentType.forgottenGarments;
+     }
+     if (_containsAny(text, ['analyse mon dressing', 'analyse ma garde robe'])) {
+       return AssistantIntentType.wardrobeAnalysis;
+@@ -81,40 +82,57 @@ class IntentParser implements AssistantIntent {
+       }
+     }
+     if (text.contains('evenement')) parameters['occasion'] = 'événement';
+   }
+ 
+   void _extractSeason(String text, Map<String, String> parameters) {
+     const seasons = ['printemps', 'ete', 'automne', 'hiver'];
+     for (final season in seasons) {
+       if (text.contains(season)) {
+         parameters['saison'] = season == 'ete' ? 'été' : season;
+         return;
+       }
+     }
+   }
+ 
+   void _extractStyle(String text, Map<String, String> parameters) {
+     const styles = ['casual', 'chic', 'elegant', 'sportif', 'minimaliste'];
+     for (final style in styles) {
+       if (text.contains(style)) {
+         parameters['style'] = style == 'elegant' ? 'élégant' : style;
+         return;
+       }
+     }
+   }
+ 
++  void _extractCategory(String text, Map<String, String> parameters) {
++    const categories = {
++      'manteau': 'Manteaux',
++      'veste': 'Vestes',
++      'pull': 'Pulls',
++      'pantalon': 'Pantalons',
++      'robe': 'Robes',
++      'chaussure': 'Chaussures',
++    };
++    for (final entry in categories.entries) {
++      if (text.contains(entry.key)) {
++        parameters['catégorie'] = entry.value;
++        return;
++      }
++    }
++  }
++
+   bool _containsAny(String text, List<String> expressions) =>
+       expressions.any(text.contains);
+ 
+   String _normalize(String value) => value
+       .toLowerCase()
+       .replaceAll(RegExp(r'[àáâä]'), 'a')
+       .replaceAll(RegExp(r'[éèêë]'), 'e')
+       .replaceAll(RegExp(r'[îï]'), 'i')
+       .replaceAll(RegExp(r'[ôö]'), 'o')
+       .replaceAll(RegExp(r'[ùûü]'), 'u')
+       .replaceAll('ç', 'c')
+       .replaceAll(RegExp(r"[^a-z0-9 ]"), ' ')
+       .replaceAll(RegExp(r'\s+'), ' ')
+       .trim();
+ }
+diff --git a/lib/features/assistant/prompt/prompt_builder.dart b/lib/features/assistant/prompt/prompt_builder.dart
+index acec191df6f8e091abb75495757954fc35f3b334..0a4e92a8bac82203af04614eec52eac875e0206b 100644
+--- a/lib/features/assistant/prompt/prompt_builder.dart
++++ b/lib/features/assistant/prompt/prompt_builder.dart
+@@ -1,35 +1,49 @@
+ import 'dart:convert';
+ 
+ import '../context/assistant_context.dart';
+ import '../tools/assistant_tool_context_builder.dart';
++import '../recommendation/outfit_recommendation_result.dart';
+ import 'prompt_composer.dart';
+ import 'prompt_section.dart';
+ 
+ class PromptBuilder {
+   final PromptComposer composer;
+   final List<PromptSection> sections;
+ 
+   PromptBuilder({PromptComposer? composer, List<PromptSection>? sections})
+     : composer = composer ?? const PromptComposer(),
+       sections = List.unmodifiable(sections ?? _defaultSections);
+ 
+   String build(
+     AssistantContext context, {
+     AssistantToolContext toolContext = const {},
++    OutfitRecommendationResult? recommendation,
+   }) {
+-    final prompt = composer.compose(context, sections);
+-    if (toolContext.isEmpty) return prompt;
++    var prompt = composer.compose(context, sections);
+     const encoder = JsonEncoder.withIndent('  ');
+-    return '$prompt\n\n### DONNÉES MÉTIER STRUCTURÉES\n'
+-        '${encoder.convert(toolContext)}';
++    if (toolContext.isNotEmpty) {
++      prompt = '$prompt\n\n### DONNÉES MÉTIER STRUCTURÉES\n'
++          '${encoder.convert(toolContext)}';
++    }
++    if (recommendation != null) {
++      final request = recommendation.request;
++      prompt = '$prompt\n\n### RECOMMANDATION TENUE\n'
++          'Demande utilisateur : ${request.originalMessage}\n'
++          'Contexte météo : ${encoder.convert(request.weather?.toMap())}\n'
++          'Vêtements candidats : '
++          '${encoder.convert(recommendation.candidates.map((item) => item.toMap()).toList())}\n'
++          'Explique pourquoi la tenue est adaptée, les associations choisies '
++          'et les alternatives possibles. Utilise uniquement ces candidats.';
++    }
++    return prompt;
+   }
+ 
+   static const List<PromptSection> _defaultSections = [
+     SystemPromptSection(),
+     WeatherPromptSection(),
+     WardrobePromptSection(),
+     StatisticsPromptSection(),
+     HistoryPromptSection(),
+     DatePromptSection(),
+   ];
+ }
+diff --git a/lib/features/assistant/recommendation/outfit_candidate.dart b/lib/features/assistant/recommendation/outfit_candidate.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..fa6250294f791fcba2d11b44d1436785af8e7235
+--- /dev/null
++++ b/lib/features/assistant/recommendation/outfit_candidate.dart
+@@ -0,0 +1,43 @@
++import '../../../models/garment.dart';
++
++class OutfitCandidate {
++  final String id;
++  final String name;
++  final String category;
++  final String? color;
++  final String? season;
++  final int wearCount;
++  final DateTime? lastWorn;
++  final bool isAvailable;
++
++  const OutfitCandidate({
++    required this.id,
++    required this.name,
++    required this.category,
++    this.color,
++    this.season,
++    this.wearCount = 0,
++    this.lastWorn,
++    this.isAvailable = true,
++  });
++
++  factory OutfitCandidate.fromGarment(Garment garment) => OutfitCandidate(
++    id: garment.id,
++    name: garment.name,
++    category: garment.category,
++    color: garment.color,
++    season: garment.season,
++    wearCount: garment.wearCount,
++    lastWorn: garment.lastWorn,
++  );
++
++  Map<String, Object?> toMap() => {
++    'id': id,
++    'nom': name,
++    'catégorie': category,
++    'couleur': color,
++    'saison': season,
++    'fréquenceDePort': wearCount,
++    'dernièreUtilisation': lastWorn?.toIso8601String(),
++  };
++}
+diff --git a/lib/features/assistant/recommendation/outfit_recommendation_engine.dart b/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..a2e0475fd27dbcb54bdc5d5e95e05a42aa4242d0
+--- /dev/null
++++ b/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
+@@ -0,0 +1,102 @@
++import 'outfit_candidate.dart';
++import 'outfit_recommendation_request.dart';
++import 'outfit_recommendation_result.dart';
++
++typedef OutfitCandidateSource = Future<List<OutfitCandidate>> Function();
++typedef RecommendationClock = DateTime Function();
++
++class OutfitRecommendationEngine {
++  final OutfitCandidateSource _candidateSource;
++  final RecommendationClock _clock;
++  final int maximumCandidates;
++  final Duration recentWearWindow;
++
++  const OutfitRecommendationEngine({
++    required OutfitCandidateSource candidateSource,
++    RecommendationClock clock = DateTime.now,
++    this.maximumCandidates = 12,
++    this.recentWearWindow = const Duration(days: 2),
++  }) : _candidateSource = candidateSource,
++       _clock = clock,
++       assert(maximumCandidates >= 0),
++       assert(!recentWearWindow.isNegative);
++
++  Future<OutfitRecommendationResult> recommend(
++    OutfitRecommendationRequest request,
++  ) async {
++    final now = _clock();
++    final candidates = (await _candidateSource())
++        .where((candidate) => candidate.isAvailable)
++        .where((candidate) => _matchesCategory(candidate, request))
++        .where((candidate) => _matchesSeason(candidate, request.season))
++        .where((candidate) => !_wasWornRecently(candidate, now))
++        .toList();
++
++    candidates.sort(
++      (left, right) => _score(right, request, now).compareTo(
++        _score(left, request, now),
++      ),
++    );
++    return OutfitRecommendationResult(
++      request: request,
++      candidates: candidates.take(maximumCandidates),
++    );
++  }
++
++  bool _matchesCategory(
++    OutfitCandidate candidate,
++    OutfitRecommendationRequest request,
++  ) {
++    final requested = request.requestedCategory;
++    return requested == null ||
++        _normalize(candidate.category).contains(_normalize(requested));
++  }
++
++  bool _matchesSeason(OutfitCandidate candidate, String? requestedSeason) {
++    final season = _normalize(candidate.season ?? '');
++    if (season.isEmpty || season.contains('toute')) return true;
++    return requestedSeason == null || season.contains(_normalize(requestedSeason));
++  }
++
++  bool _wasWornRecently(OutfitCandidate candidate, DateTime now) {
++    final lastWorn = candidate.lastWorn;
++    return lastWorn != null && now.difference(lastWorn) < recentWearWindow;
++  }
++
++  int _score(
++    OutfitCandidate candidate,
++    OutfitRecommendationRequest request,
++    DateTime now,
++  ) {
++    var score = 100 - candidate.wearCount.clamp(0, 100).toInt();
++    if (candidate.lastWorn == null) score += 40;
++    if (candidate.lastWorn != null) {
++      score += now
++          .difference(candidate.lastWorn!)
++          .inDays
++          .clamp(0, 60)
++          .toInt();
++    }
++    final category = _normalize(candidate.category);
++    if (request.weather?.isCold ?? false) {
++      if (['manteau', 'veste', 'pull', 'pantalon'].any(category.contains)) {
++        score += 50;
++      }
++    }
++    if (request.weather?.isHot ?? false) {
++      if (['short', 'robe', 't shirt', 'haut'].any(category.contains)) {
++        score += 50;
++      }
++    }
++    return score;
++  }
++
++  String _normalize(String value) => value
++      .toLowerCase()
++      .replaceAll(RegExp(r'[àáâä]'), 'a')
++      .replaceAll(RegExp(r'[éèêë]'), 'e')
++      .replaceAll(RegExp(r'[îï]'), 'i')
++      .replaceAll(RegExp(r'[ôö]'), 'o')
++      .replaceAll(RegExp(r'[ùûü]'), 'u')
++      .replaceAll('ç', 'c');
++}
+diff --git a/lib/features/assistant/recommendation/outfit_recommendation_request.dart b/lib/features/assistant/recommendation/outfit_recommendation_request.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..f004cc8d89e5778aab4edfd5f67203f605a63537
+--- /dev/null
++++ b/lib/features/assistant/recommendation/outfit_recommendation_request.dart
+@@ -0,0 +1,60 @@
++import '../context/assistant_context.dart';
++import '../intents/intent_result.dart';
++
++class OutfitWeatherConstraints {
++  final double? temperature;
++  final String? condition;
++
++  const OutfitWeatherConstraints({this.temperature, this.condition});
++
++  bool get isCold => temperature != null && temperature! <= 12;
++  bool get isHot => temperature != null && temperature! >= 25;
++
++  Map<String, Object?> toMap() => {
++    'température': temperature,
++    'condition': condition,
++  };
++}
++
++class OutfitRecommendationRequest {
++  final String userIntent;
++  final String originalMessage;
++  final DateTime? date;
++  final String? occasion;
++  final String? desiredStyle;
++  final OutfitWeatherConstraints? weather;
++  final String? season;
++  final String? requestedCategory;
++  final Map<String, Object?> metadata;
++
++  const OutfitRecommendationRequest({
++    required this.userIntent,
++    required this.originalMessage,
++    this.date,
++    this.occasion,
++    this.desiredStyle,
++    this.weather,
++    this.season,
++    this.requestedCategory,
++    this.metadata = const {},
++  });
++
++  factory OutfitRecommendationRequest.fromIntent(
++    IntentResult intent,
++    AssistantContext context,
++  ) => OutfitRecommendationRequest(
++    userIntent: intent.type.name,
++    originalMessage: intent.originalText,
++    date: context.date.value,
++    occasion: intent.parameters['occasion'],
++    desiredStyle: intent.parameters['style'],
++    weather: context.weather == null
++        ? null
++        : OutfitWeatherConstraints(
++            temperature: context.weather!.temperature,
++            condition: context.weather!.condition,
++          ),
++    season: intent.parameters['saison'] ?? context.date.season,
++    requestedCategory: intent.parameters['catégorie'],
++  );
++}
+diff --git a/lib/features/assistant/recommendation/outfit_recommendation_result.dart b/lib/features/assistant/recommendation/outfit_recommendation_result.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..cc27e4a361377d287bbdeaf5ee2b472d17ee8dd6
+--- /dev/null
++++ b/lib/features/assistant/recommendation/outfit_recommendation_result.dart
+@@ -0,0 +1,12 @@
++import 'outfit_candidate.dart';
++import 'outfit_recommendation_request.dart';
++
++class OutfitRecommendationResult {
++  final OutfitRecommendationRequest request;
++  final List<OutfitCandidate> candidates;
++
++  OutfitRecommendationResult({
++    required this.request,
++    required Iterable<OutfitCandidate> candidates,
++  }) : candidates = List.unmodifiable(candidates);
++}
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index e69ca04abaa5d5f31196dd8d6c48b4f0e8ccdc40..cf73fc7bca5a4780c70473ff5852722e241f5365 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -1,60 +1,86 @@
+ import '../context/assistant_context.dart';
+ import '../context/assistant_context_builder.dart';
+ import '../prompt/prompt_builder.dart';
+ import '../ai/llm_provider.dart';
+ import '../tools/assistant_tool_context_builder.dart';
+ import '../intents/assistant_intent.dart';
+ import '../intents/intent_parser.dart';
+ import '../intents/intent_result.dart';
++import '../intents/intent_type.dart';
++import '../recommendation/outfit_candidate.dart';
++import '../recommendation/outfit_recommendation_engine.dart';
++import '../recommendation/outfit_recommendation_request.dart';
+ 
+ class AssistantService {
+   final AssistantContextBuilder _contextBuilder;
+   final PromptBuilder _promptBuilder;
+   final LlmProvider _llmProvider;
+   final AssistantToolContextBuilder _toolContextBuilder;
+   final AssistantIntent _intentParser;
++  final OutfitRecommendationEngine? _recommendationEngine;
+   AssistantToolContext _lastToolContext = const {};
+   IntentResult? _lastIntent;
++  List<OutfitCandidate> _lastRecommendationCandidates = const [];
+ 
+   AssistantService({
+     required AssistantContextBuilder contextBuilder,
+     AssistantToolContextBuilder? toolContextBuilder,
+     required LlmProvider llmProvider,
+     PromptBuilder? promptBuilder,
+     AssistantIntent? intentParser,
++    OutfitRecommendationEngine? recommendationEngine,
+   }) : _contextBuilder = contextBuilder,
+        _llmProvider = llmProvider,
+        _toolContextBuilder =
+            toolContextBuilder ?? AssistantToolContextBuilder(tools: const []),
+        _intentParser = intentParser ?? const IntentParser(),
++       _recommendationEngine = recommendationEngine,
+        _promptBuilder = promptBuilder ?? PromptBuilder();
+ 
+   AssistantToolContext get lastToolContext => _lastToolContext;
+   IntentResult? get lastIntent => _lastIntent;
++  List<OutfitCandidate> get lastRecommendationCandidates =>
++      _lastRecommendationCandidates;
+ 
+   Future<AssistantContext> buildContext() => _contextBuilder.build();
+ 
+   Future<String> generatePrompt({String? userMessage}) async {
+     _lastIntent = userMessage == null ? null : _intentParser.parse(userMessage);
+     final context = await buildContext();
+     _lastToolContext = await _toolContextBuilder.build();
+-    final prompt = _promptBuilder.build(context, toolContext: _lastToolContext);
++    final shouldRecommend = _lastIntent != null && {
++      AssistantIntentType.dailyOutfit,
++      AssistantIntentType.weatherOutfit,
++      AssistantIntentType.eventOutfit,
++      AssistantIntentType.forgottenGarments,
++    }.contains(_lastIntent!.type);
++    final recommendation = shouldRecommend && _recommendationEngine != null
++        ? await _recommendationEngine.recommend(
++            OutfitRecommendationRequest.fromIntent(_lastIntent!, context),
++          )
++        : null;
++    _lastRecommendationCandidates = recommendation?.candidates ?? const [];
++    final prompt = _promptBuilder.build(
++      context,
++      toolContext: _lastToolContext,
++      recommendation: recommendation,
++    );
+     if (_lastIntent == null) return prompt;
+     return '$prompt\n\n### DEMANDE UTILISATEUR\n'
+         'Intention : ${_lastIntent!.type.name}\n'
+         'Paramètres : ${_lastIntent!.parameters}\n'
+         'Message : ${_lastIntent!.originalText}';
+   }
+ 
+   Future<String> generateMessage({String? userMessage}) async {
+     try {
+       return await _llmProvider.generate(
+         await generatePrompt(userMessage: userMessage),
+       );
+     } on LlmException catch (error) {
+       return error.message;
+     } catch (_) {
+       return 'WardrobeGPT est temporairement indisponible. Réessayez.';
+     }
+   }
+ }
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 7524cadaea3e76e890f7666d666b35b864905407..f911123e1ec1a7281cdb7aef668d33367107be01 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -1,87 +1,94 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import '../assistant/tools/assistant_tool_context_builder.dart';
+ import '../assistant/tools/outfit_tool.dart';
+ import '../assistant/tools/statistics_tool.dart';
+ import '../assistant/tools/wardrobe_tool.dart';
+ import '../assistant/tools/weather_tool.dart';
++import '../assistant/recommendation/outfit_candidate.dart';
++import '../assistant/recommendation/outfit_recommendation_engine.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+       outfitsController: _assistantOutfits,
+     ),
+     toolContextBuilder: AssistantToolContextBuilder(
+       tools: [
+         WeatherTool(weatherService: widget.weatherService),
+         WardrobeTool(controller: _assistantWardrobe),
+         OutfitTool(controller: _assistantOutfits),
+         StatisticsTool(controller: _assistantWardrobe),
+       ],
+     ),
+     llmProvider: _openAiProvider,
++    recommendationEngine: OutfitRecommendationEngine(
++      candidateSource: () async => _assistantWardrobe.garments
++          .map(OutfitCandidate.fromGarment)
++          .toList(growable: false),
++    ),
+   );
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _assistantOutfits.dispose();
+     _aiSettings.dispose();
+     super.dispose();
+   }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(3),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+diff --git a/test/features/assistant/assistant_service_test.dart b/test/features/assistant/assistant_service_test.dart
+index a06534969b49c99f0fe00a525d162901709bf4f8..bbfb4e01fc6a20015e64437b6e307808b2031872 100644
+--- a/test/features/assistant/assistant_service_test.dart
++++ b/test/features/assistant/assistant_service_test.dart
+@@ -1,37 +1,39 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
+ import 'package:wardrobeos/features/assistant/services/assistant_service.dart';
+ import 'package:wardrobeos/features/assistant/ai/fake_llm_provider.dart';
+ import 'package:wardrobeos/features/assistant/tools/assistant_tool.dart';
+ import 'package:wardrobeos/features/assistant/tools/assistant_tool_context_builder.dart';
+ import 'package:wardrobeos/features/outfits/outfits_controller.dart';
+ import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/outfit.dart';
+ import 'package:wardrobeos/weather/models/weather_data.dart';
+ import 'package:wardrobeos/weather/services/weather_service.dart';
++import 'package:wardrobeos/features/assistant/recommendation/outfit_candidate.dart';
++import 'package:wardrobeos/features/assistant/recommendation/outfit_recommendation_engine.dart';
+ 
+ class _WeatherService implements WeatherService {
+   @override
+   void clearCache() {}
+   @override
+   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
+       WeatherData(
+         city: 'Lyon', latitude: 0, longitude: 0, temperature: 22,
+         apparentTemperature: 22, humidity: 0, windSpeed: 0, windDirection: 0,
+         weatherCode: 0, description: 'Clair', measuredAt: DateTime(2026),
+       );
+ }
+ 
+ class _BusinessTool implements AssistantTool {
+   @override
+   String get id => 'business';
+   @override
+   String get description => 'Données de test';
+   @override
+   Future<AssistantToolData> getData() async => {'available': true};
+ }
+ 
+ void main() {
+   test('génère un prompt à partir du contexte', () async {
+     final wardrobe = WardrobeController()
+@@ -65,26 +67,60 @@ void main() {
+     expect(message, contains('Jour : mardi'));
+     expect(message, contains('Température : 22°C'));
+     expect(message, contains('Ville : Lyon'));
+     expect(message, contains('Nombre de vêtements : 2'));
+     expect(message, contains('Nombre de tenues : 1'));
+   });
+ 
+   test('génère une réponse avec le fournisseur injecté', () async {
+     final wardrobe = WardrobeController()..loading = false;
+     final outfits = OutfitsController()..loading = false;
+     final service = AssistantService(
+       contextBuilder: AssistantContextBuilder(
+         weatherService: _WeatherService(),
+         wardrobeController: wardrobe,
+         outfitsController: outfits,
+       ),
+       toolContextBuilder: AssistantToolContextBuilder(
+         tools: [_BusinessTool()],
+       ),
+       llmProvider: const FakeLlmProvider(response: 'Conseil hors ligne'),
+     );
+ 
+     expect(await service.generateMessage(), 'Conseil hors ligne');
+     expect(service.lastToolContext['business']?['data'], {'available': true});
+   });
++
++  test('génère une recommandation avec FakeLlmProvider', () async {
++    final wardrobe = WardrobeController()..loading = false;
++    final outfits = OutfitsController()..loading = false;
++    final service = AssistantService(
++      contextBuilder: AssistantContextBuilder(
++        weatherService: _WeatherService(),
++        wardrobeController: wardrobe,
++        outfitsController: outfits,
++        clock: () => DateTime(2026, 7, 18),
++      ),
++      recommendationEngine: OutfitRecommendationEngine(
++        candidateSource: () async => const [
++          OutfitCandidate(
++            id: 'shirt', name: 'Chemise bleue', category: 'Hauts',
++            season: 'été',
++          ),
++        ],
++        clock: () => DateTime(2026, 7, 18),
++      ),
++      llmProvider: const FakeLlmProvider(response: 'Portez la chemise bleue.'),
++    );
++
++    final response = await service.generateMessage(
++      userMessage: "Que mettre aujourd'hui ?",
++    );
++
++    expect(response, 'Portez la chemise bleue.');
++    expect(service.lastRecommendationCandidates.single.id, 'shirt');
++    expect(
++      await service.generatePrompt(userMessage: "Que mettre aujourd'hui ?"),
++      contains('### RECOMMANDATION TENUE'),
++    );
++  });
+ }
+diff --git a/test/features/assistant/outfit_recommendation_engine_test.dart b/test/features/assistant/outfit_recommendation_engine_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..b79ff1d317beced8d8f7e06f38ec710fb9b1647d
+--- /dev/null
++++ b/test/features/assistant/outfit_recommendation_engine_test.dart
+@@ -0,0 +1,68 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/recommendation/outfit_candidate.dart';
++import 'package:wardrobeos/features/assistant/recommendation/outfit_recommendation_engine.dart';
++import 'package:wardrobeos/features/assistant/recommendation/outfit_recommendation_request.dart';
++
++void main() {
++  final now = DateTime(2026, 1, 15, 12);
++
++  OutfitRecommendationEngine engine(List<OutfitCandidate> candidates) =>
++      OutfitRecommendationEngine(
++        candidateSource: () async => candidates,
++        clock: () => now,
++      );
++
++  const coldRequest = OutfitRecommendationRequest(
++    userIntent: 'dailyOutfit',
++    originalMessage: "Que mettre aujourd'hui ?",
++    season: 'hiver',
++    weather: OutfitWeatherConstraints(temperature: 5, condition: 'Froid'),
++  );
++
++  test('sélectionne en priorité les vêtements adaptés au froid', () async {
++    final result = await engine(const [
++      OutfitCandidate(
++        id: 'shirt', name: 'Chemise', category: 'Hauts', season: 'hiver',
++      ),
++      OutfitCandidate(
++        id: 'coat', name: 'Manteau chaud', category: 'Manteaux', season: 'hiver',
++      ),
++      OutfitCandidate(
++        id: 'shorts', name: 'Short', category: 'Shorts', season: 'été',
++      ),
++    ]).recommend(coldRequest);
++
++    expect(result.candidates.map((item) => item.id), ['coat', 'shirt']);
++  });
++
++  test('exclut les vêtements portés très récemment', () async {
++    final result = await engine([
++      OutfitCandidate(
++        id: 'recent', name: 'Pull récent', category: 'Pulls', season: 'hiver',
++        lastWorn: now.subtract(const Duration(hours: 12)),
++      ),
++      const OutfitCandidate(
++        id: 'available', name: 'Pull disponible', category: 'Pulls',
++        season: 'hiver',
++      ),
++    ]).recommend(coldRequest);
++
++    expect(result.candidates.map((item) => item.id), ['available']);
++  });
++
++  test('donne la priorité aux vêtements oubliés', () async {
++    final result = await engine([
++      OutfitCandidate(
++        id: 'frequent', name: 'Pull fréquent', category: 'Pulls',
++        season: 'hiver', wearCount: 20,
++        lastWorn: now.subtract(const Duration(days: 10)),
++      ),
++      const OutfitCandidate(
++        id: 'forgotten', name: 'Pull oublié', category: 'Pulls',
++        season: 'hiver', wearCount: 0,
++      ),
++    ]).recommend(coldRequest);
++
++    expect(result.candidates.first.id, 'forgotten');
++  });
++}
