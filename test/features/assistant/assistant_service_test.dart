@@ -21,7 +21,7 @@ class _WeatherService implements WeatherService {
 }
 
 void main() {
-  test('génère un message simulé à partir du contexte', () async {
+  test('génère un prompt à partir du contexte', () async {
     final wardrobe = WardrobeController()
       ..loading = false
       ..garments = List.generate(
@@ -47,11 +47,12 @@ void main() {
       ),
     );
 
-    final message = await service.generateMessage();
+    final message = await service.generatePrompt();
 
-    expect(message, contains('Aujourd’hui nous sommes mardi.'));
-    expect(message, contains('Il fait 22°C à Lyon.'));
-    expect(message, contains('2 vêtements'));
-    expect(message, contains('1 tenues'));
+    expect(message, contains('Jour : mardi'));
+    expect(message, contains('Température : 22°C'));
+    expect(message, contains('Ville : Lyon'));
+    expect(message, contains('Nombre de vêtements : 2'));
+    expect(message, contains('Nombre de tenues : 1'));
   });
 }

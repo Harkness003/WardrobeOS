@@ -1,26 +1,21 @@
 import '../context/assistant_context.dart';
 import '../context/assistant_context_builder.dart';
+import '../prompt/prompt_builder.dart';
 
 class AssistantService {
   final AssistantContextBuilder _contextBuilder;
+  final PromptBuilder _promptBuilder;
 
-  const AssistantService({required AssistantContextBuilder contextBuilder})
-    : _contextBuilder = contextBuilder;
+  AssistantService({
+    required AssistantContextBuilder contextBuilder,
+    PromptBuilder? promptBuilder,
+  }) : _contextBuilder = contextBuilder,
+       _promptBuilder = promptBuilder ?? PromptBuilder();
 
   Future<AssistantContext> buildContext() => _contextBuilder.build();
 
-  Future<String> generateMessage() async {
-    final context = await buildContext();
-    final temperature = _formatTemperature(context.weather.temperature);
-    return 'Bonjour 👋\n\n'
-        'Aujourd’hui nous sommes ${context.date.day}.\n\n'
-        'Il fait $temperature°C à ${context.weather.city}.\n\n'
-        'Votre dressing contient ${context.statistics.garmentCount} vêtements.\n\n'
-        'Vous avez enregistré ${context.statistics.outfitCount} tenues.';
-  }
+  Future<String> generatePrompt() async =>
+      _promptBuilder.build(await buildContext());
 
-  String _formatTemperature(double value) =>
-      value == value.roundToDouble()
-          ? value.toInt().toString()
-          : value.toStringAsFixed(1);
+  Future<String> generateMessage() => generatePrompt();
 }

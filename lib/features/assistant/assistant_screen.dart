@@ -12,7 +12,7 @@ class AssistantScreen extends StatefulWidget {
 }
 
 class _AssistantScreenState extends State<AssistantScreen> {
-  String? _message;
+  String? _prompt;
   bool _isLoading = false;
 
   @override
@@ -23,10 +23,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   Future<void> _refresh() async {
     setState(() => _isLoading = true);
-    final message = await widget.service.generateMessage();
+    final prompt = await widget.service.generatePrompt();
     if (!mounted) return;
     setState(() {
-      _message = message;
+      _prompt = prompt;
       _isLoading = false;
     });
   }
@@ -57,12 +57,21 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     _isLoading
                         ? const CircularProgressIndicator()
                         : Text(
-                          _message ?? '',
+                          'Le contexte WardrobeGPT est prêt.',
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
               ),
             ),
+            Card(
+              child: ExpansionTile(
+                title: const Text('Prompt généré'),
+                leading: const Icon(Icons.bug_report_outlined),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                children: [SelectableText(_prompt ?? '')],
+              ),
+            ),
+            const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _isLoading ? null : _refresh,
               icon: const Icon(Icons.refresh),

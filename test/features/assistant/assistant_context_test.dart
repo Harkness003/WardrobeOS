@@ -28,7 +28,7 @@ void main() {
       ),
     );
 
-    expect(context.weather.city, 'Lyon');
+    expect(context.weather!.city, 'Lyon');
     expect(context.statistics.recordedWearCount, 42);
     expect(context.history.recentlyWornGarments.single.name, 'Chemise');
     expect(context.date.season, 'été');

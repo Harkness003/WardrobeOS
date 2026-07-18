@@ -1,5 +1,5 @@
 class AssistantContext {
-  final AssistantWeather weather;
+  final AssistantWeather? weather;
   final AssistantStatistics statistics;
   final AssistantHistory history;
   final AssistantDate date;

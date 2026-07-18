@@ -49,7 +49,7 @@ void main() {
       clock: () => DateTime(2026, 7, 14, 9, 5),
     ).build();
 
-    expect(context.weather.city, 'Lyon');
+    expect(context.weather!.city, 'Lyon');
     expect(context.statistics.garmentCount, 1);
     expect(context.statistics.outfitCount, 1);
     expect(context.statistics.recordedWearCount, 3);

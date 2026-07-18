@@ -1,0 +1,563 @@
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index 8a042da449c907f14fae26863ba78b5ca23e0d17..7fa789bad0d50e4c9898afe904b751006ca000bf 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,76 +1,87 @@
+ import 'package:flutter/material.dart';
+ 
+ import 'services/assistant_service.dart';
+ 
+ class AssistantScreen extends StatefulWidget {
+   final AssistantService service;
+ 
+   const AssistantScreen({super.key, required this.service});
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
+-  String? _message;
++  String? _prompt;
+   bool _isLoading = false;
+ 
+   @override
+   void initState() {
+     super.initState();
+     _refresh();
+   }
+ 
+   Future<void> _refresh() async {
+     setState(() => _isLoading = true);
+-    final message = await widget.service.generateMessage();
++    final prompt = await widget.service.generatePrompt();
+     if (!mounted) return;
+     setState(() {
+-      _message = message;
++      _prompt = prompt;
+       _isLoading = false;
+     });
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.stretch,
+           children: [
+             const Row(
+               children: [
+                 Expanded(
+                   child: Text(
+                     'WardrobeGPT',
+                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 CircleAvatar(child: Icon(Icons.auto_awesome)),
+               ],
+             ),
+             const SizedBox(height: 32),
+             Expanded(
+               child: Center(
+                 child:
+                     _isLoading
+                         ? const CircularProgressIndicator()
+                         : Text(
+-                          _message ?? '',
++                          'Le contexte WardrobeGPT est prêt.',
+                           textAlign: TextAlign.center,
+                           style: Theme.of(context).textTheme.titleMedium,
+                         ),
+               ),
+             ),
++            Card(
++              child: ExpansionTile(
++                title: const Text('Prompt généré'),
++                leading: const Icon(Icons.bug_report_outlined),
++                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
++                children: [
++                  SelectableText(_prompt ?? ''),
++                ],
++              ),
++            ),
++            const SizedBox(height: 12),
+             FilledButton.icon(
+               onPressed: _isLoading ? null : _refresh,
+               icon: const Icon(Icons.refresh),
+               label: const Text('Actualiser'),
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+ }
+diff --git a/lib/features/assistant/context/assistant_context.dart b/lib/features/assistant/context/assistant_context.dart
+index ec8b184ebc2bda3c21e0e03b264f7ad09e92b229..74cb672b49d063cfca28538f3aa37d77b6210a59 100644
+--- a/lib/features/assistant/context/assistant_context.dart
++++ b/lib/features/assistant/context/assistant_context.dart
+@@ -1,27 +1,27 @@
+ class AssistantContext {
+-  final AssistantWeather weather;
++  final AssistantWeather? weather;
+   final AssistantStatistics statistics;
+   final AssistantHistory history;
+   final AssistantDate date;
+ 
+   const AssistantContext({
+     required this.weather,
+     required this.statistics,
+     required this.history,
+     required this.date,
+   });
+ }
+ 
+ class AssistantWeather {
+   final double temperature;
+   final String condition;
+   final String city;
+ 
+   const AssistantWeather({
+     required this.temperature,
+     required this.condition,
+     required this.city,
+   });
+ }
+ 
+ class AssistantStatistics {
+diff --git a/lib/features/assistant/prompt/prompt_builder.dart b/lib/features/assistant/prompt/prompt_builder.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..37b133346ebae6620161ef1e9c917104efd72f6d
+--- /dev/null
++++ b/lib/features/assistant/prompt/prompt_builder.dart
+@@ -0,0 +1,23 @@
++import '../context/assistant_context.dart';
++import 'prompt_composer.dart';
++import 'prompt_section.dart';
++
++class PromptBuilder {
++  final PromptComposer composer;
++  final List<PromptSection> sections;
++
++  PromptBuilder({PromptComposer? composer, List<PromptSection>? sections})
++    : composer = composer ?? const PromptComposer(),
++      sections = List.unmodifiable(sections ?? _defaultSections);
++
++  String build(AssistantContext context) => composer.compose(context, sections);
++
++  static const List<PromptSection> _defaultSections = [
++    SystemPromptSection(),
++    WeatherPromptSection(),
++    WardrobePromptSection(),
++    StatisticsPromptSection(),
++    HistoryPromptSection(),
++    DatePromptSection(),
++  ];
++}
+diff --git a/lib/features/assistant/prompt/prompt_composer.dart b/lib/features/assistant/prompt/prompt_composer.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..43e78d06415c724b1e3eda299b381b2396563784
+--- /dev/null
++++ b/lib/features/assistant/prompt/prompt_composer.dart
+@@ -0,0 +1,17 @@
++import '../context/assistant_context.dart';
++import 'prompt_section.dart';
++
++class PromptComposer {
++  const PromptComposer();
++
++  String compose(AssistantContext context, Iterable<PromptSection> sections) {
++    return sections
++        .map((section) {
++          final content = section.build(context)?.trim();
++          if (content == null || content.isEmpty) return null;
++          return '## ${section.title}\n$content';
++        })
++        .whereType<String>()
++        .join('\n\n');
++  }
++}
+diff --git a/lib/features/assistant/prompt/prompt_section.dart b/lib/features/assistant/prompt/prompt_section.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..69db32b8d19c2a7c0d0cedc6904ca73a37ae3007
+--- /dev/null
++++ b/lib/features/assistant/prompt/prompt_section.dart
+@@ -0,0 +1,94 @@
++import '../context/assistant_context.dart';
++
++/// A self-contained piece of the prompt.
++abstract interface class PromptSection {
++  String get title;
++
++  /// Returns no content when this section is not relevant to [context].
++  String? build(AssistantContext context);
++}
++
++class SystemPromptSection implements PromptSection {
++  static const instructions = [
++    'Tu es WardrobeGPT.',
++    'Tu es un conseiller vestimentaire intelligent.',
++    'Tu privilégies les recommandations utiles.',
++    'Tu expliques toujours tes choix.',
++    "N'invente jamais d'informations absentes du contexte.",
++  ];
++
++  const SystemPromptSection();
++
++  @override
++  String get title => 'SYSTÈME';
++
++  @override
++  String build(AssistantContext context) => instructions.join('\n');
++}
++
++class WeatherPromptSection implements PromptSection {
++  const WeatherPromptSection();
++
++  @override
++  String get title => 'MÉTÉO';
++
++  @override
++  String? build(AssistantContext context) {
++    final weather = context.weather;
++    if (weather == null) return null;
++    final temperature =
++        weather.temperature == weather.temperature.roundToDouble()
++            ? weather.temperature.toInt().toString()
++            : weather.temperature.toStringAsFixed(1);
++    return 'Ville : ${weather.city}\n'
++        'Température : $temperature°C\n'
++        'Condition : ${weather.condition}';
++  }
++}
++
++class WardrobePromptSection implements PromptSection {
++  const WardrobePromptSection();
++
++  @override
++  String get title => 'GARDE-ROBE';
++
++  @override
++  String build(AssistantContext context) =>
++      'Nombre de vêtements : ${context.statistics.garmentCount}\n'
++      'Nombre de tenues : ${context.statistics.outfitCount}';
++}
++
++class StatisticsPromptSection implements PromptSection {
++  const StatisticsPromptSection();
++
++  @override
++  String get title => 'STATISTIQUES';
++
++  @override
++  String build(AssistantContext context) =>
++      'Utilisations enregistrées : ${context.statistics.recordedWearCount}';
++}
++
++/// Extension point for future wear frequency and forgotten-garment insights.
++class HistoryPromptSection implements PromptSection {
++  const HistoryPromptSection();
++
++  @override
++  String get title => 'HISTORIQUE';
++
++  @override
++  String? build(AssistantContext context) => null;
++}
++
++class DatePromptSection implements PromptSection {
++  const DatePromptSection();
++
++  @override
++  String get title => 'DATE';
++
++  @override
++  String build(AssistantContext context) =>
++      'Jour : ${context.date.day}\n'
++      'Heure : ${context.date.time}\n'
++      'Saison : ${context.date.season}';
++}
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index c99ffaf5e4899bbcaa78defcdb5345c77a88363d..7244d9032d5d3cb4695bb57c9ae1e9b2983deb31 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -1,26 +1,21 @@
+ import '../context/assistant_context.dart';
+ import '../context/assistant_context_builder.dart';
++import '../prompt/prompt_builder.dart';
+ 
+ class AssistantService {
+   final AssistantContextBuilder _contextBuilder;
++  final PromptBuilder _promptBuilder;
+ 
+-  const AssistantService({required AssistantContextBuilder contextBuilder})
+-    : _contextBuilder = contextBuilder;
++  AssistantService({
++    required AssistantContextBuilder contextBuilder,
++    PromptBuilder? promptBuilder,
++  }) : _contextBuilder = contextBuilder,
++       _promptBuilder = promptBuilder ?? PromptBuilder();
+ 
+   Future<AssistantContext> buildContext() => _contextBuilder.build();
+ 
+-  Future<String> generateMessage() async {
+-    final context = await buildContext();
+-    final temperature = _formatTemperature(context.weather.temperature);
+-    return 'Bonjour 👋\n\n'
+-        'Aujourd’hui nous sommes ${context.date.day}.\n\n'
+-        'Il fait $temperature°C à ${context.weather.city}.\n\n'
+-        'Votre dressing contient ${context.statistics.garmentCount} vêtements.\n\n'
+-        'Vous avez enregistré ${context.statistics.outfitCount} tenues.';
+-  }
++  Future<String> generatePrompt() async =>
++      _promptBuilder.build(await buildContext());
+ 
+-  String _formatTemperature(double value) =>
+-      value == value.roundToDouble()
+-          ? value.toInt().toString()
+-          : value.toStringAsFixed(1);
++  Future<String> generateMessage() => generatePrompt();
+ }
+diff --git a/test/features/assistant/assistant_context_builder_test.dart b/test/features/assistant/assistant_context_builder_test.dart
+index a6184c8a5569b58c7c7d52cbd2a4ab89008784cb..cfa6ef33b09f286180075bf4f473b9762975cfb0 100644
+--- a/test/features/assistant/assistant_context_builder_test.dart
++++ b/test/features/assistant/assistant_context_builder_test.dart
+@@ -27,36 +27,36 @@ void main() {
+       ..loading = false
+       ..garments = [
+         Garment(
+           id: 'g1', name: 'Chemise', category: 'Haut', wearCount: 3,
+           lastWorn: DateTime(2026, 7, 13), createdAt: DateTime(2026),
+           updatedAt: DateTime(2026),
+         ),
+       ];
+     final outfits = OutfitsController()
+       ..loading = false
+       ..outfits = [
+         Outfit(
+           id: 'o1', name: 'Bureau', timesWorn: 2,
+           lastWorn: DateTime(2026, 7, 12), createdAt: DateTime(2026),
+           updatedAt: DateTime(2026),
+         ),
+       ];
+ 
+     final context = await AssistantContextBuilder(
+       weatherService: _WeatherService(),
+       wardrobeController: wardrobe,
+       outfitsController: outfits,
+       clock: () => DateTime(2026, 7, 14, 9, 5),
+     ).build();
+ 
+-    expect(context.weather.city, 'Lyon');
++    expect(context.weather!.city, 'Lyon');
+     expect(context.statistics.garmentCount, 1);
+     expect(context.statistics.outfitCount, 1);
+     expect(context.statistics.recordedWearCount, 3);
+     expect(context.history.lastWornOutfit?.name, 'Bureau');
+     expect(context.history.recentlyWornGarments.single.name, 'Chemise');
+     expect(context.date.day, 'mardi');
+     expect(context.date.time, '09:05');
+     expect(context.date.season, 'été');
+   });
+ }
+diff --git a/test/features/assistant/assistant_context_test.dart b/test/features/assistant/assistant_context_test.dart
+index c662782df67ddaef5952c57badc2f2ac7fa677d0..1004a62f13e3042ae9258481e1b4a21a85b2af6a 100644
+--- a/test/features/assistant/assistant_context_test.dart
++++ b/test/features/assistant/assistant_context_test.dart
+@@ -6,31 +6,31 @@ void main() {
+     final date = DateTime(2026, 7, 14, 9, 5);
+     final context = AssistantContext(
+       weather: const AssistantWeather(
+         temperature: 22,
+         condition: 'Ensoleillé',
+         city: 'Lyon',
+       ),
+       statistics: const AssistantStatistics(
+         garmentCount: 58,
+         outfitCount: 17,
+         recordedWearCount: 42,
+       ),
+       history: AssistantHistory(
+         recentlyWornGarments: [
+           WornGarment(id: 'g1', name: 'Chemise', wornAt: date),
+         ],
+       ),
+       date: AssistantDate(
+         value: date,
+         day: 'mardi',
+         time: '09:05',
+         season: 'été',
+       ),
+     );
+ 
+-    expect(context.weather.city, 'Lyon');
++    expect(context.weather!.city, 'Lyon');
+     expect(context.statistics.recordedWearCount, 42);
+     expect(context.history.recentlyWornGarments.single.name, 'Chemise');
+     expect(context.date.season, 'été');
+   });
+ }
+diff --git a/test/features/assistant/assistant_service_test.dart b/test/features/assistant/assistant_service_test.dart
+index 01626cdff145abc66ed0e751d4fad0841083e9d3..ecaa798835dd1d5b505da57b60c9f97cf7b4615c 100644
+--- a/test/features/assistant/assistant_service_test.dart
++++ b/test/features/assistant/assistant_service_test.dart
+@@ -1,57 +1,58 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
+ import 'package:wardrobeos/features/assistant/services/assistant_service.dart';
+ import 'package:wardrobeos/features/outfits/outfits_controller.dart';
+ import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/outfit.dart';
+ import 'package:wardrobeos/weather/models/weather_data.dart';
+ import 'package:wardrobeos/weather/services/weather_service.dart';
+ 
+ class _WeatherService implements WeatherService {
+   @override
+   void clearCache() {}
+   @override
+   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
+       WeatherData(
+         city: 'Lyon', latitude: 0, longitude: 0, temperature: 22,
+         apparentTemperature: 22, humidity: 0, windSpeed: 0, windDirection: 0,
+         weatherCode: 0, description: 'Clair', measuredAt: DateTime(2026),
+       );
+ }
+ 
+ void main() {
+-  test('génère un message simulé à partir du contexte', () async {
++  test('génère un prompt à partir du contexte', () async {
+     final wardrobe = WardrobeController()
+       ..loading = false
+       ..garments = List.generate(
+         2,
+         (index) => Garment(
+           id: '$index', name: 'Vêtement $index', category: 'Haut',
+           createdAt: DateTime(2026), updatedAt: DateTime(2026),
+         ),
+       );
+     final outfits = OutfitsController()
+       ..loading = false
+       ..outfits = [
+         Outfit(
+           id: 'o1', name: 'Tenue', createdAt: DateTime(2026),
+           updatedAt: DateTime(2026),
+         ),
+       ];
+     final service = AssistantService(
+       contextBuilder: AssistantContextBuilder(
+         weatherService: _WeatherService(), wardrobeController: wardrobe,
+         outfitsController: outfits,
+         clock: () => DateTime(2026, 7, 14),
+       ),
+     );
+ 
+-    final message = await service.generateMessage();
++    final message = await service.generatePrompt();
+ 
+-    expect(message, contains('Aujourd’hui nous sommes mardi.'));
+-    expect(message, contains('Il fait 22°C à Lyon.'));
+-    expect(message, contains('2 vêtements'));
+-    expect(message, contains('1 tenues'));
++    expect(message, contains('Jour : mardi'));
++    expect(message, contains('Température : 22°C'));
++    expect(message, contains('Ville : Lyon'));
++    expect(message, contains('Nombre de vêtements : 2'));
++    expect(message, contains('Nombre de tenues : 1'));
+   });
+ }
+diff --git a/test/features/assistant/prompt/prompt_test.dart b/test/features/assistant/prompt/prompt_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..47a26e6b9b9317a8debfaa0bc6fae17fdcfd7843
+--- /dev/null
++++ b/test/features/assistant/prompt/prompt_test.dart
+@@ -0,0 +1,87 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/context/assistant_context.dart';
++import 'package:wardrobeos/features/assistant/prompt/prompt_builder.dart';
++import 'package:wardrobeos/features/assistant/prompt/prompt_composer.dart';
++import 'package:wardrobeos/features/assistant/prompt/prompt_section.dart';
++
++class _EmptySection implements PromptSection {
++  const _EmptySection();
++  @override
++  String get title => 'VIDE';
++  @override
++  String? build(AssistantContext context) => null;
++}
++
++AssistantContext _context({bool withWeather = true}) => AssistantContext(
++  weather: withWeather
++      ? const AssistantWeather(
++        temperature: 21.5,
++        condition: 'Clair',
++        city: 'Lyon',
++      )
++      : null,
++  statistics: const AssistantStatistics(
++    garmentCount: 12,
++    outfitCount: 4,
++    recordedWearCount: 7,
++  ),
++  history: const AssistantHistory(),
++  date: AssistantDate(
++    value: DateTime(2026, 7, 18, 9, 30),
++    day: 'samedi',
++    time: '09:30',
++    season: 'été',
++  ),
++);
++
++void main() {
++  group('PromptComposer', () {
++    test('retourne un prompt vide quand toutes les sections sont vides', () {
++      expect(
++        const PromptComposer().compose(_context(), const [_EmptySection()]),
++        isEmpty,
++      );
++    });
++
++    test('ignore les sections vides et sépare les autres', () {
++      final prompt = const PromptComposer().compose(
++        _context(),
++        const [SystemPromptSection(), _EmptySection(), WardrobePromptSection()],
++      );
++      expect(prompt, contains('## SYSTÈME'));
++      expect(prompt, contains('\n\n## GARDE-ROBE'));
++      expect(prompt, isNot(contains('VIDE')));
++    });
++  });
++
++  group('Sections', () {
++    test('la météo est absente sans données météo', () {
++      expect(
++        const WeatherPromptSection().build(_context(withWeather: false)),
++        isNull,
++      );
++    });
++
++    test('la garde-robe expose les nombres de vêtements et tenues', () {
++      final section = const WardrobePromptSection().build(_context());
++      expect(section, contains('Nombre de vêtements : 12'));
++      expect(section, contains('Nombre de tenues : 4'));
++    });
++
++    test('historique réserve une extension sans produire de contenu', () {
++      expect(const HistoryPromptSection().build(_context()), isNull);
++    });
++  });
++
++  test('PromptBuilder produit un prompt complet', () {
++    final prompt = PromptBuilder().build(_context());
++    expect(prompt, contains('Tu es WardrobeGPT.'));
++    expect(prompt, contains('Ville : Lyon'));
++    expect(prompt, contains('Température : 21.5°C'));
++    expect(prompt, contains('Condition : Clair'));
++    expect(prompt, contains('Nombre de vêtements : 12'));
++    expect(prompt, contains('Utilisations enregistrées : 7'));
++    expect(prompt, contains('Jour : samedi'));
++    expect(prompt, isNot(contains('## HISTORIQUE')));
++  });
++}
