@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
@@ -30,8 +32,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
   String season = 'Toute saison';
   String? imagePath;
   GarmentScanResult? result;
+  bool importing = false;
   bool analyzing = false;
   bool saving = false;
+  bool imageOwnedByGarment = false;
+
+  bool get busy => importing || analyzing || saving;
 
   static const categories = [
     'Hauts',
@@ -53,6 +59,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   @override
   void dispose() {
+    if (!imageOwnedByGarment) _removeBestEffort(imagePath);
     name.dispose();
     brand.dispose();
     color.dispose();
@@ -62,25 +69,67 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   Future<void> pick(ImageSource source) async {
-    final selected = await picker.pickImage(
-      source: source,
-      imageQuality: 90,
-      maxWidth: 1800,
-    );
-    if (selected == null) return;
+    if (busy) return;
+    setState(() => importing = true);
+    String? persisted;
+    try {
+      final selected = await picker.pickImage(
+        source: source,
+        imageQuality: 90,
+        maxWidth: 1800,
+      );
+      if (!mounted || selected == null) return;
 
-    final persisted = await ImageStorageService.persist(selected.path);
-    if (imagePath != null) await ImageStorageService.remove(imagePath);
+      persisted = await ImageStorageService.persist(selected.path);
+      if (!mounted) {
+        _removeBestEffort(persisted);
+        return;
+      }
 
-    setState(() {
-      imagePath = persisted;
-      result = null;
-    });
-    await analyze();
+      final previousPath = imagePath;
+      setState(() {
+        imagePath = persisted;
+        result = null;
+      });
+      persisted = null; // The screen now owns this copy.
+      _removeBestEffort(previousPath);
+    } catch (_) {
+      _removeBestEffort(persisted);
+      if (!mounted) return;
+      _toast('Impossible d’importer cette photo. Réessaie avec une autre.');
+    } finally {
+      if (mounted) setState(() => importing = false);
+    }
+
+    if (mounted && imagePath != null) await analyze();
   }
 
   Future<void> chooseSource() async {
-    await showModalBottomSheet<void>(
+    if (busy) return;
+    if (imagePath != null) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Remplacer la photo ?'),
+          content: const Text(
+            'La photo actuelle sera conservée si le nouvel import échoue.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Remplacer'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || replace != true) return;
+    }
+
+    final source = await showModalBottomSheet<ImageSource>(
       context: context,
       showDragHandle: true,
       builder: (_) => SafeArea(
@@ -90,27 +139,23 @@ class _ScannerScreenState extends State<ScannerScreen> {
               leading: const Icon(Icons.camera_alt_outlined),
               title: const Text('Prendre une photo'),
               subtitle: const Text('Idéalement sur un fond uni'),
-              onTap: () {
-                Navigator.pop(context);
-                pick(ImageSource.camera);
-              },
+              onTap: () => Navigator.pop(context, ImageSource.camera),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
               title: const Text('Choisir dans la galerie'),
-              onTap: () {
-                Navigator.pop(context);
-                pick(ImageSource.gallery);
-              },
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
             ),
           ],
         ),
       ),
     );
+    if (!mounted || source == null) return;
+    await pick(source);
   }
 
   Future<void> analyze() async {
-    if (imagePath == null) return;
+    if (busy || imagePath == null) return;
     setState(() => analyzing = true);
 
     try {
@@ -124,12 +169,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
         material.text = scan.material;
         season = scan.season;
       });
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Analyse impossible. Tu peux compléter la fiche manuellement. ($error)',
+            'Analyse impossible. Complète la fiche manuellement ou réessaie.',
           ),
         ),
       );
@@ -139,6 +184,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   Future<void> save() async {
+    if (busy) return;
     if (imagePath == null) {
       _toast('Ajoute d’abord une photo.');
       return;
@@ -167,16 +213,25 @@ class _ScannerScreenState extends State<ScannerScreen> {
     );
 
     try {
-      await wardrobe.save(garment, isNew: true);
-      imagePath = null; // The saved garment now owns the image.
+      await wardrobe.insert(garment);
+      imageOwnedByGarment = true;
       if (!mounted) return;
+      setState(() => saving = false);
       Navigator.pop(context, true);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pièce ajoutée au dressing.')),
       );
+    } catch (_) {
+      if (!mounted) return;
+      _toast('Enregistrement impossible. Vérifie la fiche et réessaie.');
     } finally {
       if (mounted) setState(() => saving = false);
     }
+  }
+
+  void _removeBestEffort(String? path) {
+    unawaited(ImageStorageService.remove(path).catchError((_) {}));
   }
 
   void _toast(String text) {
@@ -185,39 +240,42 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Scanner une pièce'),
-        actions: [
-          IconButton(
-            tooltip: 'Conseils photo',
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (_) => const AlertDialog(
-                title: Text('Pour une meilleure analyse'),
-                content: Text(
-                  'Photographie une seule pièce, bien éclairée, à plat ou sur un cintre, avec un fond aussi neutre que possible.',
+    return PopScope(
+      canPop: !busy,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Scanner une pièce'),
+          actions: [
+            IconButton(
+              tooltip: 'Conseils photo',
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => const AlertDialog(
+                  title: Text('Pour une meilleure analyse'),
+                  content: Text(
+                    'Photographie une seule pièce, bien éclairée, à plat ou sur un cintre, avec un fond aussi neutre que possible.',
+                  ),
                 ),
               ),
+              icon: const Icon(Icons.help_outline),
             ),
-            icon: const Icon(Icons.help_outline),
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 4, 18, 32),
-        children: [
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 32),
+          children: [
           _PhotoArea(
             imagePath: imagePath,
             analyzing: analyzing,
-            onTap: chooseSource,
+            importing: importing,
+            onTap: busy ? null : chooseSource,
           ),
           const SizedBox(height: 18),
           if (imagePath == null) ...[
             const _IntroCard(),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: chooseSource,
+              onPressed: busy ? null : chooseSource,
               icon: const Icon(Icons.camera_alt_outlined),
               label: const Text('Prendre ou choisir une photo'),
             ),
@@ -290,7 +348,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: analyzing ? null : analyze,
+                    onPressed: busy ? null : analyze,
                     icon: const Icon(Icons.refresh),
                     label: const Text('Réanalyser'),
                     style: OutlinedButton.styleFrom(
@@ -304,7 +362,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: chooseSource,
+                    onPressed: busy ? null : chooseSource,
                     icon: const Icon(Icons.photo_camera_back_outlined),
                     label: const Text('Changer'),
                     style: OutlinedButton.styleFrom(
@@ -319,7 +377,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
             const SizedBox(height: 10),
             FilledButton.icon(
-              onPressed: saving || analyzing ? null : save,
+              onPressed: busy ? null : save,
               icon: saving
                   ? const SizedBox.square(
                       dimension: 18,
@@ -330,8 +388,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 saving ? 'Ajout en cours…' : 'Valider et ajouter au dressing',
               ),
             ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -340,18 +399,20 @@ class _ScannerScreenState extends State<ScannerScreen> {
 class _PhotoArea extends StatelessWidget {
   final String? imagePath;
   final bool analyzing;
-  final VoidCallback onTap;
+  final bool importing;
+  final VoidCallback? onTap;
 
   const _PhotoArea({
     required this.imagePath,
     required this.analyzing,
+    required this.importing,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: analyzing ? null : onTap,
+      onTap: analyzing || importing ? null : onTap,
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -376,6 +437,29 @@ class _PhotoArea extends StatelessWidget {
                   style: TextStyle(fontWeight: FontWeight.w900),
                 ),
               ],
+            ),
+          if (importing)
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: .58),
+                  borderRadius: BorderRadius.circular(32),
+                ),
+                child: const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(color: AppTheme.gold),
+                    SizedBox(height: 18),
+                    Text(
+                      'Import de la photo…',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           if (analyzing)
             Positioned.fill(

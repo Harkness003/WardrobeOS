@@ -104,6 +104,12 @@ class WardrobeController extends ChangeNotifier {
     await load();
   }
 
+  /// Inserts a garment without refreshing this controller's local list.
+  ///
+  /// This is useful for short-lived creation flows whose caller refreshes the
+  /// visible wardrobe after the route closes.
+  Future<void> insert(Garment garment) => _db.insertGarment(garment);
+
   Future<void> toggleFavorite(Garment garment) async {
     await _db.updateGarment(
       garment.copyWith(
