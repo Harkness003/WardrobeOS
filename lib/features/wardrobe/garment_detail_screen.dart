@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/garment.dart';
+import '../../models/wear_history.dart';
 import '../../widgets/garment_image.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
@@ -22,11 +23,13 @@ class GarmentDetailScreen extends StatefulWidget {
 class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   late Garment garment;
   bool _recordingWear = false;
+  late Future<List<WearHistory>> _wearHistoryFuture;
 
   @override
   void initState() {
     super.initState();
     garment = widget.garment;
+    _wearHistoryFuture = _loadWearHistory();
   }
 
   Future<void> edit() async {
@@ -42,13 +45,21 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     if (changed == true) _refreshGarment();
   }
 
-  void _refreshGarment() {
-    final match = widget.controller.garments.where((item) => item.id == garment.id);
-    if (match.isNotEmpty && mounted) {
-      setState(() => garment = match.first);
-    }
+  Future<List<WearHistory>> _loadWearHistory() {
+    return widget.controller.getWearHistory(garment.id);
   }
 
+  void _refreshGarment({bool reloadHistory = false}) {
+    final match = widget.controller.garments.where(
+      (item) => item.id == garment.id,
+    );
+    if (!mounted) return;
+
+    setState(() {
+      if (match.isNotEmpty) garment = match.first;
+      if (reloadHistory) _wearHistoryFuture = _loadWearHistory();
+    });
+  }
 
   Future<void> recordWearToday() async {
     if (_recordingWear) return;
@@ -57,7 +68,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
 
     try {
       await widget.controller.recordWear(garment);
-      _refreshGarment();
+      _refreshGarment(reloadHistory: true);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -89,7 +100,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   Future<void> undoLastWear() async {
     try {
       final removed = await widget.controller.removeLastWear(garment);
-      _refreshGarment();
+      _refreshGarment(reloadHistory: true);
 
       if (!mounted || !removed) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -101,6 +112,45 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
         const SnackBar(
           content: Text("Impossible d’annuler le dernier port."),
         ),
+      );
+    }
+  }
+
+  Future<void> deleteWear(WearHistory wear) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Supprimer ce port ?'),
+        content: Text(
+          'Le port du ${_formatDate(wear.wornAt)} à ${_formatTime(wear.wornAt)} sera supprimé définitivement.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final removed = await widget.controller.deleteWear(garment, wear);
+      _refreshGarment(reloadHistory: true);
+
+      if (!mounted || !removed) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Port supprimé.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible de supprimer ce port.')),
       );
     }
   }
@@ -326,6 +376,15 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 24),
+          const _SectionTitle('Historique des ports'),
+          const SizedBox(height: 10),
+          _WearHistoryCard(
+            wearHistoryFuture: _wearHistoryFuture,
+            formatDate: _formatDate,
+            formatTime: _formatTime,
+            onDelete: deleteWear,
+          ),
           if (_hasText(garment.notes)) ...[
             const SizedBox(height: 24),
             const _SectionTitle('Notes'),
@@ -378,6 +437,12 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final day = date.day.toString().padLeft(2, '0');
     final month = date.month.toString().padLeft(2, '0');
     return '$day/$month/${date.year}';
+  }
+
+  static String _formatTime(DateTime date) {
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 
   static String _formatPrice(double value) {
@@ -440,6 +505,94 @@ class _InfoTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _WearHistoryCard extends StatelessWidget {
+  final Future<List<WearHistory>> wearHistoryFuture;
+  final String Function(DateTime date) formatDate;
+  final String Function(DateTime date) formatTime;
+  final ValueChanged<WearHistory> onDelete;
+
+  const _WearHistoryCard({
+    required this.wearHistoryFuture,
+    required this.formatDate,
+    required this.formatTime,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: FutureBuilder<List<WearHistory>>(
+        future: wearHistoryFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          if (snapshot.hasError) {
+            return const Padding(
+              padding: EdgeInsets.all(17),
+              child: Text('Impossible de charger l’historique des ports.'),
+            );
+          }
+
+          final history = snapshot.data ?? const <WearHistory>[];
+          if (history.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(17),
+              child: Text('Aucun port enregistré pour ce vêtement.'),
+            );
+          }
+
+          return Column(
+            children: [
+              for (var index = 0; index < history.length; index++) ...[
+                _WearHistoryTile(
+                  wear: history[index],
+                  formatDate: formatDate,
+                  formatTime: formatTime,
+                  onDelete: onDelete,
+                ),
+                if (index < history.length - 1) const Divider(height: 1),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _WearHistoryTile extends StatelessWidget {
+  final WearHistory wear;
+  final String Function(DateTime date) formatDate;
+  final String Function(DateTime date) formatTime;
+  final ValueChanged<WearHistory> onDelete;
+
+  const _WearHistoryTile({
+    required this.wear,
+    required this.formatDate,
+    required this.formatTime,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.event_available_outlined),
+      title: Text(formatDate(wear.wornAt)),
+      subtitle: Text(formatTime(wear.wornAt)),
+      trailing: IconButton(
+        tooltip: 'Supprimer ce port',
+        onPressed: () => onDelete(wear),
+        icon: const Icon(Icons.delete_outline),
       ),
     );
   }

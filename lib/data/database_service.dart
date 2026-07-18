@@ -222,10 +222,36 @@ class DatabaseService {
       if (rows.isEmpty) return false;
 
       final id = rows.first['id'] as int;
-      await txn.delete('wear_history', where: 'id = ?', whereArgs: [id]);
-      await _syncGarmentWearData(txn, garmentId);
-      return true;
+      return _deleteWearInTransaction(txn, garmentId: garmentId, wearId: id);
     });
+  }
+
+  Future<bool> deleteWear(String garmentId, int wearId) async {
+    final db = await database;
+
+    return db.transaction((txn) {
+      return _deleteWearInTransaction(
+        txn,
+        garmentId: garmentId,
+        wearId: wearId,
+      );
+    });
+  }
+
+  Future<bool> _deleteWearInTransaction(
+    Transaction txn, {
+    required String garmentId,
+    required int wearId,
+  }) async {
+    final deleted = await txn.delete(
+      'wear_history',
+      where: 'id = ? AND garment_id = ?',
+      whereArgs: [wearId, garmentId],
+    );
+    if (deleted == 0) return false;
+
+    await _syncGarmentWearData(txn, garmentId);
+    return true;
   }
 
   Future<void> _syncGarmentWearData(
@@ -246,7 +272,9 @@ class DatabaseService {
     );
 
     final count = (countRows.first['total'] as int?) ?? 0;
-    final lastWorn = lastRows.isEmpty ? null : lastRows.first['worn_at'] as String;
+    final lastWorn = lastRows.isEmpty
+        ? null
+        : lastRows.first['worn_at'] as String;
 
     await db.update(
       'garments',
