@@ -1,0 +1,1 @@
+ C:\\Users\\User\\Desktop\\WardrobeOS\\.dart_tool\\flutter_build\\22aacc6b27a346dce5926f73f25de6a5\\dart_build_result.json:  C:\\Users\\User\\Desktop\\WardrobeOS\\.dart_tool\\package_config.json C:\\Users\\User\\Desktop\\WardrobeOS\\pubspec.yaml C:\\src\\flutter\\bin\\cache\\dart-sdk\\version c:\\users\\user\\desktop\\wardrobeos\\.dart_tool\\package_config.json

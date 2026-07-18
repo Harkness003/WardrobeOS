@@ -1,35 +1,32 @@
 import 'package:flutter/material.dart';
 
-import 'models/assistant_request.dart';
-import 'services/wardrobe_gpt_service.dart';
+import 'services/assistant_service.dart';
 
 class AssistantScreen extends StatefulWidget {
-  final WardrobeGptService? service;
+  final AssistantService service;
 
-  const AssistantScreen({super.key, this.service});
+  const AssistantScreen({super.key, required this.service});
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
 }
 
 class _AssistantScreenState extends State<AssistantScreen> {
-  late final WardrobeGptService _service;
   String? _message;
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _service = widget.service ?? WardrobeGptService();
     _refresh();
   }
 
   Future<void> _refresh() async {
     setState(() => _isLoading = true);
-    final response = await _service.generate(const AssistantRequest());
+    final message = await widget.service.generateMessage();
     if (!mounted) return;
     setState(() {
-      _message = response.message;
+      _message = message;
       _isLoading = false;
     });
   }

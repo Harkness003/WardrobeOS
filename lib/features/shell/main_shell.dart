@@ -3,11 +3,15 @@ import '../../core/settings/app_settings.dart';
 import '../assistant/assistant_screen.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../outfits/outfits_screen.dart';
+import '../outfits/outfits_controller.dart';
 import '../profile/profile_screen.dart';
 import '../scanner/scanner_screen.dart';
 import '../wardrobe/wardrobe_screen.dart';
+import '../wardrobe/wardrobe_controller.dart';
 import '../wishlist/wishlist_screen.dart';
 import '../../weather/services/weather_service.dart';
+import '../assistant/context/assistant_context_builder.dart';
+import '../assistant/services/assistant_service.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -25,6 +29,22 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int index = 0;
+  late final _assistantWardrobe = WardrobeController();
+  late final _assistantOutfits = OutfitsController();
+  late final _assistantService = AssistantService(
+    contextBuilder: AssistantContextBuilder(
+      weatherService: widget.weatherService,
+      wardrobeController: _assistantWardrobe,
+      outfitsController: _assistantOutfits,
+    ),
+  );
+
+  @override
+  void dispose() {
+    _assistantWardrobe.dispose();
+    _assistantOutfits.dispose();
+    super.dispose();
+  }
 
   void goTo(int newIndex) {
     if (newIndex == index) return;
@@ -51,7 +71,7 @@ class _MainShellState extends State<MainShell> {
       ),
       const WardrobeScreen(),
       const OutfitsScreen(),
-      const AssistantScreen(),
+      AssistantScreen(service: _assistantService),
       const WishlistScreen(),
       ProfileScreen(settings: widget.settings),
     ];

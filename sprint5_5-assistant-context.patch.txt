@@ -1,0 +1,565 @@
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index 4b2fd884ec3cae12a5ab3a00879cb2ca71122680..8a042da449c907f14fae26863ba78b5ca23e0d17 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,57 +1,54 @@
+ import 'package:flutter/material.dart';
+ 
+-import 'models/assistant_request.dart';
+-import 'services/wardrobe_gpt_service.dart';
++import 'services/assistant_service.dart';
+ 
+ class AssistantScreen extends StatefulWidget {
+-  final WardrobeGptService? service;
++  final AssistantService service;
+ 
+-  const AssistantScreen({super.key, this.service});
++  const AssistantScreen({super.key, required this.service});
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
+-  late final WardrobeGptService _service;
+   String? _message;
+   bool _isLoading = false;
+ 
+   @override
+   void initState() {
+     super.initState();
+-    _service = widget.service ?? WardrobeGptService();
+     _refresh();
+   }
+ 
+   Future<void> _refresh() async {
+     setState(() => _isLoading = true);
+-    final response = await _service.generate(const AssistantRequest());
++    final message = await widget.service.generateMessage();
+     if (!mounted) return;
+     setState(() {
+-      _message = response.message;
++      _message = message;
+       _isLoading = false;
+     });
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.stretch,
+           children: [
+             const Row(
+               children: [
+                 Expanded(
+                   child: Text(
+                     'WardrobeGPT',
+                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 CircleAvatar(child: Icon(Icons.auto_awesome)),
+               ],
+             ),
+             const SizedBox(height: 32),
+             Expanded(
+diff --git a/lib/features/assistant/context/assistant_context.dart b/lib/features/assistant/context/assistant_context.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec8b184ebc2bda3c21e0e03b264f7ad09e92b229
+--- /dev/null
++++ b/lib/features/assistant/context/assistant_context.dart
+@@ -0,0 +1,85 @@
++class AssistantContext {
++  final AssistantWeather weather;
++  final AssistantStatistics statistics;
++  final AssistantHistory history;
++  final AssistantDate date;
++
++  const AssistantContext({
++    required this.weather,
++    required this.statistics,
++    required this.history,
++    required this.date,
++  });
++}
++
++class AssistantWeather {
++  final double temperature;
++  final String condition;
++  final String city;
++
++  const AssistantWeather({
++    required this.temperature,
++    required this.condition,
++    required this.city,
++  });
++}
++
++class AssistantStatistics {
++  final int garmentCount;
++  final int outfitCount;
++  final int recordedWearCount;
++
++  const AssistantStatistics({
++    required this.garmentCount,
++    required this.outfitCount,
++    required this.recordedWearCount,
++  });
++}
++
++class AssistantHistory {
++  final WornOutfit? lastWornOutfit;
++  final List<WornGarment> recentlyWornGarments;
++
++  const AssistantHistory({
++    this.lastWornOutfit,
++    this.recentlyWornGarments = const [],
++  });
++}
++
++class WornOutfit {
++  final String id;
++  final String name;
++  final DateTime wornAt;
++
++  const WornOutfit({
++    required this.id,
++    required this.name,
++    required this.wornAt,
++  });
++}
++
++class WornGarment {
++  final String id;
++  final String name;
++  final DateTime wornAt;
++
++  const WornGarment({
++    required this.id,
++    required this.name,
++    required this.wornAt,
++  });
++}
++
++class AssistantDate {
++  final DateTime value;
++  final String day;
++  final String time;
++  final String season;
++
++  const AssistantDate({
++    required this.value,
++    required this.day,
++    required this.time,
++    required this.season,
++  });
++}
+diff --git a/lib/features/assistant/context/assistant_context_builder.dart b/lib/features/assistant/context/assistant_context_builder.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..9278ddac7ac1a41dc22f5d93ddc15fac9782dfc9
+--- /dev/null
++++ b/lib/features/assistant/context/assistant_context_builder.dart
+@@ -0,0 +1,93 @@
++import '../../outfits/outfits_controller.dart';
++import '../../wardrobe/wardrobe_controller.dart';
++import '../../../weather/services/weather_service.dart';
++import 'assistant_context.dart';
++
++typedef AssistantClock = DateTime Function();
++
++class AssistantContextBuilder {
++  final WeatherService _weatherService;
++  final WardrobeController _wardrobeController;
++  final OutfitsController _outfitsController;
++  final AssistantClock _clock;
++
++  const AssistantContextBuilder({
++    required WeatherService weatherService,
++    required WardrobeController wardrobeController,
++    required OutfitsController outfitsController,
++    AssistantClock clock = DateTime.now,
++  }) : _weatherService = weatherService,
++       _wardrobeController = wardrobeController,
++       _outfitsController = outfitsController,
++       _clock = clock;
++
++  Future<AssistantContext> build() async {
++    final weatherFuture = _weatherService.getCurrentWeather();
++    if (_wardrobeController.loading) await _wardrobeController.load();
++    if (_outfitsController.loading) await _outfitsController.load();
++    final weather = await weatherFuture;
++    final now = _clock();
++
++    final recentGarments = _wardrobeController.garments
++        .where((garment) => garment.lastWorn != null)
++        .toList()
++      ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
++    final wornOutfits = _outfitsController.outfits
++        .where((outfit) => outfit.lastWorn != null)
++        .toList()
++      ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
++    final lastOutfit = wornOutfits.isEmpty ? null : wornOutfits.first;
++
++    return AssistantContext(
++      weather: AssistantWeather(
++        temperature: weather.temperature,
++        condition: weather.description,
++        city: weather.city,
++      ),
++      statistics: AssistantStatistics(
++        garmentCount: _wardrobeController.garments.length,
++        outfitCount: _outfitsController.outfits.length,
++        recordedWearCount: _wardrobeController.garments.fold(
++          0,
++          (total, garment) => total + garment.wearCount,
++        ),
++      ),
++      history: AssistantHistory(
++        lastWornOutfit: lastOutfit == null
++            ? null
++            : WornOutfit(
++                id: lastOutfit.id,
++                name: lastOutfit.name,
++                wornAt: lastOutfit.lastWorn!,
++              ),
++        recentlyWornGarments: recentGarments
++            .map(
++              (garment) => WornGarment(
++                id: garment.id,
++                name: garment.name,
++                wornAt: garment.lastWorn!,
++              ),
++            )
++            .toList(growable: false),
++      ),
++      date: AssistantDate(
++        value: now,
++        day: _days[now.weekday - 1],
++        time: '${now.hour.toString().padLeft(2, '0')}:'
++            '${now.minute.toString().padLeft(2, '0')}',
++        season: _seasonFor(now),
++      ),
++    );
++  }
++
++  static const _days = [
++    'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche',
++  ];
++
++  static String _seasonFor(DateTime date) => switch (date.month) {
++    3 || 4 || 5 => 'printemps',
++    6 || 7 || 8 => 'été',
++    9 || 10 || 11 => 'automne',
++    _ => 'hiver',
++  };
++}
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..9afa9b2b86da7e1f87d06b486074807a3346591c
+--- /dev/null
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -0,0 +1,24 @@
++import '../context/assistant_context.dart';
++import '../context/assistant_context_builder.dart';
++
++class AssistantService {
++  final AssistantContextBuilder _contextBuilder;
++
++  const AssistantService({required AssistantContextBuilder contextBuilder})
++    : _contextBuilder = contextBuilder;
++
++  Future<AssistantContext> buildContext() => _contextBuilder.build();
++
++  Future<String> generateMessage() async {
++    final context = await buildContext();
++    final temperature = _formatTemperature(context.weather.temperature);
++    return 'Bonjour 👋\n\n'
++        'Aujourd’hui nous sommes ${context.date.day}.\n\n'
++        'Il fait $temperature°C à ${context.weather.city}.\n\n'
++        'Votre dressing contient ${context.statistics.garmentCount} vêtements.\n\n'
++        'Vous avez enregistré ${context.statistics.outfitCount} tenues.';
++  }
++
++  String _formatTemperature(double value) =>
++      value == value.roundToDouble() ? value.toInt().toString() : value.toStringAsFixed(1);
++}
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index eecd9d7854d45ea0cbe1a3d3a16427e0e3843a71..0a0bee5023f0c227a37fc3081bbf0cef47166c60 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -1,79 +1,99 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
++import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
++import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
++import '../assistant/context/assistant_context_builder.dart';
++import '../assistant/services/assistant_service.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
++  late final _assistantWardrobe = WardrobeController();
++  late final _assistantOutfits = OutfitsController();
++  late final _assistantService = AssistantService(
++    contextBuilder: AssistantContextBuilder(
++      weatherService: widget.weatherService,
++      wardrobeController: _assistantWardrobe,
++      outfitsController: _assistantOutfits,
++    ),
++  );
++
++  @override
++  void dispose() {
++    _assistantWardrobe.dispose();
++    _assistantOutfits.dispose();
++    super.dispose();
++  }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(3),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+             MaterialPageRoute(builder: (_) => const ScannerScreen()),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+           }
+         },
+       ),
+       const WardrobeScreen(),
+       const OutfitsScreen(),
+-      const AssistantScreen(),
++      AssistantScreen(service: _assistantService),
+       const WishlistScreen(),
+       ProfileScreen(settings: widget.settings),
+     ];
+ 
+     return Scaffold(
+       body: AnimatedSwitcher(
+         duration: const Duration(milliseconds: 240),
+         transitionBuilder: (child, animation) {
+           return FadeTransition(
+             opacity: animation,
+             child: SlideTransition(
+               position: Tween<Offset>(
+                 begin: const Offset(.02, 0),
+                 end: Offset.zero,
+               ).animate(animation),
+               child: child,
+             ),
+           );
+         },
+         child: KeyedSubtree(key: ValueKey(index), child: pages[index]),
+       ),
+       bottomNavigationBar: NavigationBar(
+         selectedIndex: index,
+         onDestinationSelected: goTo,
+         destinations: const [
+diff --git a/test/features/assistant/assistant_context_builder_test.dart b/test/features/assistant/assistant_context_builder_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..a6184c8a5569b58c7c7d52cbd2a4ab89008784cb
+--- /dev/null
++++ b/test/features/assistant/assistant_context_builder_test.dart
+@@ -0,0 +1,62 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
++import 'package:wardrobeos/features/outfits/outfits_controller.dart';
++import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
++import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/models/outfit.dart';
++import 'package:wardrobeos/weather/models/weather_data.dart';
++import 'package:wardrobeos/weather/services/weather_service.dart';
++
++class _WeatherService implements WeatherService {
++  @override
++  void clearCache() {}
++
++  @override
++  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
++      WeatherData(
++        city: 'Lyon', latitude: 0, longitude: 0, temperature: 22,
++        apparentTemperature: 22, humidity: 50, windSpeed: 4,
++        windDirection: 0, weatherCode: 0, description: 'Ensoleillé',
++        measuredAt: DateTime(2026),
++      );
++}
++
++void main() {
++  test('agrège météo, contrôleurs, historique et date', () async {
++    final wardrobe = WardrobeController()
++      ..loading = false
++      ..garments = [
++        Garment(
++          id: 'g1', name: 'Chemise', category: 'Haut', wearCount: 3,
++          lastWorn: DateTime(2026, 7, 13), createdAt: DateTime(2026),
++          updatedAt: DateTime(2026),
++        ),
++      ];
++    final outfits = OutfitsController()
++      ..loading = false
++      ..outfits = [
++        Outfit(
++          id: 'o1', name: 'Bureau', timesWorn: 2,
++          lastWorn: DateTime(2026, 7, 12), createdAt: DateTime(2026),
++          updatedAt: DateTime(2026),
++        ),
++      ];
++
++    final context = await AssistantContextBuilder(
++      weatherService: _WeatherService(),
++      wardrobeController: wardrobe,
++      outfitsController: outfits,
++      clock: () => DateTime(2026, 7, 14, 9, 5),
++    ).build();
++
++    expect(context.weather.city, 'Lyon');
++    expect(context.statistics.garmentCount, 1);
++    expect(context.statistics.outfitCount, 1);
++    expect(context.statistics.recordedWearCount, 3);
++    expect(context.history.lastWornOutfit?.name, 'Bureau');
++    expect(context.history.recentlyWornGarments.single.name, 'Chemise');
++    expect(context.date.day, 'mardi');
++    expect(context.date.time, '09:05');
++    expect(context.date.season, 'été');
++  });
++}
+diff --git a/test/features/assistant/assistant_context_test.dart b/test/features/assistant/assistant_context_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..c662782df67ddaef5952c57badc2f2ac7fa677d0
+--- /dev/null
++++ b/test/features/assistant/assistant_context_test.dart
+@@ -0,0 +1,36 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/context/assistant_context.dart';
++
++void main() {
++  test('conserve toutes les sections du contexte', () {
++    final date = DateTime(2026, 7, 14, 9, 5);
++    final context = AssistantContext(
++      weather: const AssistantWeather(
++        temperature: 22,
++        condition: 'Ensoleillé',
++        city: 'Lyon',
++      ),
++      statistics: const AssistantStatistics(
++        garmentCount: 58,
++        outfitCount: 17,
++        recordedWearCount: 42,
++      ),
++      history: AssistantHistory(
++        recentlyWornGarments: [
++          WornGarment(id: 'g1', name: 'Chemise', wornAt: date),
++        ],
++      ),
++      date: AssistantDate(
++        value: date,
++        day: 'mardi',
++        time: '09:05',
++        season: 'été',
++      ),
++    );
++
++    expect(context.weather.city, 'Lyon');
++    expect(context.statistics.recordedWearCount, 42);
++    expect(context.history.recentlyWornGarments.single.name, 'Chemise');
++    expect(context.date.season, 'été');
++  });
++}
+diff --git a/test/features/assistant/assistant_service_test.dart b/test/features/assistant/assistant_service_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..01626cdff145abc66ed0e751d4fad0841083e9d3
+--- /dev/null
++++ b/test/features/assistant/assistant_service_test.dart
+@@ -0,0 +1,57 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
++import 'package:wardrobeos/features/assistant/services/assistant_service.dart';
++import 'package:wardrobeos/features/outfits/outfits_controller.dart';
++import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
++import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/models/outfit.dart';
++import 'package:wardrobeos/weather/models/weather_data.dart';
++import 'package:wardrobeos/weather/services/weather_service.dart';
++
++class _WeatherService implements WeatherService {
++  @override
++  void clearCache() {}
++  @override
++  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
++      WeatherData(
++        city: 'Lyon', latitude: 0, longitude: 0, temperature: 22,
++        apparentTemperature: 22, humidity: 0, windSpeed: 0, windDirection: 0,
++        weatherCode: 0, description: 'Clair', measuredAt: DateTime(2026),
++      );
++}
++
++void main() {
++  test('génère un message simulé à partir du contexte', () async {
++    final wardrobe = WardrobeController()
++      ..loading = false
++      ..garments = List.generate(
++        2,
++        (index) => Garment(
++          id: '$index', name: 'Vêtement $index', category: 'Haut',
++          createdAt: DateTime(2026), updatedAt: DateTime(2026),
++        ),
++      );
++    final outfits = OutfitsController()
++      ..loading = false
++      ..outfits = [
++        Outfit(
++          id: 'o1', name: 'Tenue', createdAt: DateTime(2026),
++          updatedAt: DateTime(2026),
++        ),
++      ];
++    final service = AssistantService(
++      contextBuilder: AssistantContextBuilder(
++        weatherService: _WeatherService(), wardrobeController: wardrobe,
++        outfitsController: outfits,
++        clock: () => DateTime(2026, 7, 14),
++      ),
++    );
++
++    final message = await service.generateMessage();
++
++    expect(message, contains('Aujourd’hui nous sommes mardi.'));
++    expect(message, contains('Il fait 22°C à Lyon.'));
++    expect(message, contains('2 vêtements'));
++    expect(message, contains('1 tenues'));
++  });
++}
