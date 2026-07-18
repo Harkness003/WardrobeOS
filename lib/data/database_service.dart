@@ -13,7 +13,10 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 2,
+      version: 3,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE garments(
@@ -41,6 +44,7 @@ class DatabaseService {
             updated_at TEXT NOT NULL
           )
         ''');
+        await _createWearHistoryTable(db);
         await _createIndexes(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -50,15 +54,35 @@ class DatabaseService {
           await _addColumn(db, 'garments', 'condition', 'TEXT');
           await _addColumn(db, 'garments', 'purchase_price', 'REAL');
           await _addColumn(db, 'garments', 'purchase_date', 'TEXT');
-          await _addColumn(db, 'garments', 'wear_count', 'INTEGER NOT NULL DEFAULT 0');
+          await _addColumn(
+            db,
+            'garments',
+            'wear_count',
+            'INTEGER NOT NULL DEFAULT 0',
+          );
           await _addColumn(db, 'garments', 'last_worn', 'TEXT');
           await _addColumn(db, 'garments', 'size', 'TEXT');
           await _addColumn(db, 'garments', 'fit', 'TEXT');
           await _addColumn(db, 'garments', 'composition', 'TEXT');
-          await _createIndexes(db);
         }
+        if (oldVersion < 3) {
+          await _createWearHistoryTable(db);
+        }
+        await _createIndexes(db);
       },
     );
+  }
+
+  Future<void> _createWearHistoryTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS wear_history(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        garment_id TEXT NOT NULL,
+        worn_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (garment_id) REFERENCES garments(id) ON DELETE CASCADE
+      )
+    ''');
   }
 
   Future<void> _addColumn(
@@ -83,6 +107,12 @@ class DatabaseService {
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_garments_last_worn ON garments(last_worn)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_wear_history_garment ON wear_history(garment_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_wear_history_worn_at ON wear_history(worn_at)',
     );
   }
 
