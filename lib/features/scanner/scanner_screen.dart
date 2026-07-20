@@ -101,7 +101,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
       if (mounted) setState(() => importing = false);
     }
 
-    if (mounted && imagePath != null) await analyze();
+    // L'analyse reste une action explicite afin d'éviter tout appel coûteux
+    // involontaire après un simple changement de photo.
   }
 
   Future<void> chooseSource() async {
@@ -165,11 +166,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
       if (!mounted) return;
       setState(() {
         result = scan;
-        name.text = scan.suggestedName;
-        category = scan.category;
-        color.text = scan.color;
-        material.text = scan.material;
-        season = scan.season;
+        if (name.text.trim().isEmpty) name.text = scan.suggestedName;
+        if (color.text.trim().isEmpty) color.text = scan.color;
+        if (material.text.trim().isEmpty) material.text = scan.material;
       });
     } catch (_) {
       if (!mounted) return;
@@ -369,7 +368,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     child: OutlinedButton.icon(
                       onPressed: busy ? null : analyze,
                       icon: const Icon(Icons.refresh),
-                      label: const Text('Réanalyser'),
+                      label: Text(result == null ? 'Analyser la photo' : 'Réanalyser'),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(52),
                         shape: RoundedRectangleBorder(
@@ -566,7 +565,7 @@ class _AnalysisSummary extends StatelessWidget {
                 const SizedBox(width: 10),
                 const Expanded(
                   child: Text(
-                    'Suggestion générée',
+                    'Suggestion IA',
                     style: TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
@@ -590,6 +589,18 @@ class _AnalysisSummary extends StatelessWidget {
                 ),
               ),
             ],
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                result.confidence >= .8
+                    ? 'Confiance élevée'
+                    : result.confidence >= .55
+                        ? 'Confiance moyenne · À vérifier'
+                        : 'À vérifier',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
             const SizedBox(height: 8),
             const Align(
               alignment: Alignment.centerLeft,
