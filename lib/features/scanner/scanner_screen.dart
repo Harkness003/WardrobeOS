@@ -206,6 +206,14 @@ class _ScannerScreenState extends State<ScannerScreen> {
       color: color.text.trim().isEmpty ? null : color.text.trim(),
       material: material.text.trim().isEmpty ? null : material.text.trim(),
       season: season,
+      typePrecis: result?.typePrecis,
+      descriptionIA: result?.descriptionIA,
+      couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
+      matierePrincipale:
+          material.text.trim().isEmpty ? null : material.text.trim(),
+      saisons: result?.saisons,
+      confianceGlobale: result?.confidence,
+      avertissementsIA: result?.avertissementsIA,
       notes:
           result == null
               ? 'Ajout manuel depuis le scanner.'

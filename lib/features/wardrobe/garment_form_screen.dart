@@ -30,6 +30,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
   late final TextEditingController size;
   late final TextEditingController composition;
   late final TextEditingController notes;
+  late final Map<String, TextEditingController> richFields;
 
   late String category;
   late String season;
@@ -113,6 +114,39 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     size = TextEditingController(text: g?.size ?? '');
     composition = TextEditingController(text: g?.composition ?? '');
     notes = TextEditingController(text: g?.notes ?? '');
+    richFields = {
+      'sousCategorie': TextEditingController(text: g?.sousCategorie?.toString() ?? ''),
+      'typePrecis': TextEditingController(text: g?.typePrecis?.toString() ?? ''),
+      'descriptionIA': TextEditingController(text: g?.descriptionIA?.toString() ?? ''),
+      'couleurPrincipale': TextEditingController(text: g?.couleurPrincipale?.toString() ?? ''),
+      'couleursSecondaires': TextEditingController(text: g?.couleursSecondaires?.join(', ') ?? ''),
+      'motif': TextEditingController(text: g?.motif?.toString() ?? ''),
+      'texture': TextEditingController(text: g?.texture?.toString() ?? ''),
+      'logoVisible': TextEditingController(text: g?.logoVisible == null ? '' : (g!.logoVisible! ? 'oui' : 'non')),
+      'stylePrincipal': TextEditingController(text: g?.stylePrincipal?.toString() ?? ''),
+      'stylesSecondaires': TextEditingController(text: g?.stylesSecondaires?.join(', ') ?? ''),
+      'niveauFormalite': TextEditingController(text: g?.niveauFormalite?.toString() ?? ''),
+      'coupe': TextEditingController(text: g?.coupe?.toString() ?? ''),
+      'longueur': TextEditingController(text: g?.longueur?.toString() ?? ''),
+      'longueurManches': TextEditingController(text: g?.longueurManches?.toString() ?? ''),
+      'typeCol': TextEditingController(text: g?.typeCol?.toString() ?? ''),
+      'typeFermeture': TextEditingController(text: g?.typeFermeture?.toString() ?? ''),
+      'matierePrincipale': TextEditingController(text: g?.matierePrincipale?.toString() ?? ''),
+      'matieresSecondaires': TextEditingController(text: g?.matieresSecondaires?.join(', ') ?? ''),
+      'confianceMatiere': TextEditingController(text: g?.confianceMatiere?.toString() ?? ''),
+      'saisons': TextEditingController(text: g?.saisons?.join(', ') ?? ''),
+      'occasions': TextEditingController(text: g?.occasions?.join(', ') ?? ''),
+      'temperatureMinimum': TextEditingController(text: g?.temperatureMinimum?.toString() ?? ''),
+      'temperatureMaximum': TextEditingController(text: g?.temperatureMaximum?.toString() ?? ''),
+      'compatiblePluie': TextEditingController(text: g?.compatiblePluie == null ? '' : (g!.compatiblePluie! ? 'oui' : 'non')),
+      'compatibleChaleur': TextEditingController(text: g?.compatibleChaleur == null ? '' : (g!.compatibleChaleur! ? 'oui' : 'non')),
+      'superposable': TextEditingController(text: g?.superposable == null ? '' : (g!.superposable! ? 'oui' : 'non')),
+      'etatVisuel': TextEditingController(text: g?.etatVisuel?.toString() ?? ''),
+      'usureVisible': TextEditingController(text: g?.usureVisible?.toString() ?? ''),
+      'defautsVisibles': TextEditingController(text: g?.defautsVisibles?.join(', ') ?? ''),
+      'confianceGlobale': TextEditingController(text: g?.confianceGlobale?.toString() ?? ''),
+      'avertissementsIA': TextEditingController(text: g?.avertissementsIA?.join(', ') ?? ''),
+    };
     category = _safeValue(g?.category, categories, 'Hauts');
     season = _safeValue(g?.season, seasons, 'Toute saison');
     style = _safeValue(g?.style, styles, 'Non défini');
@@ -142,6 +176,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     size.dispose();
     composition.dispose();
     notes.dispose();
+    for (final controller in richFields.values) { controller.dispose(); }
     super.dispose();
   }
 
@@ -231,6 +266,19 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     return value == emptyValue ? null : value;
   }
 
+
+  String? _rich(String key) => _optional(richFields[key]!);
+  List<String>? _richList(String key) {
+    final values = richFields[key]!.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
+    return values.isEmpty ? null : values;
+  }
+  double? _richDouble(String key) => double.tryParse(richFields[key]!.text.trim().replaceAll(',', '.'));
+  bool? _richBool(String key) {
+    final value = richFields[key]!.text.trim().toLowerCase();
+    if (value.isEmpty) return null;
+    return value == 'oui' || value == 'true' || value == '1';
+  }
+
   Future<void> save() async {
     if (!formKey.currentState!.validate()) return;
     setState(() => saving = true);
@@ -249,6 +297,37 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
         style: _optionalChoice(style, 'Non défini'),
         occasion: _optionalChoice(occasion, 'Non définie'),
         condition: _optionalChoice(condition, 'Non défini'),
+        sousCategorie: _rich('sousCategorie'),
+        typePrecis: _rich('typePrecis'),
+        descriptionIA: _rich('descriptionIA'),
+        couleurPrincipale: _rich('couleurPrincipale'),
+        couleursSecondaires: _richList('couleursSecondaires'),
+        motif: _rich('motif'),
+        texture: _rich('texture'),
+        logoVisible: _richBool('logoVisible'),
+        stylePrincipal: _rich('stylePrincipal'),
+        stylesSecondaires: _richList('stylesSecondaires'),
+        niveauFormalite: _rich('niveauFormalite'),
+        coupe: _rich('coupe'),
+        longueur: _rich('longueur'),
+        longueurManches: _rich('longueurManches'),
+        typeCol: _rich('typeCol'),
+        typeFermeture: _rich('typeFermeture'),
+        matierePrincipale: _rich('matierePrincipale'),
+        matieresSecondaires: _richList('matieresSecondaires'),
+        confianceMatiere: _richDouble('confianceMatiere'),
+        saisons: _richList('saisons'),
+        occasions: _richList('occasions'),
+        temperatureMinimum: _richDouble('temperatureMinimum'),
+        temperatureMaximum: _richDouble('temperatureMaximum'),
+        compatiblePluie: _richBool('compatiblePluie'),
+        compatibleChaleur: _richBool('compatibleChaleur'),
+        superposable: _richBool('superposable'),
+        etatVisuel: _rich('etatVisuel'),
+        usureVisible: _rich('usureVisible'),
+        defautsVisibles: _richList('defautsVisibles'),
+        confianceGlobale: _richDouble('confianceGlobale'),
+        avertissementsIA: _richList('avertissementsIA'),
         purchasePrice: _parsePrice(),
         purchaseDate: purchaseDate,
         wearCount: old?.wearCount ?? 0,
@@ -263,6 +342,8 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
         updatedAt: now,
       );
 
+      final businessError = garment.validate();
+      if (businessError != null) throw FormatException(businessError);
       await widget.controller.save(garment, isNew: old == null);
       if (old?.imagePath != null && old!.imagePath != imagePath) {
         await ImageStorageService.remove(old.imagePath);
@@ -530,6 +611,110 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
                 ),
               ),
               const SizedBox(height: 8),
+              ExpansionTile(
+                title: const Text('Informations', style: TextStyle(fontWeight: FontWeight.w800)),
+                childrenPadding: const EdgeInsets.only(bottom: 12),
+                children: [
+                    TextFormField(controller: richFields['sousCategorie'], decoration: const InputDecoration(labelText: 'Sous-catégorie', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['typePrecis'], decoration: const InputDecoration(labelText: 'Type précis', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['descriptionIA'], decoration: const InputDecoration(labelText: 'Description IA', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                ],
+              ),
+              ExpansionTile(
+                title: const Text('Apparence', style: TextStyle(fontWeight: FontWeight.w800)),
+                childrenPadding: const EdgeInsets.only(bottom: 12),
+                children: [
+                    TextFormField(controller: richFields['couleurPrincipale'], decoration: const InputDecoration(labelText: 'Couleur principale', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['couleursSecondaires'], decoration: const InputDecoration(labelText: 'Couleurs secondaires (séparées par des virgules)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['motif'], decoration: const InputDecoration(labelText: 'Motif', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['texture'], decoration: const InputDecoration(labelText: 'Texture', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['logoVisible'], decoration: const InputDecoration(labelText: 'Logo visible (oui/non)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                ],
+              ),
+              ExpansionTile(
+                title: const Text('Style', style: TextStyle(fontWeight: FontWeight.w800)),
+                childrenPadding: const EdgeInsets.only(bottom: 12),
+                children: [
+                    TextFormField(controller: richFields['stylePrincipal'], decoration: const InputDecoration(labelText: 'Style principal', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['stylesSecondaires'], decoration: const InputDecoration(labelText: 'Styles secondaires (séparés par des virgules)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['niveauFormalite'], decoration: const InputDecoration(labelText: 'Niveau de formalité', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['coupe'], decoration: const InputDecoration(labelText: 'Coupe', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['longueur'], decoration: const InputDecoration(labelText: 'Longueur', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['longueurManches'], decoration: const InputDecoration(labelText: 'Longueur des manches', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['typeCol'], decoration: const InputDecoration(labelText: 'Type de col', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['typeFermeture'], decoration: const InputDecoration(labelText: 'Type de fermeture', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                ],
+              ),
+              ExpansionTile(
+                title: const Text('Matière', style: TextStyle(fontWeight: FontWeight.w800)),
+                childrenPadding: const EdgeInsets.only(bottom: 12),
+                children: [
+                    TextFormField(controller: richFields['matierePrincipale'], decoration: const InputDecoration(labelText: 'Matière principale', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['matieresSecondaires'], decoration: const InputDecoration(labelText: 'Matières secondaires (séparées par des virgules)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['confianceMatiere'], decoration: const InputDecoration(labelText: 'Confiance matière (0 à 1)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                ],
+              ),
+              ExpansionTile(
+                title: const Text('Utilisation', style: TextStyle(fontWeight: FontWeight.w800)),
+                childrenPadding: const EdgeInsets.only(bottom: 12),
+                children: [
+                    TextFormField(controller: richFields['saisons'], decoration: const InputDecoration(labelText: 'Saisons (séparées par des virgules)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['occasions'], decoration: const InputDecoration(labelText: 'Occasions (séparées par des virgules)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['temperatureMinimum'], decoration: const InputDecoration(labelText: 'Température minimum', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['temperatureMaximum'], decoration: const InputDecoration(labelText: 'Température maximum', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['compatiblePluie'], decoration: const InputDecoration(labelText: 'Compatible pluie (oui/non)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['compatibleChaleur'], decoration: const InputDecoration(labelText: 'Compatible chaleur (oui/non)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['superposable'], decoration: const InputDecoration(labelText: 'Superposable (oui/non)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                ],
+              ),
+              ExpansionTile(
+                title: const Text('État', style: TextStyle(fontWeight: FontWeight.w800)),
+                childrenPadding: const EdgeInsets.only(bottom: 12),
+                children: [
+                    TextFormField(controller: richFields['etatVisuel'], decoration: const InputDecoration(labelText: 'État visuel', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['usureVisible'], decoration: const InputDecoration(labelText: 'Usure visible', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['defautsVisibles'], decoration: const InputDecoration(labelText: 'Défauts visibles (séparés par des virgules)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                ],
+              ),
+              ExpansionTile(
+                title: const Text('Analyse IA', style: TextStyle(fontWeight: FontWeight.w800)),
+                childrenPadding: const EdgeInsets.only(bottom: 12),
+                children: [
+                    TextFormField(controller: richFields['confianceGlobale'], decoration: const InputDecoration(labelText: 'Confiance globale (0 à 1)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                    TextFormField(controller: richFields['avertissementsIA'], decoration: const InputDecoration(labelText: 'Avertissements IA (séparés par des virgules)', helperText: 'Suggestion IA · modifiable')),
+                    const SizedBox(height: 10),
+                ],
+              ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text(

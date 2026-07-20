@@ -37,6 +37,12 @@ class GarmentScannerService {
       season: season,
       confidence: confidence.clamp(0.0, 1.0),
       labels: labels,
+      typePrecis: labels.isEmpty ? null : labels.first,
+      descriptionIA:
+          labels.isEmpty ? null : 'Vêtement identifié : ${labels.take(3).join(', ')}.',
+      saisons: [season],
+      avertissementsIA:
+          detected.isEmpty ? const ['Analyse visuelle peu concluante'] : const [],
     );
   }
 

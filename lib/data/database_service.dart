@@ -16,7 +16,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 4,
+      version: 5,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -43,6 +43,37 @@ class DatabaseService {
             notes TEXT,
             image_path TEXT,
             is_favorite INTEGER NOT NULL DEFAULT 0,
+            sous_categorie TEXT,
+            type_precis TEXT,
+            description_i_a TEXT,
+            couleur_principale TEXT,
+            couleurs_secondaires TEXT,
+            motif TEXT,
+            texture TEXT,
+            logo_visible INTEGER,
+            style_principal TEXT,
+            styles_secondaires TEXT,
+            niveau_formalite TEXT,
+            coupe TEXT,
+            longueur TEXT,
+            longueur_manches TEXT,
+            type_col TEXT,
+            type_fermeture TEXT,
+            matiere_principale TEXT,
+            matieres_secondaires TEXT,
+            confiance_matiere REAL,
+            saisons TEXT,
+            occasions TEXT,
+            temperature_minimum REAL,
+            temperature_maximum REAL,
+            compatible_pluie INTEGER,
+            compatible_chaleur INTEGER,
+            superposable INTEGER,
+            etat_visuel TEXT,
+            usure_visible TEXT,
+            defauts_visibles TEXT,
+            confiance_globale REAL,
+            avertissements_i_a TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
           )
@@ -73,6 +104,39 @@ class DatabaseService {
           await _createWearHistoryTable(db);
         }
         if (oldVersion < 4) await _createOutfitTables(db);
+        if (oldVersion < 5) {
+          await _addColumn(db, 'garments', 'sous_categorie', 'TEXT');
+          await _addColumn(db, 'garments', 'type_precis', 'TEXT');
+          await _addColumn(db, 'garments', 'description_i_a', 'TEXT');
+          await _addColumn(db, 'garments', 'couleur_principale', 'TEXT');
+          await _addColumn(db, 'garments', 'couleurs_secondaires', 'TEXT');
+          await _addColumn(db, 'garments', 'motif', 'TEXT');
+          await _addColumn(db, 'garments', 'texture', 'TEXT');
+          await _addColumn(db, 'garments', 'logo_visible', 'INTEGER');
+          await _addColumn(db, 'garments', 'style_principal', 'TEXT');
+          await _addColumn(db, 'garments', 'styles_secondaires', 'TEXT');
+          await _addColumn(db, 'garments', 'niveau_formalite', 'TEXT');
+          await _addColumn(db, 'garments', 'coupe', 'TEXT');
+          await _addColumn(db, 'garments', 'longueur', 'TEXT');
+          await _addColumn(db, 'garments', 'longueur_manches', 'TEXT');
+          await _addColumn(db, 'garments', 'type_col', 'TEXT');
+          await _addColumn(db, 'garments', 'type_fermeture', 'TEXT');
+          await _addColumn(db, 'garments', 'matiere_principale', 'TEXT');
+          await _addColumn(db, 'garments', 'matieres_secondaires', 'TEXT');
+          await _addColumn(db, 'garments', 'confiance_matiere', 'REAL');
+          await _addColumn(db, 'garments', 'saisons', 'TEXT');
+          await _addColumn(db, 'garments', 'occasions', 'TEXT');
+          await _addColumn(db, 'garments', 'temperature_minimum', 'REAL');
+          await _addColumn(db, 'garments', 'temperature_maximum', 'REAL');
+          await _addColumn(db, 'garments', 'compatible_pluie', 'INTEGER');
+          await _addColumn(db, 'garments', 'compatible_chaleur', 'INTEGER');
+          await _addColumn(db, 'garments', 'superposable', 'INTEGER');
+          await _addColumn(db, 'garments', 'etat_visuel', 'TEXT');
+          await _addColumn(db, 'garments', 'usure_visible', 'TEXT');
+          await _addColumn(db, 'garments', 'defauts_visibles', 'TEXT');
+          await _addColumn(db, 'garments', 'confiance_globale', 'REAL');
+          await _addColumn(db, 'garments', 'avertissements_i_a', 'TEXT');
+        }
         await _createIndexes(db);
       },
     );

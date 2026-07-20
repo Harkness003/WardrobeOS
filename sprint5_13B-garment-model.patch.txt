@@ -1,0 +1,1329 @@
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index 1593610d391420a32b56e9867cb1dafbcf532c08..2822af35853b772073b4a102843aafa3de92ef4f 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -1,100 +1,164 @@
+ import 'package:path/path.dart' as p;
+ import 'package:sqflite/sqflite.dart';
+ import '../models/garment.dart';
+ import '../models/outfit.dart';
+ import '../models/outfit_item.dart';
+ import '../models/wear_history.dart';
+ 
+ class DatabaseService {
+   DatabaseService._();
+   static final DatabaseService instance = DatabaseService._();
+   Database? _database;
+ 
+   Future<Database> get database async => _database ??= await _open();
+ 
+   Future<Database> _open() async {
+     final dbPath = await getDatabasesPath();
+     return openDatabase(
+       p.join(dbPath, 'wardrobeos.db'),
+-      version: 4,
++      version: 5,
+       onConfigure: (db) async {
+         await db.execute('PRAGMA foreign_keys = ON');
+       },
+       onCreate: (db, version) async {
+         await db.execute('''
+           CREATE TABLE garments(
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             category TEXT NOT NULL,
+             brand TEXT,
+             color TEXT,
+             material TEXT,
+             season TEXT,
+             style TEXT,
+             occasion TEXT,
+             condition TEXT,
+             purchase_price REAL,
+             purchase_date TEXT,
+             wear_count INTEGER NOT NULL DEFAULT 0,
+             last_worn TEXT,
+             size TEXT,
+             fit TEXT,
+             composition TEXT,
+             notes TEXT,
+             image_path TEXT,
+             is_favorite INTEGER NOT NULL DEFAULT 0,
++            sous_categorie TEXT,
++            type_precis TEXT,
++            description_i_a TEXT,
++            couleur_principale TEXT,
++            couleurs_secondaires TEXT,
++            motif TEXT,
++            texture TEXT,
++            logo_visible INTEGER,
++            style_principal TEXT,
++            styles_secondaires TEXT,
++            niveau_formalite TEXT,
++            coupe TEXT,
++            longueur TEXT,
++            longueur_manches TEXT,
++            type_col TEXT,
++            type_fermeture TEXT,
++            matiere_principale TEXT,
++            matieres_secondaires TEXT,
++            confiance_matiere REAL,
++            saisons TEXT,
++            occasions TEXT,
++            temperature_minimum REAL,
++            temperature_maximum REAL,
++            compatible_pluie INTEGER,
++            compatible_chaleur INTEGER,
++            superposable INTEGER,
++            etat_visuel TEXT,
++            usure_visible TEXT,
++            defauts_visibles TEXT,
++            confiance_globale REAL,
++            avertissements_i_a TEXT,
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL
+           )
+         ''');
+         await _createWearHistoryTable(db);
+         await _createOutfitTables(db);
+         await _createIndexes(db);
+       },
+       onUpgrade: (db, oldVersion, newVersion) async {
+         if (oldVersion < 2) {
+           await _addColumn(db, 'garments', 'style', 'TEXT');
+           await _addColumn(db, 'garments', 'occasion', 'TEXT');
+           await _addColumn(db, 'garments', 'condition', 'TEXT');
+           await _addColumn(db, 'garments', 'purchase_price', 'REAL');
+           await _addColumn(db, 'garments', 'purchase_date', 'TEXT');
+           await _addColumn(
+             db,
+             'garments',
+             'wear_count',
+             'INTEGER NOT NULL DEFAULT 0',
+           );
+           await _addColumn(db, 'garments', 'last_worn', 'TEXT');
+           await _addColumn(db, 'garments', 'size', 'TEXT');
+           await _addColumn(db, 'garments', 'fit', 'TEXT');
+           await _addColumn(db, 'garments', 'composition', 'TEXT');
+         }
+         if (oldVersion < 3) {
+           await _createWearHistoryTable(db);
+         }
+         if (oldVersion < 4) await _createOutfitTables(db);
++        if (oldVersion < 5) {
++          await _addColumn(db, 'garments', 'sous_categorie', 'TEXT');
++          await _addColumn(db, 'garments', 'type_precis', 'TEXT');
++          await _addColumn(db, 'garments', 'description_i_a', 'TEXT');
++          await _addColumn(db, 'garments', 'couleur_principale', 'TEXT');
++          await _addColumn(db, 'garments', 'couleurs_secondaires', 'TEXT');
++          await _addColumn(db, 'garments', 'motif', 'TEXT');
++          await _addColumn(db, 'garments', 'texture', 'TEXT');
++          await _addColumn(db, 'garments', 'logo_visible', 'INTEGER');
++          await _addColumn(db, 'garments', 'style_principal', 'TEXT');
++          await _addColumn(db, 'garments', 'styles_secondaires', 'TEXT');
++          await _addColumn(db, 'garments', 'niveau_formalite', 'TEXT');
++          await _addColumn(db, 'garments', 'coupe', 'TEXT');
++          await _addColumn(db, 'garments', 'longueur', 'TEXT');
++          await _addColumn(db, 'garments', 'longueur_manches', 'TEXT');
++          await _addColumn(db, 'garments', 'type_col', 'TEXT');
++          await _addColumn(db, 'garments', 'type_fermeture', 'TEXT');
++          await _addColumn(db, 'garments', 'matiere_principale', 'TEXT');
++          await _addColumn(db, 'garments', 'matieres_secondaires', 'TEXT');
++          await _addColumn(db, 'garments', 'confiance_matiere', 'REAL');
++          await _addColumn(db, 'garments', 'saisons', 'TEXT');
++          await _addColumn(db, 'garments', 'occasions', 'TEXT');
++          await _addColumn(db, 'garments', 'temperature_minimum', 'REAL');
++          await _addColumn(db, 'garments', 'temperature_maximum', 'REAL');
++          await _addColumn(db, 'garments', 'compatible_pluie', 'INTEGER');
++          await _addColumn(db, 'garments', 'compatible_chaleur', 'INTEGER');
++          await _addColumn(db, 'garments', 'superposable', 'INTEGER');
++          await _addColumn(db, 'garments', 'etat_visuel', 'TEXT');
++          await _addColumn(db, 'garments', 'usure_visible', 'TEXT');
++          await _addColumn(db, 'garments', 'defauts_visibles', 'TEXT');
++          await _addColumn(db, 'garments', 'confiance_globale', 'REAL');
++          await _addColumn(db, 'garments', 'avertissements_i_a', 'TEXT');
++        }
+         await _createIndexes(db);
+       },
+     );
+   }
+ 
+   Future<void> _createWearHistoryTable(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS wear_history(
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         garment_id TEXT NOT NULL,
+         worn_at TEXT NOT NULL,
+         created_at TEXT NOT NULL,
+         FOREIGN KEY (garment_id) REFERENCES garments(id) ON DELETE CASCADE
+       )
+     ''');
+   }
+ 
+   Future<void> _createOutfitTables(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS outfits(
+         id TEXT PRIMARY KEY,
+         name TEXT NOT NULL,
+         season TEXT,
+         favorite INTEGER NOT NULL DEFAULT 0,
+         created_at TEXT NOT NULL,
+diff --git a/lib/features/scanner/garment_scan_result.dart b/lib/features/scanner/garment_scan_result.dart
+index c85d85f7b7619a2bc275422fe372fa125ecb0dac..db020ddad0408448e3a3c804823a39af02cc3fb3 100644
+--- a/lib/features/scanner/garment_scan_result.dart
++++ b/lib/features/scanner/garment_scan_result.dart
+@@ -1,19 +1,31 @@
+ class GarmentScanResult {
+   final String suggestedName;
+   final String category;
+   final String color;
+   final String material;
+   final String season;
+   final double confidence;
+   final List<String> labels;
++  final String? typePrecis;
++  final String? descriptionIA;
++  final String? motif;
++  final String? stylePrincipal;
++  final List<String> saisons;
++  final List<String> avertissementsIA;
+ 
+   const GarmentScanResult({
+     required this.suggestedName,
+     required this.category,
+     required this.color,
+     required this.material,
+     required this.season,
+     required this.confidence,
+     required this.labels,
++    this.typePrecis,
++    this.descriptionIA,
++    this.motif,
++    this.stylePrincipal,
++    this.saisons = const [],
++    this.avertissementsIA = const [],
+   });
+ }
+diff --git a/lib/features/scanner/garment_scanner_service.dart b/lib/features/scanner/garment_scanner_service.dart
+index 58124e5a6bcd84a873a4336a9b0d0ac9da3033da..39b3bab31d5c674452acb99d3204f2c8a0ae3308 100644
+--- a/lib/features/scanner/garment_scanner_service.dart
++++ b/lib/features/scanner/garment_scanner_service.dart
+@@ -15,50 +15,56 @@ class GarmentScannerService {
+       detected = await labeler.processImage(InputImage.fromFilePath(imagePath));
+     } finally {
+       await labeler.close();
+     }
+ 
+     final labels =
+         detected.take(10).map((label) => label.label.toLowerCase()).toList();
+ 
+     final category = _categoryFrom(labels);
+     final material = _materialFrom(labels, category);
+     final season = _seasonFrom(category, material);
+     final color = await _dominantColorName(imagePath);
+     final confidence =
+         detected.isEmpty
+             ? 0.35
+             : detected.map((label) => label.confidence).reduce(math.max);
+ 
+     return GarmentScanResult(
+       suggestedName: _suggestedName(category, color),
+       category: category,
+       color: color,
+       material: material,
+       season: season,
+       confidence: confidence.clamp(0.0, 1.0),
+       labels: labels,
++      typePrecis: labels.isEmpty ? null : labels.first,
++      descriptionIA:
++          labels.isEmpty ? null : 'Vêtement identifié : ${labels.take(3).join(', ')}.',
++      saisons: [season],
++      avertissementsIA:
++          detected.isEmpty ? const ['Analyse visuelle peu concluante'] : const [],
+     );
+   }
+ 
+   String _categoryFrom(List<String> labels) {
+     bool containsAny(List<String> words) =>
+         labels.any((label) => words.any(label.contains));
+ 
+     if (containsAny([
+       'shoe',
+       'footwear',
+       'sneaker',
+       'boot',
+       'sandal',
+       'high heels',
+     ])) {
+       return 'Chaussures';
+     }
+     if (containsAny([
+       'jacket',
+       'coat',
+       'blazer',
+       'outerwear',
+       'hoodie',
+       'suit',
+     ])) {
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index 40959c1e382d368e900831ef433e7c80254c5aa5..1a77d86a94a41f39a80ef2513c823eb8e893b7ee 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -184,50 +184,58 @@ class _ScannerScreenState extends State<ScannerScreen> {
+       if (mounted) setState(() => analyzing = false);
+     }
+   }
+ 
+   Future<void> save() async {
+     if (busy) return;
+     if (imagePath == null) {
+       _toast('Ajoute d’abord une photo.');
+       return;
+     }
+     if (name.text.trim().isEmpty) {
+       _toast('Donne un nom à la pièce.');
+       return;
+     }
+ 
+     setState(() => saving = true);
+     final now = DateTime.now();
+     final garment = Garment(
+       id: const Uuid().v4(),
+       name: name.text.trim(),
+       category: category,
+       brand: brand.text.trim().isEmpty ? null : brand.text.trim(),
+       color: color.text.trim().isEmpty ? null : color.text.trim(),
+       material: material.text.trim().isEmpty ? null : material.text.trim(),
+       season: season,
++      typePrecis: result?.typePrecis,
++      descriptionIA: result?.descriptionIA,
++      couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
++      matierePrincipale:
++          material.text.trim().isEmpty ? null : material.text.trim(),
++      saisons: result?.saisons,
++      confianceGlobale: result?.confidence,
++      avertissementsIA: result?.avertissementsIA,
+       notes:
+           result == null
+               ? 'Ajout manuel depuis le scanner.'
+               : 'Analyse locale bêta · confiance ${(result!.confidence * 100).round()} %.',
+       imagePath: imagePath,
+       createdAt: now,
+       updatedAt: now,
+     );
+ 
+     try {
+       await wardrobe.insert(garment);
+       imageOwnedByGarment = true;
+       if (!mounted) return;
+       setState(() => saving = false);
+       Navigator.pop(context, true);
+       if (!mounted) return;
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('Pièce ajoutée au dressing.')),
+       );
+     } catch (_) {
+       if (!mounted) return;
+       _toast('Enregistrement impossible. Vérifie la fiche et réessaie.');
+     } finally {
+       if (mounted) setState(() => saving = false);
+     }
+diff --git a/lib/features/wardrobe/garment_form_screen.dart b/lib/features/wardrobe/garment_form_screen.dart
+index c01e13cc957f34c98d960880b9d86b2b2ca5bc74..3c2d7da653e8b216bde89c2c508ee3c4f3ece223 100644
+--- a/lib/features/wardrobe/garment_form_screen.dart
++++ b/lib/features/wardrobe/garment_form_screen.dart
+@@ -8,50 +8,51 @@ import '../../models/garment.dart';
+ import '../../widgets/garment_image.dart';
+ import 'wardrobe_controller.dart';
+ 
+ class GarmentFormScreen extends StatefulWidget {
+   final WardrobeController controller;
+   final Garment? garment;
+ 
+   const GarmentFormScreen({super.key, required this.controller, this.garment});
+ 
+   @override
+   State<GarmentFormScreen> createState() => _GarmentFormScreenState();
+ }
+ 
+ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+   final formKey = GlobalKey<FormState>();
+   final picker = ImagePicker();
+ 
+   late final TextEditingController name;
+   late final TextEditingController brand;
+   late final TextEditingController color;
+   late final TextEditingController material;
+   late final TextEditingController price;
+   late final TextEditingController size;
+   late final TextEditingController composition;
+   late final TextEditingController notes;
++  late final Map<String, TextEditingController> richFields;
+ 
+   late String category;
+   late String season;
+   late String style;
+   late String occasion;
+   late String condition;
+   late String fit;
+   DateTime? purchaseDate;
+   String? imagePath;
+   bool favorite = false;
+   bool saving = false;
+ 
+   static const categories = [
+     'Hauts',
+     'Chemises',
+     'Vestes',
+     'Bas',
+     'Chaussures',
+     'Accessoires',
+     'Autre',
+   ];
+   static const seasons = [
+     'Toute saison',
+     'Printemps',
+     'Été',
+@@ -91,79 +92,113 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+     'Regular',
+     'Relaxed',
+     'Oversize',
+     'Ajustée',
+   ];
+ 
+   @override
+   void initState() {
+     super.initState();
+     final g = widget.garment;
+     name = TextEditingController(text: g?.name ?? '');
+     brand = TextEditingController(text: g?.brand ?? '');
+     color = TextEditingController(text: g?.color ?? '');
+     material = TextEditingController(text: g?.material ?? '');
+     price = TextEditingController(
+       text:
+           g?.purchasePrice == null
+               ? ''
+               : g!.purchasePrice!.toStringAsFixed(
+                 g.purchasePrice! % 1 == 0 ? 0 : 2,
+               ),
+     );
+     size = TextEditingController(text: g?.size ?? '');
+     composition = TextEditingController(text: g?.composition ?? '');
+     notes = TextEditingController(text: g?.notes ?? '');
++    richFields = {
++      'sousCategorie': TextEditingController(text: g?.sousCategorie?.toString() ?? ''),
++      'typePrecis': TextEditingController(text: g?.typePrecis?.toString() ?? ''),
++      'descriptionIA': TextEditingController(text: g?.descriptionIA?.toString() ?? ''),
++      'couleurPrincipale': TextEditingController(text: g?.couleurPrincipale?.toString() ?? ''),
++      'couleursSecondaires': TextEditingController(text: g?.couleursSecondaires?.join(', ') ?? ''),
++      'motif': TextEditingController(text: g?.motif?.toString() ?? ''),
++      'texture': TextEditingController(text: g?.texture?.toString() ?? ''),
++      'logoVisible': TextEditingController(text: g?.logoVisible == null ? '' : (g!.logoVisible! ? 'oui' : 'non')),
++      'stylePrincipal': TextEditingController(text: g?.stylePrincipal?.toString() ?? ''),
++      'stylesSecondaires': TextEditingController(text: g?.stylesSecondaires?.join(', ') ?? ''),
++      'niveauFormalite': TextEditingController(text: g?.niveauFormalite?.toString() ?? ''),
++      'coupe': TextEditingController(text: g?.coupe?.toString() ?? ''),
++      'longueur': TextEditingController(text: g?.longueur?.toString() ?? ''),
++      'longueurManches': TextEditingController(text: g?.longueurManches?.toString() ?? ''),
++      'typeCol': TextEditingController(text: g?.typeCol?.toString() ?? ''),
++      'typeFermeture': TextEditingController(text: g?.typeFermeture?.toString() ?? ''),
++      'matierePrincipale': TextEditingController(text: g?.matierePrincipale?.toString() ?? ''),
++      'matieresSecondaires': TextEditingController(text: g?.matieresSecondaires?.join(', ') ?? ''),
++      'confianceMatiere': TextEditingController(text: g?.confianceMatiere?.toString() ?? ''),
++      'saisons': TextEditingController(text: g?.saisons?.join(', ') ?? ''),
++      'occasions': TextEditingController(text: g?.occasions?.join(', ') ?? ''),
++      'temperatureMinimum': TextEditingController(text: g?.temperatureMinimum?.toString() ?? ''),
++      'temperatureMaximum': TextEditingController(text: g?.temperatureMaximum?.toString() ?? ''),
++      'compatiblePluie': TextEditingController(text: g?.compatiblePluie == null ? '' : (g!.compatiblePluie! ? 'oui' : 'non')),
++      'compatibleChaleur': TextEditingController(text: g?.compatibleChaleur == null ? '' : (g!.compatibleChaleur! ? 'oui' : 'non')),
++      'superposable': TextEditingController(text: g?.superposable == null ? '' : (g!.superposable! ? 'oui' : 'non')),
++      'etatVisuel': TextEditingController(text: g?.etatVisuel?.toString() ?? ''),
++      'usureVisible': TextEditingController(text: g?.usureVisible?.toString() ?? ''),
++      'defautsVisibles': TextEditingController(text: g?.defautsVisibles?.join(', ') ?? ''),
++      'confianceGlobale': TextEditingController(text: g?.confianceGlobale?.toString() ?? ''),
++      'avertissementsIA': TextEditingController(text: g?.avertissementsIA?.join(', ') ?? ''),
++    };
+     category = _safeValue(g?.category, categories, 'Hauts');
+     season = _safeValue(g?.season, seasons, 'Toute saison');
+     style = _safeValue(g?.style, styles, 'Non défini');
+     occasion = _safeValue(g?.occasion, occasions, 'Non définie');
+     condition = _safeValue(g?.condition, conditions, 'Non défini');
+     fit = _safeValue(g?.fit, fits, 'Non définie');
+     purchaseDate = g?.purchaseDate;
+     imagePath = g?.imagePath;
+     favorite = g?.isFavorite ?? false;
+   }
+ 
+   static String _safeValue(
+     String? value,
+     List<String> allowed,
+     String fallback,
+   ) {
+     return value != null && allowed.contains(value) ? value : fallback;
+   }
+ 
+   @override
+   void dispose() {
+     name.dispose();
+     brand.dispose();
+     color.dispose();
+     material.dispose();
+     price.dispose();
+     size.dispose();
+     composition.dispose();
+     notes.dispose();
++    for (final controller in richFields.values) { controller.dispose(); }
+     super.dispose();
+   }
+ 
+   Future<void> chooseImage(ImageSource source) async {
+     final picked = await picker.pickImage(
+       source: source,
+       imageQuality: 88,
+       maxWidth: 1800,
+     );
+     if (picked == null) return;
+     final persisted = await ImageStorageService.persist(picked.path);
+     if (imagePath != null && imagePath != widget.garment?.imagePath) {
+       await ImageStorageService.remove(imagePath);
+     }
+     if (mounted) setState(() => imagePath = persisted);
+   }
+ 
+   Future<void> showImageSource() async {
+     await showModalBottomSheet<void>(
+       context: context,
+       showDragHandle: true,
+       builder:
+           (_) => SafeArea(
+             child: Wrap(
+               children: [
+@@ -209,82 +244,128 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+       lastDate: DateTime.now(),
+       helpText: "Date d'achat",
+       cancelText: 'Annuler',
+       confirmText: 'Valider',
+     );
+     if (picked != null && mounted) {
+       setState(() => purchaseDate = picked);
+     }
+   }
+ 
+   double? _parsePrice() {
+     final normalized = price.text.trim().replaceAll(',', '.');
+     if (normalized.isEmpty) return null;
+     return double.tryParse(normalized);
+   }
+ 
+   String? _optional(TextEditingController controller) {
+     final value = controller.text.trim();
+     return value.isEmpty ? null : value;
+   }
+ 
+   String? _optionalChoice(String value, String emptyValue) {
+     return value == emptyValue ? null : value;
+   }
+ 
++
++  String? _rich(String key) => _optional(richFields[key]!);
++  List<String>? _richList(String key) {
++    final values = richFields[key]!.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
++    return values.isEmpty ? null : values;
++  }
++  double? _richDouble(String key) => double.tryParse(richFields[key]!.text.trim().replaceAll(',', '.'));
++  bool? _richBool(String key) {
++    final value = richFields[key]!.text.trim().toLowerCase();
++    if (value.isEmpty) return null;
++    return value == 'oui' || value == 'true' || value == '1';
++  }
++
+   Future<void> save() async {
+     if (!formKey.currentState!.validate()) return;
+     setState(() => saving = true);
+ 
+     try {
+       final now = DateTime.now();
+       final old = widget.garment;
+       final garment = Garment(
+         id: old?.id ?? const Uuid().v4(),
+         name: name.text.trim(),
+         category: category,
+         brand: _optional(brand),
+         color: _optional(color),
+         material: _optional(material),
+         season: season,
+         style: _optionalChoice(style, 'Non défini'),
+         occasion: _optionalChoice(occasion, 'Non définie'),
+         condition: _optionalChoice(condition, 'Non défini'),
++        sousCategorie: _rich('sousCategorie'),
++        typePrecis: _rich('typePrecis'),
++        descriptionIA: _rich('descriptionIA'),
++        couleurPrincipale: _rich('couleurPrincipale'),
++        couleursSecondaires: _richList('couleursSecondaires'),
++        motif: _rich('motif'),
++        texture: _rich('texture'),
++        logoVisible: _richBool('logoVisible'),
++        stylePrincipal: _rich('stylePrincipal'),
++        stylesSecondaires: _richList('stylesSecondaires'),
++        niveauFormalite: _rich('niveauFormalite'),
++        coupe: _rich('coupe'),
++        longueur: _rich('longueur'),
++        longueurManches: _rich('longueurManches'),
++        typeCol: _rich('typeCol'),
++        typeFermeture: _rich('typeFermeture'),
++        matierePrincipale: _rich('matierePrincipale'),
++        matieresSecondaires: _richList('matieresSecondaires'),
++        confianceMatiere: _richDouble('confianceMatiere'),
++        saisons: _richList('saisons'),
++        occasions: _richList('occasions'),
++        temperatureMinimum: _richDouble('temperatureMinimum'),
++        temperatureMaximum: _richDouble('temperatureMaximum'),
++        compatiblePluie: _richBool('compatiblePluie'),
++        compatibleChaleur: _richBool('compatibleChaleur'),
++        superposable: _richBool('superposable'),
++        etatVisuel: _rich('etatVisuel'),
++        usureVisible: _rich('usureVisible'),
++        defautsVisibles: _richList('defautsVisibles'),
++        confianceGlobale: _richDouble('confianceGlobale'),
++        avertissementsIA: _richList('avertissementsIA'),
+         purchasePrice: _parsePrice(),
+         purchaseDate: purchaseDate,
+         wearCount: old?.wearCount ?? 0,
+         lastWorn: old?.lastWorn,
+         size: _optional(size),
+         fit: _optionalChoice(fit, 'Non définie'),
+         composition: _optional(composition),
+         notes: _optional(notes),
+         imagePath: imagePath,
+         isFavorite: favorite,
+         createdAt: old?.createdAt ?? now,
+         updatedAt: now,
+       );
+ 
++      final businessError = garment.validate();
++      if (businessError != null) throw FormatException(businessError);
+       await widget.controller.save(garment, isNew: old == null);
+       if (old?.imagePath != null && old!.imagePath != imagePath) {
+         await ImageStorageService.remove(old.imagePath);
+       }
+       if (mounted) Navigator.pop(context, true);
+     } catch (error) {
+       if (!mounted) return;
+       setState(() => saving = false);
+       ScaffoldMessenger.of(context).showSnackBar(
+         SnackBar(content: Text("Impossible d'enregistrer : $error")),
+       );
+     }
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final editing = widget.garment != null;
+     return Scaffold(
+       appBar: AppBar(
+         title: Text(editing ? 'Modifier la pièce' : 'Nouvelle pièce'),
+       ),
+       body: SafeArea(
+         child: Form(
+           key: formKey,
+           child: ListView(
+@@ -508,50 +589,154 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+                             ),
+                   ),
+                   child: Text(
+                     purchaseDate == null
+                         ? 'Non renseignée'
+                         : _formatDate(purchaseDate!),
+                   ),
+                 ),
+               ),
+               const SizedBox(height: 22),
+               const _FormSectionTitle(
+                 icon: Icons.notes_outlined,
+                 title: 'Notes',
+               ),
+               const SizedBox(height: 12),
+               TextFormField(
+                 controller: notes,
+                 maxLines: 4,
+                 textCapitalization: TextCapitalization.sentences,
+                 decoration: const InputDecoration(
+                   labelText: 'Notes personnelles',
+                   alignLabelWithHint: true,
+                 ),
+               ),
+               const SizedBox(height: 8),
++              ExpansionTile(
++                title: const Text('Informations', style: TextStyle(fontWeight: FontWeight.w800)),
++                childrenPadding: const EdgeInsets.only(bottom: 12),
++                children: [
++                    TextFormField(controller: richFields['sousCategorie'], decoration: const InputDecoration(labelText: 'Sous-catégorie', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['typePrecis'], decoration: const InputDecoration(labelText: 'Type précis', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['descriptionIA'], decoration: const InputDecoration(labelText: 'Description IA', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                ],
++              ),
++              ExpansionTile(
++                title: const Text('Apparence', style: TextStyle(fontWeight: FontWeight.w800)),
++                childrenPadding: const EdgeInsets.only(bottom: 12),
++                children: [
++                    TextFormField(controller: richFields['couleurPrincipale'], decoration: const InputDecoration(labelText: 'Couleur principale', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['couleursSecondaires'], decoration: const InputDecoration(labelText: 'Couleurs secondaires (séparées par des virgules)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['motif'], decoration: const InputDecoration(labelText: 'Motif', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['texture'], decoration: const InputDecoration(labelText: 'Texture', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['logoVisible'], decoration: const InputDecoration(labelText: 'Logo visible (oui/non)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                ],
++              ),
++              ExpansionTile(
++                title: const Text('Style', style: TextStyle(fontWeight: FontWeight.w800)),
++                childrenPadding: const EdgeInsets.only(bottom: 12),
++                children: [
++                    TextFormField(controller: richFields['stylePrincipal'], decoration: const InputDecoration(labelText: 'Style principal', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['stylesSecondaires'], decoration: const InputDecoration(labelText: 'Styles secondaires (séparés par des virgules)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['niveauFormalite'], decoration: const InputDecoration(labelText: 'Niveau de formalité', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['coupe'], decoration: const InputDecoration(labelText: 'Coupe', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['longueur'], decoration: const InputDecoration(labelText: 'Longueur', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['longueurManches'], decoration: const InputDecoration(labelText: 'Longueur des manches', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['typeCol'], decoration: const InputDecoration(labelText: 'Type de col', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['typeFermeture'], decoration: const InputDecoration(labelText: 'Type de fermeture', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                ],
++              ),
++              ExpansionTile(
++                title: const Text('Matière', style: TextStyle(fontWeight: FontWeight.w800)),
++                childrenPadding: const EdgeInsets.only(bottom: 12),
++                children: [
++                    TextFormField(controller: richFields['matierePrincipale'], decoration: const InputDecoration(labelText: 'Matière principale', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['matieresSecondaires'], decoration: const InputDecoration(labelText: 'Matières secondaires (séparées par des virgules)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['confianceMatiere'], decoration: const InputDecoration(labelText: 'Confiance matière (0 à 1)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                ],
++              ),
++              ExpansionTile(
++                title: const Text('Utilisation', style: TextStyle(fontWeight: FontWeight.w800)),
++                childrenPadding: const EdgeInsets.only(bottom: 12),
++                children: [
++                    TextFormField(controller: richFields['saisons'], decoration: const InputDecoration(labelText: 'Saisons (séparées par des virgules)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['occasions'], decoration: const InputDecoration(labelText: 'Occasions (séparées par des virgules)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['temperatureMinimum'], decoration: const InputDecoration(labelText: 'Température minimum', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['temperatureMaximum'], decoration: const InputDecoration(labelText: 'Température maximum', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['compatiblePluie'], decoration: const InputDecoration(labelText: 'Compatible pluie (oui/non)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['compatibleChaleur'], decoration: const InputDecoration(labelText: 'Compatible chaleur (oui/non)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['superposable'], decoration: const InputDecoration(labelText: 'Superposable (oui/non)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                ],
++              ),
++              ExpansionTile(
++                title: const Text('État', style: TextStyle(fontWeight: FontWeight.w800)),
++                childrenPadding: const EdgeInsets.only(bottom: 12),
++                children: [
++                    TextFormField(controller: richFields['etatVisuel'], decoration: const InputDecoration(labelText: 'État visuel', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['usureVisible'], decoration: const InputDecoration(labelText: 'Usure visible', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['defautsVisibles'], decoration: const InputDecoration(labelText: 'Défauts visibles (séparés par des virgules)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                ],
++              ),
++              ExpansionTile(
++                title: const Text('Analyse IA', style: TextStyle(fontWeight: FontWeight.w800)),
++                childrenPadding: const EdgeInsets.only(bottom: 12),
++                children: [
++                    TextFormField(controller: richFields['confianceGlobale'], decoration: const InputDecoration(labelText: 'Confiance globale (0 à 1)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                    TextFormField(controller: richFields['avertissementsIA'], decoration: const InputDecoration(labelText: 'Avertissements IA (séparés par des virgules)', helperText: 'Suggestion IA · modifiable')),
++                    const SizedBox(height: 10),
++                ],
++              ),
+               SwitchListTile(
+                 contentPadding: EdgeInsets.zero,
+                 title: const Text(
+                   'Ajouter aux favoris',
+                   style: TextStyle(fontWeight: FontWeight.w800),
+                 ),
+                 value: favorite,
+                 onChanged: (value) => setState(() => favorite = value),
+               ),
+               const SizedBox(height: 10),
+               FilledButton.icon(
+                 onPressed: saving ? null : save,
+                 icon:
+                     saving
+                         ? const SizedBox.square(
+                           dimension: 18,
+                           child: CircularProgressIndicator(strokeWidth: 2),
+                         )
+                         : const Icon(Icons.save_outlined),
+                 label: Text(saving ? 'Enregistrement…' : 'Enregistrer'),
+               ),
+             ],
+           ),
+         ),
+       ),
+diff --git a/lib/models/garment.dart b/lib/models/garment.dart
+index 1ad58ef029f8e69f9dd638d6a8220ec7eef5d6c7..732f44b0dbabe19684101997db43eb60f33fcb58 100644
+--- a/lib/models/garment.dart
++++ b/lib/models/garment.dart
+@@ -1,153 +1,377 @@
++import 'dart:convert';
++
++import 'garment_normalizer.dart';
++
+ class Garment {
+   final String id;
+   final String name;
+   final String category;
+   final String? brand;
+   final String? color;
+   final String? material;
+   final String? season;
+   final String? style;
+   final String? occasion;
+   final String? condition;
+   final double? purchasePrice;
+   final DateTime? purchaseDate;
+-  final int wearCount;
+   final DateTime? lastWorn;
+   final String? size;
+   final String? fit;
+   final String? composition;
+   final String? notes;
+   final String? imagePath;
++  final String? sousCategorie;
++  final String? typePrecis;
++  final String? descriptionIA;
++  final String? couleurPrincipale;
++  final List<String>? couleursSecondaires;
++  final String? motif;
++  final String? texture;
++  final bool? logoVisible;
++  final String? stylePrincipal;
++  final List<String>? stylesSecondaires;
++  final String? niveauFormalite;
++  final String? coupe;
++  final String? longueur;
++  final String? longueurManches;
++  final String? typeCol;
++  final String? typeFermeture;
++  final String? matierePrincipale;
++  final List<String>? matieresSecondaires;
++  final double? confianceMatiere;
++  final List<String>? saisons;
++  final List<String>? occasions;
++  final double? temperatureMinimum;
++  final double? temperatureMaximum;
++  final bool? compatiblePluie;
++  final bool? compatibleChaleur;
++  final bool? superposable;
++  final String? etatVisuel;
++  final String? usureVisible;
++  final List<String>? defautsVisibles;
++  final double? confianceGlobale;
++  final List<String>? avertissementsIA;
++  final int wearCount;
+   final bool isFavorite;
+   final DateTime createdAt;
+   final DateTime updatedAt;
+ 
+   const Garment({
+     required this.id,
+     required this.name,
+     required this.category,
+     this.brand,
+     this.color,
+     this.material,
+     this.season,
+     this.style,
+     this.occasion,
+     this.condition,
+     this.purchasePrice,
+     this.purchaseDate,
+-    this.wearCount = 0,
+     this.lastWorn,
+     this.size,
+     this.fit,
+     this.composition,
+     this.notes,
+     this.imagePath,
++    this.sousCategorie,
++    this.typePrecis,
++    this.descriptionIA,
++    this.couleurPrincipale,
++    this.couleursSecondaires,
++    this.motif,
++    this.texture,
++    this.logoVisible,
++    this.stylePrincipal,
++    this.stylesSecondaires,
++    this.niveauFormalite,
++    this.coupe,
++    this.longueur,
++    this.longueurManches,
++    this.typeCol,
++    this.typeFermeture,
++    this.matierePrincipale,
++    this.matieresSecondaires,
++    this.confianceMatiere,
++    this.saisons,
++    this.occasions,
++    this.temperatureMinimum,
++    this.temperatureMaximum,
++    this.compatiblePluie,
++    this.compatibleChaleur,
++    this.superposable,
++    this.etatVisuel,
++    this.usureVisible,
++    this.defautsVisibles,
++    this.confianceGlobale,
++    this.avertissementsIA,
++    this.wearCount = 0,
+     this.isFavorite = false,
+     required this.createdAt,
+     required this.updatedAt,
+   });
+ 
+   Garment copyWith({
+     String? id,
+     String? name,
+     String? category,
+     String? brand,
+     String? color,
+     String? material,
+     String? season,
+     String? style,
+     String? occasion,
+     String? condition,
+     double? purchasePrice,
+     DateTime? purchaseDate,
+-    int? wearCount,
+     DateTime? lastWorn,
+     String? size,
+     String? fit,
+     String? composition,
+     String? notes,
+     String? imagePath,
++    String? sousCategorie,
++    String? typePrecis,
++    String? descriptionIA,
++    String? couleurPrincipale,
++    List<String>? couleursSecondaires,
++    String? motif,
++    String? texture,
++    bool? logoVisible,
++    String? stylePrincipal,
++    List<String>? stylesSecondaires,
++    String? niveauFormalite,
++    String? coupe,
++    String? longueur,
++    String? longueurManches,
++    String? typeCol,
++    String? typeFermeture,
++    String? matierePrincipale,
++    List<String>? matieresSecondaires,
++    double? confianceMatiere,
++    List<String>? saisons,
++    List<String>? occasions,
++    double? temperatureMinimum,
++    double? temperatureMaximum,
++    bool? compatiblePluie,
++    bool? compatibleChaleur,
++    bool? superposable,
++    String? etatVisuel,
++    String? usureVisible,
++    List<String>? defautsVisibles,
++    double? confianceGlobale,
++    List<String>? avertissementsIA,
++    int? wearCount,
+     bool? isFavorite,
+     DateTime? createdAt,
+     DateTime? updatedAt,
+   }) => Garment(
+     id: id ?? this.id,
+     name: name ?? this.name,
+     category: category ?? this.category,
+     brand: brand ?? this.brand,
+     color: color ?? this.color,
+     material: material ?? this.material,
+     season: season ?? this.season,
+     style: style ?? this.style,
+     occasion: occasion ?? this.occasion,
+     condition: condition ?? this.condition,
+     purchasePrice: purchasePrice ?? this.purchasePrice,
+     purchaseDate: purchaseDate ?? this.purchaseDate,
+-    wearCount: wearCount ?? this.wearCount,
+     lastWorn: lastWorn ?? this.lastWorn,
+     size: size ?? this.size,
+     fit: fit ?? this.fit,
+     composition: composition ?? this.composition,
+     notes: notes ?? this.notes,
+     imagePath: imagePath ?? this.imagePath,
++    sousCategorie: sousCategorie ?? this.sousCategorie,
++    typePrecis: typePrecis ?? this.typePrecis,
++    descriptionIA: descriptionIA ?? this.descriptionIA,
++    couleurPrincipale: couleurPrincipale ?? this.couleurPrincipale,
++    couleursSecondaires: couleursSecondaires ?? this.couleursSecondaires,
++    motif: motif ?? this.motif,
++    texture: texture ?? this.texture,
++    logoVisible: logoVisible ?? this.logoVisible,
++    stylePrincipal: stylePrincipal ?? this.stylePrincipal,
++    stylesSecondaires: stylesSecondaires ?? this.stylesSecondaires,
++    niveauFormalite: niveauFormalite ?? this.niveauFormalite,
++    coupe: coupe ?? this.coupe,
++    longueur: longueur ?? this.longueur,
++    longueurManches: longueurManches ?? this.longueurManches,
++    typeCol: typeCol ?? this.typeCol,
++    typeFermeture: typeFermeture ?? this.typeFermeture,
++    matierePrincipale: matierePrincipale ?? this.matierePrincipale,
++    matieresSecondaires: matieresSecondaires ?? this.matieresSecondaires,
++    confianceMatiere: confianceMatiere ?? this.confianceMatiere,
++    saisons: saisons ?? this.saisons,
++    occasions: occasions ?? this.occasions,
++    temperatureMinimum: temperatureMinimum ?? this.temperatureMinimum,
++    temperatureMaximum: temperatureMaximum ?? this.temperatureMaximum,
++    compatiblePluie: compatiblePluie ?? this.compatiblePluie,
++    compatibleChaleur: compatibleChaleur ?? this.compatibleChaleur,
++    superposable: superposable ?? this.superposable,
++    etatVisuel: etatVisuel ?? this.etatVisuel,
++    usureVisible: usureVisible ?? this.usureVisible,
++    defautsVisibles: defautsVisibles ?? this.defautsVisibles,
++    confianceGlobale: confianceGlobale ?? this.confianceGlobale,
++    avertissementsIA: avertissementsIA ?? this.avertissementsIA,
++    wearCount: wearCount ?? this.wearCount,
+     isFavorite: isFavorite ?? this.isFavorite,
+     createdAt: createdAt ?? this.createdAt,
+     updatedAt: updatedAt ?? this.updatedAt,
+   );
+ 
+   Map<String, Object?> toMap() => {
+     'id': id,
+     'name': name,
+     'category': category,
+     'brand': brand,
+     'color': color,
+     'material': material,
+     'season': season,
+     'style': style,
+     'occasion': occasion,
+     'condition': condition,
+     'purchase_price': purchasePrice,
+     'purchase_date': purchaseDate?.toIso8601String(),
+-    'wear_count': wearCount,
+     'last_worn': lastWorn?.toIso8601String(),
+     'size': size,
+     'fit': fit,
+     'composition': composition,
+     'notes': notes,
+     'image_path': imagePath,
++    'sous_categorie': sousCategorie,
++    'type_precis': typePrecis,
++    'description_i_a': descriptionIA,
++    'couleur_principale': couleurPrincipale,
++    'couleurs_secondaires': couleursSecondaires == null ? null : jsonEncode(couleursSecondaires),
++    'motif': motif,
++    'texture': texture,
++    'logo_visible': logoVisible == null ? null : (logoVisible! ? 1 : 0),
++    'style_principal': stylePrincipal,
++    'styles_secondaires': stylesSecondaires == null ? null : jsonEncode(stylesSecondaires),
++    'niveau_formalite': niveauFormalite,
++    'coupe': coupe,
++    'longueur': longueur,
++    'longueur_manches': longueurManches,
++    'type_col': typeCol,
++    'type_fermeture': typeFermeture,
++    'matiere_principale': matierePrincipale,
++    'matieres_secondaires': matieresSecondaires == null ? null : jsonEncode(matieresSecondaires),
++    'confiance_matiere': confianceMatiere,
++    'saisons': saisons == null ? null : jsonEncode(saisons),
++    'occasions': occasions == null ? null : jsonEncode(occasions),
++    'temperature_minimum': temperatureMinimum,
++    'temperature_maximum': temperatureMaximum,
++    'compatible_pluie': compatiblePluie == null ? null : (compatiblePluie! ? 1 : 0),
++    'compatible_chaleur': compatibleChaleur == null ? null : (compatibleChaleur! ? 1 : 0),
++    'superposable': superposable == null ? null : (superposable! ? 1 : 0),
++    'etat_visuel': etatVisuel,
++    'usure_visible': usureVisible,
++    'defauts_visibles': defautsVisibles == null ? null : jsonEncode(defautsVisibles),
++    'confiance_globale': confianceGlobale,
++    'avertissements_i_a': avertissementsIA == null ? null : jsonEncode(avertissementsIA),
++    'wear_count': wearCount,
+     'is_favorite': isFavorite ? 1 : 0,
+     'created_at': createdAt.toIso8601String(),
+     'updated_at': updatedAt.toIso8601String(),
+   };
+ 
+-  factory Garment.fromMap(Map<String, Object?> map) => Garment(
+-    id: map['id'] as String,
+-    name: map['name'] as String,
+-    category: map['category'] as String,
+-    brand: map['brand'] as String?,
+-    color: map['color'] as String?,
+-    material: map['material'] as String?,
+-    season: map['season'] as String?,
+-    style: map['style'] as String?,
+-    occasion: map['occasion'] as String?,
+-    condition: map['condition'] as String?,
+-    purchasePrice: (map['purchase_price'] as num?)?.toDouble(),
+-    purchaseDate: _parseDate(map['purchase_date']),
+-    wearCount: (map['wear_count'] as int?) ?? 0,
+-    lastWorn: _parseDate(map['last_worn']),
+-    size: map['size'] as String?,
+-    fit: map['fit'] as String?,
+-    composition: map['composition'] as String?,
+-    notes: map['notes'] as String?,
+-    imagePath: map['image_path'] as String?,
+-    isFavorite: (map['is_favorite'] as int? ?? 0) == 1,
+-    createdAt: DateTime.parse(map['created_at'] as String),
+-    updatedAt: DateTime.parse(map['updated_at'] as String),
+-  );
++  factory Garment.fromMap(Map<String, Object?> map) {
++    String? text(String key) => GarmentNormalizer.value(map[key] as String?);
++    List<String>? list(String key) {
++      final value = map[key];
++      if (value == null) return null;
++      final decoded = value is String ? jsonDecode(value) : value;
++      if (decoded is! List) return null;
++      return GarmentNormalizer.values(decoded.map((e) => e.toString()));
++    }
++    double? number(String key) => (map[key] as num?)?.toDouble();
++    bool? boolean(String key) {
++      final value = map[key];
++      if (value == null) return null;
++      return value == true || value == 1;
++    }
++
++    return Garment(
++      id: map['id'] as String,
++      name: map['name'] as String,
++      category: map['category'] as String,
++      brand: text('brand'),
++      color: text('color'),
++      material: text('material'),
++      season: text('season'),
++      style: text('style'),
++      occasion: text('occasion'),
++      condition: text('condition'),
++      purchasePrice: number('purchase_price'),
++      purchaseDate: _parseDate(map['purchase_date']),
++      lastWorn: _parseDate(map['last_worn']),
++      size: text('size'),
++      fit: text('fit'),
++      composition: text('composition'),
++      notes: text('notes'),
++      imagePath: text('image_path'),
++      sousCategorie: text('sous_categorie'),
++      typePrecis: text('type_precis'),
++      descriptionIA: text('description_i_a'),
++      couleurPrincipale: text('couleur_principale'),
++      couleursSecondaires: list('couleurs_secondaires'),
++      motif: text('motif'),
++      texture: text('texture'),
++      logoVisible: boolean('logo_visible'),
++      stylePrincipal: text('style_principal'),
++      stylesSecondaires: list('styles_secondaires'),
++      niveauFormalite: text('niveau_formalite'),
++      coupe: text('coupe'),
++      longueur: text('longueur'),
++      longueurManches: text('longueur_manches'),
++      typeCol: text('type_col'),
++      typeFermeture: text('type_fermeture'),
++      matierePrincipale: text('matiere_principale'),
++      matieresSecondaires: list('matieres_secondaires'),
++      confianceMatiere: number('confiance_matiere'),
++      saisons: list('saisons'),
++      occasions: list('occasions'),
++      temperatureMinimum: number('temperature_minimum'),
++      temperatureMaximum: number('temperature_maximum'),
++      compatiblePluie: boolean('compatible_pluie'),
++      compatibleChaleur: boolean('compatible_chaleur'),
++      superposable: boolean('superposable'),
++      etatVisuel: text('etat_visuel'),
++      usureVisible: text('usure_visible'),
++      defautsVisibles: list('defauts_visibles'),
++      confianceGlobale: number('confiance_globale'),
++      avertissementsIA: list('avertissements_i_a'),
++      wearCount: (map['wear_count'] as num?)?.toInt() ?? 0,
++      isFavorite: map['is_favorite'] == 1 || map['is_favorite'] == true,
++      createdAt: DateTime.parse(map['created_at'] as String),
++      updatedAt: DateTime.parse(map['updated_at'] as String),
++    );
++  }
+ 
+   static DateTime? _parseDate(Object? value) {
+-    final text = value as String?;
+-    if (text == null || text.isEmpty) return null;
+-    return DateTime.tryParse(text);
++    if (value is! String || value.isEmpty) return null;
++    return DateTime.tryParse(value);
++  }
++
++  String? validate() {
++    if (temperatureMinimum != null && temperatureMaximum != null && temperatureMinimum! > temperatureMaximum!) return 'La température minimum doit être inférieure au maximum.';
++    for (final confidence in [confianceMatiere, confianceGlobale]) {
++      if (confidence != null && (confidence < 0 || confidence > 1)) return 'Une confiance doit être comprise entre 0 et 1.';
++    }
++    return null;
++  }
++
++  @override
++  bool operator ==(Object other) => other is Garment && _mapEquals(toMap(), other.toMap());
++  @override
++  int get hashCode => Object.hashAll(toMap().entries.map((e) => Object.hash(e.key, e.value)));
++  static bool _mapEquals(Map<String, Object?> a, Map<String, Object?> b) {
++    if (a.length != b.length) return false;
++    for (final key in a.keys) { if (a[key] != b[key]) return false; }
++    return true;
+   }
+ }
+diff --git a/lib/models/garment_normalizer.dart b/lib/models/garment_normalizer.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..3136daa363aecef01b5fde374a4ac4cfb28c1c3b
+--- /dev/null
++++ b/lib/models/garment_normalizer.dart
+@@ -0,0 +1,32 @@
++class GarmentNormalizer {
++  const GarmentNormalizer._();
++
++  static const _canonical = <String, String>{
++    'bleu nuit': 'Bleu marine',
++    'dark blue': 'Bleu marine',
++    'navy blue': 'Bleu marine',
++    'slim fit': 'Slim',
++    'business casual': 'Business casual',
++  };
++
++  static String? value(String? input) {
++    final trimmed = input?.trim();
++    if (trimmed == null || trimmed.isEmpty) return null;
++    return _canonical[trimmed.toLowerCase()] ?? trimmed;
++  }
++
++  static List<String> values(Iterable<String>? input) {
++    final result = <String>[];
++    final seen = <String>{};
++    for (final item in input ?? const <String>[]) {
++      final normalized = value(item);
++      if (normalized != null && seen.add(normalized.toLowerCase())) {
++        result.add(normalized);
++      }
++    }
++    return List.unmodifiable(result);
++  }
++
++  static double? confidence(double? input) =>
++      input == null ? null : input.clamp(0.0, 1.0);
++}
+diff --git a/test/models_garment_test.dart b/test/models_garment_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..47791ace1d47c22dd0043cc85445e43fee996629
+--- /dev/null
++++ b/test/models_garment_test.dart
+@@ -0,0 +1,87 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/models/garment_normalizer.dart';
++
++void main() {
++  final now = DateTime.utc(2026, 7, 20);
++
++  test('supports minimal creation and legacy maps', () {
++    final garment = Garment(
++      id: 'g1',
++      name: 'Chemise',
++      category: 'Chemises',
++      createdAt: now,
++      updatedAt: now,
++    );
++    expect(Garment.fromMap(garment.toMap()), garment);
++    expect(garment.validate(), isNull);
++  });
++
++  test('serializes, copies and compares every rich field', () {
++    final garment = Garment(
++      id: 'g1',
++      name: 'Veste',
++      category: 'Vestes',
++      sousCategorie: 'Blazer',
++      typePrecis: 'Blazer croisé',
++      descriptionIA: 'Veste structurée',
++      couleurPrincipale: 'Bleu marine',
++      couleursSecondaires: const ['Blanc'],
++      motif: 'Rayures',
++      texture: 'Lisse',
++      logoVisible: false,
++      stylePrincipal: 'Business casual',
++      stylesSecondaires: const ['Élégant'],
++      niveauFormalite: 'Formel',
++      coupe: 'Slim',
++      longueur: 'Standard',
++      longueurManches: 'Longues',
++      typeCol: 'Revers',
++      typeFermeture: 'Boutons',
++      matierePrincipale: 'Laine',
++      matieresSecondaires: const ['Soie'],
++      confianceMatiere: .8,
++      saisons: const ['Automne', 'Hiver'],
++      occasions: const ['Travail'],
++      temperatureMinimum: 3,
++      temperatureMaximum: 18,
++      compatiblePluie: false,
++      compatibleChaleur: false,
++      superposable: true,
++      etatVisuel: 'Excellent',
++      usureVisible: 'Aucune',
++      defautsVisibles: const [],
++      confianceGlobale: .9,
++      avertissementsIA: const ['Matière à confirmer'],
++      createdAt: now,
++      updatedAt: now,
++    );
++    final restored = Garment.fromMap(garment.toMap());
++    expect(restored, garment);
++    expect(restored.copyWith(name: 'Nouveau').name, 'Nouveau');
++    expect(restored.validate(), isNull);
++  });
++
++  test('validates temperatures and confidence', () {
++    final invalid = Garment(
++      id: 'g',
++      name: 'Test',
++      category: 'Autre',
++      temperatureMinimum: 20,
++      temperatureMaximum: 10,
++      confianceGlobale: 2,
++      createdAt: now,
++      updatedAt: now,
++    );
++    expect(invalid.validate(), isNotNull);
++  });
++
++  test('normalizes canonical values, blanks and duplicates', () {
++    expect(GarmentNormalizer.value('Dark blue'), 'Bleu marine');
++    expect(GarmentNormalizer.value('Slim Fit'), 'Slim');
++    expect(
++      GarmentNormalizer.values(['Bleu nuit', '', 'dark blue']),
++      ['Bleu marine'],
++    );
++  });
++}
