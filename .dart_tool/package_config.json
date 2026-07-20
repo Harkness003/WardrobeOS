@@ -260,18 +260,6 @@
       "languageVersion": "3.5"
     },
     {
-      "name": "google_mlkit_commons",
-      "rootUri": "file:///C:/Users/User/AppData/Local/Pub/Cache/hosted/pub.dev/google_mlkit_commons-0.11.1",
-      "packageUri": "lib/",
-      "languageVersion": "3.8"
-    },
-    {
-      "name": "google_mlkit_image_labeling",
-      "rootUri": "file:///C:/Users/User/AppData/Local/Pub/Cache/hosted/pub.dev/google_mlkit_image_labeling-0.14.2",
-      "packageUri": "lib/",
-      "languageVersion": "3.8"
-    },
-    {
       "name": "gsettings",
       "rootUri": "file:///C:/Users/User/AppData/Local/Pub/Cache/hosted/pub.dev/gsettings-0.2.8",
       "packageUri": "lib/",

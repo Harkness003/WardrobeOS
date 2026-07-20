@@ -13,7 +13,6 @@
         "flutter_secure_storage",
         "geocoding",
         "geolocator",
-        "google_mlkit_image_labeling",
         "http",
         "image",
         "image_picker",
@@ -112,14 +111,6 @@
         "geolocator_platform_interface",
         "geolocator_web",
         "geolocator_windows"
-      ]
-    },
-    {
-      "name": "google_mlkit_image_labeling",
-      "version": "0.14.2",
-      "dependencies": [
-        "flutter",
-        "google_mlkit_commons"
       ]
     },
     {
@@ -483,13 +474,6 @@
         "meta",
         "plugin_platform_interface",
         "vector_math"
-      ]
-    },
-    {
-      "name": "google_mlkit_commons",
-      "version": "0.11.1",
-      "dependencies": [
-        "flutter"
       ]
     },
     {

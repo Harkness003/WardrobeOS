@@ -1,0 +1,995 @@
+diff --git a/README.md b/README.md
+index 43ac8a4e88540ab1f2b24fcb99d580e2b233b169..d7499748fca35b5639715b098973e773c9004d6b 100644
+--- a/README.md
++++ b/README.md
+@@ -1,36 +1,61 @@
+ # WardrobeOS v0.3 — Premium UI
+ 
+ Cette version améliore directement le prototype Android existant.
+ 
+ ## Nouveautés
+ - nouveau tableau de bord premium ;
+ - animations entre les onglets ;
+ - thème clair et sombre ;
+ - dressing avec recherche et filtres réellement interactifs ;
+ - favoris sur les vêtements ;
+ - transition Hero vers la fiche vêtement ;
+ - générateur de tenues avec état vide et résultats simulés ;
+ - WardrobeGPT avec suggestions et conversation simulée ;
+-- scanner avec animation d'analyse ;
++- scanner IA avec validation de la photo, suggestions modifiables et messages
++  adaptés aux erreurs de connexion, de clé et de qualité d’image ;
+ - wishlist avec suppression par glissement ;
+ - nombreux retours visuels et messages d'action.
+ 
+ ## Mise à jour de ton projet existant
+ 
+ Le plus simple :
+ 
+ 1. Décompresse cette archive.
+ 2. Copie le nouveau fichier `lib/main.dart` dans ton projet actuel et remplace l'ancien.
+ 3. Copie aussi `pubspec.yaml`.
+ 4. Dans le terminal du projet :
+ 
+ ```bash
+ flutter pub get
+ flutter run
+ ```
+ 
+ Pendant que l'application est déjà lancée, tu peux remplacer les fichiers puis taper `R` dans le terminal pour un redémarrage complet.
+ 
+ ## Projet neuf
+ 
+ Le script `INITIALISER_WARDROBEOS.bat` peut toujours générer le dossier Android si nécessaire.
++
++## Scanner IA
++
++Le scanner conserve d’abord une copie locale de la photo, vérifie son format et
++ses dimensions, puis envoie une version réduite à OpenAI Vision. La réponse est
++normalisée et validée avant d’être appliquée aux champs encore vides. Aucun
++vêtement n’est enregistré sans confirmation de l’utilisateur et la photo
++temporaire est supprimée si l’écran est quitté.
++
++La clé OpenAI est saisie dans **Profil** et stockée dans le stockage sécurisé de
++l’appareil. Elle ne doit jamais être ajoutée au code, aux journaux ou aux
++sauvegardes.
++
++### Checklist de recette du scanner
++
++- [ ] photo nette, éclairée et contenant un seul vêtement ;
++- [ ] photo sombre, floue, surexposée ou vêtement trop petit ;
++- [ ] photo contenant plusieurs vêtements principaux ;
++- [ ] détection de couleur, matière, motif et logo visible ;
++- [ ] analyse, correction manuelle, ajout, modification et suppression ;
++- [ ] double appui, fermeture pendant l’analyse et rotation de l’écran ;
++- [ ] mode hors ligne, délai dépassé, clé absente/invalide et quota atteint ;
++- [ ] sauvegarde puis restauration du vêtement et de sa photo ;
++- [ ] installation et lancement de l’APK Android de débogage.
+diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+index dcf74fae157304e624cd326e9236d88f748011bc..a7c0e588828ee07f59b3c297319ba113bae9590b 100644
+--- a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+@@ -1,58 +1,65 @@
+ import 'dart:async';
+ import 'dart:convert';
+ import 'dart:io';
+ 
+ import 'package:http/http.dart' as http;
+ 
+ import '../../assistant/settings/api_key_storage.dart';
+ import 'garment_analysis_exception.dart';
+ import 'garment_analysis_request.dart';
+ import 'garment_analysis_result.dart';
+ import 'garment_vision_analyzer.dart';
+ import 'garment_image_processing.dart';
+ 
+ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
+   static final Uri endpoint = Uri.parse('https://api.openai.com/v1/responses');
+   static const defaultModel = 'gpt-4.1-mini';
+   static const supportedMimeTypes = {'image/jpeg', 'image/png', 'image/webp'};
+ 
+   final ApiKeyStorage apiKeyStorage;
+   final http.Client client;
+   final Duration timeout;
+   final String model;
+   final GarmentImagePreprocessor preprocessor;
+   final int maxRetries;
++  final bool _ownsClient;
+ 
+   OpenAiGarmentVisionAnalyzer({
+     required this.apiKeyStorage,
+     http.Client? client,
+     this.timeout = const Duration(seconds: 45),
+     this.model = defaultModel,
+     this.preprocessor = const GarmentImagePreprocessor(),
+     this.maxRetries = 1,
+-  }) : client = client ?? http.Client();
++  }) : client = client ?? http.Client(),
++       _ownsClient = client == null;
++
++  /// Releases the HTTP client created by this analyzer.
++  void close() {
++    if (_ownsClient) client.close();
++  }
+ 
+   @override
+   Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
+     if (request.imageBytes.isEmpty) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.missingImage,
+         'Aucune image à analyser.',
+       );
+     }
+     if (!supportedMimeTypes.contains(request.mimeType)) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.unsupportedFormat,
+         'Ce format d’image n’est pas pris en charge.',
+       );
+     }
+     final apiKey = await apiKeyStorage.read();
+     if (apiKey == null) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.missingApiKey,
+         'Configurez votre clé OpenAI pour utiliser l’analyse IA.',
+       );
+     }
+ 
+     final prepared = preprocessor.prepareBytes(request.imageBytes, mimeType: request.mimeType);
+     final preparedRequest = request.copyWith(imageBytes: prepared.bytes, mimeType: prepared.mimeType);
+diff --git a/lib/features/scanner/garment_scan_result.dart b/lib/features/scanner/garment_scan_result.dart
+deleted file mode 100644
+index db020ddad0408448e3a3c804823a39af02cc3fb3..0000000000000000000000000000000000000000
+--- a/lib/features/scanner/garment_scan_result.dart
++++ /dev/null
+@@ -1,31 +0,0 @@
+-class GarmentScanResult {
+-  final String suggestedName;
+-  final String category;
+-  final String color;
+-  final String material;
+-  final String season;
+-  final double confidence;
+-  final List<String> labels;
+-  final String? typePrecis;
+-  final String? descriptionIA;
+-  final String? motif;
+-  final String? stylePrincipal;
+-  final List<String> saisons;
+-  final List<String> avertissementsIA;
+-
+-  const GarmentScanResult({
+-    required this.suggestedName,
+-    required this.category,
+-    required this.color,
+-    required this.material,
+-    required this.season,
+-    required this.confidence,
+-    required this.labels,
+-    this.typePrecis,
+-    this.descriptionIA,
+-    this.motif,
+-    this.stylePrincipal,
+-    this.saisons = const [],
+-    this.avertissementsIA = const [],
+-  });
+-}
+diff --git a/lib/features/scanner/garment_scanner_service.dart b/lib/features/scanner/garment_scanner_service.dart
+deleted file mode 100644
+index 39b3bab31d5c674452acb99d3204f2c8a0ae3308..0000000000000000000000000000000000000000
+--- a/lib/features/scanner/garment_scanner_service.dart
++++ /dev/null
+@@ -1,224 +0,0 @@
+-import 'dart:io';
+-import 'dart:math' as math;
+-import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
+-import 'package:image/image.dart' as img;
+-import 'garment_scan_result.dart';
+-
+-class GarmentScannerService {
+-  Future<GarmentScanResult> analyze(String imagePath) async {
+-    final labeler = ImageLabeler(
+-      options: ImageLabelerOptions(confidenceThreshold: 0.35),
+-    );
+-
+-    List<ImageLabel> detected = const [];
+-    try {
+-      detected = await labeler.processImage(InputImage.fromFilePath(imagePath));
+-    } finally {
+-      await labeler.close();
+-    }
+-
+-    final labels =
+-        detected.take(10).map((label) => label.label.toLowerCase()).toList();
+-
+-    final category = _categoryFrom(labels);
+-    final material = _materialFrom(labels, category);
+-    final season = _seasonFrom(category, material);
+-    final color = await _dominantColorName(imagePath);
+-    final confidence =
+-        detected.isEmpty
+-            ? 0.35
+-            : detected.map((label) => label.confidence).reduce(math.max);
+-
+-    return GarmentScanResult(
+-      suggestedName: _suggestedName(category, color),
+-      category: category,
+-      color: color,
+-      material: material,
+-      season: season,
+-      confidence: confidence.clamp(0.0, 1.0),
+-      labels: labels,
+-      typePrecis: labels.isEmpty ? null : labels.first,
+-      descriptionIA:
+-          labels.isEmpty ? null : 'Vêtement identifié : ${labels.take(3).join(', ')}.',
+-      saisons: [season],
+-      avertissementsIA:
+-          detected.isEmpty ? const ['Analyse visuelle peu concluante'] : const [],
+-    );
+-  }
+-
+-  String _categoryFrom(List<String> labels) {
+-    bool containsAny(List<String> words) =>
+-        labels.any((label) => words.any(label.contains));
+-
+-    if (containsAny([
+-      'shoe',
+-      'footwear',
+-      'sneaker',
+-      'boot',
+-      'sandal',
+-      'high heels',
+-    ])) {
+-      return 'Chaussures';
+-    }
+-    if (containsAny([
+-      'jacket',
+-      'coat',
+-      'blazer',
+-      'outerwear',
+-      'hoodie',
+-      'suit',
+-    ])) {
+-      return 'Vestes';
+-    }
+-    if (containsAny(['shirt', 'dress shirt', 'collar', 'blouse'])) {
+-      return 'Chemises';
+-    }
+-    if (containsAny(['trousers', 'pants', 'jeans', 'shorts', 'skirt'])) {
+-      return 'Bas';
+-    }
+-    if (containsAny([
+-      'bag',
+-      'handbag',
+-      'watch',
+-      'belt',
+-      'hat',
+-      'glasses',
+-      'jewellery',
+-    ])) {
+-      return 'Accessoires';
+-    }
+-    if (containsAny([
+-      'clothing',
+-      't-shirt',
+-      'sweater',
+-      'jersey',
+-      'top',
+-      'sportswear',
+-    ])) {
+-      return 'Hauts';
+-    }
+-    return 'Autre';
+-  }
+-
+-  String _materialFrom(List<String> labels, String category) {
+-    bool contains(String word) => labels.any((label) => label.contains(word));
+-
+-    if (contains('denim') || contains('jeans')) return 'Denim';
+-    if (contains('leather') || contains('shoe')) return 'Cuir';
+-    if (contains('wool') || contains('knit') || contains('sweater')) {
+-      return 'Laine';
+-    }
+-    if (contains('silk')) return 'Soie';
+-    if (contains('linen')) return 'Lin';
+-    if (category == 'Chaussures') return 'Cuir';
+-    if (category == 'Vestes') return 'Textile';
+-    return 'Coton';
+-  }
+-
+-  String _seasonFrom(String category, String material) {
+-    if (material == 'Laine') return 'Hiver';
+-    if (material == 'Lin') return 'Été';
+-    if (category == 'Vestes') return 'Automne';
+-    if (category == 'Chaussures' || category == 'Accessoires') {
+-      return 'Toute saison';
+-    }
+-    return 'Toute saison';
+-  }
+-
+-  String _suggestedName(String category, String color) {
+-    final singular = switch (category) {
+-      'Chaussures' => 'Chaussures',
+-      'Vestes' => 'Veste',
+-      'Chemises' => 'Chemise',
+-      'Bas' => 'Pantalon',
+-      'Accessoires' => 'Accessoire',
+-      'Hauts' => 'Haut',
+-      _ => 'Nouvelle pièce',
+-    };
+-    return '$singular ${color.toLowerCase()}';
+-  }
+-
+-  Future<String> _dominantColorName(String path) async {
+-    final bytes = await File(path).readAsBytes();
+-    final decoded = img.decodeImage(bytes);
+-    if (decoded == null) return 'Non détectée';
+-
+-    final reduced = img.copyResize(
+-      decoded,
+-      width: 48,
+-      height: 48,
+-      interpolation: img.Interpolation.average,
+-    );
+-
+-    double red = 0;
+-    double green = 0;
+-    double blue = 0;
+-    double weightTotal = 0;
+-
+-    for (final pixel in reduced) {
+-      final r = pixel.r.toDouble();
+-      final g = pixel.g.toDouble();
+-      final b = pixel.b.toDouble();
+-
+-      final maxChannel = math.max(r, math.max(g, b));
+-      final minChannel = math.min(r, math.min(g, b));
+-      final saturation = maxChannel - minChannel;
+-      final brightness = (r + g + b) / 3;
+-
+-      // White studio backgrounds are deliberately down-weighted.
+-      var weight = 1.0;
+-      if (brightness > 230 && saturation < 20) weight = 0.06;
+-      if (brightness < 18) weight = 0.25;
+-
+-      red += r * weight;
+-      green += g * weight;
+-      blue += b * weight;
+-      weightTotal += weight;
+-    }
+-
+-    if (weightTotal == 0) return 'Non détectée';
+-
+-    return _nearestColorName(
+-      red / weightTotal,
+-      green / weightTotal,
+-      blue / weightTotal,
+-    );
+-  }
+-
+-  String _nearestColorName(double r, double g, double b) {
+-    const palette = <String, List<int>>{
+-      'Noir': [28, 28, 28],
+-      'Blanc': [238, 238, 232],
+-      'Gris': [135, 135, 135],
+-      'Bleu marine': [35, 48, 72],
+-      'Bleu': [55, 105, 165],
+-      'Beige': [194, 174, 143],
+-      'Marron': [105, 72, 48],
+-      'Camel': [176, 124, 66],
+-      'Vert': [69, 112, 75],
+-      'Kaki': [105, 107, 65],
+-      'Rouge': [165, 48, 45],
+-      'Bordeaux': [105, 35, 48],
+-      'Rose': [205, 128, 148],
+-      'Violet': [105, 72, 135],
+-      'Jaune': [213, 178, 59],
+-      'Orange': [207, 112, 42],
+-    };
+-
+-    var winner = 'Gris';
+-    var best = double.infinity;
+-
+-    for (final entry in palette.entries) {
+-      final pr = entry.value[0].toDouble();
+-      final pg = entry.value[1].toDouble();
+-      final pb = entry.value[2].toDouble();
+-      final distance =
+-          math.pow(r - pr, 2) + math.pow(g - pg, 2) + math.pow(b - pb, 2);
+-      if (distance < best) {
+-        best = distance.toDouble();
+-        winner = entry.key;
+-      }
+-    }
+-    return winner;
+-  }
+-}
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index d08d47d9da9a67e297a1825a5bac56a486f662bd..ed987ab83b91215851c610a2ce7694357f8ca82e 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -1,91 +1,118 @@
+ import 'dart:async';
++import 'dart:io';
+ 
+ import 'package:flutter/material.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../widgets/garment_image.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+-import 'garment_scan_result.dart';
+-import 'garment_scanner_service.dart';
++import '../assistant/settings/api_key_storage.dart';
++import 'ai/garment_analysis_exception.dart';
++import 'ai/garment_analysis_mapper.dart';
++import 'ai/garment_analysis_request.dart';
++import 'ai/garment_analysis_result.dart';
++import 'ai/garment_analysis_validator.dart';
++import 'ai/garment_image_processing.dart';
++import 'ai/normalization/garment_value_normalizer.dart';
++import 'ai/openai_garment_vision_analyzer.dart';
+ 
+ class ScannerScreen extends StatefulWidget {
+   const ScannerScreen({super.key});
+ 
+   @override
+   State<ScannerScreen> createState() => _ScannerScreenState();
+ }
+ 
+ class _ScannerScreenState extends State<ScannerScreen> {
+   final picker = ImagePicker();
+-  final scanner = GarmentScannerService();
++  late final OpenAiGarmentVisionAnalyzer scanner;
+   final wardrobe = WardrobeController();
+ 
+   final name = TextEditingController();
+   final brand = TextEditingController();
+   final color = TextEditingController();
+   final material = TextEditingController();
+ 
+   String category = 'Hauts';
+   String season = 'Toute saison';
+   String? imagePath;
+-  GarmentScanResult? result;
++  GarmentAnalysisResult? result;
+   bool importing = false;
+   bool analyzing = false;
+   bool saving = false;
+   bool imageOwnedByGarment = false;
+ 
+   bool get busy => importing || analyzing || saving;
+ 
+   static const categories = [
+     'Hauts',
+     'Chemises',
+     'Vestes',
+     'Bas',
+     'Chaussures',
+     'Accessoires',
+     'Autre',
+   ];
+ 
+   static const seasons = [
+     'Toute saison',
+     'Printemps',
+     'Été',
+     'Automne',
+     'Hiver',
+   ];
+ 
++  static const colors = [
++    'Noir', 'Blanc', 'Gris', 'Bleu marine', 'Bleu', 'Beige', 'Marron',
++    'Camel', 'Vert', 'Kaki', 'Rouge', 'Bordeaux', 'Rose', 'Violet',
++    'Jaune', 'Orange',
++  ];
++  static const materials = [
++    'Coton', 'Laine', 'Lin', 'Soie', 'Denim', 'Cuir', 'Textile',
++    'Synthétique',
++  ];
++
++  @override
++  void initState() {
++    super.initState();
++    scanner = OpenAiGarmentVisionAnalyzer(
++      apiKeyStorage: const ApiKeyStorage(),
++    );
++  }
++
+   @override
+   void dispose() {
+     if (!imageOwnedByGarment) _removeBestEffort(imagePath);
+     name.dispose();
+     brand.dispose();
+     color.dispose();
+     material.dispose();
++    scanner.close();
+     wardrobe.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> pick(ImageSource source) async {
+     if (busy) return;
+     setState(() => importing = true);
+     String? persisted;
+     try {
+       final selected = await picker.pickImage(
+         source: source,
+         imageQuality: 90,
+         maxWidth: 1800,
+       );
+       if (!mounted || selected == null) return;
+ 
+       persisted = await ImageStorageService.persist(selected.path);
+       if (!mounted) {
+         _removeBestEffort(persisted);
+         return;
+       }
+ 
+       final previousPath = imagePath;
+       setState(() {
+         imagePath = persisted;
+@@ -140,105 +167,177 @@ class _ScannerScreenState extends State<ScannerScreen> {
+               children: [
+                 ListTile(
+                   leading: const Icon(Icons.camera_alt_outlined),
+                   title: const Text('Prendre une photo'),
+                   subtitle: const Text('Idéalement sur un fond uni'),
+                   onTap: () => Navigator.pop(context, ImageSource.camera),
+                 ),
+                 ListTile(
+                   leading: const Icon(Icons.photo_library_outlined),
+                   title: const Text('Choisir dans la galerie'),
+                   onTap: () => Navigator.pop(context, ImageSource.gallery),
+                 ),
+               ],
+             ),
+           ),
+     );
+     if (!mounted || source == null) return;
+     await pick(source);
+   }
+ 
+   Future<void> analyze() async {
+     if (busy || imagePath == null) return;
+     setState(() => analyzing = true);
+ 
+     try {
+-      final scan = await scanner.analyze(imagePath!);
++      final validation = await const GarmentImageValidator().validateFile(
++        imagePath!,
++      );
++      if (!validation.isValid) {
++        throw GarmentAnalysisException(
++          GarmentAnalysisError.rejectedImage,
++          validation.rejectionReason ?? 'Cette photo ne peut pas être analysée.',
++        );
++      }
++      final bytes = await File(imagePath!).readAsBytes();
++      final raw = await scanner.analyze(
++        GarmentAnalysisRequest(
++          imageBytes: bytes,
++          mimeType:
++              GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
++          allowedCategories: categories,
++          allowedColors: colors,
++          allowedMaterials: materials,
++          allowedSeasons: seasons,
++          existingValues: {
++            if (name.text.trim().isNotEmpty) 'name': name.text.trim(),
++            if (brand.text.trim().isNotEmpty) 'brand': brand.text.trim(),
++          },
++        ),
++      );
++      final validated = GarmentAnalysisValidator(
++        categoryNormalizer: const GarmentValueNormalizer(categories),
++        colorNormalizer: const GarmentValueNormalizer(colors),
++        materialNormalizer: const GarmentValueNormalizer(materials),
++        seasonNormalizer: const GarmentValueNormalizer(seasons),
++      ).validate(raw).analysis;
++      if (!validated.isUsableImage) {
++        throw GarmentAnalysisException(
++          GarmentAnalysisError.rejectedImage,
++          validated.rejectionReason ??
++              'La photo ne permet pas d’identifier clairement un vêtement.',
++        );
++      }
++      final mapped = const GarmentAnalysisMapper(
++        categories: categories,
++        colors: colors,
++        materials: materials,
++        seasons: seasons,
++      ).map(
++        validated,
++        current: GarmentFormValues(
++          name: name.text,
++          category: '',
++          color: color.text,
++          material: material.text,
++          season: '',
++          brand: brand.text,
++        ),
++      );
+       if (!mounted) return;
+       setState(() {
+-        result = scan;
+-        if (name.text.trim().isEmpty) name.text = scan.suggestedName;
+-        if (color.text.trim().isEmpty) color.text = scan.color;
+-        if (material.text.trim().isEmpty) material.text = scan.material;
++        result = validated;
++        name.text = mapped.name;
++        brand.text = mapped.brand;
++        color.text = mapped.color;
++        material.text = mapped.material;
++        if (mapped.category.isNotEmpty) category = mapped.category;
++        if (mapped.season.isNotEmpty) season = mapped.season;
+       });
+-    } catch (_) {
++      _toast('Analyse terminée · Suggestions IA appliquées.');
++    } on GarmentAnalysisException catch (error) {
+       if (!mounted) return;
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        SnackBar(
+-          content: Text(
+-            'Analyse impossible. Complète la fiche manuellement ou réessaie.',
+-          ),
+-        ),
+-      );
++      _toast(_friendlyAnalysisError(error));
++    } catch (_) {
++      if (mounted) _toast('Analyse impossible pour le moment. Réessaie.');
+     } finally {
+       if (mounted) setState(() => analyzing = false);
+     }
+   }
+ 
++  String _friendlyAnalysisError(GarmentAnalysisException exception) => switch (
++    exception.error
++  ) {
++    GarmentAnalysisError.missingApiKey =>
++      'Configure ta clé OpenAI dans le profil avant de lancer l’analyse.',
++    GarmentAnalysisError.invalidApiKey =>
++      'La clé configurée n’est pas valide. Vérifie-la dans le profil.',
++    GarmentAnalysisError.quotaExceeded =>
++      'Le service d’analyse est momentanément indisponible. Réessaie plus tard.',
++    GarmentAnalysisError.network =>
++      'Aucune connexion disponible. Vérifie ton réseau puis réessaie.',
++    GarmentAnalysisError.timeout =>
++      'L’analyse prend trop de temps. Réessaie dans quelques instants.',
++    GarmentAnalysisError.rejectedImage ||
++    GarmentAnalysisError.missingImage ||
++    GarmentAnalysisError.unsupportedFormat => exception.message,
++    _ => 'Analyse impossible pour le moment. Réessaie.',
++  };
++
+   Future<void> save() async {
+     if (busy) return;
+     if (imagePath == null) {
+       _toast('Ajoute d’abord une photo.');
+       return;
+     }
+     if (name.text.trim().isEmpty) {
+       _toast('Donne un nom à la pièce.');
+       return;
+     }
+ 
+     setState(() => saving = true);
+     final now = DateTime.now();
+     final garment = Garment(
+       id: const Uuid().v4(),
+       name: name.text.trim(),
+       category: category,
+       brand: brand.text.trim().isEmpty ? null : brand.text.trim(),
+       color: color.text.trim().isEmpty ? null : color.text.trim(),
+       material: material.text.trim().isEmpty ? null : material.text.trim(),
+       season: season,
+-      typePrecis: result?.typePrecis,
+-      descriptionIA: result?.descriptionIA,
++      typePrecis: result?.category,
++      descriptionIA: result?.suggestedName,
+       couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
+       matierePrincipale:
+           material.text.trim().isEmpty ? null : material.text.trim(),
+-      saisons: result?.saisons,
+-      confianceGlobale: result?.confidence,
+-      avertissementsIA: result?.avertissementsIA,
++      saisons: result?.season == null ? null : [result!.season!],
++      confianceGlobale: result?.globalConfidence,
++      avertissementsIA: result?.warnings,
+       notes:
+           result == null
+               ? 'Ajout manuel depuis le scanner.'
+-              : 'Analyse locale bêta · confiance ${(result!.confidence * 100).round()} %.',
++              : 'Suggestions IA vérifiées · confiance ${(result!.globalConfidence * 100).round()} %.',
+       imagePath: imagePath,
+       createdAt: now,
+       updatedAt: now,
+     );
+ 
+     try {
+       await wardrobe.insert(garment);
+       imageOwnedByGarment = true;
+       if (!mounted) return;
+       setState(() => saving = false);
+       Navigator.pop(context, true);
+       if (!mounted) return;
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('Pièce ajoutée au dressing.')),
+       );
+     } catch (_) {
+       if (!mounted) return;
+       _toast('Enregistrement impossible. Vérifie la fiche et réessaie.');
+     } finally {
+       if (mounted) setState(() => saving = false);
+     }
+   }
+ 
+   void _removeBestEffort(String? path) {
+     unawaited(ImageStorageService.remove(path).catchError((_) {}));
+@@ -471,147 +570,147 @@ class _PhotoArea extends StatelessWidget {
+                     SizedBox(height: 18),
+                     Text(
+                       'Import de la photo…',
+                       style: TextStyle(
+                         color: Colors.white,
+                         fontWeight: FontWeight.w900,
+                       ),
+                     ),
+                   ],
+                 ),
+               ),
+             ),
+           if (analyzing)
+             Positioned.fill(
+               child: Container(
+                 decoration: BoxDecoration(
+                   color: Colors.black.withValues(alpha: .58),
+                   borderRadius: BorderRadius.circular(32),
+                 ),
+                 child: const Column(
+                   mainAxisAlignment: MainAxisAlignment.center,
+                   children: [
+                     CircularProgressIndicator(color: AppTheme.gold),
+                     SizedBox(height: 18),
+                     Text(
+-                      'Analyse locale en cours…',
++                      'Analyse en cours…',
+                       style: TextStyle(
+                         color: Colors.white,
+                         fontWeight: FontWeight.w900,
+                       ),
+                     ),
+                     SizedBox(height: 5),
+                     Text(
+                       'Catégorie · couleur · matière · saison',
+                       style: TextStyle(color: Colors.white70),
+                     ),
+                   ],
+                 ),
+               ),
+             ),
+         ],
+       ),
+     );
+   }
+ }
+ 
+ class _IntroCard extends StatelessWidget {
+   const _IntroCard();
+ 
+   @override
+   Widget build(BuildContext context) {
+     return const Card(
+       child: Padding(
+         padding: EdgeInsets.all(19),
+         child: Column(
+           children: [
+             Row(
+               children: [
+                 Icon(Icons.auto_awesome, color: AppTheme.gold),
+                 SizedBox(width: 10),
+                 Expanded(
+                   child: Text(
+-                    'Scanner intelligent — bêta',
++                    'Scanner intelligent',
+                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+               ],
+             ),
+             SizedBox(height: 12),
+             Text(
+-              'L’analyse s’effectue directement sur ton téléphone. Elle propose une catégorie, une couleur, une matière et une saison, puis te laisse tout corriger avant l’enregistrement.',
++              'L’IA propose une catégorie, une couleur, une matière et une saison. Tu gardes le contrôle et peux tout corriger avant l’enregistrement.',
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+ }
+ 
+ class _AnalysisSummary extends StatelessWidget {
+-  final GarmentScanResult result;
++  final GarmentAnalysisResult result;
+   const _AnalysisSummary({required this.result});
+ 
+   @override
+   Widget build(BuildContext context) {
+-    final confidence = (result.confidence * 100).round();
++    final confidence = (result.globalConfidence * 100).round();
+     return Card(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           children: [
+             Row(
+               children: [
+                 const Icon(Icons.auto_awesome, color: AppTheme.gold),
+                 const SizedBox(width: 10),
+                 const Expanded(
+                   child: Text(
+                     'Suggestion IA',
+                     style: TextStyle(fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 Chip(label: Text('$confidence %')),
+               ],
+             ),
+             const SizedBox(height: 12),
+             LinearProgressIndicator(
+-              value: result.confidence,
++              value: result.globalConfidence,
+               minHeight: 7,
+               borderRadius: BorderRadius.circular(8),
+               color: AppTheme.gold,
+             ),
+-            if (result.labels.isNotEmpty) ...[
++            if (result.warnings.isNotEmpty) ...[
+               const SizedBox(height: 12),
+               Align(
+                 alignment: Alignment.centerLeft,
+                 child: Text(
+-                  'Indices détectés : ${result.labels.take(4).join(', ')}',
++                  result.warnings.take(2).join(' · '),
+                   style: Theme.of(context).textTheme.bodySmall,
+                 ),
+               ),
+             ],
+             const SizedBox(height: 8),
+             Align(
+               alignment: Alignment.centerLeft,
+               child: Text(
+-                result.confidence >= .8
++                result.globalConfidence >= .8
+                     ? 'Confiance élevée'
+-                    : result.confidence >= .55
++                    : result.globalConfidence >= .55
+                         ? 'Confiance moyenne · À vérifier'
+                         : 'À vérifier',
+                 style: const TextStyle(fontWeight: FontWeight.w800),
+               ),
+             ),
+             const SizedBox(height: 8),
+             const Align(
+               alignment: Alignment.centerLeft,
+               child: Text(
+                 'Vérifie les informations : l’analyse peut se tromper.',
+                 style: TextStyle(fontWeight: FontWeight.w700),
+               ),
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+ }
+diff --git a/pubspec.lock b/pubspec.lock
+index 0e29c90a6e74e35bb9b56a79de4bad7b75eea42a..1bd4c846267b3fe319a54f2e0e674a577cffea7e 100644
+--- a/pubspec.lock
++++ b/pubspec.lock
+@@ -314,66 +314,50 @@ packages:
+     version: "0.2.4"
+   geolocator_platform_interface:
+     dependency: transitive
+     description:
+       name: geolocator_platform_interface
+       sha256: cdb082e4f048b69da244117b7914cc60d2a8897546ffaa4f2529c786ded7aee2
+       url: "https://pub.dev"
+     source: hosted
+     version: "4.2.8"
+   geolocator_web:
+     dependency: transitive
+     description:
+       name: geolocator_web
+       sha256: "19e485a0f8d6a88abcf9c53cba3a4105e14b7435ed8ac1c108c067b938fe8429"
+       url: "https://pub.dev"
+     source: hosted
+     version: "4.1.4"
+   geolocator_windows:
+     dependency: transitive
+     description:
+       name: geolocator_windows
+       sha256: "175435404d20278ffd220de83c2ca293b73db95eafbdc8131fe8609be1421eb6"
+       url: "https://pub.dev"
+     source: hosted
+     version: "0.2.5"
+-  google_mlkit_commons:
+-    dependency: transitive
+-    description:
+-      name: google_mlkit_commons
+-      sha256: "3e69fea4211727732cc385104e675ad1e40b29f12edd492ee52fa108423a6124"
+-      url: "https://pub.dev"
+-    source: hosted
+-    version: "0.11.1"
+-  google_mlkit_image_labeling:
+-    dependency: "direct main"
+-    description:
+-      name: google_mlkit_image_labeling
+-      sha256: d744d1844c674aae860262f3bb22f5628fd96eaa9d482e6b8d64974efd003dac
+-      url: "https://pub.dev"
+-    source: hosted
+-    version: "0.14.2"
+   gsettings:
+     dependency: transitive
+     description:
+       name: gsettings
+       sha256: "1b0ce661f5436d2db1e51f3c4295a49849f03d304003a7ba177d01e3a858249c"
+       url: "https://pub.dev"
+     source: hosted
+     version: "0.2.8"
+   hooks:
+     dependency: transitive
+     description:
+       name: hooks
+       sha256: "9a62a50b50b769a737bc0a8ff381f333529df3ab746b2f6b02e83760231455ba"
+       url: "https://pub.dev"
+     source: hosted
+     version: "2.0.2"
+   http:
+     dependency: "direct main"
+     description:
+       name: http
+       sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
+       url: "https://pub.dev"
+     source: hosted
+     version: "1.6.0"
+   http_parser:
+diff --git a/pubspec.yaml b/pubspec.yaml
+index cdedc05d9e3fa80de703927bdf8fc44ef31b1f7f..f018669ea339c6fa9740b5a6a671dd923f6a5001 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -1,32 +1,31 @@
+ name: wardrobeos
+ description: Base complete et evolutive de WardrobeOS.
+ publish_to: "none"
+ version: 0.8.0+9
+ 
+ environment:
+   sdk: ">=3.7.0 <4.0.0"
+ 
+ dependencies:
+   flutter:
+     sdk: flutter
+   cupertino_icons: ^1.0.8
+   sqflite: ^2.4.3
+   path: ^1.9.1
+   path_provider: ^2.1.5
+   image_picker: ^1.2.1
+   uuid: ^4.5.3
+   image: ^4.9.1
+-  google_mlkit_image_labeling: ^0.14.1
+   geolocator: ^14.0.2
+   geocoding: ^4.0.0
+   http: ^1.4.0
+   flutter_secure_storage: ^9.2.4
+   file_picker: ^10.3.3
+ 
+ dev_dependencies:
+   flutter_test:
+     sdk: flutter
+   flutter_lints: ^5.0.0
+ 
+ flutter:
+   uses-material-design: true

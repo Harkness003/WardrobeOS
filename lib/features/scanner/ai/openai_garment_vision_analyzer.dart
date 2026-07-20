@@ -22,6 +22,7 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
   final String model;
   final GarmentImagePreprocessor preprocessor;
   final int maxRetries;
+  final bool _ownsClient;
 
   OpenAiGarmentVisionAnalyzer({
     required this.apiKeyStorage,
@@ -30,7 +31,13 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
     this.model = defaultModel,
     this.preprocessor = const GarmentImagePreprocessor(),
     this.maxRetries = 1,
-  }) : client = client ?? http.Client();
+  }) : client = client ?? http.Client(),
+       _ownsClient = client == null;
+
+  /// Releases the HTTP client created by this analyzer.
+  void close() {
+    if (_ownsClient) client.close();
+  }
 
   @override
   Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
