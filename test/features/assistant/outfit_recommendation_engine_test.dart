@@ -22,13 +22,22 @@ void main() {
   test('sélectionne en priorité les vêtements adaptés au froid', () async {
     final result = await engine(const [
       OutfitCandidate(
-        id: 'shirt', name: 'Chemise', category: 'Hauts', season: 'hiver',
+        id: 'shirt',
+        name: 'Chemise',
+        category: 'Hauts',
+        season: 'hiver',
       ),
       OutfitCandidate(
-        id: 'coat', name: 'Manteau chaud', category: 'Manteaux', season: 'hiver',
+        id: 'coat',
+        name: 'Manteau chaud',
+        category: 'Manteaux',
+        season: 'hiver',
       ),
       OutfitCandidate(
-        id: 'shorts', name: 'Short', category: 'Shorts', season: 'été',
+        id: 'shorts',
+        name: 'Short',
+        category: 'Shorts',
+        season: 'été',
       ),
     ]).recommend(coldRequest);
 
@@ -38,11 +47,16 @@ void main() {
   test('exclut les vêtements portés très récemment', () async {
     final result = await engine([
       OutfitCandidate(
-        id: 'recent', name: 'Pull récent', category: 'Pulls', season: 'hiver',
+        id: 'recent',
+        name: 'Pull récent',
+        category: 'Pulls',
+        season: 'hiver',
         lastWorn: now.subtract(const Duration(hours: 12)),
       ),
       const OutfitCandidate(
-        id: 'available', name: 'Pull disponible', category: 'Pulls',
+        id: 'available',
+        name: 'Pull disponible',
+        category: 'Pulls',
         season: 'hiver',
       ),
     ]).recommend(coldRequest);
@@ -53,13 +67,19 @@ void main() {
   test('donne la priorité aux vêtements oubliés', () async {
     final result = await engine([
       OutfitCandidate(
-        id: 'frequent', name: 'Pull fréquent', category: 'Pulls',
-        season: 'hiver', wearCount: 20,
+        id: 'frequent',
+        name: 'Pull fréquent',
+        category: 'Pulls',
+        season: 'hiver',
+        wearCount: 20,
         lastWorn: now.subtract(const Duration(days: 10)),
       ),
       const OutfitCandidate(
-        id: 'forgotten', name: 'Pull oublié', category: 'Pulls',
-        season: 'hiver', wearCount: 0,
+        id: 'forgotten',
+        name: 'Pull oublié',
+        category: 'Pulls',
+        season: 'hiver',
+        wearCount: 0,
       ),
     ]).recommend(coldRequest);
 

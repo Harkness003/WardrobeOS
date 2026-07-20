@@ -17,11 +17,14 @@ class StatisticsTool implements AssistantTool {
   Future<AssistantToolData> getData() async {
     if (_controller.loading) await _controller.load();
     final garments = _controller.garments;
-    final ranked = garments.toList()
-      ..sort((a, b) => b.wearCount.compareTo(a.wearCount));
+    final ranked =
+        garments.toList()..sort((a, b) => b.wearCount.compareTo(a.wearCount));
     return {
       'garmentCount': garments.length,
-      'wearCount': garments.fold<int>(0, (total, garment) => total + garment.wearCount),
+      'wearCount': garments.fold<int>(
+        0,
+        (total, garment) => total + garment.wearCount,
+      ),
       'mostUsed': ranked
           .where((garment) => garment.wearCount > 0)
           .take(5)

@@ -48,12 +48,13 @@ class OutfitRecommendationRequest {
     date: context.date.value,
     occasion: intent.parameters['occasion'],
     desiredStyle: intent.parameters['style'],
-    weather: context.weather == null
-        ? null
-        : OutfitWeatherConstraints(
-            temperature: context.weather!.temperature,
-            condition: context.weather!.condition,
-          ),
+    weather:
+        context.weather == null
+            ? null
+            : OutfitWeatherConstraints(
+              temperature: context.weather!.temperature,
+              condition: context.weather!.condition,
+            ),
     season: intent.parameters['saison'] ?? context.date.season,
     requestedCategory: intent.parameters['catégorie'],
   );

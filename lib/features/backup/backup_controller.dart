@@ -16,7 +16,8 @@ class BackupController extends ChangeNotifier {
   Future<void> createBackup() async {
     final path = await FilePicker.platform.saveFile(
       dialogTitle: 'Enregistrer la sauvegarde WardrobeOS',
-      fileName: 'wardrobeos-backup-${DateTime.now().toIso8601String().substring(0, 10)}.json',
+      fileName:
+          'wardrobeos-backup-${DateTime.now().toIso8601String().substring(0, 10)}.json',
       type: FileType.custom,
       allowedExtensions: const ['json'],
     );

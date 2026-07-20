@@ -26,9 +26,10 @@ void main() {
     });
 
     test('génère un backup vide valide', () async {
-      final backup = await BackupService(
-        repository: _MemoryRepository(_emptyData()),
-      ).createBackup();
+      final backup =
+          await BackupService(
+            repository: _MemoryRepository(_emptyData()),
+          ).createBackup();
 
       expect(backup.garments, isEmpty);
       expect(backup.outfits, isEmpty);
@@ -48,9 +49,10 @@ void main() {
     });
 
     test('restaure avec succès toutes les relations', () async {
-      final source = await BackupService(
-        repository: _MemoryRepository(_sampleData()),
-      ).createBackup();
+      final source =
+          await BackupService(
+            repository: _MemoryRepository(_sampleData()),
+          ).createBackup();
       final target = _MemoryRepository(_emptyData());
       final directory = await Directory.systemTemp.createTemp('wardrobe-test');
       addTearDown(() => directory.delete(recursive: true));
@@ -68,9 +70,10 @@ void main() {
     test('une restauration échouée ne remplace aucune donnée', () async {
       final initial = _sampleData();
       final repository = _MemoryRepository(initial, failRestore: true);
-      final backup = await BackupService(
-        repository: _MemoryRepository(_emptyData()),
-      ).createBackup();
+      final backup =
+          await BackupService(
+            repository: _MemoryRepository(_emptyData()),
+          ).createBackup();
 
       await expectLater(
         RestoreService(repository: repository).restore(backup.encode()),

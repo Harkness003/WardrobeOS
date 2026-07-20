@@ -48,51 +48,50 @@ void main() {
   late OutfitsController outfits;
 
   setUp(() {
-    wardrobe = WardrobeController()
-      ..loading = false
-      ..garments = [
-        Garment(
-          id: 'g1',
-          name: 'Chemise',
-          category: 'Haut',
-          color: 'Bleu',
-          wearCount: 3,
-          lastWorn: now,
-          createdAt: now,
-          updatedAt: now,
-        ),
-        Garment(
-          id: 'g2',
-          name: 'Jean',
-          category: 'Bas',
-          color: 'Bleu',
-          createdAt: now,
-          updatedAt: now,
-        ),
-      ];
-    outfits = OutfitsController()
-      ..loading = false
-      ..outfits = [
-        Outfit(
-          id: 'o1',
-          name: 'Bureau',
-          timesWorn: 2,
-          lastWorn: now,
-          createdAt: now,
-          updatedAt: now,
-        ),
-      ];
+    wardrobe =
+        WardrobeController()
+          ..loading = false
+          ..garments = [
+            Garment(
+              id: 'g1',
+              name: 'Chemise',
+              category: 'Haut',
+              color: 'Bleu',
+              wearCount: 3,
+              lastWorn: now,
+              createdAt: now,
+              updatedAt: now,
+            ),
+            Garment(
+              id: 'g2',
+              name: 'Jean',
+              category: 'Bas',
+              color: 'Bleu',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ];
+    outfits =
+        OutfitsController()
+          ..loading = false
+          ..outfits = [
+            Outfit(
+              id: 'o1',
+              name: 'Bureau',
+              timesWorn: 2,
+              lastWorn: now,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ];
   });
 
   test('chaque outil retourne une structure valide', () async {
     final wardrobeData = await WardrobeTool(controller: wardrobe).getData();
     final outfitData = await OutfitTool(controller: outfits).getData();
-    final weatherData = await WeatherTool(
-      weatherService: _WeatherService(),
-    ).getData();
-    final statisticsData = await StatisticsTool(
-      controller: wardrobe,
-    ).getData();
+    final weatherData =
+        await WeatherTool(weatherService: _WeatherService()).getData();
+    final statisticsData = await StatisticsTool(controller: wardrobe).getData();
 
     expect(wardrobeData['totalGarments'], 2);
     expect(wardrobeData['categories'], ['Bas', 'Haut']);
@@ -104,9 +103,7 @@ void main() {
   });
 
   test('assemble les données sous l’identifiant de chaque outil', () async {
-    final context = await AssistantToolContextBuilder(
-      tools: [_Tool()],
-    ).build();
+    final context = await AssistantToolContextBuilder(tools: [_Tool()]).build();
 
     expect(context['test']?['description'], 'Description');
     expect(context['test']?['data'], {'value': 42});

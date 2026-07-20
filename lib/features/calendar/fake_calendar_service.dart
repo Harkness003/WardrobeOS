@@ -18,7 +18,7 @@ class FakeCalendarService implements CalendarService {
     final start = from ?? _clock();
     final events =
         _events.where((event) => !event.endsAt.isBefore(start)).toList()
-      ..sort((a, b) => a.startsAt.compareTo(b.startsAt));
+          ..sort((a, b) => a.startsAt.compareTo(b.startsAt));
     return List.unmodifiable(events);
   }
 
@@ -29,8 +29,7 @@ class FakeCalendarService implements CalendarService {
     final end = start.add(const Duration(days: 1));
     return List.unmodifiable(
       _events.where(
-        (event) =>
-            event.startsAt.isBefore(end) && event.endsAt.isAfter(start),
+        (event) => event.startsAt.isBefore(end) && event.endsAt.isAfter(start),
       ),
     );
   }

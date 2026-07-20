@@ -97,22 +97,23 @@ class _BackupSettings extends StatelessWidget {
   Future<void> _confirmRestore(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Restaurer la sauvegarde ?'),
-        content: const Text(
-          'Cette opération remplacera les données actuelles.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Restaurer la sauvegarde ?'),
+            content: const Text(
+              'Cette opération remplacera les données actuelles.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Restaurer'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Restaurer'),
-          ),
-        ],
-      ),
     );
     if (confirmed == true) await controller.restoreBackup();
   }
@@ -120,44 +121,45 @@ class _BackupSettings extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: controller,
-    builder: (context, _) => Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              '💾 Sauvegarde',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+    builder:
+        (context, _) => Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '💾 Sauvegarde',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  controller.lastBackupAt == null
+                      ? 'Dernière sauvegarde : aucune'
+                      : 'Dernière sauvegarde : ${controller.lastBackupAt!.toLocal()}',
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: controller.busy ? null : controller.createBackup,
+                  icon: const Icon(Icons.save_alt),
+                  label: const Text('Créer une sauvegarde'),
+                ),
+                OutlinedButton.icon(
+                  onPressed:
+                      controller.busy ? null : () => _confirmRestore(context),
+                  icon: const Icon(Icons.settings_backup_restore),
+                  label: const Text('Restaurer une sauvegarde'),
+                ),
+                if (controller.busy) const LinearProgressIndicator(),
+                if (controller.result != null) ...[
+                  const SizedBox(height: 8),
+                  Text(controller.result!),
+                ],
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              controller.lastBackupAt == null
-                  ? 'Dernière sauvegarde : aucune'
-                  : 'Dernière sauvegarde : ${controller.lastBackupAt!.toLocal()}',
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: controller.busy ? null : controller.createBackup,
-              icon: const Icon(Icons.save_alt),
-              label: const Text('Créer une sauvegarde'),
-            ),
-            OutlinedButton.icon(
-              onPressed:
-                  controller.busy ? null : () => _confirmRestore(context),
-              icon: const Icon(Icons.settings_backup_restore),
-              label: const Text('Restaurer une sauvegarde'),
-            ),
-            if (controller.busy) const LinearProgressIndicator(),
-            if (controller.result != null) ...[
-              const SizedBox(height: 8),
-              Text(controller.result!),
-            ],
-          ],
+          ),
         ),
-      ),
-    ),
   );
 }
 

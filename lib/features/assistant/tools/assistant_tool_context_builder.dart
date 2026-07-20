@@ -10,7 +10,9 @@ class AssistantToolContextBuilder {
     : _tools = List.unmodifiable(tools) {
     final ids = _tools.map((tool) => tool.id).toSet();
     if (ids.length != _tools.length) {
-      throw ArgumentError('Chaque outil assistant doit avoir un identifiant unique.');
+      throw ArgumentError(
+        'Chaque outil assistant doit avoir un identifiant unique.',
+      );
     }
   }
 

@@ -25,17 +25,17 @@ class OutfitRecommendationEngine {
     OutfitRecommendationRequest request,
   ) async {
     final now = _clock();
-    final candidates = (await _candidateSource())
-        .where((candidate) => candidate.isAvailable)
-        .where((candidate) => _matchesCategory(candidate, request))
-        .where((candidate) => _matchesSeason(candidate, request.season))
-        .where((candidate) => !_wasWornRecently(candidate, now))
-        .toList();
+    final candidates =
+        (await _candidateSource())
+            .where((candidate) => candidate.isAvailable)
+            .where((candidate) => _matchesCategory(candidate, request))
+            .where((candidate) => _matchesSeason(candidate, request.season))
+            .where((candidate) => !_wasWornRecently(candidate, now))
+            .toList();
 
     candidates.sort(
-      (left, right) => _score(right, request, now).compareTo(
-        _score(left, request, now),
-      ),
+      (left, right) =>
+          _score(right, request, now).compareTo(_score(left, request, now)),
     );
     return OutfitRecommendationResult(
       request: request,
@@ -55,7 +55,8 @@ class OutfitRecommendationEngine {
   bool _matchesSeason(OutfitCandidate candidate, String? requestedSeason) {
     final season = _normalize(candidate.season ?? '');
     if (season.isEmpty || season.contains('toute')) return true;
-    return requestedSeason == null || season.contains(_normalize(requestedSeason));
+    return requestedSeason == null ||
+        season.contains(_normalize(requestedSeason));
   }
 
   bool _wasWornRecently(OutfitCandidate candidate, DateTime now) {
@@ -71,11 +72,7 @@ class OutfitRecommendationEngine {
     var score = 100 - candidate.wearCount.clamp(0, 100).toInt();
     if (candidate.lastWorn == null) score += 40;
     if (candidate.lastWorn != null) {
-      score += now
-          .difference(candidate.lastWorn!)
-          .inDays
-          .clamp(0, 60)
-          .toInt();
+      score += now.difference(candidate.lastWorn!).inDays.clamp(0, 60).toInt();
     }
     final category = _normalize(candidate.category);
     if (request.weather?.isCold ?? false) {

@@ -79,9 +79,10 @@ class _MainShellState extends State<MainShell> {
     ),
     llmProvider: _openAiProvider,
     recommendationEngine: OutfitRecommendationEngine(
-      candidateSource: () async => _assistantWardrobe.garments
-          .map(OutfitCandidate.fromGarment)
-          .toList(growable: false),
+      candidateSource:
+          () async => _assistantWardrobe.garments
+              .map(OutfitCandidate.fromGarment)
+              .toList(growable: false),
     ),
   );
 

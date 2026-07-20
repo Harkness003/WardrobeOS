@@ -13,13 +13,14 @@ class _EmptySection implements PromptSection {
 }
 
 AssistantContext _context({bool withWeather = true}) => AssistantContext(
-  weather: withWeather
-      ? const AssistantWeather(
-        temperature: 21.5,
-        condition: 'Clair',
-        city: 'Lyon',
-      )
-      : null,
+  weather:
+      withWeather
+          ? const AssistantWeather(
+            temperature: 21.5,
+            condition: 'Clair',
+            city: 'Lyon',
+          )
+          : null,
   statistics: const AssistantStatistics(
     garmentCount: 12,
     outfitCount: 4,
@@ -44,10 +45,11 @@ void main() {
     });
 
     test('ignore les sections vides et sépare les autres', () {
-      final prompt = const PromptComposer().compose(
-        _context(),
-        const [SystemPromptSection(), _EmptySection(), WardrobePromptSection()],
-      );
+      final prompt = const PromptComposer().compose(_context(), const [
+        SystemPromptSection(),
+        _EmptySection(),
+        WardrobePromptSection(),
+      ]);
       expect(prompt, contains('## SYSTÈME'));
       expect(prompt, contains('\n\n## GARDE-ROBE'));
       expect(prompt, isNot(contains('VIDE')));

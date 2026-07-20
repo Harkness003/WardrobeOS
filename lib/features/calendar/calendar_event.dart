@@ -1,4 +1,12 @@
-enum CalendarEventType { work, appointment, restaurant, sport, travel, party, other }
+enum CalendarEventType {
+  work,
+  appointment,
+  restaurant,
+  sport,
+  travel,
+  party,
+  other,
+}
 
 enum EventFormality { casual, smartCasual, formal, business, sport }
 

@@ -27,19 +27,21 @@ void main() {
   });
 
   test('construit le contexte calendrier', () async {
-    final context = await CalendarContextBuilder(
-      service: FakeCalendarService(events: [event]),
-      clock: () => now,
-    ).build();
+    final context =
+        await CalendarContextBuilder(
+          service: FakeCalendarService(events: [event]),
+          clock: () => now,
+        ).build();
     expect(context!.summary, contains('Restaurant à Lyon à 20h'));
     expect(context.summary, contains('élégante décontractée'));
   });
 
   test("retourne null en l'absence d'événement", () async {
-    final context = await CalendarContextBuilder(
-      service: FakeCalendarService(),
-      clock: () => now,
-    ).build();
+    final context =
+        await CalendarContextBuilder(
+          service: FakeCalendarService(),
+          clock: () => now,
+        ).build();
     expect(context, isNull);
   });
 }

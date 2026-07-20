@@ -1,0 +1,2982 @@
+diff --git a/lib/features/scanner/ai/fake_garment_vision_analyzer.dart b/lib/features/scanner/ai/fake_garment_vision_analyzer.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..0f79efb1bc963595a8b8146753949c5ce4a0b8e8
+--- /dev/null
++++ b/lib/features/scanner/ai/fake_garment_vision_analyzer.dart
+@@ -0,0 +1,47 @@
++import 'garment_analysis_exception.dart';
++import 'garment_analysis_request.dart';
++import 'garment_analysis_result.dart';
++import 'garment_vision_analyzer.dart';
++
++enum FakeGarmentVisionScenario { success, lowConfidence, unusable, error }
++
++class FakeGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
++  final FakeGarmentVisionScenario scenario;
++  final Duration delay;
++
++  const FakeGarmentVisionAnalyzer({
++    this.scenario = FakeGarmentVisionScenario.success,
++    this.delay = Duration.zero,
++  });
++
++  @override
++  Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
++    if (delay > Duration.zero) await Future<void>.delayed(delay);
++    return switch (scenario) {
++      FakeGarmentVisionScenario.success => const GarmentAnalysisResult(
++        isUsableImage: true,
++        suggestedName: 'Chemise bleue',
++        category: 'Chemises',
++        primaryColor: 'Bleu',
++        material: 'Coton',
++        season: 'Toute saison',
++        globalConfidence: .91,
++      ),
++      FakeGarmentVisionScenario.lowConfidence => const GarmentAnalysisResult(
++        isUsableImage: true,
++        category: 'Hauts',
++        globalConfidence: .31,
++        warnings: ['Vêtement partiellement visible.'],
++      ),
++      FakeGarmentVisionScenario.unusable => const GarmentAnalysisResult(
++        isUsableImage: false,
++        rejectionReason: 'Aucun vêtement principal détecté.',
++        globalConfidence: .05,
++      ),
++      FakeGarmentVisionScenario.error => throw const GarmentAnalysisException(
++        GarmentAnalysisError.network,
++        'Impossible de joindre OpenAI. Vérifiez votre connexion.',
++      ),
++    };
++  }
++}
+diff --git a/lib/features/scanner/ai/garment_analysis_exception.dart b/lib/features/scanner/ai/garment_analysis_exception.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..696077b68e6d0c4af7088c553d1a7bbbbe66f219
+--- /dev/null
++++ b/lib/features/scanner/ai/garment_analysis_exception.dart
+@@ -0,0 +1,24 @@
++enum GarmentAnalysisError {
++  missingApiKey,
++  invalidApiKey,
++  accessDenied,
++  quotaExceeded,
++  network,
++  timeout,
++  emptyResponse,
++  invalidJson,
++  invalidSchema,
++  missingImage,
++  unsupportedFormat,
++  rejectedImage,
++}
++
++class GarmentAnalysisException implements Exception {
++  final GarmentAnalysisError error;
++  final String message;
++
++  const GarmentAnalysisException(this.error, this.message);
++
++  @override
++  String toString() => message;
++}
+diff --git a/lib/features/scanner/ai/garment_analysis_mapper.dart b/lib/features/scanner/ai/garment_analysis_mapper.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..a0a4d1735637e54848ec2946113c16310d583ae8
+--- /dev/null
++++ b/lib/features/scanner/ai/garment_analysis_mapper.dart
+@@ -0,0 +1,77 @@
++import 'garment_analysis_result.dart';
++
++class GarmentFormValues {
++  final String name;
++  final String category;
++  final String color;
++  final String material;
++  final String season;
++  final String brand;
++
++  const GarmentFormValues({
++    required this.name,
++    required this.category,
++    required this.color,
++    required this.material,
++    required this.season,
++    required this.brand,
++  });
++}
++
++class GarmentAnalysisMapper {
++  final List<String> categories;
++  final List<String> colors;
++  final List<String> materials;
++  final List<String> seasons;
++
++  const GarmentAnalysisMapper({
++    required this.categories,
++    required this.colors,
++    required this.materials,
++    required this.seasons,
++  });
++
++  GarmentFormValues map(
++    GarmentAnalysisResult result, {
++    required GarmentFormValues current,
++  }) {
++    return GarmentFormValues(
++      name: _prefer(current.name, result.suggestedName),
++      category:
++          current.category.trim().isNotEmpty
++              ? current.category
++              : _canonical(result.category, categories) ?? '',
++      color: _prefer(current.color, _canonical(result.primaryColor, colors)),
++      material: _prefer(
++        current.material,
++        _canonical(result.material, materials),
++      ),
++      season:
++          current.season.trim().isNotEmpty
++              ? current.season
++              : _canonical(result.season, seasons) ?? '',
++      brand: _prefer(current.brand, result.visibleBrand),
++    );
++  }
++
++  String _prefer(String current, String? suggestion) =>
++      current.trim().isNotEmpty ? current : (suggestion?.trim() ?? '');
++
++  String? _canonical(String? value, List<String> allowed) {
++    if (value == null) return null;
++    final normalized = _normalize(value);
++    for (final candidate in allowed) {
++      if (_normalize(candidate) == normalized) return candidate;
++    }
++    return null;
++  }
++
++  String _normalize(String value) => value
++      .trim()
++      .toLowerCase()
++      .replaceAll(RegExp('[éèêë]'), 'e')
++      .replaceAll(RegExp('[àâä]'), 'a')
++      .replaceAll(RegExp('[îï]'), 'i')
++      .replaceAll(RegExp('[ôö]'), 'o')
++      .replaceAll(RegExp('[ùûü]'), 'u');
++}
+diff --git a/lib/features/scanner/ai/garment_analysis_request.dart b/lib/features/scanner/ai/garment_analysis_request.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..d536f9407294e207d04e5d539717430a075b3667
+--- /dev/null
++++ b/lib/features/scanner/ai/garment_analysis_request.dart
+@@ -0,0 +1,25 @@
++import 'dart:typed_data';
++
++class GarmentAnalysisRequest {
++  final Uint8List imageBytes;
++  final String mimeType;
++  final String? fileName;
++  final String language;
++  final List<String> allowedCategories;
++  final List<String> allowedColors;
++  final List<String> allowedMaterials;
++  final List<String> allowedSeasons;
++  final Map<String, String> existingValues;
++
++  const GarmentAnalysisRequest({
++    required this.imageBytes,
++    required this.mimeType,
++    this.fileName,
++    this.language = 'français',
++    required this.allowedCategories,
++    required this.allowedColors,
++    required this.allowedMaterials,
++    required this.allowedSeasons,
++    this.existingValues = const {},
++  });
++}
+diff --git a/lib/features/scanner/ai/garment_analysis_result.dart b/lib/features/scanner/ai/garment_analysis_result.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..10409a6114f7ac47f9ff23f5c9d4da6d2b70bf35
+--- /dev/null
++++ b/lib/features/scanner/ai/garment_analysis_result.dart
+@@ -0,0 +1,94 @@
++import 'dart:convert';
++
++import 'garment_analysis_exception.dart';
++
++class GarmentAnalysisResult {
++  final bool isUsableImage;
++  final String? rejectionReason;
++  final String? suggestedName;
++  final String? category;
++  final String? primaryColor;
++  final String? material;
++  final String? season;
++  final String? visibleBrand;
++  final double globalConfidence;
++  final Map<String, double> fieldConfidences;
++  final List<String> warnings;
++
++  const GarmentAnalysisResult({
++    required this.isUsableImage,
++    this.rejectionReason,
++    this.suggestedName,
++    this.category,
++    this.primaryColor,
++    this.material,
++    this.season,
++    this.visibleBrand,
++    required this.globalConfidence,
++    this.fieldConfidences = const {},
++    this.warnings = const [],
++  });
++
++  factory GarmentAnalysisResult.fromJsonString(String source) {
++    try {
++      final value = jsonDecode(source);
++      if (value is! Map<String, dynamic>) throw const FormatException();
++      return GarmentAnalysisResult.fromJson(value);
++    } on GarmentAnalysisException {
++      rethrow;
++    } on FormatException {
++      throw const GarmentAnalysisException(
++        GarmentAnalysisError.invalidJson,
++        'La réponse de l’analyse IA est illisible.',
++      );
++    }
++  }
++
++  factory GarmentAnalysisResult.fromJson(Map<String, dynamic> json) {
++    if (json['isUsableImage'] is! bool ||
++        json['globalConfidence'] is! num) {
++      throw const GarmentAnalysisException(
++        GarmentAnalysisError.invalidSchema,
++        'La réponse de l’analyse IA est incomplète.',
++      );
++    }
++    String? text(String key) {
++      final value = json[key];
++      return value is String && value.trim().isNotEmpty ? value.trim() : null;
++    }
++
++    final confidences = <String, double>{};
++    final rawConfidences = json['fieldConfidences'];
++    if (rawConfidences is Map) {
++      for (final entry in rawConfidences.entries) {
++        if (entry.key is String && entry.value is num) {
++          confidences[entry.key as String] =
++              (entry.value as num).toDouble().clamp(0, 1).toDouble();
++        }
++      }
++    }
++    List<String> strings(String key) =>
++        json[key] is List
++            ? (json[key] as List)
++                .whereType<String>()
++                .map((value) => value.trim())
++                .where((value) => value.isNotEmpty)
++                .toList(growable: false)
++            : const [];
++
++    return GarmentAnalysisResult(
++      isUsableImage: json['isUsableImage'] as bool,
++      rejectionReason: text('rejectionReason'),
++      suggestedName: text('suggestedName'),
++      category: text('category'),
++      primaryColor: text('primaryColor'),
++      material: text('material'),
++      season: text('season'),
++      visibleBrand: text('visibleBrand'),
++      globalConfidence:
++          (json['globalConfidence'] as num).toDouble().clamp(0, 1).toDouble(),
++      fieldConfidences: Map.unmodifiable(confidences),
++      warnings: List.unmodifiable(strings('warnings')),
++    );
++  }
++}
+diff --git a/lib/features/scanner/ai/garment_vision_analyzer.dart b/lib/features/scanner/ai/garment_vision_analyzer.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..4219f9df8827cb67a06734dacdd1e9bf328e001a
+--- /dev/null
++++ b/lib/features/scanner/ai/garment_vision_analyzer.dart
+@@ -0,0 +1,6 @@
++import 'garment_analysis_request.dart';
++import 'garment_analysis_result.dart';
++
++abstract interface class GarmentVisionAnalyzer {
++  Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request);
++}
+diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ed5e7261ae54de78cd4cb16774f06721774d8984
+--- /dev/null
++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+@@ -0,0 +1,226 @@
++import 'dart:async';
++import 'dart:convert';
++import 'dart:io';
++
++import 'package:http/http.dart' as http;
++
++import '../../assistant/settings/api_key_storage.dart';
++import 'garment_analysis_exception.dart';
++import 'garment_analysis_request.dart';
++import 'garment_analysis_result.dart';
++import 'garment_vision_analyzer.dart';
++
++class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
++  static final Uri endpoint = Uri.parse('https://api.openai.com/v1/responses');
++  static const defaultModel = 'gpt-4.1-mini';
++  static const supportedMimeTypes = {'image/jpeg', 'image/png', 'image/webp'};
++
++  final ApiKeyStorage apiKeyStorage;
++  final http.Client client;
++  final Duration timeout;
++  final String model;
++
++  OpenAiGarmentVisionAnalyzer({
++    required this.apiKeyStorage,
++    http.Client? client,
++    this.timeout = const Duration(seconds: 45),
++    this.model = defaultModel,
++  }) : client = client ?? http.Client();
++
++  @override
++  Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
++    if (request.imageBytes.isEmpty) {
++      throw const GarmentAnalysisException(
++        GarmentAnalysisError.missingImage,
++        'Aucune image à analyser.',
++      );
++    }
++    if (!supportedMimeTypes.contains(request.mimeType)) {
++      throw const GarmentAnalysisException(
++        GarmentAnalysisError.unsupportedFormat,
++        'Ce format d’image n’est pas pris en charge.',
++      );
++    }
++    final apiKey = await apiKeyStorage.read();
++    if (apiKey == null) {
++      throw const GarmentAnalysisException(
++        GarmentAnalysisError.missingApiKey,
++        'Configurez votre clé OpenAI pour utiliser l’analyse IA.',
++      );
++    }
++
++    final body = _requestBody(request);
++    try {
++      final response = await client
++          .post(
++            endpoint,
++            headers: {
++              HttpHeaders.authorizationHeader: 'Bearer $apiKey',
++              HttpHeaders.contentTypeHeader: 'application/json',
++            },
++            body: jsonEncode(body),
++          )
++          .timeout(timeout);
++      if (response.statusCode < 200 || response.statusCode >= 300) {
++        throw _httpException(response.statusCode);
++      }
++      final responseBody = _decodeObject(response.body);
++      final output = _outputText(responseBody);
++      if (output == null || output.trim().isEmpty) {
++        throw const GarmentAnalysisException(
++          GarmentAnalysisError.emptyResponse,
++          'OpenAI a renvoyé une réponse vide.',
++        );
++      }
++      return GarmentAnalysisResult.fromJsonString(output);
++    } on GarmentAnalysisException {
++      rethrow;
++    } on TimeoutException {
++      throw const GarmentAnalysisException(
++        GarmentAnalysisError.timeout,
++        'L’analyse prend trop de temps. Réessayez.',
++      );
++    } on SocketException {
++      throw const GarmentAnalysisException(
++        GarmentAnalysisError.network,
++        'Impossible de joindre OpenAI. Vérifiez votre connexion.',
++      );
++    } on http.ClientException {
++      throw const GarmentAnalysisException(
++        GarmentAnalysisError.network,
++        'Impossible de joindre OpenAI. Vérifiez votre connexion.',
++      );
++    }
++  }
++
++  Map<String, dynamic> _requestBody(GarmentAnalysisRequest request) => {
++    'model': model,
++    'instructions': _prompt(request),
++    'input': [
++      {
++        'role': 'user',
++        'content': [
++          {
++            'type': 'input_text',
++            'text': 'Analyse cette photo selon les instructions.',
++          },
++          {
++            'type': 'input_image',
++            'image_url':
++                'data:${request.mimeType};base64,${base64Encode(request.imageBytes)}',
++          },
++        ],
++      },
++    ],
++    'text': {
++      'format': {
++        'type': 'json_schema',
++        'name': 'garment_analysis',
++        'strict': true,
++        'schema': _schema,
++      },
++    },
++  };
++
++  String _prompt(GarmentAnalysisRequest request) => '''
++Tu analyses uniquement le vêtement principal visible. Ignore la personne, le
++visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne.
++Réponds en ${request.language} et uniquement selon le schéma JSON. N'invente
++jamais une marque ou une matière : utilise null lorsque ce n'est pas clairement
++observable. Signale une image peu fiable. Utilise exclusivement ces valeurs :
++category=${jsonEncode(request.allowedCategories)}
++primaryColor=${jsonEncode(request.allowedColors)}
++material=${jsonEncode(request.allowedMaterials)}
++season=${jsonEncode(request.allowedSeasons)}
++Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
++${jsonEncode(request.existingValues)}
++''';
++
++  static const _nullableString = {'type': ['string', 'null']};
++  static const _schema = {
++    'type': 'object',
++    'additionalProperties': false,
++    'required': [
++      'isUsableImage',
++      'rejectionReason',
++      'suggestedName',
++      'category',
++      'primaryColor',
++      'material',
++      'season',
++      'visibleBrand',
++      'globalConfidence',
++      'fieldConfidences',
++      'warnings',
++    ],
++    'properties': {
++      'isUsableImage': {'type': 'boolean'},
++      'rejectionReason': _nullableString,
++      'suggestedName': _nullableString,
++      'category': _nullableString,
++      'primaryColor': _nullableString,
++      'material': _nullableString,
++      'season': _nullableString,
++      'visibleBrand': _nullableString,
++      'globalConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
++      'fieldConfidences': {
++        'type': 'object',
++        'additionalProperties': {'type': 'number', 'minimum': 0, 'maximum': 1},
++      },
++      'warnings': {
++        'type': 'array',
++        'items': {'type': 'string'},
++      },
++    },
++  };
++
++  Map<String, dynamic> _decodeObject(String source) {
++    try {
++      final decoded = jsonDecode(source);
++      if (decoded is Map<String, dynamic>) return decoded;
++    } on FormatException {
++      // Translated below without exposing the response body.
++    }
++    throw const GarmentAnalysisException(
++      GarmentAnalysisError.invalidJson,
++      'OpenAI a renvoyé une réponse illisible.',
++    );
++  }
++
++  String? _outputText(Map<String, dynamic> body) {
++    if (body['output_text'] is String) return body['output_text'] as String;
++    final output = body['output'];
++    if (output is! List) return null;
++    for (final item in output.whereType<Map>()) {
++      final content = item['content'];
++      if (content is! List) continue;
++      for (final part in content.whereType<Map>()) {
++        if (part['type'] == 'output_text' && part['text'] is String) {
++          return part['text'] as String;
++        }
++      }
++    }
++    return null;
++  }
++
++  GarmentAnalysisException _httpException(int statusCode) => switch (
++    statusCode
++  ) {
++    401 => const GarmentAnalysisException(
++      GarmentAnalysisError.invalidApiKey,
++      'La clé API OpenAI est invalide.',
++    ),
++    403 => const GarmentAnalysisException(
++      GarmentAnalysisError.accessDenied,
++      'OpenAI a refusé l’accès à l’analyse.',
++    ),
++    429 => const GarmentAnalysisException(
++      GarmentAnalysisError.quotaExceeded,
++      'Le quota OpenAI est dépassé. Réessayez plus tard.',
++    ),
++    _ => const GarmentAnalysisException(
++      GarmentAnalysisError.network,
++      'Le service OpenAI est temporairement indisponible.',
++    ),
++  };
++}
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index 40959c1e382d368e900831ef433e7c80254c5aa5..6cde86a904611f9c69dae2b07c2707d0f7399276 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -1,117 +1,165 @@
+ import 'dart:async';
++import 'dart:io';
+ 
+ import 'package:flutter/material.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../widgets/garment_image.dart';
+ import '../wardrobe/wardrobe_controller.dart';
++import '../assistant/settings/api_key_storage.dart';
++import 'ai/garment_analysis_exception.dart';
++import 'ai/garment_analysis_mapper.dart';
++import 'ai/garment_analysis_request.dart';
++import 'ai/garment_analysis_result.dart';
++import 'ai/garment_vision_analyzer.dart';
++import 'ai/openai_garment_vision_analyzer.dart';
+ import 'garment_scan_result.dart';
+ import 'garment_scanner_service.dart';
+ 
+ class ScannerScreen extends StatefulWidget {
+-  const ScannerScreen({super.key});
++  final GarmentVisionAnalyzer? visionAnalyzer;
++  final VoidCallback? openAiSettings;
++
++  const ScannerScreen({super.key, this.visionAnalyzer, this.openAiSettings});
+ 
+   @override
+   State<ScannerScreen> createState() => _ScannerScreenState();
+ }
+ 
+ class _ScannerScreenState extends State<ScannerScreen> {
+   final picker = ImagePicker();
+   final scanner = GarmentScannerService();
+   final wardrobe = WardrobeController();
+ 
+   final name = TextEditingController();
+   final brand = TextEditingController();
+   final color = TextEditingController();
+   final material = TextEditingController();
+ 
+   String category = 'Hauts';
+   String season = 'Toute saison';
+   String? imagePath;
+   GarmentScanResult? result;
+   bool importing = false;
+   bool analyzing = false;
++  bool analyzingWithAi = false;
+   bool saving = false;
+   bool imageOwnedByGarment = false;
+ 
+-  bool get busy => importing || analyzing || saving;
++  GarmentAnalysisResult? aiResult;
++  String? aiError;
++  final manuallyEdited = <String>{};
++
++  bool get busy => importing || analyzing || analyzingWithAi || saving;
++
++  late final GarmentVisionAnalyzer visionAnalyzer =
++      widget.visionAnalyzer ??
++      OpenAiGarmentVisionAnalyzer(apiKeyStorage: const ApiKeyStorage());
+ 
+   static const categories = [
+     'Hauts',
+     'Chemises',
+     'Vestes',
+     'Bas',
+     'Chaussures',
+     'Accessoires',
+     'Autre',
+   ];
+ 
+   static const seasons = [
+     'Toute saison',
+     'Printemps',
+     'Été',
+     'Automne',
+     'Hiver',
+   ];
+ 
++  static const colors = [
++    'Noir',
++    'Blanc',
++    'Gris',
++    'Bleu',
++    'Rouge',
++    'Vert',
++    'Jaune',
++    'Orange',
++    'Violet',
++    'Rose',
++    'Marron',
++    'Beige',
++  ];
++
++  static const materials = [
++    'Coton',
++    'Laine',
++    'Lin',
++    'Soie',
++    'Cuir',
++    'Denim',
++    'Textile',
++    'Synthétique',
++  ];
++
+   @override
+   void dispose() {
+     if (!imageOwnedByGarment) _removeBestEffort(imagePath);
+     name.dispose();
+     brand.dispose();
+     color.dispose();
+     material.dispose();
+     wardrobe.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> pick(ImageSource source) async {
+     if (busy) return;
+     setState(() => importing = true);
+     String? persisted;
+     try {
+       final selected = await picker.pickImage(
+         source: source,
+         imageQuality: 90,
+         maxWidth: 1800,
+       );
+       if (!mounted || selected == null) return;
+ 
+       persisted = await ImageStorageService.persist(selected.path);
+       if (!mounted) {
+         _removeBestEffort(persisted);
+         return;
+       }
+ 
+       final previousPath = imagePath;
+       setState(() {
+         imagePath = persisted;
+         result = null;
++        aiResult = null;
++        aiError = null;
+       });
+       persisted = null; // The screen now owns this copy.
+       _removeBestEffort(previousPath);
+     } catch (_) {
+       _removeBestEffort(persisted);
+       if (!mounted) return;
+       _toast('Impossible d’importer cette photo. Réessaie avec une autre.');
+     } finally {
+       if (mounted) setState(() => importing = false);
+     }
+ 
+     if (mounted && imagePath != null) await analyze();
+   }
+ 
+   Future<void> chooseSource() async {
+     if (busy) return;
+     if (imagePath != null) {
+       final replace = await showDialog<bool>(
+         context: context,
+         builder:
+             (context) => AlertDialog(
+               title: const Text('Remplacer la photo ?'),
+               content: const Text(
+                 'La photo actuelle sera conservée si le nouvel import échoue.',
+               ),
+@@ -163,50 +211,169 @@ class _ScannerScreenState extends State<ScannerScreen> {
+     try {
+       final scan = await scanner.analyze(imagePath!);
+       if (!mounted) return;
+       setState(() {
+         result = scan;
+         name.text = scan.suggestedName;
+         category = scan.category;
+         color.text = scan.color;
+         material.text = scan.material;
+         season = scan.season;
+       });
+     } catch (_) {
+       if (!mounted) return;
+       ScaffoldMessenger.of(context).showSnackBar(
+         SnackBar(
+           content: Text(
+             'Analyse impossible. Complète la fiche manuellement ou réessaie.',
+           ),
+         ),
+       );
+     } finally {
+       if (mounted) setState(() => analyzing = false);
+     }
+   }
+ 
++  Future<void> analyzeWithAi() async {
++    if (busy || imagePath == null) return;
++    setState(() {
++      analyzingWithAi = true;
++      aiError = null;
++    });
++    try {
++      final file = File(imagePath!);
++      final mimeType = _mimeType(imagePath!);
++      final analysis = await visionAnalyzer.analyze(
++        GarmentAnalysisRequest(
++          imageBytes: await file.readAsBytes(),
++          mimeType: mimeType,
++          fileName: file.uri.pathSegments.last,
++          allowedCategories: categories,
++          allowedColors: colors,
++          allowedMaterials: materials,
++          allowedSeasons: seasons,
++          existingValues: {
++            if (name.text.trim().isNotEmpty) 'name': name.text.trim(),
++            if (brand.text.trim().isNotEmpty) 'brand': brand.text.trim(),
++            if (color.text.trim().isNotEmpty) 'color': color.text.trim(),
++            if (material.text.trim().isNotEmpty)
++              'material': material.text.trim(),
++            'category': category,
++            'season': season,
++          },
++        ),
++      );
++      if (!mounted) return;
++      if (!analysis.isUsableImage) {
++        setState(() {
++          aiResult = analysis;
++          aiError =
++              analysis.rejectionReason ?? 'Cette photo ne peut pas être analysée.';
++        });
++        return;
++      }
++      final mapped = GarmentAnalysisMapper(
++        categories: categories,
++        colors: colors,
++        materials: materials,
++        seasons: seasons,
++      ).map(
++        analysis,
++        current: GarmentFormValues(
++          name: manuallyEdited.contains('name') ? name.text : '',
++          category: manuallyEdited.contains('category') ? category : '',
++          color: manuallyEdited.contains('color') ? color.text : '',
++          material: manuallyEdited.contains('material') ? material.text : '',
++          season: manuallyEdited.contains('season') ? season : '',
++          brand: manuallyEdited.contains('brand') ? brand.text : '',
++        ),
++      );
++      setState(() {
++        aiResult = analysis;
++        if (mapped.name.isNotEmpty) name.text = mapped.name;
++        if (mapped.brand.isNotEmpty) brand.text = mapped.brand;
++        if (mapped.color.isNotEmpty) color.text = mapped.color;
++        if (mapped.material.isNotEmpty) material.text = mapped.material;
++        if (mapped.category.isNotEmpty) category = mapped.category;
++        if (mapped.season.isNotEmpty) season = mapped.season;
++      });
++      _toast(
++        analysis.globalConfidence < .5
++            ? 'Le résultat est incertain. Vérifiez attentivement les suggestions.'
++            : 'Suggestions IA ajoutées. Vérifiez les informations avant d’enregistrer.',
++      );
++    } on GarmentAnalysisException catch (error) {
++      if (!mounted) return;
++      setState(() => aiError = error.message);
++      if (error.error == GarmentAnalysisError.missingApiKey) {
++        _showMissingKey();
++      }
++    } catch (_) {
++      if (!mounted) return;
++      setState(
++        () => aiError = 'Analyse IA impossible. Vous pouvez continuer manuellement.',
++      );
++    } finally {
++      if (mounted) setState(() => analyzingWithAi = false);
++    }
++  }
++
++  String _mimeType(String path) {
++    final lower = path.toLowerCase();
++    if (lower.endsWith('.png')) return 'image/png';
++    if (lower.endsWith('.webp')) return 'image/webp';
++    return 'image/jpeg';
++  }
++
++  Future<void> _showMissingKey() async {
++    await showDialog<void>(
++      context: context,
++      builder:
++          (context) => AlertDialog(
++            title: const Text('Clé OpenAI requise'),
++            content: const Text(
++              'Configurez votre clé OpenAI pour utiliser l’analyse IA.',
++            ),
++            actions: [
++              TextButton(
++                onPressed: () => Navigator.pop(context),
++                child: const Text('Continuer manuellement'),
++              ),
++              if (widget.openAiSettings != null)
++                FilledButton(
++                  onPressed: () {
++                    Navigator.pop(context);
++                    Navigator.pop(this.context);
++                    widget.openAiSettings!();
++                  },
++                  child: const Text('Paramètres IA'),
++                ),
++            ],
++          ),
++    );
++  }
++
+   Future<void> save() async {
+     if (busy) return;
+     if (imagePath == null) {
+       _toast('Ajoute d’abord une photo.');
+       return;
+     }
+     if (name.text.trim().isEmpty) {
+       _toast('Donne un nom à la pièce.');
+       return;
+     }
+ 
+     setState(() => saving = true);
+     final now = DateTime.now();
+     final garment = Garment(
+       id: const Uuid().v4(),
+       name: name.text.trim(),
+       category: category,
+       brand: brand.text.trim().isEmpty ? null : brand.text.trim(),
+       color: color.text.trim().isEmpty ? null : color.text.trim(),
+       material: material.text.trim().isEmpty ? null : material.text.trim(),
+       season: season,
+       notes:
+           result == null
+               ? 'Ajout manuel depuis le scanner.'
+               : 'Analyse locale bêta · confiance ${(result!.confidence * 100).round()} %.',
+@@ -249,132 +416,182 @@ class _ScannerScreenState extends State<ScannerScreen> {
+         appBar: AppBar(
+           title: const Text('Scanner une pièce'),
+           actions: [
+             IconButton(
+               tooltip: 'Conseils photo',
+               onPressed:
+                   () => showDialog<void>(
+                     context: context,
+                     builder:
+                         (_) => const AlertDialog(
+                           title: Text('Pour une meilleure analyse'),
+                           content: Text(
+                             'Photographie une seule pièce, bien éclairée, à plat ou sur un cintre, avec un fond aussi neutre que possible.',
+                           ),
+                         ),
+                   ),
+               icon: const Icon(Icons.help_outline),
+             ),
+           ],
+         ),
+         body: ListView(
+           padding: const EdgeInsets.fromLTRB(18, 4, 18, 32),
+           children: [
+             _PhotoArea(
+               imagePath: imagePath,
+-              analyzing: analyzing,
++              analyzing: analyzing || analyzingWithAi,
++              analysisLabel:
++                  analyzingWithAi
++                      ? 'Analyse du vêtement en cours…'
++                      : 'Analyse locale en cours…',
+               importing: importing,
+               onTap: busy ? null : chooseSource,
+             ),
+             const SizedBox(height: 18),
+             if (imagePath == null) ...[
+               const _IntroCard(),
+               const SizedBox(height: 16),
+               FilledButton.icon(
+                 onPressed: busy ? null : chooseSource,
+                 icon: const Icon(Icons.camera_alt_outlined),
+                 label: const Text('Prendre ou choisir une photo'),
+               ),
+             ] else ...[
++              const Text(
++                'La photo sélectionnée sera envoyée à OpenAI pour analyse.',
++                style: TextStyle(fontSize: 12),
++              ),
++              const SizedBox(height: 8),
++              FilledButton.icon(
++                onPressed: busy ? null : analyzeWithAi,
++                icon:
++                    analyzingWithAi
++                        ? const SizedBox.square(
++                          dimension: 18,
++                          child: CircularProgressIndicator(strokeWidth: 2),
++                        )
++                        : const Icon(Icons.auto_awesome),
++                label: Text(
++                  analyzingWithAi
++                      ? 'Analyse du vêtement en cours…'
++                      : aiError == null
++                      ? 'Analyser avec l’IA'
++                      : 'Réessayer',
++                ),
++              ),
++              if (aiError != null) ...[
++                const SizedBox(height: 8),
++                Text(aiError!, style: const TextStyle(color: Colors.redAccent)),
++              ],
++              if (aiResult != null && aiResult!.isUsableImage) ...[
++                const SizedBox(height: 8),
++                Text(
++                  'Confiance IA : ${(aiResult!.globalConfidence * 100).round()} %',
++                  style: const TextStyle(fontWeight: FontWeight.w700),
++                ),
++              ],
++              const SizedBox(height: 14),
+               if (result != null) _AnalysisSummary(result: result!),
+               if (result != null) const SizedBox(height: 14),
+               TextField(
+                 controller: name,
++                onChanged: (_) => manuallyEdited.add('name'),
+                 decoration: const InputDecoration(
+                   labelText: 'Nom de la pièce',
+                   prefixIcon: Icon(Icons.edit_outlined),
+                 ),
+               ),
+               const SizedBox(height: 10),
+               TextField(
+                 controller: brand,
++                onChanged: (_) => manuallyEdited.add('brand'),
+                 decoration: const InputDecoration(
+                   labelText: 'Marque (facultatif)',
+                   prefixIcon: Icon(Icons.sell_outlined),
+                 ),
+               ),
+               const SizedBox(height: 10),
+               DropdownButtonFormField<String>(
++                key: ValueKey(category),
+                 initialValue: category,
+                 decoration: const InputDecoration(
+                   labelText: 'Catégorie',
+                   prefixIcon: Icon(Icons.category_outlined),
+                 ),
+                 items:
+                     categories
+                         .map(
+                           (value) => DropdownMenuItem(
+                             value: value,
+                             child: Text(value),
+                           ),
+                         )
+                         .toList(),
+-                onChanged: (value) => setState(() => category = value!),
++                onChanged: (value) => setState(() {
++                  category = value!;
++                  manuallyEdited.add('category');
++                }),
+               ),
+               const SizedBox(height: 10),
+               TextField(
+                 controller: color,
++                onChanged: (_) => manuallyEdited.add('color'),
+                 decoration: const InputDecoration(
+                   labelText: 'Couleur',
+                   prefixIcon: Icon(Icons.palette_outlined),
+                 ),
+               ),
+               const SizedBox(height: 10),
+               TextField(
+                 controller: material,
++                onChanged: (_) => manuallyEdited.add('material'),
+                 decoration: const InputDecoration(
+                   labelText: 'Matière',
+                   prefixIcon: Icon(Icons.texture_outlined),
+                 ),
+               ),
+               const SizedBox(height: 10),
+               DropdownButtonFormField<String>(
++                key: ValueKey(season),
+                 initialValue: season,
+                 decoration: const InputDecoration(
+                   labelText: 'Saison',
+                   prefixIcon: Icon(Icons.calendar_month_outlined),
+                 ),
+                 items:
+                     seasons
+                         .map(
+                           (value) => DropdownMenuItem(
+                             value: value,
+                             child: Text(value),
+                           ),
+                         )
+                         .toList(),
+-                onChanged: (value) => setState(() => season = value!),
++                onChanged: (value) => setState(() {
++                  season = value!;
++                  manuallyEdited.add('season');
++                }),
+               ),
+               const SizedBox(height: 14),
+               Row(
+                 children: [
+                   Expanded(
+                     child: OutlinedButton.icon(
+                       onPressed: busy ? null : analyze,
+                       icon: const Icon(Icons.refresh),
+                       label: const Text('Réanalyser'),
+                       style: OutlinedButton.styleFrom(
+                         minimumSize: const Size.fromHeight(52),
+                         shape: RoundedRectangleBorder(
+                           borderRadius: BorderRadius.circular(18),
+                         ),
+                       ),
+                     ),
+                   ),
+                   const SizedBox(width: 10),
+                   Expanded(
+                     child: OutlinedButton.icon(
+                       onPressed: busy ? null : chooseSource,
+                       icon: const Icon(Icons.photo_camera_back_outlined),
+                       label: const Text('Changer'),
+                       style: OutlinedButton.styleFrom(
+                         minimumSize: const Size.fromHeight(52),
+@@ -390,132 +607,134 @@ class _ScannerScreenState extends State<ScannerScreen> {
+               FilledButton.icon(
+                 onPressed: busy ? null : save,
+                 icon:
+                     saving
+                         ? const SizedBox.square(
+                           dimension: 18,
+                           child: CircularProgressIndicator(strokeWidth: 2),
+                         )
+                         : const Icon(Icons.check),
+                 label: Text(
+                   saving ? 'Ajout en cours…' : 'Valider et ajouter au dressing',
+                 ),
+               ),
+             ],
+           ],
+         ),
+       ),
+     );
+   }
+ }
+ 
+ class _PhotoArea extends StatelessWidget {
+   final String? imagePath;
+   final bool analyzing;
+   final bool importing;
++  final String analysisLabel;
+   final VoidCallback? onTap;
+ 
+   const _PhotoArea({
+     required this.imagePath,
+     required this.analyzing,
+     required this.importing,
++    required this.analysisLabel,
+     required this.onTap,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     return GestureDetector(
+       onTap: analyzing || importing ? null : onTap,
+       child: Stack(
+         alignment: Alignment.center,
+         children: [
+           GarmentImage(
+             imagePath: imagePath,
+             width: double.infinity,
+             height: 330,
+             borderRadius: BorderRadius.circular(32),
+           ),
+           if (imagePath == null)
+             const Column(
+               mainAxisSize: MainAxisSize.min,
+               children: [
+                 Icon(
+                   Icons.document_scanner_outlined,
+                   size: 65,
+                   color: AppTheme.gold,
+                 ),
+                 SizedBox(height: 12),
+                 Text(
+                   'Appuie pour ajouter une photo',
+                   style: TextStyle(fontWeight: FontWeight.w900),
+                 ),
+               ],
+             ),
+           if (importing)
+             Positioned.fill(
+               child: Container(
+                 decoration: BoxDecoration(
+                   color: Colors.black.withValues(alpha: .58),
+                   borderRadius: BorderRadius.circular(32),
+                 ),
+-                child: const Column(
++                child: Column(
+                   mainAxisAlignment: MainAxisAlignment.center,
+                   children: [
+                     CircularProgressIndicator(color: AppTheme.gold),
+                     SizedBox(height: 18),
+                     Text(
+                       'Import de la photo…',
+                       style: TextStyle(
+                         color: Colors.white,
+                         fontWeight: FontWeight.w900,
+                       ),
+                     ),
+                   ],
+                 ),
+               ),
+             ),
+           if (analyzing)
+             Positioned.fill(
+               child: Container(
+                 decoration: BoxDecoration(
+                   color: Colors.black.withValues(alpha: .58),
+                   borderRadius: BorderRadius.circular(32),
+                 ),
+                 child: const Column(
+                   mainAxisAlignment: MainAxisAlignment.center,
+                   children: [
+                     CircularProgressIndicator(color: AppTheme.gold),
+                     SizedBox(height: 18),
+                     Text(
+-                      'Analyse locale en cours…',
+-                      style: TextStyle(
++                      analysisLabel,
++                      style: const TextStyle(
+                         color: Colors.white,
+                         fontWeight: FontWeight.w900,
+                       ),
+                     ),
+-                    SizedBox(height: 5),
+-                    Text(
++                    const SizedBox(height: 5),
++                    const Text(
+                       'Catégorie · couleur · matière · saison',
+                       style: TextStyle(color: Colors.white70),
+                     ),
+                   ],
+                 ),
+               ),
+             ),
+         ],
+       ),
+     );
+   }
+ }
+ 
+ class _IntroCard extends StatelessWidget {
+   const _IntroCard();
+ 
+   @override
+   Widget build(BuildContext context) {
+     return const Card(
+       child: Padding(
+         padding: EdgeInsets.all(19),
+         child: Column(
+           children: [
+             Row(
+               children: [
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 110014b71e4a10aa297135793eb3988df17c3d89..838a71a50ba86a280f1e35c2d58f2dcaa79a8ba8 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -88,58 +88,61 @@ class _MainShellState extends State<MainShell> {
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _assistantOutfits.dispose();
+     _aiSettings.dispose();
+     _backupController.dispose();
+     super.dispose();
+   }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(3),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+-            MaterialPageRoute(builder: (_) => const ScannerScreen()),
++            MaterialPageRoute(
++              builder:
++                  (_) => ScannerScreen(openAiSettings: () => goTo(5)),
++            ),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+           }
+         },
+       ),
+-      const WardrobeScreen(),
++      WardrobeScreen(openAiSettings: () => goTo(5)),
+       const OutfitsScreen(),
+       AssistantScreen(service: _assistantService),
+       const WishlistScreen(),
+       ProfileScreen(
+         settings: widget.settings,
+         aiSettings: _aiSettings,
+         backupController: _backupController,
+       ),
+     ];
+ 
+     return Scaffold(
+       body: AnimatedSwitcher(
+         duration: const Duration(milliseconds: 240),
+         transitionBuilder: (child, animation) {
+           return FadeTransition(
+             opacity: animation,
+             child: SlideTransition(
+               position: Tween<Offset>(
+                 begin: const Offset(.02, 0),
+                 end: Offset.zero,
+               ).animate(animation),
+               child: child,
+             ),
+           );
+         },
+diff --git a/lib/features/wardrobe/wardrobe_screen.dart b/lib/features/wardrobe/wardrobe_screen.dart
+index 039dc2f4f732968e1b0619d87b7b6ffea005916c..5c68db5f143c88bf775a6136187aface1aef2896 100644
+--- a/lib/features/wardrobe/wardrobe_screen.dart
++++ b/lib/features/wardrobe/wardrobe_screen.dart
+@@ -1,36 +1,38 @@
+ import 'package:flutter/material.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../models/garment.dart';
+ import '../../widgets/garment_image.dart';
+ import '../scanner/scanner_screen.dart';
+ import 'garment_detail_screen.dart';
+ import 'garment_form_screen.dart';
+ import 'wardrobe_controller.dart';
+ 
+ class WardrobeScreen extends StatefulWidget {
+-  const WardrobeScreen({super.key});
++  final VoidCallback? openAiSettings;
++
++  const WardrobeScreen({super.key, this.openAiSettings});
+ 
+   @override
+   State<WardrobeScreen> createState() => _WardrobeScreenState();
+ }
+ 
+ class _WardrobeScreenState extends State<WardrobeScreen> {
+   final controller = WardrobeController();
+   final searchController = TextEditingController();
+ 
+   static const seasons = [
+     'Printemps',
+     'Été',
+     'Automne',
+     'Hiver',
+     'Toute saison',
+   ];
+ 
+   final categories = const [
+     'Tout',
+     'Hauts',
+     'Chemises',
+     'Vestes',
+     'Bas',
+     'Chaussures',
+     'Accessoires',
+@@ -66,51 +68,54 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
+               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+               child: Column(
+                 mainAxisSize: MainAxisSize.min,
+                 children: [
+                   const ListTile(
+                     title: Text(
+                       'Ajouter une pièce',
+                       style: TextStyle(
+                         fontSize: 20,
+                         fontWeight: FontWeight.w900,
+                       ),
+                     ),
+                     subtitle: Text('Choisis la méthode la plus rapide.'),
+                   ),
+                   ListTile(
+                     leading: const Icon(Icons.document_scanner_outlined),
+                     title: const Text('Scanner un vêtement'),
+                     subtitle: const Text(
+                       'Photo et pré-remplissage automatique',
+                     ),
+                     onTap: () async {
+                       Navigator.pop(sheetContext);
+                       final added = await Navigator.push<bool>(
+                         context,
+                         MaterialPageRoute(
+-                          builder: (_) => const ScannerScreen(),
++                          builder:
++                              (_) => ScannerScreen(
++                                openAiSettings: widget.openAiSettings,
++                              ),
+                         ),
+                       );
+                       if (added == true) await controller.load();
+                     },
+                   ),
+                   ListTile(
+                     leading: const Icon(Icons.edit_note_outlined),
+                     title: const Text('Ajout manuel'),
+                     subtitle: const Text('Remplir directement la fiche'),
+                     onTap: () {
+                       Navigator.pop(sheetContext);
+                       _openForm();
+                     },
+                   ),
+                 ],
+               ),
+             ),
+           ),
+     );
+   }
+ 
+   Future<void> _openForm([Garment? garment]) async {
+     await Navigator.push(
+       context,
+       MaterialPageRoute(
+diff --git a/sprint5_13a-openai-vision.patch.txt b/sprint5_13a-openai-vision.patch.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..496f4fc384125ce052b8e7ed70d46ab5581b083f
+--- /dev/null
++++ b/sprint5_13a-openai-vision.patch.txt
+@@ -0,0 +1,1288 @@
++diff --git a/lib/features/scanner/ai/fake_garment_vision_analyzer.dart b/lib/features/scanner/ai/fake_garment_vision_analyzer.dart
++new file mode 100644
++index 0000000..0f79efb
++--- /dev/null
+++++ b/lib/features/scanner/ai/fake_garment_vision_analyzer.dart
++@@ -0,0 +1,47 @@
+++import 'garment_analysis_exception.dart';
+++import 'garment_analysis_request.dart';
+++import 'garment_analysis_result.dart';
+++import 'garment_vision_analyzer.dart';
+++
+++enum FakeGarmentVisionScenario { success, lowConfidence, unusable, error }
+++
+++class FakeGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
+++  final FakeGarmentVisionScenario scenario;
+++  final Duration delay;
+++
+++  const FakeGarmentVisionAnalyzer({
+++    this.scenario = FakeGarmentVisionScenario.success,
+++    this.delay = Duration.zero,
+++  });
+++
+++  @override
+++  Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
+++    if (delay > Duration.zero) await Future<void>.delayed(delay);
+++    return switch (scenario) {
+++      FakeGarmentVisionScenario.success => const GarmentAnalysisResult(
+++        isUsableImage: true,
+++        suggestedName: 'Chemise bleue',
+++        category: 'Chemises',
+++        primaryColor: 'Bleu',
+++        material: 'Coton',
+++        season: 'Toute saison',
+++        globalConfidence: .91,
+++      ),
+++      FakeGarmentVisionScenario.lowConfidence => const GarmentAnalysisResult(
+++        isUsableImage: true,
+++        category: 'Hauts',
+++        globalConfidence: .31,
+++        warnings: ['Vêtement partiellement visible.'],
+++      ),
+++      FakeGarmentVisionScenario.unusable => const GarmentAnalysisResult(
+++        isUsableImage: false,
+++        rejectionReason: 'Aucun vêtement principal détecté.',
+++        globalConfidence: .05,
+++      ),
+++      FakeGarmentVisionScenario.error => throw const GarmentAnalysisException(
+++        GarmentAnalysisError.network,
+++        'Impossible de joindre OpenAI. Vérifiez votre connexion.',
+++      ),
+++    };
+++  }
+++}
++diff --git a/lib/features/scanner/ai/garment_analysis_exception.dart b/lib/features/scanner/ai/garment_analysis_exception.dart
++new file mode 100644
++index 0000000..696077b
++--- /dev/null
+++++ b/lib/features/scanner/ai/garment_analysis_exception.dart
++@@ -0,0 +1,24 @@
+++enum GarmentAnalysisError {
+++  missingApiKey,
+++  invalidApiKey,
+++  accessDenied,
+++  quotaExceeded,
+++  network,
+++  timeout,
+++  emptyResponse,
+++  invalidJson,
+++  invalidSchema,
+++  missingImage,
+++  unsupportedFormat,
+++  rejectedImage,
+++}
+++
+++class GarmentAnalysisException implements Exception {
+++  final GarmentAnalysisError error;
+++  final String message;
+++
+++  const GarmentAnalysisException(this.error, this.message);
+++
+++  @override
+++  String toString() => message;
+++}
++diff --git a/lib/features/scanner/ai/garment_analysis_mapper.dart b/lib/features/scanner/ai/garment_analysis_mapper.dart
++new file mode 100644
++index 0000000..a0a4d17
++--- /dev/null
+++++ b/lib/features/scanner/ai/garment_analysis_mapper.dart
++@@ -0,0 +1,77 @@
+++import 'garment_analysis_result.dart';
+++
+++class GarmentFormValues {
+++  final String name;
+++  final String category;
+++  final String color;
+++  final String material;
+++  final String season;
+++  final String brand;
+++
+++  const GarmentFormValues({
+++    required this.name,
+++    required this.category,
+++    required this.color,
+++    required this.material,
+++    required this.season,
+++    required this.brand,
+++  });
+++}
+++
+++class GarmentAnalysisMapper {
+++  final List<String> categories;
+++  final List<String> colors;
+++  final List<String> materials;
+++  final List<String> seasons;
+++
+++  const GarmentAnalysisMapper({
+++    required this.categories,
+++    required this.colors,
+++    required this.materials,
+++    required this.seasons,
+++  });
+++
+++  GarmentFormValues map(
+++    GarmentAnalysisResult result, {
+++    required GarmentFormValues current,
+++  }) {
+++    return GarmentFormValues(
+++      name: _prefer(current.name, result.suggestedName),
+++      category:
+++          current.category.trim().isNotEmpty
+++              ? current.category
+++              : _canonical(result.category, categories) ?? '',
+++      color: _prefer(current.color, _canonical(result.primaryColor, colors)),
+++      material: _prefer(
+++        current.material,
+++        _canonical(result.material, materials),
+++      ),
+++      season:
+++          current.season.trim().isNotEmpty
+++              ? current.season
+++              : _canonical(result.season, seasons) ?? '',
+++      brand: _prefer(current.brand, result.visibleBrand),
+++    );
+++  }
+++
+++  String _prefer(String current, String? suggestion) =>
+++      current.trim().isNotEmpty ? current : (suggestion?.trim() ?? '');
+++
+++  String? _canonical(String? value, List<String> allowed) {
+++    if (value == null) return null;
+++    final normalized = _normalize(value);
+++    for (final candidate in allowed) {
+++      if (_normalize(candidate) == normalized) return candidate;
+++    }
+++    return null;
+++  }
+++
+++  String _normalize(String value) => value
+++      .trim()
+++      .toLowerCase()
+++      .replaceAll(RegExp('[éèêë]'), 'e')
+++      .replaceAll(RegExp('[àâä]'), 'a')
+++      .replaceAll(RegExp('[îï]'), 'i')
+++      .replaceAll(RegExp('[ôö]'), 'o')
+++      .replaceAll(RegExp('[ùûü]'), 'u');
+++}
++diff --git a/lib/features/scanner/ai/garment_analysis_request.dart b/lib/features/scanner/ai/garment_analysis_request.dart
++new file mode 100644
++index 0000000..d536f94
++--- /dev/null
+++++ b/lib/features/scanner/ai/garment_analysis_request.dart
++@@ -0,0 +1,25 @@
+++import 'dart:typed_data';
+++
+++class GarmentAnalysisRequest {
+++  final Uint8List imageBytes;
+++  final String mimeType;
+++  final String? fileName;
+++  final String language;
+++  final List<String> allowedCategories;
+++  final List<String> allowedColors;
+++  final List<String> allowedMaterials;
+++  final List<String> allowedSeasons;
+++  final Map<String, String> existingValues;
+++
+++  const GarmentAnalysisRequest({
+++    required this.imageBytes,
+++    required this.mimeType,
+++    this.fileName,
+++    this.language = 'français',
+++    required this.allowedCategories,
+++    required this.allowedColors,
+++    required this.allowedMaterials,
+++    required this.allowedSeasons,
+++    this.existingValues = const {},
+++  });
+++}
++diff --git a/lib/features/scanner/ai/garment_analysis_result.dart b/lib/features/scanner/ai/garment_analysis_result.dart
++new file mode 100644
++index 0000000..10409a6
++--- /dev/null
+++++ b/lib/features/scanner/ai/garment_analysis_result.dart
++@@ -0,0 +1,94 @@
+++import 'dart:convert';
+++
+++import 'garment_analysis_exception.dart';
+++
+++class GarmentAnalysisResult {
+++  final bool isUsableImage;
+++  final String? rejectionReason;
+++  final String? suggestedName;
+++  final String? category;
+++  final String? primaryColor;
+++  final String? material;
+++  final String? season;
+++  final String? visibleBrand;
+++  final double globalConfidence;
+++  final Map<String, double> fieldConfidences;
+++  final List<String> warnings;
+++
+++  const GarmentAnalysisResult({
+++    required this.isUsableImage,
+++    this.rejectionReason,
+++    this.suggestedName,
+++    this.category,
+++    this.primaryColor,
+++    this.material,
+++    this.season,
+++    this.visibleBrand,
+++    required this.globalConfidence,
+++    this.fieldConfidences = const {},
+++    this.warnings = const [],
+++  });
+++
+++  factory GarmentAnalysisResult.fromJsonString(String source) {
+++    try {
+++      final value = jsonDecode(source);
+++      if (value is! Map<String, dynamic>) throw const FormatException();
+++      return GarmentAnalysisResult.fromJson(value);
+++    } on GarmentAnalysisException {
+++      rethrow;
+++    } on FormatException {
+++      throw const GarmentAnalysisException(
+++        GarmentAnalysisError.invalidJson,
+++        'La réponse de l’analyse IA est illisible.',
+++      );
+++    }
+++  }
+++
+++  factory GarmentAnalysisResult.fromJson(Map<String, dynamic> json) {
+++    if (json['isUsableImage'] is! bool ||
+++        json['globalConfidence'] is! num) {
+++      throw const GarmentAnalysisException(
+++        GarmentAnalysisError.invalidSchema,
+++        'La réponse de l’analyse IA est incomplète.',
+++      );
+++    }
+++    String? text(String key) {
+++      final value = json[key];
+++      return value is String && value.trim().isNotEmpty ? value.trim() : null;
+++    }
+++
+++    final confidences = <String, double>{};
+++    final rawConfidences = json['fieldConfidences'];
+++    if (rawConfidences is Map) {
+++      for (final entry in rawConfidences.entries) {
+++        if (entry.key is String && entry.value is num) {
+++          confidences[entry.key as String] =
+++              (entry.value as num).toDouble().clamp(0, 1).toDouble();
+++        }
+++      }
+++    }
+++    List<String> strings(String key) =>
+++        json[key] is List
+++            ? (json[key] as List)
+++                .whereType<String>()
+++                .map((value) => value.trim())
+++                .where((value) => value.isNotEmpty)
+++                .toList(growable: false)
+++            : const [];
+++
+++    return GarmentAnalysisResult(
+++      isUsableImage: json['isUsableImage'] as bool,
+++      rejectionReason: text('rejectionReason'),
+++      suggestedName: text('suggestedName'),
+++      category: text('category'),
+++      primaryColor: text('primaryColor'),
+++      material: text('material'),
+++      season: text('season'),
+++      visibleBrand: text('visibleBrand'),
+++      globalConfidence:
+++          (json['globalConfidence'] as num).toDouble().clamp(0, 1).toDouble(),
+++      fieldConfidences: Map.unmodifiable(confidences),
+++      warnings: List.unmodifiable(strings('warnings')),
+++    );
+++  }
+++}
++diff --git a/lib/features/scanner/ai/garment_vision_analyzer.dart b/lib/features/scanner/ai/garment_vision_analyzer.dart
++new file mode 100644
++index 0000000..4219f9d
++--- /dev/null
+++++ b/lib/features/scanner/ai/garment_vision_analyzer.dart
++@@ -0,0 +1,6 @@
+++import 'garment_analysis_request.dart';
+++import 'garment_analysis_result.dart';
+++
+++abstract interface class GarmentVisionAnalyzer {
+++  Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request);
+++}
++diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++new file mode 100644
++index 0000000..ed5e726
++--- /dev/null
+++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++@@ -0,0 +1,226 @@
+++import 'dart:async';
+++import 'dart:convert';
+++import 'dart:io';
+++
+++import 'package:http/http.dart' as http;
+++
+++import '../../assistant/settings/api_key_storage.dart';
+++import 'garment_analysis_exception.dart';
+++import 'garment_analysis_request.dart';
+++import 'garment_analysis_result.dart';
+++import 'garment_vision_analyzer.dart';
+++
+++class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
+++  static final Uri endpoint = Uri.parse('https://api.openai.com/v1/responses');
+++  static const defaultModel = 'gpt-4.1-mini';
+++  static const supportedMimeTypes = {'image/jpeg', 'image/png', 'image/webp'};
+++
+++  final ApiKeyStorage apiKeyStorage;
+++  final http.Client client;
+++  final Duration timeout;
+++  final String model;
+++
+++  OpenAiGarmentVisionAnalyzer({
+++    required this.apiKeyStorage,
+++    http.Client? client,
+++    this.timeout = const Duration(seconds: 45),
+++    this.model = defaultModel,
+++  }) : client = client ?? http.Client();
+++
+++  @override
+++  Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
+++    if (request.imageBytes.isEmpty) {
+++      throw const GarmentAnalysisException(
+++        GarmentAnalysisError.missingImage,
+++        'Aucune image à analyser.',
+++      );
+++    }
+++    if (!supportedMimeTypes.contains(request.mimeType)) {
+++      throw const GarmentAnalysisException(
+++        GarmentAnalysisError.unsupportedFormat,
+++        'Ce format d’image n’est pas pris en charge.',
+++      );
+++    }
+++    final apiKey = await apiKeyStorage.read();
+++    if (apiKey == null) {
+++      throw const GarmentAnalysisException(
+++        GarmentAnalysisError.missingApiKey,
+++        'Configurez votre clé OpenAI pour utiliser l’analyse IA.',
+++      );
+++    }
+++
+++    final body = _requestBody(request);
+++    try {
+++      final response = await client
+++          .post(
+++            endpoint,
+++            headers: {
+++              HttpHeaders.authorizationHeader: 'Bearer $apiKey',
+++              HttpHeaders.contentTypeHeader: 'application/json',
+++            },
+++            body: jsonEncode(body),
+++          )
+++          .timeout(timeout);
+++      if (response.statusCode < 200 || response.statusCode >= 300) {
+++        throw _httpException(response.statusCode);
+++      }
+++      final responseBody = _decodeObject(response.body);
+++      final output = _outputText(responseBody);
+++      if (output == null || output.trim().isEmpty) {
+++        throw const GarmentAnalysisException(
+++          GarmentAnalysisError.emptyResponse,
+++          'OpenAI a renvoyé une réponse vide.',
+++        );
+++      }
+++      return GarmentAnalysisResult.fromJsonString(output);
+++    } on GarmentAnalysisException {
+++      rethrow;
+++    } on TimeoutException {
+++      throw const GarmentAnalysisException(
+++        GarmentAnalysisError.timeout,
+++        'L’analyse prend trop de temps. Réessayez.',
+++      );
+++    } on SocketException {
+++      throw const GarmentAnalysisException(
+++        GarmentAnalysisError.network,
+++        'Impossible de joindre OpenAI. Vérifiez votre connexion.',
+++      );
+++    } on http.ClientException {
+++      throw const GarmentAnalysisException(
+++        GarmentAnalysisError.network,
+++        'Impossible de joindre OpenAI. Vérifiez votre connexion.',
+++      );
+++    }
+++  }
+++
+++  Map<String, dynamic> _requestBody(GarmentAnalysisRequest request) => {
+++    'model': model,
+++    'instructions': _prompt(request),
+++    'input': [
+++      {
+++        'role': 'user',
+++        'content': [
+++          {
+++            'type': 'input_text',
+++            'text': 'Analyse cette photo selon les instructions.',
+++          },
+++          {
+++            'type': 'input_image',
+++            'image_url':
+++                'data:${request.mimeType};base64,${base64Encode(request.imageBytes)}',
+++          },
+++        ],
+++      },
+++    ],
+++    'text': {
+++      'format': {
+++        'type': 'json_schema',
+++        'name': 'garment_analysis',
+++        'strict': true,
+++        'schema': _schema,
+++      },
+++    },
+++  };
+++
+++  String _prompt(GarmentAnalysisRequest request) => '''
+++Tu analyses uniquement le vêtement principal visible. Ignore la personne, le
+++visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne.
+++Réponds en ${request.language} et uniquement selon le schéma JSON. N'invente
+++jamais une marque ou une matière : utilise null lorsque ce n'est pas clairement
+++observable. Signale une image peu fiable. Utilise exclusivement ces valeurs :
+++category=${jsonEncode(request.allowedCategories)}
+++primaryColor=${jsonEncode(request.allowedColors)}
+++material=${jsonEncode(request.allowedMaterials)}
+++season=${jsonEncode(request.allowedSeasons)}
+++Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
+++${jsonEncode(request.existingValues)}
+++''';
+++
+++  static const _nullableString = {'type': ['string', 'null']};
+++  static const _schema = {
+++    'type': 'object',
+++    'additionalProperties': false,
+++    'required': [
+++      'isUsableImage',
+++      'rejectionReason',
+++      'suggestedName',
+++      'category',
+++      'primaryColor',
+++      'material',
+++      'season',
+++      'visibleBrand',
+++      'globalConfidence',
+++      'fieldConfidences',
+++      'warnings',
+++    ],
+++    'properties': {
+++      'isUsableImage': {'type': 'boolean'},
+++      'rejectionReason': _nullableString,
+++      'suggestedName': _nullableString,
+++      'category': _nullableString,
+++      'primaryColor': _nullableString,
+++      'material': _nullableString,
+++      'season': _nullableString,
+++      'visibleBrand': _nullableString,
+++      'globalConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+++      'fieldConfidences': {
+++        'type': 'object',
+++        'additionalProperties': {'type': 'number', 'minimum': 0, 'maximum': 1},
+++      },
+++      'warnings': {
+++        'type': 'array',
+++        'items': {'type': 'string'},
+++      },
+++    },
+++  };
+++
+++  Map<String, dynamic> _decodeObject(String source) {
+++    try {
+++      final decoded = jsonDecode(source);
+++      if (decoded is Map<String, dynamic>) return decoded;
+++    } on FormatException {
+++      // Translated below without exposing the response body.
+++    }
+++    throw const GarmentAnalysisException(
+++      GarmentAnalysisError.invalidJson,
+++      'OpenAI a renvoyé une réponse illisible.',
+++    );
+++  }
+++
+++  String? _outputText(Map<String, dynamic> body) {
+++    if (body['output_text'] is String) return body['output_text'] as String;
+++    final output = body['output'];
+++    if (output is! List) return null;
+++    for (final item in output.whereType<Map>()) {
+++      final content = item['content'];
+++      if (content is! List) continue;
+++      for (final part in content.whereType<Map>()) {
+++        if (part['type'] == 'output_text' && part['text'] is String) {
+++          return part['text'] as String;
+++        }
+++      }
+++    }
+++    return null;
+++  }
+++
+++  GarmentAnalysisException _httpException(int statusCode) => switch (
+++    statusCode
+++  ) {
+++    401 => const GarmentAnalysisException(
+++      GarmentAnalysisError.invalidApiKey,
+++      'La clé API OpenAI est invalide.',
+++    ),
+++    403 => const GarmentAnalysisException(
+++      GarmentAnalysisError.accessDenied,
+++      'OpenAI a refusé l’accès à l’analyse.',
+++    ),
+++    429 => const GarmentAnalysisException(
+++      GarmentAnalysisError.quotaExceeded,
+++      'Le quota OpenAI est dépassé. Réessayez plus tard.',
+++    ),
+++    _ => const GarmentAnalysisException(
+++      GarmentAnalysisError.network,
+++      'Le service OpenAI est temporairement indisponible.',
+++    ),
+++  };
+++}
++diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
++index 40959c1..6cde86a 100644
++--- a/lib/features/scanner/scanner_screen.dart
+++++ b/lib/features/scanner/scanner_screen.dart
++@@ -1,4 +1,5 @@
++ import 'dart:async';
+++import 'dart:io';
++ 
++ import 'package:flutter/material.dart';
++ import 'package:image_picker/image_picker.dart';
++@@ -8,11 +9,21 @@ import '../../data/image_storage_service.dart';
++ import '../../models/garment.dart';
++ import '../../widgets/garment_image.dart';
++ import '../wardrobe/wardrobe_controller.dart';
+++import '../assistant/settings/api_key_storage.dart';
+++import 'ai/garment_analysis_exception.dart';
+++import 'ai/garment_analysis_mapper.dart';
+++import 'ai/garment_analysis_request.dart';
+++import 'ai/garment_analysis_result.dart';
+++import 'ai/garment_vision_analyzer.dart';
+++import 'ai/openai_garment_vision_analyzer.dart';
++ import 'garment_scan_result.dart';
++ import 'garment_scanner_service.dart';
++ 
++ class ScannerScreen extends StatefulWidget {
++-  const ScannerScreen({super.key});
+++  final GarmentVisionAnalyzer? visionAnalyzer;
+++  final VoidCallback? openAiSettings;
+++
+++  const ScannerScreen({super.key, this.visionAnalyzer, this.openAiSettings});
++ 
++   @override
++   State<ScannerScreen> createState() => _ScannerScreenState();
++@@ -34,10 +45,19 @@ class _ScannerScreenState extends State<ScannerScreen> {
++   GarmentScanResult? result;
++   bool importing = false;
++   bool analyzing = false;
+++  bool analyzingWithAi = false;
++   bool saving = false;
++   bool imageOwnedByGarment = false;
++ 
++-  bool get busy => importing || analyzing || saving;
+++  GarmentAnalysisResult? aiResult;
+++  String? aiError;
+++  final manuallyEdited = <String>{};
+++
+++  bool get busy => importing || analyzing || analyzingWithAi || saving;
+++
+++  late final GarmentVisionAnalyzer visionAnalyzer =
+++      widget.visionAnalyzer ??
+++      OpenAiGarmentVisionAnalyzer(apiKeyStorage: const ApiKeyStorage());
++ 
++   static const categories = [
++     'Hauts',
++@@ -57,6 +77,32 @@ class _ScannerScreenState extends State<ScannerScreen> {
++     'Hiver',
++   ];
++ 
+++  static const colors = [
+++    'Noir',
+++    'Blanc',
+++    'Gris',
+++    'Bleu',
+++    'Rouge',
+++    'Vert',
+++    'Jaune',
+++    'Orange',
+++    'Violet',
+++    'Rose',
+++    'Marron',
+++    'Beige',
+++  ];
+++
+++  static const materials = [
+++    'Coton',
+++    'Laine',
+++    'Lin',
+++    'Soie',
+++    'Cuir',
+++    'Denim',
+++    'Textile',
+++    'Synthétique',
+++  ];
+++
++   @override
++   void dispose() {
++     if (!imageOwnedByGarment) _removeBestEffort(imagePath);
++@@ -90,6 +136,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
++       setState(() {
++         imagePath = persisted;
++         result = null;
+++        aiResult = null;
+++        aiError = null;
++       });
++       persisted = null; // The screen now owns this copy.
++       _removeBestEffort(previousPath);
++@@ -185,6 +233,125 @@ class _ScannerScreenState extends State<ScannerScreen> {
++     }
++   }
++ 
+++  Future<void> analyzeWithAi() async {
+++    if (busy || imagePath == null) return;
+++    setState(() {
+++      analyzingWithAi = true;
+++      aiError = null;
+++    });
+++    try {
+++      final file = File(imagePath!);
+++      final mimeType = _mimeType(imagePath!);
+++      final analysis = await visionAnalyzer.analyze(
+++        GarmentAnalysisRequest(
+++          imageBytes: await file.readAsBytes(),
+++          mimeType: mimeType,
+++          fileName: file.uri.pathSegments.last,
+++          allowedCategories: categories,
+++          allowedColors: colors,
+++          allowedMaterials: materials,
+++          allowedSeasons: seasons,
+++          existingValues: {
+++            if (name.text.trim().isNotEmpty) 'name': name.text.trim(),
+++            if (brand.text.trim().isNotEmpty) 'brand': brand.text.trim(),
+++            if (color.text.trim().isNotEmpty) 'color': color.text.trim(),
+++            if (material.text.trim().isNotEmpty)
+++              'material': material.text.trim(),
+++            'category': category,
+++            'season': season,
+++          },
+++        ),
+++      );
+++      if (!mounted) return;
+++      if (!analysis.isUsableImage) {
+++        setState(() {
+++          aiResult = analysis;
+++          aiError =
+++              analysis.rejectionReason ?? 'Cette photo ne peut pas être analysée.';
+++        });
+++        return;
+++      }
+++      final mapped = GarmentAnalysisMapper(
+++        categories: categories,
+++        colors: colors,
+++        materials: materials,
+++        seasons: seasons,
+++      ).map(
+++        analysis,
+++        current: GarmentFormValues(
+++          name: manuallyEdited.contains('name') ? name.text : '',
+++          category: manuallyEdited.contains('category') ? category : '',
+++          color: manuallyEdited.contains('color') ? color.text : '',
+++          material: manuallyEdited.contains('material') ? material.text : '',
+++          season: manuallyEdited.contains('season') ? season : '',
+++          brand: manuallyEdited.contains('brand') ? brand.text : '',
+++        ),
+++      );
+++      setState(() {
+++        aiResult = analysis;
+++        if (mapped.name.isNotEmpty) name.text = mapped.name;
+++        if (mapped.brand.isNotEmpty) brand.text = mapped.brand;
+++        if (mapped.color.isNotEmpty) color.text = mapped.color;
+++        if (mapped.material.isNotEmpty) material.text = mapped.material;
+++        if (mapped.category.isNotEmpty) category = mapped.category;
+++        if (mapped.season.isNotEmpty) season = mapped.season;
+++      });
+++      _toast(
+++        analysis.globalConfidence < .5
+++            ? 'Le résultat est incertain. Vérifiez attentivement les suggestions.'
+++            : 'Suggestions IA ajoutées. Vérifiez les informations avant d’enregistrer.',
+++      );
+++    } on GarmentAnalysisException catch (error) {
+++      if (!mounted) return;
+++      setState(() => aiError = error.message);
+++      if (error.error == GarmentAnalysisError.missingApiKey) {
+++        _showMissingKey();
+++      }
+++    } catch (_) {
+++      if (!mounted) return;
+++      setState(
+++        () => aiError = 'Analyse IA impossible. Vous pouvez continuer manuellement.',
+++      );
+++    } finally {
+++      if (mounted) setState(() => analyzingWithAi = false);
+++    }
+++  }
+++
+++  String _mimeType(String path) {
+++    final lower = path.toLowerCase();
+++    if (lower.endsWith('.png')) return 'image/png';
+++    if (lower.endsWith('.webp')) return 'image/webp';
+++    return 'image/jpeg';
+++  }
+++
+++  Future<void> _showMissingKey() async {
+++    await showDialog<void>(
+++      context: context,
+++      builder:
+++          (context) => AlertDialog(
+++            title: const Text('Clé OpenAI requise'),
+++            content: const Text(
+++              'Configurez votre clé OpenAI pour utiliser l’analyse IA.',
+++            ),
+++            actions: [
+++              TextButton(
+++                onPressed: () => Navigator.pop(context),
+++                child: const Text('Continuer manuellement'),
+++              ),
+++              if (widget.openAiSettings != null)
+++                FilledButton(
+++                  onPressed: () {
+++                    Navigator.pop(context);
+++                    Navigator.pop(this.context);
+++                    widget.openAiSettings!();
+++                  },
+++                  child: const Text('Paramètres IA'),
+++                ),
+++            ],
+++          ),
+++    );
+++  }
+++
++   Future<void> save() async {
++     if (busy) return;
++     if (imagePath == null) {
++@@ -271,7 +438,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
++           children: [
++             _PhotoArea(
++               imagePath: imagePath,
++-              analyzing: analyzing,
+++              analyzing: analyzing || analyzingWithAi,
+++              analysisLabel:
+++                  analyzingWithAi
+++                      ? 'Analyse du vêtement en cours…'
+++                      : 'Analyse locale en cours…',
++               importing: importing,
++               onTap: busy ? null : chooseSource,
++             ),
++@@ -285,10 +456,45 @@ class _ScannerScreenState extends State<ScannerScreen> {
++                 label: const Text('Prendre ou choisir une photo'),
++               ),
++             ] else ...[
+++              const Text(
+++                'La photo sélectionnée sera envoyée à OpenAI pour analyse.',
+++                style: TextStyle(fontSize: 12),
+++              ),
+++              const SizedBox(height: 8),
+++              FilledButton.icon(
+++                onPressed: busy ? null : analyzeWithAi,
+++                icon:
+++                    analyzingWithAi
+++                        ? const SizedBox.square(
+++                          dimension: 18,
+++                          child: CircularProgressIndicator(strokeWidth: 2),
+++                        )
+++                        : const Icon(Icons.auto_awesome),
+++                label: Text(
+++                  analyzingWithAi
+++                      ? 'Analyse du vêtement en cours…'
+++                      : aiError == null
+++                      ? 'Analyser avec l’IA'
+++                      : 'Réessayer',
+++                ),
+++              ),
+++              if (aiError != null) ...[
+++                const SizedBox(height: 8),
+++                Text(aiError!, style: const TextStyle(color: Colors.redAccent)),
+++              ],
+++              if (aiResult != null && aiResult!.isUsableImage) ...[
+++                const SizedBox(height: 8),
+++                Text(
+++                  'Confiance IA : ${(aiResult!.globalConfidence * 100).round()} %',
+++                  style: const TextStyle(fontWeight: FontWeight.w700),
+++                ),
+++              ],
+++              const SizedBox(height: 14),
++               if (result != null) _AnalysisSummary(result: result!),
++               if (result != null) const SizedBox(height: 14),
++               TextField(
++                 controller: name,
+++                onChanged: (_) => manuallyEdited.add('name'),
++                 decoration: const InputDecoration(
++                   labelText: 'Nom de la pièce',
++                   prefixIcon: Icon(Icons.edit_outlined),
++@@ -297,6 +503,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
++               const SizedBox(height: 10),
++               TextField(
++                 controller: brand,
+++                onChanged: (_) => manuallyEdited.add('brand'),
++                 decoration: const InputDecoration(
++                   labelText: 'Marque (facultatif)',
++                   prefixIcon: Icon(Icons.sell_outlined),
++@@ -304,6 +511,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
++               ),
++               const SizedBox(height: 10),
++               DropdownButtonFormField<String>(
+++                key: ValueKey(category),
++                 initialValue: category,
++                 decoration: const InputDecoration(
++                   labelText: 'Catégorie',
++@@ -318,11 +526,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
++                           ),
++                         )
++                         .toList(),
++-                onChanged: (value) => setState(() => category = value!),
+++                onChanged: (value) => setState(() {
+++                  category = value!;
+++                  manuallyEdited.add('category');
+++                }),
++               ),
++               const SizedBox(height: 10),
++               TextField(
++                 controller: color,
+++                onChanged: (_) => manuallyEdited.add('color'),
++                 decoration: const InputDecoration(
++                   labelText: 'Couleur',
++                   prefixIcon: Icon(Icons.palette_outlined),
++@@ -331,6 +543,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
++               const SizedBox(height: 10),
++               TextField(
++                 controller: material,
+++                onChanged: (_) => manuallyEdited.add('material'),
++                 decoration: const InputDecoration(
++                   labelText: 'Matière',
++                   prefixIcon: Icon(Icons.texture_outlined),
++@@ -338,6 +551,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
++               ),
++               const SizedBox(height: 10),
++               DropdownButtonFormField<String>(
+++                key: ValueKey(season),
++                 initialValue: season,
++                 decoration: const InputDecoration(
++                   labelText: 'Saison',
++@@ -352,7 +566,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
++                           ),
++                         )
++                         .toList(),
++-                onChanged: (value) => setState(() => season = value!),
+++                onChanged: (value) => setState(() {
+++                  season = value!;
+++                  manuallyEdited.add('season');
+++                }),
++               ),
++               const SizedBox(height: 14),
++               Row(
++@@ -412,12 +629,14 @@ class _PhotoArea extends StatelessWidget {
++   final String? imagePath;
++   final bool analyzing;
++   final bool importing;
+++  final String analysisLabel;
++   final VoidCallback? onTap;
++ 
++   const _PhotoArea({
++     required this.imagePath,
++     required this.analyzing,
++     required this.importing,
+++    required this.analysisLabel,
++     required this.onTap,
++   });
++ 
++@@ -457,7 +676,7 @@ class _PhotoArea extends StatelessWidget {
++                   color: Colors.black.withValues(alpha: .58),
++                   borderRadius: BorderRadius.circular(32),
++                 ),
++-                child: const Column(
+++                child: Column(
++                   mainAxisAlignment: MainAxisAlignment.center,
++                   children: [
++                     CircularProgressIndicator(color: AppTheme.gold),
++@@ -486,14 +705,14 @@ class _PhotoArea extends StatelessWidget {
++                     CircularProgressIndicator(color: AppTheme.gold),
++                     SizedBox(height: 18),
++                     Text(
++-                      'Analyse locale en cours…',
++-                      style: TextStyle(
+++                      analysisLabel,
+++                      style: const TextStyle(
++                         color: Colors.white,
++                         fontWeight: FontWeight.w900,
++                       ),
++                     ),
++-                    SizedBox(height: 5),
++-                    Text(
+++                    const SizedBox(height: 5),
+++                    const Text(
++                       'Catégorie · couleur · matière · saison',
++                       style: TextStyle(color: Colors.white70),
++                     ),
++diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
++index 110014b..838a71a 100644
++--- a/lib/features/shell/main_shell.dart
+++++ b/lib/features/shell/main_shell.dart
++@@ -110,14 +110,17 @@ class _MainShellState extends State<MainShell> {
++         openScanner: () async {
++           final added = await Navigator.push<bool>(
++             context,
++-            MaterialPageRoute(builder: (_) => const ScannerScreen()),
+++            MaterialPageRoute(
+++              builder:
+++                  (_) => ScannerScreen(openAiSettings: () => goTo(5)),
+++            ),
++           );
++           if (added == true && mounted) {
++             goTo(1);
++           }
++         },
++       ),
++-      const WardrobeScreen(),
+++      WardrobeScreen(openAiSettings: () => goTo(5)),
++       const OutfitsScreen(),
++       AssistantScreen(service: _assistantService),
++       const WishlistScreen(),
++diff --git a/lib/features/wardrobe/wardrobe_screen.dart b/lib/features/wardrobe/wardrobe_screen.dart
++index 039dc2f..5c68db5 100644
++--- a/lib/features/wardrobe/wardrobe_screen.dart
+++++ b/lib/features/wardrobe/wardrobe_screen.dart
++@@ -8,7 +8,9 @@ import 'garment_form_screen.dart';
++ import 'wardrobe_controller.dart';
++ 
++ class WardrobeScreen extends StatefulWidget {
++-  const WardrobeScreen({super.key});
+++  final VoidCallback? openAiSettings;
+++
+++  const WardrobeScreen({super.key, this.openAiSettings});
++ 
++   @override
++   State<WardrobeScreen> createState() => _WardrobeScreenState();
++@@ -88,7 +90,10 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
++                       final added = await Navigator.push<bool>(
++                         context,
++                         MaterialPageRoute(
++-                          builder: (_) => const ScannerScreen(),
+++                          builder:
+++                              (_) => ScannerScreen(
+++                                openAiSettings: widget.openAiSettings,
+++                              ),
++                         ),
++                       );
++                       if (added == true) await controller.load();
++diff --git a/test/features/scanner/fake_garment_vision_analyzer_test.dart b/test/features/scanner/fake_garment_vision_analyzer_test.dart
++new file mode 100644
++index 0000000..c26a345
++--- /dev/null
+++++ b/test/features/scanner/fake_garment_vision_analyzer_test.dart
++@@ -0,0 +1,39 @@
+++import 'dart:typed_data';
+++
+++import 'package:flutter_test/flutter_test.dart';
+++import 'package:wardrobeos/features/scanner/ai/fake_garment_vision_analyzer.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_exception.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_request.dart';
+++
+++void main() {
+++  final request = GarmentAnalysisRequest(
+++    imageBytes: Uint8List.fromList([1]),
+++    mimeType: 'image/jpeg',
+++    allowedCategories: const [],
+++    allowedColors: const [],
+++    allowedMaterials: const [],
+++    allowedSeasons: const [],
+++  );
+++
+++  for (final scenario in [
+++    FakeGarmentVisionScenario.success,
+++    FakeGarmentVisionScenario.lowConfidence,
+++    FakeGarmentVisionScenario.unusable,
+++  ]) {
+++    test('retourne le scénario $scenario', () async {
+++      final result = await FakeGarmentVisionAnalyzer(
+++        scenario: scenario,
+++      ).analyze(request);
+++      expect(result.globalConfidence, inInclusiveRange(0, 1));
+++    });
+++  }
+++
+++  test('simule une erreur métier', () {
+++    expect(
+++      FakeGarmentVisionAnalyzer(
+++        scenario: FakeGarmentVisionScenario.error,
+++      ).analyze(request),
+++      throwsA(isA<GarmentAnalysisException>()),
+++    );
+++  });
+++}
++diff --git a/test/features/scanner/garment_analysis_mapper_test.dart b/test/features/scanner/garment_analysis_mapper_test.dart
++new file mode 100644
++index 0000000..b14d697
++--- /dev/null
+++++ b/test/features/scanner/garment_analysis_mapper_test.dart
++@@ -0,0 +1,58 @@
+++import 'package:flutter_test/flutter_test.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_mapper.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_result.dart';
+++
+++void main() {
+++  const mapper = GarmentAnalysisMapper(
+++    categories: ['Hauts', 'Chemises'],
+++    colors: ['Bleu', 'Rouge'],
+++    materials: ['Coton'],
+++    seasons: ['Été', 'Toute saison'],
+++  );
+++  const empty = GarmentFormValues(
+++    name: '',
+++    category: '',
+++    color: '',
+++    material: '',
+++    season: '',
+++    brand: '',
+++  );
+++
+++  test('normalise et remplit uniquement les champs vides', () {
+++    const result = GarmentAnalysisResult(
+++      isUsableImage: true,
+++      suggestedName: 'Chemise',
+++      category: 'chemises',
+++      primaryColor: 'bleu',
+++      material: 'coton',
+++      season: 'ete',
+++      globalConfidence: .8,
+++    );
+++    final mapped = mapper.map(result, current: empty);
+++    expect(mapped.category, 'Chemises');
+++    expect(mapped.color, 'Bleu');
+++    expect(mapped.season, 'Été');
+++  });
+++
+++  test('rejette une valeur inconnue et préserve la saisie manuelle', () {
+++    const result = GarmentAnalysisResult(
+++      isUsableImage: true,
+++      category: 'Robes',
+++      primaryColor: 'Rouge',
+++      globalConfidence: .8,
+++    );
+++    final mapped = mapper.map(
+++      result,
+++      current: const GarmentFormValues(
+++        name: 'Mon nom',
+++        category: '',
+++        color: 'Bleu manuel',
+++        material: '',
+++        season: '',
+++        brand: '',
+++      ),
+++    );
+++    expect(mapped.category, isEmpty);
+++    expect(mapped.color, 'Bleu manuel');
+++  });
+++}
++diff --git a/test/features/scanner/garment_analysis_result_test.dart b/test/features/scanner/garment_analysis_result_test.dart
++new file mode 100644
++index 0000000..7942e2d
++--- /dev/null
+++++ b/test/features/scanner/garment_analysis_result_test.dart
++@@ -0,0 +1,46 @@
+++import 'package:flutter_test/flutter_test.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_exception.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_result.dart';
+++
+++void main() {
+++  test('parse une réponse complète et normalise les confiances', () {
+++    final result = GarmentAnalysisResult.fromJson({
+++      'isUsableImage': true,
+++      'suggestedName': 'Chemise bleue',
+++      'category': 'Chemises',
+++      'primaryColor': 'Bleu',
+++      'material': 'Coton',
+++      'season': 'Été',
+++      'visibleBrand': 'Visible',
+++      'globalConfidence': 1.4,
+++      'fieldConfidences': {'category': -0.2},
+++      'warnings': ['reflet'],
+++    });
+++
+++    expect(result.suggestedName, 'Chemise bleue');
+++    expect(result.globalConfidence, 1);
+++    expect(result.fieldConfidences['category'], 0);
+++  });
+++
+++  test('accepte les champs facultatifs absents et une image inutilisable', () {
+++    final result = GarmentAnalysisResult.fromJson({
+++      'isUsableImage': false,
+++      'rejectionReason': 'Photo floue',
+++      'globalConfidence': 0.1,
+++    });
+++    expect(result.isUsableImage, isFalse);
+++    expect(result.rejectionReason, 'Photo floue');
+++    expect(result.warnings, isEmpty);
+++  });
+++
+++  test('rejette un JSON ou un schéma invalide', () {
+++    expect(
+++      () => GarmentAnalysisResult.fromJsonString('{non'),
+++      throwsA(isA<GarmentAnalysisException>()),
+++    );
+++    expect(
+++      () => GarmentAnalysisResult.fromJson(const {}),
+++      throwsA(isA<GarmentAnalysisException>()),
+++    );
+++  });
+++}
++diff --git a/test/features/scanner/openai_garment_vision_analyzer_test.dart b/test/features/scanner/openai_garment_vision_analyzer_test.dart
++new file mode 100644
++index 0000000..83f9181
++--- /dev/null
+++++ b/test/features/scanner/openai_garment_vision_analyzer_test.dart
++@@ -0,0 +1,144 @@
+++import 'dart:async';
+++import 'dart:convert';
+++import 'dart:typed_data';
+++
+++import 'package:flutter_test/flutter_test.dart';
+++import 'package:http/http.dart' as http;
+++import 'package:wardrobeos/features/assistant/settings/api_key_storage.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_exception.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_request.dart';
+++import 'package:wardrobeos/features/scanner/ai/openai_garment_vision_analyzer.dart';
+++
+++void main() {
+++  late _MemoryStorage storage;
+++  late GarmentAnalysisRequest request;
+++
+++  setUp(() {
+++    storage = _MemoryStorage('secret');
+++    request = GarmentAnalysisRequest(
+++      imageBytes: Uint8List.fromList([1, 2, 3]),
+++      mimeType: 'image/jpeg',
+++      allowedCategories: const ['Hauts'],
+++      allowedColors: const ['Bleu'],
+++      allowedMaterials: const ['Coton'],
+++      allowedSeasons: const ['Été'],
+++    );
+++  });
+++
+++  test('refuse une clé absente sans requête réseau', () async {
+++    storage.value = null;
+++    var called = false;
+++    final analyzer = OpenAiGarmentVisionAnalyzer(
+++      apiKeyStorage: ApiKeyStorage(storage: storage),
+++      client: _Client((_) async {
+++        called = true;
+++        return http.Response('', 500);
+++      }),
+++    );
+++    await expectLater(
+++      analyzer.analyze(request),
+++      throwsA(
+++        isA<GarmentAnalysisException>().having(
+++          (error) => error.error,
+++          'error',
+++          GarmentAnalysisError.missingApiKey,
+++        ),
+++      ),
+++    );
+++    expect(called, isFalse);
+++  });
+++
+++  test('construit une requête Responses avec image et parse le JSON', () async {
+++    late Map<String, dynamic> sent;
+++    final analyzer = OpenAiGarmentVisionAnalyzer(
+++      apiKeyStorage: ApiKeyStorage(storage: storage),
+++      client: _Client((request) async {
+++        sent = jsonDecode(request.body) as Map<String, dynamic>;
+++        return http.Response(
+++          jsonEncode({
+++            'output_text': jsonEncode({
+++              'isUsableImage': true,
+++              'category': 'Hauts',
+++              'globalConfidence': .9,
+++            }),
+++          }),
+++          200,
+++        );
+++      }),
+++    );
+++    final result = await analyzer.analyze(request);
+++    final content =
+++        ((sent['input'] as List).first as Map)['content'] as List<dynamic>;
+++    expect(content.any((part) => (part as Map)['type'] == 'input_image'), isTrue);
+++    expect((sent['text'] as Map)['format'], isA<Map>());
+++    expect(result.category, 'Hauts');
+++  });
+++
+++  test('traduit JSON invalide, erreur HTTP et timeout', () async {
+++    Future<void> expectError(
+++      Future<http.Response> Function(http.Request) handler,
+++      GarmentAnalysisError error, {
+++      Duration timeout = const Duration(seconds: 1),
+++    }) async {
+++      final analyzer = OpenAiGarmentVisionAnalyzer(
+++        apiKeyStorage: ApiKeyStorage(storage: storage),
+++        client: _Client(handler),
+++        timeout: timeout,
+++      );
+++      await expectLater(
+++        analyzer.analyze(request),
+++        throwsA(
+++          isA<GarmentAnalysisException>().having(
+++            (exception) => exception.error,
+++            'error',
+++            error,
+++          ),
+++        ),
+++      );
+++    }
+++
+++    await expectError(
+++      (_) async => http.Response('{', 200),
+++      GarmentAnalysisError.invalidJson,
+++    );
+++    await expectError(
+++      (_) async => http.Response('', 401),
+++      GarmentAnalysisError.invalidApiKey,
+++    );
+++    await expectError((_) => Completer<http.Response>().future,
+++        GarmentAnalysisError.timeout,
+++        timeout: const Duration(milliseconds: 1));
+++  });
+++}
+++
+++class _Client extends http.BaseClient {
+++  final Future<http.Response> Function(http.Request request) handler;
+++  _Client(this.handler);
+++
+++  @override
+++  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+++    final concrete = request as http.Request;
+++    final response = await handler(concrete);
+++    return http.StreamedResponse(
+++      Stream.value(response.bodyBytes),
+++      response.statusCode,
+++      headers: response.headers,
+++    );
+++  }
+++}
+++
+++class _MemoryStorage implements SecureKeyValueStorage {
+++  String? value;
+++  _MemoryStorage(this.value);
+++
+++  @override
+++  Future<void> delete({required String key}) async => value = null;
+++
+++  @override
+++  Future<String?> read({required String key}) async => value;
+++
+++  @override
+++  Future<void> write({required String key, required String? value}) async {
+++    this.value = value;
+++  }
+++}
+diff --git a/test/features/scanner/fake_garment_vision_analyzer_test.dart b/test/features/scanner/fake_garment_vision_analyzer_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..c26a3454a5387ed5b248b490f3c6a4609787335a
+--- /dev/null
++++ b/test/features/scanner/fake_garment_vision_analyzer_test.dart
+@@ -0,0 +1,39 @@
++import 'dart:typed_data';
++
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/scanner/ai/fake_garment_vision_analyzer.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_exception.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_request.dart';
++
++void main() {
++  final request = GarmentAnalysisRequest(
++    imageBytes: Uint8List.fromList([1]),
++    mimeType: 'image/jpeg',
++    allowedCategories: const [],
++    allowedColors: const [],
++    allowedMaterials: const [],
++    allowedSeasons: const [],
++  );
++
++  for (final scenario in [
++    FakeGarmentVisionScenario.success,
++    FakeGarmentVisionScenario.lowConfidence,
++    FakeGarmentVisionScenario.unusable,
++  ]) {
++    test('retourne le scénario $scenario', () async {
++      final result = await FakeGarmentVisionAnalyzer(
++        scenario: scenario,
++      ).analyze(request);
++      expect(result.globalConfidence, inInclusiveRange(0, 1));
++    });
++  }
++
++  test('simule une erreur métier', () {
++    expect(
++      FakeGarmentVisionAnalyzer(
++        scenario: FakeGarmentVisionScenario.error,
++      ).analyze(request),
++      throwsA(isA<GarmentAnalysisException>()),
++    );
++  });
++}
+diff --git a/test/features/scanner/garment_analysis_mapper_test.dart b/test/features/scanner/garment_analysis_mapper_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..b14d6976c4c9b911daa27ee5fdb083c44bb73c9d
+--- /dev/null
++++ b/test/features/scanner/garment_analysis_mapper_test.dart
+@@ -0,0 +1,58 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_mapper.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_result.dart';
++
++void main() {
++  const mapper = GarmentAnalysisMapper(
++    categories: ['Hauts', 'Chemises'],
++    colors: ['Bleu', 'Rouge'],
++    materials: ['Coton'],
++    seasons: ['Été', 'Toute saison'],
++  );
++  const empty = GarmentFormValues(
++    name: '',
++    category: '',
++    color: '',
++    material: '',
++    season: '',
++    brand: '',
++  );
++
++  test('normalise et remplit uniquement les champs vides', () {
++    const result = GarmentAnalysisResult(
++      isUsableImage: true,
++      suggestedName: 'Chemise',
++      category: 'chemises',
++      primaryColor: 'bleu',
++      material: 'coton',
++      season: 'ete',
++      globalConfidence: .8,
++    );
++    final mapped = mapper.map(result, current: empty);
++    expect(mapped.category, 'Chemises');
++    expect(mapped.color, 'Bleu');
++    expect(mapped.season, 'Été');
++  });
++
++  test('rejette une valeur inconnue et préserve la saisie manuelle', () {
++    const result = GarmentAnalysisResult(
++      isUsableImage: true,
++      category: 'Robes',
++      primaryColor: 'Rouge',
++      globalConfidence: .8,
++    );
++    final mapped = mapper.map(
++      result,
++      current: const GarmentFormValues(
++        name: 'Mon nom',
++        category: '',
++        color: 'Bleu manuel',
++        material: '',
++        season: '',
++        brand: '',
++      ),
++    );
++    expect(mapped.category, isEmpty);
++    expect(mapped.color, 'Bleu manuel');
++  });
++}
+diff --git a/test/features/scanner/garment_analysis_result_test.dart b/test/features/scanner/garment_analysis_result_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..7942e2d4a92d64541990ad505c1080d93ad40119
+--- /dev/null
++++ b/test/features/scanner/garment_analysis_result_test.dart
+@@ -0,0 +1,46 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_exception.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_result.dart';
++
++void main() {
++  test('parse une réponse complète et normalise les confiances', () {
++    final result = GarmentAnalysisResult.fromJson({
++      'isUsableImage': true,
++      'suggestedName': 'Chemise bleue',
++      'category': 'Chemises',
++      'primaryColor': 'Bleu',
++      'material': 'Coton',
++      'season': 'Été',
++      'visibleBrand': 'Visible',
++      'globalConfidence': 1.4,
++      'fieldConfidences': {'category': -0.2},
++      'warnings': ['reflet'],
++    });
++
++    expect(result.suggestedName, 'Chemise bleue');
++    expect(result.globalConfidence, 1);
++    expect(result.fieldConfidences['category'], 0);
++  });
++
++  test('accepte les champs facultatifs absents et une image inutilisable', () {
++    final result = GarmentAnalysisResult.fromJson({
++      'isUsableImage': false,
++      'rejectionReason': 'Photo floue',
++      'globalConfidence': 0.1,
++    });
++    expect(result.isUsableImage, isFalse);
++    expect(result.rejectionReason, 'Photo floue');
++    expect(result.warnings, isEmpty);
++  });
++
++  test('rejette un JSON ou un schéma invalide', () {
++    expect(
++      () => GarmentAnalysisResult.fromJsonString('{non'),
++      throwsA(isA<GarmentAnalysisException>()),
++    );
++    expect(
++      () => GarmentAnalysisResult.fromJson(const {}),
++      throwsA(isA<GarmentAnalysisException>()),
++    );
++  });
++}
+diff --git a/test/features/scanner/openai_garment_vision_analyzer_test.dart b/test/features/scanner/openai_garment_vision_analyzer_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..83f91812db551e3cafee1efc6da88a4cd84c214c
+--- /dev/null
++++ b/test/features/scanner/openai_garment_vision_analyzer_test.dart
+@@ -0,0 +1,144 @@
++import 'dart:async';
++import 'dart:convert';
++import 'dart:typed_data';
++
++import 'package:flutter_test/flutter_test.dart';
++import 'package:http/http.dart' as http;
++import 'package:wardrobeos/features/assistant/settings/api_key_storage.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_exception.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_request.dart';
++import 'package:wardrobeos/features/scanner/ai/openai_garment_vision_analyzer.dart';
++
++void main() {
++  late _MemoryStorage storage;
++  late GarmentAnalysisRequest request;
++
++  setUp(() {
++    storage = _MemoryStorage('secret');
++    request = GarmentAnalysisRequest(
++      imageBytes: Uint8List.fromList([1, 2, 3]),
++      mimeType: 'image/jpeg',
++      allowedCategories: const ['Hauts'],
++      allowedColors: const ['Bleu'],
++      allowedMaterials: const ['Coton'],
++      allowedSeasons: const ['Été'],
++    );
++  });
++
++  test('refuse une clé absente sans requête réseau', () async {
++    storage.value = null;
++    var called = false;
++    final analyzer = OpenAiGarmentVisionAnalyzer(
++      apiKeyStorage: ApiKeyStorage(storage: storage),
++      client: _Client((_) async {
++        called = true;
++        return http.Response('', 500);
++      }),
++    );
++    await expectLater(
++      analyzer.analyze(request),
++      throwsA(
++        isA<GarmentAnalysisException>().having(
++          (error) => error.error,
++          'error',
++          GarmentAnalysisError.missingApiKey,
++        ),
++      ),
++    );
++    expect(called, isFalse);
++  });
++
++  test('construit une requête Responses avec image et parse le JSON', () async {
++    late Map<String, dynamic> sent;
++    final analyzer = OpenAiGarmentVisionAnalyzer(
++      apiKeyStorage: ApiKeyStorage(storage: storage),
++      client: _Client((request) async {
++        sent = jsonDecode(request.body) as Map<String, dynamic>;
++        return http.Response(
++          jsonEncode({
++            'output_text': jsonEncode({
++              'isUsableImage': true,
++              'category': 'Hauts',
++              'globalConfidence': .9,
++            }),
++          }),
++          200,
++        );
++      }),
++    );
++    final result = await analyzer.analyze(request);
++    final content =
++        ((sent['input'] as List).first as Map)['content'] as List<dynamic>;
++    expect(content.any((part) => (part as Map)['type'] == 'input_image'), isTrue);
++    expect((sent['text'] as Map)['format'], isA<Map>());
++    expect(result.category, 'Hauts');
++  });
++
++  test('traduit JSON invalide, erreur HTTP et timeout', () async {
++    Future<void> expectError(
++      Future<http.Response> Function(http.Request) handler,
++      GarmentAnalysisError error, {
++      Duration timeout = const Duration(seconds: 1),
++    }) async {
++      final analyzer = OpenAiGarmentVisionAnalyzer(
++        apiKeyStorage: ApiKeyStorage(storage: storage),
++        client: _Client(handler),
++        timeout: timeout,
++      );
++      await expectLater(
++        analyzer.analyze(request),
++        throwsA(
++          isA<GarmentAnalysisException>().having(
++            (exception) => exception.error,
++            'error',
++            error,
++          ),
++        ),
++      );
++    }
++
++    await expectError(
++      (_) async => http.Response('{', 200),
++      GarmentAnalysisError.invalidJson,
++    );
++    await expectError(
++      (_) async => http.Response('', 401),
++      GarmentAnalysisError.invalidApiKey,
++    );
++    await expectError((_) => Completer<http.Response>().future,
++        GarmentAnalysisError.timeout,
++        timeout: const Duration(milliseconds: 1));
++  });
++}
++
++class _Client extends http.BaseClient {
++  final Future<http.Response> Function(http.Request request) handler;
++  _Client(this.handler);
++
++  @override
++  Future<http.StreamedResponse> send(http.BaseRequest request) async {
++    final concrete = request as http.Request;
++    final response = await handler(concrete);
++    return http.StreamedResponse(
++      Stream.value(response.bodyBytes),
++      response.statusCode,
++      headers: response.headers,
++    );
++  }
++}
++
++class _MemoryStorage implements SecureKeyValueStorage {
++  String? value;
++  _MemoryStorage(this.value);
++
++  @override
++  Future<void> delete({required String key}) async => value = null;
++
++  @override
++  Future<String?> read({required String key}) async => value;
++
++  @override
++  Future<void> write({required String key, required String? value}) async {
++    this.value = value;
++  }
++}

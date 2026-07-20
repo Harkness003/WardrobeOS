@@ -52,7 +52,9 @@ class OpenAiProvider implements LlmProvider {
 
       final text = _outputText(body);
       if (text == null || text.trim().isEmpty) {
-        throw const LlmApiException('Le service IA a renvoyé une réponse vide.');
+        throw const LlmApiException(
+          'Le service IA a renvoyé une réponse vide.',
+        );
       }
       return text.trim();
     } on TimeoutException {

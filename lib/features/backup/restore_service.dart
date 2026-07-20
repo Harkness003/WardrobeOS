@@ -34,22 +34,30 @@ class RestoreService {
         directory ??= await imageDirectory();
         await directory.create(recursive: true);
         final reference = image['reference'] as String;
-        final safeName = p.basename(image['fileName'] as String? ?? '$reference.jpg');
+        final safeName = p.basename(
+          image['fileName'] as String? ?? '$reference.jpg',
+        );
         final timestamp = DateTime.now().microsecondsSinceEpoch;
         final target = File(p.join(directory.path, '${timestamp}_$safeName'));
-        await target.writeAsBytes(base64Decode(image['data'] as String), flush: true);
+        await target.writeAsBytes(
+          base64Decode(image['data'] as String),
+          flush: true,
+        );
         imagePaths[reference] = target.path;
       } catch (_) {
         // Image restoration is best-effort; relational data must still restore.
       }
     }
 
-    final garments = backup.garments.map((row) {
-      final restored = Map<String, Object?>.from(row);
-      final reference = restored.remove('image_reference') as String?;
-      restored['image_path'] = reference == null ? null : imagePaths[reference];
-      return restored;
-    }).toList(growable: false);
+    final garments = backup.garments
+        .map((row) {
+          final restored = Map<String, Object?>.from(row);
+          final reference = restored.remove('image_reference') as String?;
+          restored['image_path'] =
+              reference == null ? null : imagePaths[reference];
+          return restored;
+        })
+        .toList(growable: false);
 
     await repository.restoreData({
       'garments': garments,

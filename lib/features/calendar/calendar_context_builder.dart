@@ -30,12 +30,14 @@ class CalendarContextBuilder {
   Future<CalendarContext?> build() async {
     final event = await _service.getNextImportantEvent(from: _clock());
     if (event == null) return null;
-    final time = '${event.startsAt.hour.toString().padLeft(2, '0')}h'
+    final time =
+        '${event.startsAt.hour.toString().padLeft(2, '0')}h'
         '${event.startsAt.minute == 0 ? '' : event.startsAt.minute.toString().padLeft(2, '0')}';
     final place = event.location == null ? '' : ' à ${event.location}';
     return CalendarContext(
       event: event,
-      summary: '${event.title}$place à $time.\nFormalité : ${event.formality.label}.',
+      summary:
+          '${event.title}$place à $time.\nFormalité : ${event.formality.label}.',
     );
   }
 }

@@ -79,13 +79,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   SizedBox(
                     height: 220,
                     child: Center(
-                      child: _isLoading
-                          ? const CircularProgressIndicator()
-                          : Text(
-                              _message ?? 'WardrobeGPT est prêt.',
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
+                      child:
+                          _isLoading
+                              ? const CircularProgressIndicator()
+                              : Text(
+                                _message ?? 'WardrobeGPT est prêt.',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
                     ),
                   ),
                   if (_toolContext.isNotEmpty)

@@ -63,9 +63,7 @@ class BackupFile {
         'Version de sauvegarde non prise en charge : $version.',
       );
     }
-    final createdAt = DateTime.tryParse(
-      document['createdAt'] as String? ?? '',
-    );
+    final createdAt = DateTime.tryParse(document['createdAt'] as String? ?? '');
     if (createdAt == null) {
       throw const BackupFormatException('La date de sauvegarde est invalide.');
     }
@@ -75,12 +73,14 @@ class BackupFile {
       if (value is! List) {
         throw BackupFormatException('Section « $key » invalide.');
       }
-      return value.map((row) {
-        if (row is! Map) {
-          throw BackupFormatException('Entrée « $key » invalide.');
-        }
-        return row.map((key, value) => MapEntry(key.toString(), value));
-      }).toList(growable: false);
+      return value
+          .map((row) {
+            if (row is! Map) {
+              throw BackupFormatException('Entrée « $key » invalide.');
+            }
+            return row.map((key, value) => MapEntry(key.toString(), value));
+          })
+          .toList(growable: false);
     }
 
     return BackupFile(

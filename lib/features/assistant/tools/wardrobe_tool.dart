@@ -17,8 +17,9 @@ class WardrobeTool implements AssistantTool {
   Future<AssistantToolData> getData() async {
     if (_controller.loading) await _controller.load();
     final garments = _controller.garments;
-    final recentlyWorn = garments.where((garment) => garment.lastWorn != null).toList()
-      ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
+    final recentlyWorn =
+        garments.where((garment) => garment.lastWorn != null).toList()
+          ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
 
     return {
       'totalGarments': garments.length,
@@ -42,12 +43,13 @@ class WardrobeTool implements AssistantTool {
   }
 
   static List<String> _values(Iterable<String?> values) {
-    final unique = values
-        .whereType<String>()
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
-        .toSet()
-        .toList();
+    final unique =
+        values
+            .whereType<String>()
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList();
     unique.sort();
     return unique;
   }

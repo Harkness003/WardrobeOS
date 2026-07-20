@@ -50,17 +50,20 @@ class AssistantService {
     _lastToolContext = await _toolContextBuilder.build(
       calendar: context.calendar,
     );
-    final shouldRecommend = _lastIntent != null && {
-      AssistantIntentType.dailyOutfit,
-      AssistantIntentType.weatherOutfit,
-      AssistantIntentType.eventOutfit,
-      AssistantIntentType.forgottenGarments,
-    }.contains(_lastIntent!.type);
-    final recommendation = shouldRecommend && _recommendationEngine != null
-        ? await _recommendationEngine.recommend(
-            OutfitRecommendationRequest.fromIntent(_lastIntent!, context),
-          )
-        : null;
+    final shouldRecommend =
+        _lastIntent != null &&
+        {
+          AssistantIntentType.dailyOutfit,
+          AssistantIntentType.weatherOutfit,
+          AssistantIntentType.eventOutfit,
+          AssistantIntentType.forgottenGarments,
+        }.contains(_lastIntent!.type);
+    final recommendation =
+        shouldRecommend && _recommendationEngine != null
+            ? await _recommendationEngine.recommend(
+              OutfitRecommendationRequest.fromIntent(_lastIntent!, context),
+            )
+            : null;
     _lastRecommendationCandidates = recommendation?.candidates ?? const [];
     final prompt = _promptBuilder.build(
       context,

@@ -22,12 +22,14 @@ class PromptBuilder {
     var prompt = composer.compose(context, sections);
     const encoder = JsonEncoder.withIndent('  ');
     if (toolContext.isNotEmpty) {
-      prompt = '$prompt\n\n### DONNÉES MÉTIER STRUCTURÉES\n'
+      prompt =
+          '$prompt\n\n### DONNÉES MÉTIER STRUCTURÉES\n'
           '${encoder.convert(toolContext)}';
     }
     if (recommendation != null) {
       final request = recommendation.request;
-      prompt = '$prompt\n\n### RECOMMANDATION TENUE\n'
+      prompt =
+          '$prompt\n\n### RECOMMANDATION TENUE\n'
           'Demande utilisateur : ${request.originalMessage}\n'
           'Contexte météo : ${encoder.convert(request.weather?.toMap())}\n'
           'Vêtements candidats : '

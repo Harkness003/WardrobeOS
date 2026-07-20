@@ -505,14 +505,16 @@ class DatabaseService {
   /// Returns a consistent, JSON-ready view of every persisted wardrobe table.
   Future<Map<String, List<Map<String, Object?>>>> exportBackupData() async {
     final db = await database;
-    return db.transaction((txn) async => {
-      'garments': await txn.query('garments'),
-      'outfits': await txn.query('outfits'),
-      'outfitItems': await txn.query('outfit_items'),
-      // Wishlist V1 is currently UI-only and therefore has no persisted rows.
-      'wishlist': <Map<String, Object?>>[],
-      'wearHistory': await txn.query('wear_history'),
-    });
+    return db.transaction(
+      (txn) async => {
+        'garments': await txn.query('garments'),
+        'outfits': await txn.query('outfits'),
+        'outfitItems': await txn.query('outfit_items'),
+        // Wishlist V1 is currently UI-only and therefore has no persisted rows.
+        'wishlist': <Map<String, Object?>>[],
+        'wearHistory': await txn.query('wear_history'),
+      },
+    );
   }
 
   /// Atomically replaces all persisted wardrobe data with a validated backup.

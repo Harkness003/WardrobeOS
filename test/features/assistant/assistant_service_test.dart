@@ -19,9 +19,17 @@ class _WeatherService implements WeatherService {
   @override
   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
       WeatherData(
-        city: 'Lyon', latitude: 0, longitude: 0, temperature: 22,
-        apparentTemperature: 22, humidity: 0, windSpeed: 0, windDirection: 0,
-        weatherCode: 0, description: 'Clair', measuredAt: DateTime(2026),
+        city: 'Lyon',
+        latitude: 0,
+        longitude: 0,
+        temperature: 22,
+        apparentTemperature: 22,
+        humidity: 0,
+        windSpeed: 0,
+        windDirection: 0,
+        weatherCode: 0,
+        description: 'Clair',
+        measuredAt: DateTime(2026),
       );
 }
 
@@ -36,26 +44,34 @@ class _BusinessTool implements AssistantTool {
 
 void main() {
   test('génère un prompt à partir du contexte', () async {
-    final wardrobe = WardrobeController()
-      ..loading = false
-      ..garments = List.generate(
-        2,
-        (index) => Garment(
-          id: '$index', name: 'Vêtement $index', category: 'Haut',
-          createdAt: DateTime(2026), updatedAt: DateTime(2026),
-        ),
-      );
-    final outfits = OutfitsController()
-      ..loading = false
-      ..outfits = [
-        Outfit(
-          id: 'o1', name: 'Tenue', createdAt: DateTime(2026),
-          updatedAt: DateTime(2026),
-        ),
-      ];
+    final wardrobe =
+        WardrobeController()
+          ..loading = false
+          ..garments = List.generate(
+            2,
+            (index) => Garment(
+              id: '$index',
+              name: 'Vêtement $index',
+              category: 'Haut',
+              createdAt: DateTime(2026),
+              updatedAt: DateTime(2026),
+            ),
+          );
+    final outfits =
+        OutfitsController()
+          ..loading = false
+          ..outfits = [
+            Outfit(
+              id: 'o1',
+              name: 'Tenue',
+              createdAt: DateTime(2026),
+              updatedAt: DateTime(2026),
+            ),
+          ];
     final service = AssistantService(
       contextBuilder: AssistantContextBuilder(
-        weatherService: _WeatherService(), wardrobeController: wardrobe,
+        weatherService: _WeatherService(),
+        wardrobeController: wardrobe,
         outfitsController: outfits,
         clock: () => DateTime(2026, 7, 14),
       ),
@@ -80,9 +96,7 @@ void main() {
         wardrobeController: wardrobe,
         outfitsController: outfits,
       ),
-      toolContextBuilder: AssistantToolContextBuilder(
-        tools: [_BusinessTool()],
-      ),
+      toolContextBuilder: AssistantToolContextBuilder(tools: [_BusinessTool()]),
       llmProvider: const FakeLlmProvider(response: 'Conseil hors ligne'),
     );
 
@@ -101,12 +115,15 @@ void main() {
         clock: () => DateTime(2026, 7, 18),
       ),
       recommendationEngine: OutfitRecommendationEngine(
-        candidateSource: () async => const [
-          OutfitCandidate(
-            id: 'shirt', name: 'Chemise bleue', category: 'Hauts',
-            season: 'été',
-          ),
-        ],
+        candidateSource:
+            () async => const [
+              OutfitCandidate(
+                id: 'shirt',
+                name: 'Chemise bleue',
+                category: 'Hauts',
+                season: 'été',
+              ),
+            ],
         clock: () => DateTime(2026, 7, 18),
       ),
       llmProvider: const FakeLlmProvider(response: 'Portez la chemise bleue.'),

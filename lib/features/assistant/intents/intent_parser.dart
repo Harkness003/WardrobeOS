@@ -31,13 +31,21 @@ class IntentParser implements AssistantIntent {
       return AssistantIntentType.weatherOutfit;
     }
     if (_containsAny(text, [
-      'mariage', 'restaurant', 'evenement', 'soiree', 'entretien',
-      'anniversaire', 'ceremonie',
+      'mariage',
+      'restaurant',
+      'evenement',
+      'soiree',
+      'entretien',
+      'anniversaire',
+      'ceremonie',
     ])) {
       return AssistantIntentType.eventOutfit;
     }
     if (_containsAny(text, [
-      'porte peu', 'porte jamais', 'ne porte plus', 'vetements oublies',
+      'porte peu',
+      'porte jamais',
+      'ne porte plus',
+      'vetements oublies',
     ])) {
       return AssistantIntentType.forgottenGarments;
     }
@@ -45,12 +53,18 @@ class IntentParser implements AssistantIntent {
       return AssistantIntentType.wardrobeAnalysis;
     }
     if (_containsAny(text, [
-      'devrais je acheter', 'quoi acheter', 'conseil achat', 'shopping',
+      'devrais je acheter',
+      'quoi acheter',
+      'conseil achat',
+      'shopping',
     ])) {
       return AssistantIntentType.shoppingAdvice;
     }
     if (_containsAny(text, [
-      'aujourd hui', 'tenue du jour', 'que mettre', 'comment m habiller',
+      'aujourd hui',
+      'tenue du jour',
+      'que mettre',
+      'comment m habiller',
     ])) {
       return AssistantIntentType.dailyOutfit;
     }
@@ -59,8 +73,15 @@ class IntentParser implements AssistantIntent {
 
   void _extractDate(String text, Map<String, String> parameters) {
     const dates = [
-      'aujourd hui', 'demain', 'lundi', 'mardi', 'mercredi', 'jeudi',
-      'vendredi', 'samedi', 'dimanche',
+      'aujourd hui',
+      'demain',
+      'lundi',
+      'mardi',
+      'mercredi',
+      'jeudi',
+      'vendredi',
+      'samedi',
+      'dimanche',
     ];
     for (final date in dates) {
       if (text.contains(date)) {
@@ -72,7 +93,11 @@ class IntentParser implements AssistantIntent {
 
   void _extractOccasion(String text, Map<String, String> parameters) {
     const occasions = [
-      'mariage', 'restaurant', 'soiree', 'entretien', 'anniversaire',
+      'mariage',
+      'restaurant',
+      'soiree',
+      'entretien',
+      'anniversaire',
       'ceremonie',
     ];
     for (final occasion in occasions) {
@@ -124,15 +149,16 @@ class IntentParser implements AssistantIntent {
   bool _containsAny(String text, List<String> expressions) =>
       expressions.any(text.contains);
 
-  String _normalize(String value) => value
-      .toLowerCase()
-      .replaceAll(RegExp(r'[àáâä]'), 'a')
-      .replaceAll(RegExp(r'[éèêë]'), 'e')
-      .replaceAll(RegExp(r'[îï]'), 'i')
-      .replaceAll(RegExp(r'[ôö]'), 'o')
-      .replaceAll(RegExp(r'[ùûü]'), 'u')
-      .replaceAll('ç', 'c')
-      .replaceAll(RegExp(r"[^a-z0-9 ]"), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+  String _normalize(String value) =>
+      value
+          .toLowerCase()
+          .replaceAll(RegExp(r'[àáâä]'), 'a')
+          .replaceAll(RegExp(r'[éèêë]'), 'e')
+          .replaceAll(RegExp(r'[îï]'), 'i')
+          .replaceAll(RegExp(r'[ôö]'), 'o')
+          .replaceAll(RegExp(r'[ùûü]'), 'u')
+          .replaceAll('ç', 'c')
+          .replaceAll(RegExp(r"[^a-z0-9 ]"), ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
 }
