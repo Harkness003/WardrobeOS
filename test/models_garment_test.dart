@@ -58,6 +58,11 @@ void main() {
       pointsFaibles: const ['Peu décontracté'],
       conseils: const ['Associer à une chemise claire'],
       verdict: 'Une pièce forte pour le bureau.',
+      couleursCompatibles: const ['Écru', 'Marine'],
+      couleursMoinsAdaptees: const ['Orange vif'],
+      basCompatibles: const ['Pantalon droit'],
+      chaussuresCompatibles: const ['Derbies'],
+      explicationPolyvalence: 'Polyvalence moyenne.',
       occasionsDeconseillees: const ['Sport'],
       compositionEstimee: 'Laine majoritaire, doublure synthétique',
       lavage: 'Nettoyage professionnel recommandé',
@@ -76,6 +81,8 @@ void main() {
     expect(restored.validate(), isNull);
     expect(restored.resumeStylistique, contains('formel'));
     expect(restored.limitesAnalyse, ['Étiquette non visible']);
+    expect(restored.couleursCompatibles, ['Écru', 'Marine']);
+    expect(restored.explicationPolyvalence, 'Polyvalence moyenne.');
   });
 
   test('validates temperatures and confidence', () {
@@ -90,6 +97,26 @@ void main() {
       updatedAt: now,
     );
     expect(invalid.validate(), isNotNull);
+  });
+
+  test('preserves null and empty stylistic association values', () {
+    final garment = Garment(
+      id: 'empty',
+      name: 'Pièce',
+      category: 'Autre',
+      couleursCompatibles: const [],
+      couleursMoinsAdaptees: null,
+      basCompatibles: const [],
+      chaussuresCompatibles: null,
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final restored = Garment.fromMap(garment.toMap());
+    expect(restored.couleursCompatibles, isEmpty);
+    expect(restored.couleursMoinsAdaptees, isNull);
+    expect(restored.basCompatibles, isEmpty);
+    expect(restored.chaussuresCompatibles, isNull);
   });
 
   test('normalizes canonical values, blanks and duplicates', () {

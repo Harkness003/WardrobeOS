@@ -168,6 +168,11 @@ ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
 l'étiquette reste prioritaire. Baisse la confiance si texture, couleur ou logo
 sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
 Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
+« category » est la catégorie générale, choisie uniquement parmi les catégories
+autorisées ci-dessous. « preciseType » est le type concret et précis observé
+(par exemple chemise Oxford, blazer croisé, jean droit, pantalon cargo,
+cardigan, trench ou baskets basses). Utilise null si l'image ne permet pas de
+conclure et ne répète jamais exactement « category » dans « preciseType ».
 Agis comme un styliste professionnel : observe, explique, argumente et nuance.
 Produis un résumé, des points forts et faibles, des conseils concrets, les
 couleurs, bas et chaussures compatibles, les couleurs moins adaptées, les
@@ -195,6 +200,7 @@ ${jsonEncode(request.existingValues)}
       'rejectionReason',
       'suggestedName',
       'category',
+      'preciseType',
       'primaryColor',
       'material',
       'season',
@@ -216,6 +222,7 @@ ${jsonEncode(request.existingValues)}
       'rejectionReason': _nullableString,
       'suggestedName': _nullableString,
       'category': _nullableString,
+      'preciseType': _nullableString,
       'primaryColor': _nullableString,
       'material': _nullableString,
       'season': _nullableString,

@@ -57,6 +57,11 @@ class Garment {
   final List<String>? pointsFaibles;
   final List<String>? conseils;
   final String? verdict;
+  final List<String>? couleursCompatibles;
+  final List<String>? couleursMoinsAdaptees;
+  final List<String>? basCompatibles;
+  final List<String>? chaussuresCompatibles;
+  final String? explicationPolyvalence;
   final List<String>? occasionsDeconseillees;
   final String? compositionEstimee;
   final String? lavage;
@@ -126,6 +131,11 @@ class Garment {
     this.pointsFaibles,
     this.conseils,
     this.verdict,
+    this.couleursCompatibles,
+    this.couleursMoinsAdaptees,
+    this.basCompatibles,
+    this.chaussuresCompatibles,
+    this.explicationPolyvalence,
     this.occasionsDeconseillees,
     this.compositionEstimee,
     this.lavage,
@@ -196,6 +206,11 @@ class Garment {
     List<String>? pointsFaibles,
     List<String>? conseils,
     String? verdict,
+    List<String>? couleursCompatibles,
+    List<String>? couleursMoinsAdaptees,
+    List<String>? basCompatibles,
+    List<String>? chaussuresCompatibles,
+    String? explicationPolyvalence,
     List<String>? occasionsDeconseillees,
     String? compositionEstimee,
     String? lavage,
@@ -264,6 +279,11 @@ class Garment {
     pointsFaibles: pointsFaibles ?? this.pointsFaibles,
     conseils: conseils ?? this.conseils,
     verdict: verdict ?? this.verdict,
+    couleursCompatibles: couleursCompatibles ?? this.couleursCompatibles,
+    couleursMoinsAdaptees: couleursMoinsAdaptees ?? this.couleursMoinsAdaptees,
+    basCompatibles: basCompatibles ?? this.basCompatibles,
+    chaussuresCompatibles: chaussuresCompatibles ?? this.chaussuresCompatibles,
+    explicationPolyvalence: explicationPolyvalence ?? this.explicationPolyvalence,
     occasionsDeconseillees: occasionsDeconseillees ?? this.occasionsDeconseillees,
     compositionEstimee: compositionEstimee ?? this.compositionEstimee,
     lavage: lavage ?? this.lavage,
@@ -334,6 +354,11 @@ class Garment {
     'points_faibles': pointsFaibles == null ? null : jsonEncode(pointsFaibles),
     'conseils': conseils == null ? null : jsonEncode(conseils),
     'verdict': verdict,
+    'couleurs_compatibles': couleursCompatibles == null ? null : jsonEncode(couleursCompatibles),
+    'couleurs_moins_adaptees': couleursMoinsAdaptees == null ? null : jsonEncode(couleursMoinsAdaptees),
+    'bas_compatibles': basCompatibles == null ? null : jsonEncode(basCompatibles),
+    'chaussures_compatibles': chaussuresCompatibles == null ? null : jsonEncode(chaussuresCompatibles),
+    'explication_polyvalence': explicationPolyvalence,
     'occasions_deconseillees': occasionsDeconseillees == null ? null : jsonEncode(occasionsDeconseillees),
     'composition_estimee': compositionEstimee,
     'lavage': lavage,
@@ -420,6 +445,11 @@ class Garment {
       pointsFaibles: list('points_faibles'),
       conseils: list('conseils'),
       verdict: text('verdict'),
+      couleursCompatibles: list('couleurs_compatibles'),
+      couleursMoinsAdaptees: list('couleurs_moins_adaptees'),
+      basCompatibles: list('bas_compatibles'),
+      chaussuresCompatibles: list('chaussures_compatibles'),
+      explicationPolyvalence: text('explication_polyvalence'),
       occasionsDeconseillees: list('occasions_deconseillees'),
       compositionEstimee: text('composition_estimee'),
       lavage: text('lavage'),

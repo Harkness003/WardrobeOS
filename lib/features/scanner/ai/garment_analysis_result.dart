@@ -7,6 +7,7 @@ class GarmentAnalysisResult {
   final String? rejectionReason;
   final String? suggestedName;
   final String? category;
+  final String? preciseType;
   final String? primaryColor;
   final String? material;
   final String? season;
@@ -42,6 +43,7 @@ class GarmentAnalysisResult {
     this.rejectionReason,
     this.suggestedName,
     this.category,
+    this.preciseType,
     this.primaryColor,
     this.material,
     this.season,
@@ -125,6 +127,7 @@ class GarmentAnalysisResult {
       rejectionReason: text('rejectionReason'),
       suggestedName: text('suggestedName'),
       category: text('category'),
+      preciseType: text('preciseType'),
       primaryColor: text('primaryColor'),
       material: text('material'),
       season: text('season'),
@@ -165,6 +168,7 @@ class GarmentAnalysisResult {
     'rejectionReason': rejectionReason,
     'suggestedName': suggestedName,
     'category': category,
+    'preciseType': preciseType,
     'primaryColor': primaryColor,
     'material': material,
     'season': season,
@@ -198,6 +202,7 @@ class GarmentAnalysisResult {
 
   GarmentAnalysisResult copyWith({
     String? category,
+    String? preciseType,
     String? primaryColor,
     String? material,
     String? season,
@@ -207,7 +212,8 @@ class GarmentAnalysisResult {
     List<String>? warnings,
   }) => GarmentAnalysisResult(
     isUsableImage: isUsableImage, rejectionReason: rejectionReason,
-    suggestedName: suggestedName, category: category, primaryColor: primaryColor,
+    suggestedName: suggestedName, category: category, preciseType: preciseType,
+    primaryColor: primaryColor,
     material: material, season: season, visibleBrand: visibleBrand,
     globalConfidence: globalConfidence ?? this.globalConfidence,
     imageQualityConfidence: imageQualityConfidence, isBlurry: isBlurry,

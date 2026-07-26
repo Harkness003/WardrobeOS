@@ -659,8 +659,25 @@ class _AiGarmentDetails extends StatelessWidget {
       _AiDetailEntry.list('Points faibles', garment.pointsFaibles),
       _AiDetailEntry.list('Conseils', garment.conseils),
       _AiDetailEntry.text('Verdict', garment.verdict),
+      _AiDetailEntry.text(
+        'Explication de la polyvalence',
+        garment.explicationPolyvalence,
+      ),
+    ].where((entry) => entry.isNotEmpty).toList();
+    final associations = <_AiDetailEntry>[
+      _AiDetailEntry.list('Couleurs compatibles', garment.couleursCompatibles),
+      _AiDetailEntry.list(
+        'Couleurs moins adaptées',
+        garment.couleursMoinsAdaptees,
+      ),
+      _AiDetailEntry.list('Bas compatibles', garment.basCompatibles),
+      _AiDetailEntry.list(
+        'Chaussures compatibles',
+        garment.chaussuresCompatibles,
+      ),
     ].where((entry) => entry.isNotEmpty).toList();
     final characteristics = <_AiDetailEntry>[
+      _AiDetailEntry.text('Type précis', garment.typePrecis),
       _AiDetailEntry.text(
         'Couleur principale',
         _firstDisplayText(garment.couleurPrincipale, garment.color),
@@ -708,6 +725,10 @@ class _AiGarmentDetails extends StatelessWidget {
           Icons.auto_awesome_outlined,
         ),
         styleEntries,
+      ),
+      (
+        const _AiDetailGroup('Associations', Icons.checkroom_outlined),
+        associations,
       ),
       (
         const _AiDetailGroup('Caractéristiques IA', Icons.palette_outlined),

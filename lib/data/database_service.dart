@@ -16,7 +16,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 6,
+      version: 7,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -79,6 +79,11 @@ class DatabaseService {
             points_faibles TEXT,
             conseils TEXT,
             verdict TEXT,
+            couleurs_compatibles TEXT,
+            couleurs_moins_adaptees TEXT,
+            bas_compatibles TEXT,
+            chaussures_compatibles TEXT,
+            explication_polyvalence TEXT,
             occasions_deconseillees TEXT,
             composition_estimee TEXT,
             lavage TEXT,
@@ -167,6 +172,17 @@ class DatabaseService {
             'boulochage',
             'taches',
             'limites_analyse',
+          ]) {
+            await _addColumn(db, 'garments', column, 'TEXT');
+          }
+        }
+        if (oldVersion < 7) {
+          for (final column in const [
+            'couleurs_compatibles',
+            'couleurs_moins_adaptees',
+            'bas_compatibles',
+            'chaussures_compatibles',
+            'explication_polyvalence',
           ]) {
             await _addColumn(db, 'garments', column, 'TEXT');
           }

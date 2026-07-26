@@ -73,6 +73,7 @@ void main() {
       final result = GarmentAnalysisResult.fromJson({
         'isUsableImage': true,
         'globalConfidence': .86,
+        'preciseType': 'Blazer croisé',
         'styleSummary': 'Une veste structurée au registre formel.',
         'styleStrengths': ['La ligne nette structure la silhouette.'],
         'styleWeaknesses': ['Le motif marqué limite les associations.'],
@@ -89,6 +90,7 @@ void main() {
       });
 
       expect(result.styleSummary, contains('structurée'));
+      expect(result.preciseType, 'Blazer croisé');
       expect(result.styleStrengths, hasLength(1));
       expect(result.styleWeaknesses.single, contains('motif'));
       expect(result.styleAdvice.single, contains('pantalon uni'));
@@ -107,6 +109,7 @@ void main() {
       const source = GarmentAnalysisResult(
         isUsableImage: true,
         globalConfidence: .9,
+        preciseType: 'Chemise Oxford',
         styleSummary: 'Résumé argumenté',
         styleStrengths: ['Point fort expliqué'],
         styleWeaknesses: ['Point faible expliqué'],
@@ -117,6 +120,7 @@ void main() {
 
       final restored = GarmentAnalysisResult.fromJson(source.toJson());
       expect(restored.styleSummary, source.styleSummary);
+      expect(restored.preciseType, source.preciseType);
       expect(restored.styleStrengths, source.styleStrengths);
       expect(restored.styleWeaknesses, source.styleWeaknesses);
       expect(restored.styleAdvice, source.styleAdvice);
@@ -133,6 +137,7 @@ void main() {
 
       expect(result.suggestedName, 'Chemise bleue');
       expect(result.styleSummary, isNull);
+      expect(result.preciseType, isNull);
       expect(result.styleStrengths, isEmpty);
       expect(result.styleWeaknesses, isEmpty);
       expect(result.analysisLimitations, isEmpty);
