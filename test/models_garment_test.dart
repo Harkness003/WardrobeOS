@@ -53,6 +53,20 @@ void main() {
       defautsVisibles: const [],
       confianceGlobale: .9,
       avertissementsIA: const ['Matière à confirmer'],
+      resumeStylistique: 'Un blazer formel et structuré.',
+      pointsForts: const ['Coupe nette'],
+      pointsFaibles: const ['Peu décontracté'],
+      conseils: const ['Associer à une chemise claire'],
+      verdict: 'Une pièce forte pour le bureau.',
+      occasionsDeconseillees: const ['Sport'],
+      compositionEstimee: 'Laine majoritaire, doublure synthétique',
+      lavage: 'Nettoyage professionnel recommandé',
+      sechage: 'Séchage sur cintre',
+      repassage: 'Fer doux avec pattemouille',
+      nettoyage: 'Nettoyage à sec',
+      boulochage: 'Léger aux poignets',
+      taches: 'Aucune visible',
+      limitesAnalyse: const ['Étiquette non visible'],
       createdAt: now,
       updatedAt: now,
     );
@@ -60,6 +74,8 @@ void main() {
     expect(restored, garment);
     expect(restored.copyWith(name: 'Nouveau').name, 'Nouveau');
     expect(restored.validate(), isNull);
+    expect(restored.resumeStylistique, contains('formel'));
+    expect(restored.limitesAnalyse, ['Étiquette non visible']);
   });
 
   test('validates temperatures and confidence', () {

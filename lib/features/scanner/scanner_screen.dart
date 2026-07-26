@@ -312,6 +312,14 @@ class _ScannerScreenState extends State<ScannerScreen> {
       saisons: result?.season == null ? null : [result!.season!],
       confianceGlobale: result?.globalConfidence,
       avertissementsIA: result?.warnings,
+      resumeStylistique: result?.styleSummary,
+      pointsForts: result?.styleStrengths,
+      pointsFaibles: result?.styleWeaknesses,
+      conseils: result?.styleAdvice,
+      verdict: result?.styleVerdict,
+      occasions: result?.idealOccasions,
+      occasionsDeconseillees: result?.discouragedOccasions,
+      limitesAnalyse: result?.analysisLimitations,
       notes:
           result == null
               ? 'Ajout manuel depuis le scanner.'

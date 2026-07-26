@@ -16,7 +16,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 5,
+      version: 6,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -74,6 +74,20 @@ class DatabaseService {
             defauts_visibles TEXT,
             confiance_globale REAL,
             avertissements_i_a TEXT,
+            resume_stylistique TEXT,
+            points_forts TEXT,
+            points_faibles TEXT,
+            conseils TEXT,
+            verdict TEXT,
+            occasions_deconseillees TEXT,
+            composition_estimee TEXT,
+            lavage TEXT,
+            sechage TEXT,
+            repassage TEXT,
+            nettoyage TEXT,
+            boulochage TEXT,
+            taches TEXT,
+            limites_analyse TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
           )
@@ -136,6 +150,26 @@ class DatabaseService {
           await _addColumn(db, 'garments', 'defauts_visibles', 'TEXT');
           await _addColumn(db, 'garments', 'confiance_globale', 'REAL');
           await _addColumn(db, 'garments', 'avertissements_i_a', 'TEXT');
+        }
+        if (oldVersion < 6) {
+          for (final column in const [
+            'resume_stylistique',
+            'points_forts',
+            'points_faibles',
+            'conseils',
+            'verdict',
+            'occasions_deconseillees',
+            'composition_estimee',
+            'lavage',
+            'sechage',
+            'repassage',
+            'nettoyage',
+            'boulochage',
+            'taches',
+            'limites_analyse',
+          ]) {
+            await _addColumn(db, 'garments', column, 'TEXT');
+          }
         }
         await _createIndexes(db);
       },

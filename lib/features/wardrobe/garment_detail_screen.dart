@@ -10,6 +10,29 @@ import '../outfits/outfits_controller.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
 
+String? _cleanDisplayText(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  final normalized = trimmed.toLowerCase();
+  if (normalized == 'null' ||
+      normalized == 'n/a' ||
+      normalized == 'inconnu' ||
+      normalized == 'inconnue') {
+    return null;
+  }
+  return trimmed;
+}
+
+List<String> _cleanDisplayList(Iterable<String>? values) =>
+    (values ?? const <String>[])
+        .map(_cleanDisplayText)
+        .whereType<String>()
+        .toSet()
+        .toList(growable: false);
+
+String? _firstDisplayText(String? preferred, String? fallback) =>
+    _cleanDisplayText(preferred) ?? _cleanDisplayText(fallback);
+
 class GarmentDetailScreen extends StatefulWidget {
   final WardrobeController controller;
   final Garment garment;
@@ -293,7 +316,8 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
               garment.occasion,
             ]
             .whereType<String>()
-            .where((value) => value.trim().isNotEmpty)
+            .map(_cleanText)
+            .whereType<String>()
             .toList();
 
     return Scaffold(
@@ -386,6 +410,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
                       .toList(),
             ),
           ],
+          _AiGarmentDetails(garment: garment),
           const SizedBox(height: 26),
           const _SectionTitle('Utilisé dans'),
           const SizedBox(height: 10),
@@ -561,8 +586,9 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     );
   }
 
-  static bool _hasText(String? value) =>
-      value != null && value.trim().isNotEmpty;
+  static bool _hasText(String? value) => _cleanText(value) != null;
+
+  static String? _cleanText(String? value) => _cleanDisplayText(value);
 
   static String _formatDate(DateTime date) {
     final day = date.day.toString().padLeft(2, '0');
@@ -619,6 +645,190 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
 }
 
 enum _WearDateChoice { today, custom }
+
+class _AiGarmentDetails extends StatelessWidget {
+  final Garment garment;
+
+  const _AiGarmentDetails({required this.garment});
+
+  @override
+  Widget build(BuildContext context) {
+    final styleEntries = <_AiDetailEntry>[
+      _AiDetailEntry.text('Résumé stylistique', garment.resumeStylistique),
+      _AiDetailEntry.list('Points forts', garment.pointsForts),
+      _AiDetailEntry.list('Points faibles', garment.pointsFaibles),
+      _AiDetailEntry.list('Conseils', garment.conseils),
+      _AiDetailEntry.text('Verdict', garment.verdict),
+    ].where((entry) => entry.isNotEmpty).toList();
+    final characteristics = <_AiDetailEntry>[
+      _AiDetailEntry.text(
+        'Couleur principale',
+        _firstDisplayText(garment.couleurPrincipale, garment.color),
+      ),
+      _AiDetailEntry.list(
+        'Couleurs secondaires',
+        garment.couleursSecondaires,
+      ),
+      _AiDetailEntry.text(
+        'Matière principale',
+        _firstDisplayText(garment.matierePrincipale, garment.material),
+      ),
+      _AiDetailEntry.list(
+        'Matières secondaires',
+        garment.matieresSecondaires,
+      ),
+      _AiDetailEntry.text('Composition estimée', garment.compositionEstimee),
+    ].where((entry) => entry.isNotEmpty).toList();
+    final occasions = <_AiDetailEntry>[
+      _AiDetailEntry.list('Occasions recommandées', garment.occasions),
+      _AiDetailEntry.list(
+        'Occasions déconseillées',
+        garment.occasionsDeconseillees,
+      ),
+    ].where((entry) => entry.isNotEmpty).toList();
+    final care = <_AiDetailEntry>[
+      _AiDetailEntry.text('Lavage', garment.lavage),
+      _AiDetailEntry.text('Séchage', garment.sechage),
+      _AiDetailEntry.text('Repassage', garment.repassage),
+      _AiDetailEntry.text('Nettoyage', garment.nettoyage),
+    ].where((entry) => entry.isNotEmpty).toList();
+    final condition = <_AiDetailEntry>[
+      _AiDetailEntry.text('Usure', garment.usureVisible),
+      _AiDetailEntry.text('Boulochage', garment.boulochage),
+      _AiDetailEntry.text('Taches', garment.taches),
+      _AiDetailEntry.list('Défauts visibles', garment.defautsVisibles),
+    ].where((entry) => entry.isNotEmpty).toList();
+    final limits = <_AiDetailEntry>[
+      _AiDetailEntry.list('Limites de l’analyse', garment.limitesAnalyse),
+    ].where((entry) => entry.isNotEmpty).toList();
+    final groups = <(_AiDetailGroup, List<_AiDetailEntry>)>[
+      (
+        const _AiDetailGroup(
+          'Analyse stylistique',
+          Icons.auto_awesome_outlined,
+        ),
+        styleEntries,
+      ),
+      (
+        const _AiDetailGroup('Caractéristiques IA', Icons.palette_outlined),
+        characteristics,
+      ),
+      (
+        const _AiDetailGroup('Occasions', Icons.event_available_outlined),
+        occasions,
+      ),
+      (
+        const _AiDetailGroup(
+          'Entretien',
+          Icons.local_laundry_service_outlined,
+        ),
+        care,
+      ),
+      (
+        const _AiDetailGroup('État observé', Icons.visibility_outlined),
+        condition,
+      ),
+      (const _AiDetailGroup('Fiabilité', Icons.info_outline), limits),
+    ].where((group) => group.$2.isNotEmpty).toList();
+
+    if (groups.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 26),
+        const _SectionTitle('Analyse IA'),
+        const SizedBox(height: 10),
+        for (var index = 0; index < groups.length; index++) ...[
+          _AiDetailCard(group: groups[index].$1, entries: groups[index].$2),
+          if (index < groups.length - 1) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class _AiDetailGroup {
+  final String title;
+  final IconData icon;
+
+  const _AiDetailGroup(this.title, this.icon);
+}
+
+class _AiDetailEntry {
+  final String label;
+  final List<String> values;
+
+  _AiDetailEntry.text(this.label, String? value)
+    : values = _cleanDisplayList(value == null ? const [] : [value]);
+
+  _AiDetailEntry.list(this.label, Iterable<String>? values)
+    : values = _cleanDisplayList(values);
+
+  bool get isNotEmpty => values.isNotEmpty;
+}
+
+class _AiDetailCard extends StatelessWidget {
+  final _AiDetailGroup group;
+  final List<_AiDetailEntry> entries;
+
+  const _AiDetailCard({required this.group, required this.entries});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(17),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(group.icon, size: 21),
+                const SizedBox(width: 10),
+                Text(
+                  group.title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            for (var index = 0; index < entries.length; index++) ...[
+              _AiDetailRow(entry: entries[index]),
+              if (index < entries.length - 1) const SizedBox(height: 14),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AiDetailRow extends StatelessWidget {
+  final _AiDetailEntry entry;
+
+  const _AiDetailRow({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(entry.label, style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 5),
+        if (entry.values.length == 1)
+          Text(entry.values.single)
+        else
+          for (final value in entry.values)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Text('• $value'),
+            ),
+      ],
+    );
+  }
+}
 
 class _SectionTitle extends StatelessWidget {
   final String title;

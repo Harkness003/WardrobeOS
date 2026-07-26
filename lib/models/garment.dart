@@ -52,6 +52,20 @@ class Garment {
   final List<String>? defautsVisibles;
   final double? confianceGlobale;
   final List<String>? avertissementsIA;
+  final String? resumeStylistique;
+  final List<String>? pointsForts;
+  final List<String>? pointsFaibles;
+  final List<String>? conseils;
+  final String? verdict;
+  final List<String>? occasionsDeconseillees;
+  final String? compositionEstimee;
+  final String? lavage;
+  final String? sechage;
+  final String? repassage;
+  final String? nettoyage;
+  final String? boulochage;
+  final String? taches;
+  final List<String>? limitesAnalyse;
   final int wearCount;
   final bool isFavorite;
   final DateTime createdAt;
@@ -107,6 +121,20 @@ class Garment {
     this.defautsVisibles,
     this.confianceGlobale,
     this.avertissementsIA,
+    this.resumeStylistique,
+    this.pointsForts,
+    this.pointsFaibles,
+    this.conseils,
+    this.verdict,
+    this.occasionsDeconseillees,
+    this.compositionEstimee,
+    this.lavage,
+    this.sechage,
+    this.repassage,
+    this.nettoyage,
+    this.boulochage,
+    this.taches,
+    this.limitesAnalyse,
     this.wearCount = 0,
     this.isFavorite = false,
     required this.createdAt,
@@ -163,6 +191,20 @@ class Garment {
     List<String>? defautsVisibles,
     double? confianceGlobale,
     List<String>? avertissementsIA,
+    String? resumeStylistique,
+    List<String>? pointsForts,
+    List<String>? pointsFaibles,
+    List<String>? conseils,
+    String? verdict,
+    List<String>? occasionsDeconseillees,
+    String? compositionEstimee,
+    String? lavage,
+    String? sechage,
+    String? repassage,
+    String? nettoyage,
+    String? boulochage,
+    String? taches,
+    List<String>? limitesAnalyse,
     int? wearCount,
     bool? isFavorite,
     DateTime? createdAt,
@@ -217,6 +259,20 @@ class Garment {
     defautsVisibles: defautsVisibles ?? this.defautsVisibles,
     confianceGlobale: confianceGlobale ?? this.confianceGlobale,
     avertissementsIA: avertissementsIA ?? this.avertissementsIA,
+    resumeStylistique: resumeStylistique ?? this.resumeStylistique,
+    pointsForts: pointsForts ?? this.pointsForts,
+    pointsFaibles: pointsFaibles ?? this.pointsFaibles,
+    conseils: conseils ?? this.conseils,
+    verdict: verdict ?? this.verdict,
+    occasionsDeconseillees: occasionsDeconseillees ?? this.occasionsDeconseillees,
+    compositionEstimee: compositionEstimee ?? this.compositionEstimee,
+    lavage: lavage ?? this.lavage,
+    sechage: sechage ?? this.sechage,
+    repassage: repassage ?? this.repassage,
+    nettoyage: nettoyage ?? this.nettoyage,
+    boulochage: boulochage ?? this.boulochage,
+    taches: taches ?? this.taches,
+    limitesAnalyse: limitesAnalyse ?? this.limitesAnalyse,
     wearCount: wearCount ?? this.wearCount,
     isFavorite: isFavorite ?? this.isFavorite,
     createdAt: createdAt ?? this.createdAt,
@@ -273,6 +329,20 @@ class Garment {
     'defauts_visibles': defautsVisibles == null ? null : jsonEncode(defautsVisibles),
     'confiance_globale': confianceGlobale,
     'avertissements_i_a': avertissementsIA == null ? null : jsonEncode(avertissementsIA),
+    'resume_stylistique': resumeStylistique,
+    'points_forts': pointsForts == null ? null : jsonEncode(pointsForts),
+    'points_faibles': pointsFaibles == null ? null : jsonEncode(pointsFaibles),
+    'conseils': conseils == null ? null : jsonEncode(conseils),
+    'verdict': verdict,
+    'occasions_deconseillees': occasionsDeconseillees == null ? null : jsonEncode(occasionsDeconseillees),
+    'composition_estimee': compositionEstimee,
+    'lavage': lavage,
+    'sechage': sechage,
+    'repassage': repassage,
+    'nettoyage': nettoyage,
+    'boulochage': boulochage,
+    'taches': taches,
+    'limites_analyse': limitesAnalyse == null ? null : jsonEncode(limitesAnalyse),
     'wear_count': wearCount,
     'is_favorite': isFavorite ? 1 : 0,
     'created_at': createdAt.toIso8601String(),
@@ -345,6 +415,20 @@ class Garment {
       defautsVisibles: list('defauts_visibles'),
       confianceGlobale: number('confiance_globale'),
       avertissementsIA: list('avertissements_i_a'),
+      resumeStylistique: text('resume_stylistique'),
+      pointsForts: list('points_forts'),
+      pointsFaibles: list('points_faibles'),
+      conseils: list('conseils'),
+      verdict: text('verdict'),
+      occasionsDeconseillees: list('occasions_deconseillees'),
+      compositionEstimee: text('composition_estimee'),
+      lavage: text('lavage'),
+      sechage: text('sechage'),
+      repassage: text('repassage'),
+      nettoyage: text('nettoyage'),
+      boulochage: text('boulochage'),
+      taches: text('taches'),
+      limitesAnalyse: list('limites_analyse'),
       wearCount: (map['wear_count'] as num?)?.toInt() ?? 0,
       isFavorite: map['is_favorite'] == 1 || map['is_favorite'] == true,
       createdAt: DateTime.parse(map['created_at'] as String),
