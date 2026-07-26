@@ -23,6 +23,19 @@ class GarmentAnalysisResult {
   final List<String> imageQualityWarnings;
   final Map<String, double> fieldConfidences;
   final List<String> warnings;
+  final String? styleSummary;
+  final List<String> styleStrengths;
+  final List<String> styleWeaknesses;
+  final List<String> styleAdvice;
+  final List<String> compatibleColors;
+  final List<String> lessSuitableColors;
+  final List<String> compatibleBottoms;
+  final List<String> compatibleShoes;
+  final List<String> idealOccasions;
+  final List<String> discouragedOccasions;
+  final String? versatilityExplanation;
+  final String? styleVerdict;
+  final List<String> analysisLimitations;
 
   const GarmentAnalysisResult({
     required this.isUsableImage,
@@ -45,6 +58,19 @@ class GarmentAnalysisResult {
     this.imageQualityWarnings = const [],
     this.fieldConfidences = const {},
     this.warnings = const [],
+    this.styleSummary,
+    this.styleStrengths = const [],
+    this.styleWeaknesses = const [],
+    this.styleAdvice = const [],
+    this.compatibleColors = const [],
+    this.lessSuitableColors = const [],
+    this.compatibleBottoms = const [],
+    this.compatibleShoes = const [],
+    this.idealOccasions = const [],
+    this.discouragedOccasions = const [],
+    this.versatilityExplanation,
+    this.styleVerdict,
+    this.analysisLimitations = const [],
   });
 
   factory GarmentAnalysisResult.fromJsonString(String source) {
@@ -118,8 +144,57 @@ class GarmentAnalysisResult {
       imageQualityWarnings: List.unmodifiable(strings('imageQualityWarnings')),
       fieldConfidences: Map.unmodifiable(confidences),
       warnings: List.unmodifiable(strings('warnings')),
+      styleSummary: text('styleSummary'),
+      styleStrengths: List.unmodifiable(strings('styleStrengths')),
+      styleWeaknesses: List.unmodifiable(strings('styleWeaknesses')),
+      styleAdvice: List.unmodifiable(strings('styleAdvice')),
+      compatibleColors: List.unmodifiable(strings('compatibleColors')),
+      lessSuitableColors: List.unmodifiable(strings('lessSuitableColors')),
+      compatibleBottoms: List.unmodifiable(strings('compatibleBottoms')),
+      compatibleShoes: List.unmodifiable(strings('compatibleShoes')),
+      idealOccasions: List.unmodifiable(strings('idealOccasions')),
+      discouragedOccasions: List.unmodifiable(strings('discouragedOccasions')),
+      versatilityExplanation: text('versatilityExplanation'),
+      styleVerdict: text('styleVerdict'),
+      analysisLimitations: List.unmodifiable(strings('analysisLimitations')),
     );
   }
+
+  Map<String, Object?> toJson() => {
+    'isUsableImage': isUsableImage,
+    'rejectionReason': rejectionReason,
+    'suggestedName': suggestedName,
+    'category': category,
+    'primaryColor': primaryColor,
+    'material': material,
+    'season': season,
+    'visibleBrand': visibleBrand,
+    'globalConfidence': globalConfidence,
+    'imageQualityConfidence': imageQualityConfidence,
+    'isBlurry': isBlurry,
+    'isTooDark': isTooDark,
+    'isOverexposed': isOverexposed,
+    'garmentIsPartiallyHidden': garmentIsPartiallyHidden,
+    'garmentIsTooSmall': garmentIsTooSmall,
+    'multipleMainGarments': multipleMainGarments,
+    'backgroundIsProblematic': backgroundIsProblematic,
+    'imageQualityWarnings': imageQualityWarnings,
+    'fieldConfidences': fieldConfidences,
+    'warnings': warnings,
+    'styleSummary': styleSummary,
+    'styleStrengths': styleStrengths,
+    'styleWeaknesses': styleWeaknesses,
+    'styleAdvice': styleAdvice,
+    'compatibleColors': compatibleColors,
+    'lessSuitableColors': lessSuitableColors,
+    'compatibleBottoms': compatibleBottoms,
+    'compatibleShoes': compatibleShoes,
+    'idealOccasions': idealOccasions,
+    'discouragedOccasions': discouragedOccasions,
+    'versatilityExplanation': versatilityExplanation,
+    'styleVerdict': styleVerdict,
+    'analysisLimitations': analysisLimitations,
+  };
 
   GarmentAnalysisResult copyWith({
     String? category,
@@ -144,5 +219,13 @@ class GarmentAnalysisResult {
     imageQualityWarnings: imageQualityWarnings,
     fieldConfidences: fieldConfidences ?? this.fieldConfidences,
     warnings: warnings ?? this.warnings,
+    styleSummary: styleSummary, styleStrengths: styleStrengths,
+    styleWeaknesses: styleWeaknesses, styleAdvice: styleAdvice,
+    compatibleColors: compatibleColors, lessSuitableColors: lessSuitableColors,
+    compatibleBottoms: compatibleBottoms, compatibleShoes: compatibleShoes,
+    idealOccasions: idealOccasions,
+    discouragedOccasions: discouragedOccasions,
+    versatilityExplanation: versatilityExplanation, styleVerdict: styleVerdict,
+    analysisLimitations: analysisLimitations,
   );
 }

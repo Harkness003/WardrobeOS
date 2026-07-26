@@ -168,6 +168,16 @@ ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
 l'étiquette reste prioritaire. Baisse la confiance si texture, couleur ou logo
 sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
 Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
+Agis comme un styliste professionnel : observe, explique, argumente et nuance.
+Produis un résumé, des points forts et faibles, des conseils concrets, les
+couleurs, bas et chaussures compatibles, les couleurs moins adaptées, les
+occasions idéales et déconseillées, une polyvalence expliquée et un verdict
+franc. Ne flatte pas systématiquement et ne qualifie jamais une pièce
+d'élégante, polyvalente ou belle sans justification. Tu peux dire qu'une coupe
+est datée, une couleur difficile, un motif chargé ou la pièce peu polyvalente.
+Chaque critique doit indiquer pourquoi et tout défaut doit mener à une solution
+concrète. Mentionne dans analysisLimitations ce que l'image ne permet pas de
+conclure (intérieur invisible, matière estimée, vêtement masqué, par exemple).
 category=${jsonEncode(request.allowedCategories)}
 primaryColor=${jsonEncode(request.allowedColors)}
 material=${jsonEncode(request.allowedMaterials)}
@@ -196,6 +206,10 @@ ${jsonEncode(request.existingValues)}
       'garmentIsPartiallyHidden', 'garmentIsTooSmall',
       'multipleMainGarments', 'backgroundIsProblematic',
       'imageQualityWarnings',
+      'styleSummary', 'styleStrengths', 'styleWeaknesses', 'styleAdvice',
+      'compatibleColors', 'lessSuitableColors', 'compatibleBottoms',
+      'compatibleShoes', 'idealOccasions', 'discouragedOccasions',
+      'versatilityExplanation', 'styleVerdict', 'analysisLimitations',
     ],
     'properties': {
       'isUsableImage': {'type': 'boolean'},
@@ -236,6 +250,19 @@ ${jsonEncode(request.existingValues)}
       'multipleMainGarments': {'type': ['boolean', 'null']},
       'backgroundIsProblematic': {'type': ['boolean', 'null']},
       'imageQualityWarnings': {'type': 'array', 'items': {'type': 'string'}},
+      'styleSummary': _nullableString,
+      'styleStrengths': {'type': 'array', 'items': {'type': 'string'}},
+      'styleWeaknesses': {'type': 'array', 'items': {'type': 'string'}},
+      'styleAdvice': {'type': 'array', 'items': {'type': 'string'}},
+      'compatibleColors': {'type': 'array', 'items': {'type': 'string'}},
+      'lessSuitableColors': {'type': 'array', 'items': {'type': 'string'}},
+      'compatibleBottoms': {'type': 'array', 'items': {'type': 'string'}},
+      'compatibleShoes': {'type': 'array', 'items': {'type': 'string'}},
+      'idealOccasions': {'type': 'array', 'items': {'type': 'string'}},
+      'discouragedOccasions': {'type': 'array', 'items': {'type': 'string'}},
+      'versatilityExplanation': _nullableString,
+      'styleVerdict': _nullableString,
+      'analysisLimitations': {'type': 'array', 'items': {'type': 'string'}},
     },
   };
 

@@ -67,4 +67,75 @@ void main() {
     expect(mapped.material, 'Coton');
     expect(GarmentConfidence.label(.6), 'Confiance moyenne');
   });
+
+  group('analyse stylistique', () {
+    test('parse tous les nouveaux champs', () {
+      final result = GarmentAnalysisResult.fromJson({
+        'isUsableImage': true,
+        'globalConfidence': .86,
+        'styleSummary': 'Une veste structurée au registre formel.',
+        'styleStrengths': ['La ligne nette structure la silhouette.'],
+        'styleWeaknesses': ['Le motif marqué limite les associations.'],
+        'styleAdvice': ['Porter un pantalon uni pour calmer le motif.'],
+        'compatibleColors': ['Marine', 'Écru'],
+        'lessSuitableColors': ['Orange vif'],
+        'compatibleBottoms': ['Pantalon droit marine'],
+        'compatibleShoes': ['Derbies sobres'],
+        'idealOccasions': ['Bureau'],
+        'discouragedOccasions': ['Sport'],
+        'versatilityExplanation': 'Polyvalence moyenne à cause du motif.',
+        'styleVerdict': 'Intéressante, mais exige des pièces sobres.',
+        'analysisLimitations': ['La doublure intérieure est invisible.'],
+      });
+
+      expect(result.styleSummary, contains('structurée'));
+      expect(result.styleStrengths, hasLength(1));
+      expect(result.styleWeaknesses.single, contains('motif'));
+      expect(result.styleAdvice.single, contains('pantalon uni'));
+      expect(result.compatibleColors, ['Marine', 'Écru']);
+      expect(result.lessSuitableColors, ['Orange vif']);
+      expect(result.compatibleBottoms, ['Pantalon droit marine']);
+      expect(result.compatibleShoes, ['Derbies sobres']);
+      expect(result.idealOccasions, ['Bureau']);
+      expect(result.discouragedOccasions, ['Sport']);
+      expect(result.versatilityExplanation, contains('motif'));
+      expect(result.styleVerdict, contains('sobres'));
+      expect(result.analysisLimitations.single, contains('invisible'));
+    });
+
+    test('sérialise puis restaure une analyse stylistique', () {
+      const source = GarmentAnalysisResult(
+        isUsableImage: true,
+        globalConfidence: .9,
+        styleSummary: 'Résumé argumenté',
+        styleStrengths: ['Point fort expliqué'],
+        styleWeaknesses: ['Point faible expliqué'],
+        styleAdvice: ['Conseil concret'],
+        styleVerdict: 'Verdict nuancé',
+        analysisLimitations: ['Matière seulement estimée'],
+      );
+
+      final restored = GarmentAnalysisResult.fromJson(source.toJson());
+      expect(restored.styleSummary, source.styleSummary);
+      expect(restored.styleStrengths, source.styleStrengths);
+      expect(restored.styleWeaknesses, source.styleWeaknesses);
+      expect(restored.styleAdvice, source.styleAdvice);
+      expect(restored.styleVerdict, source.styleVerdict);
+      expect(restored.analysisLimitations, source.analysisLimitations);
+    });
+
+    test('reste compatible avec les anciens JSON sans analyse stylistique', () {
+      final result = GarmentAnalysisResult.fromJson({
+        'isUsableImage': true,
+        'globalConfidence': .75,
+        'suggestedName': 'Chemise bleue',
+      });
+
+      expect(result.suggestedName, 'Chemise bleue');
+      expect(result.styleSummary, isNull);
+      expect(result.styleStrengths, isEmpty);
+      expect(result.styleWeaknesses, isEmpty);
+      expect(result.analysisLimitations, isEmpty);
+    });
+  });
 }

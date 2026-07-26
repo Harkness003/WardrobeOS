@@ -1,0 +1,466 @@
+diff --git a/lib/features/scanner/ai/garment_analysis_result.dart b/lib/features/scanner/ai/garment_analysis_result.dart
+index bd26f078e03c96f558cee16a5d2f10a3e1ffef93..63af2888a1cfb3f6ca420369cfe9f1c7a4852861 100644
+--- a/lib/features/scanner/ai/garment_analysis_result.dart
++++ b/lib/features/scanner/ai/garment_analysis_result.dart
+@@ -1,72 +1,98 @@
+ import 'dart:convert';
+ 
+ import 'garment_analysis_exception.dart';
+ 
+ class GarmentAnalysisResult {
+   final bool isUsableImage;
+   final String? rejectionReason;
+   final String? suggestedName;
+   final String? category;
+   final String? primaryColor;
+   final String? material;
+   final String? season;
+   final String? visibleBrand;
+   final double globalConfidence;
+   final double imageQualityConfidence;
+   final bool? isBlurry;
+   final bool? isTooDark;
+   final bool? isOverexposed;
+   final bool? garmentIsPartiallyHidden;
+   final bool? garmentIsTooSmall;
+   final bool? multipleMainGarments;
+   final bool? backgroundIsProblematic;
+   final List<String> imageQualityWarnings;
+   final Map<String, double> fieldConfidences;
+   final List<String> warnings;
++  final String? styleSummary;
++  final List<String> styleStrengths;
++  final List<String> styleWeaknesses;
++  final List<String> styleAdvice;
++  final List<String> compatibleColors;
++  final List<String> lessSuitableColors;
++  final List<String> compatibleBottoms;
++  final List<String> compatibleShoes;
++  final List<String> idealOccasions;
++  final List<String> discouragedOccasions;
++  final String? versatilityExplanation;
++  final String? styleVerdict;
++  final List<String> analysisLimitations;
+ 
+   const GarmentAnalysisResult({
+     required this.isUsableImage,
+     this.rejectionReason,
+     this.suggestedName,
+     this.category,
+     this.primaryColor,
+     this.material,
+     this.season,
+     this.visibleBrand,
+     required this.globalConfidence,
+     this.imageQualityConfidence = 1,
+     this.isBlurry,
+     this.isTooDark,
+     this.isOverexposed,
+     this.garmentIsPartiallyHidden,
+     this.garmentIsTooSmall,
+     this.multipleMainGarments,
+     this.backgroundIsProblematic,
+     this.imageQualityWarnings = const [],
+     this.fieldConfidences = const {},
+     this.warnings = const [],
++    this.styleSummary,
++    this.styleStrengths = const [],
++    this.styleWeaknesses = const [],
++    this.styleAdvice = const [],
++    this.compatibleColors = const [],
++    this.lessSuitableColors = const [],
++    this.compatibleBottoms = const [],
++    this.compatibleShoes = const [],
++    this.idealOccasions = const [],
++    this.discouragedOccasions = const [],
++    this.versatilityExplanation,
++    this.styleVerdict,
++    this.analysisLimitations = const [],
+   });
+ 
+   factory GarmentAnalysisResult.fromJsonString(String source) {
+     try {
+       final value = jsonDecode(source);
+       if (value is! Map<String, dynamic>) throw const FormatException();
+       return GarmentAnalysisResult.fromJson(value);
+     } on GarmentAnalysisException {
+       rethrow;
+     } on FormatException {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.invalidJson,
+         'La réponse de l’analyse IA est illisible.',
+       );
+     }
+   }
+ 
+   factory GarmentAnalysisResult.fromJson(Map<String, dynamic> json) {
+     if (json['isUsableImage'] is! bool ||
+         json['globalConfidence'] is! num) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.invalidSchema,
+         'La réponse de l’analyse IA est incomplète.',
+       );
+     }
+@@ -96,53 +122,110 @@ class GarmentAnalysisResult {
+ 
+     return GarmentAnalysisResult(
+       isUsableImage: json['isUsableImage'] as bool,
+       rejectionReason: text('rejectionReason'),
+       suggestedName: text('suggestedName'),
+       category: text('category'),
+       primaryColor: text('primaryColor'),
+       material: text('material'),
+       season: text('season'),
+       visibleBrand: text('visibleBrand'),
+       globalConfidence:
+           (json['globalConfidence'] as num).toDouble().clamp(0, 1).toDouble(),
+       imageQualityConfidence: json['imageQualityConfidence'] is num
+           ? (json['imageQualityConfidence'] as num).toDouble().clamp(0, 1).toDouble()
+           : 1,
+       isBlurry: json['isBlurry'] as bool?,
+       isTooDark: json['isTooDark'] as bool?,
+       isOverexposed: json['isOverexposed'] as bool?,
+       garmentIsPartiallyHidden: json['garmentIsPartiallyHidden'] as bool?,
+       garmentIsTooSmall: json['garmentIsTooSmall'] as bool?,
+       multipleMainGarments: json['multipleMainGarments'] as bool?,
+       backgroundIsProblematic: json['backgroundIsProblematic'] as bool?,
+       imageQualityWarnings: List.unmodifiable(strings('imageQualityWarnings')),
+       fieldConfidences: Map.unmodifiable(confidences),
+       warnings: List.unmodifiable(strings('warnings')),
++      styleSummary: text('styleSummary'),
++      styleStrengths: List.unmodifiable(strings('styleStrengths')),
++      styleWeaknesses: List.unmodifiable(strings('styleWeaknesses')),
++      styleAdvice: List.unmodifiable(strings('styleAdvice')),
++      compatibleColors: List.unmodifiable(strings('compatibleColors')),
++      lessSuitableColors: List.unmodifiable(strings('lessSuitableColors')),
++      compatibleBottoms: List.unmodifiable(strings('compatibleBottoms')),
++      compatibleShoes: List.unmodifiable(strings('compatibleShoes')),
++      idealOccasions: List.unmodifiable(strings('idealOccasions')),
++      discouragedOccasions: List.unmodifiable(strings('discouragedOccasions')),
++      versatilityExplanation: text('versatilityExplanation'),
++      styleVerdict: text('styleVerdict'),
++      analysisLimitations: List.unmodifiable(strings('analysisLimitations')),
+     );
+   }
+ 
++  Map<String, Object?> toJson() => {
++    'isUsableImage': isUsableImage,
++    'rejectionReason': rejectionReason,
++    'suggestedName': suggestedName,
++    'category': category,
++    'primaryColor': primaryColor,
++    'material': material,
++    'season': season,
++    'visibleBrand': visibleBrand,
++    'globalConfidence': globalConfidence,
++    'imageQualityConfidence': imageQualityConfidence,
++    'isBlurry': isBlurry,
++    'isTooDark': isTooDark,
++    'isOverexposed': isOverexposed,
++    'garmentIsPartiallyHidden': garmentIsPartiallyHidden,
++    'garmentIsTooSmall': garmentIsTooSmall,
++    'multipleMainGarments': multipleMainGarments,
++    'backgroundIsProblematic': backgroundIsProblematic,
++    'imageQualityWarnings': imageQualityWarnings,
++    'fieldConfidences': fieldConfidences,
++    'warnings': warnings,
++    'styleSummary': styleSummary,
++    'styleStrengths': styleStrengths,
++    'styleWeaknesses': styleWeaknesses,
++    'styleAdvice': styleAdvice,
++    'compatibleColors': compatibleColors,
++    'lessSuitableColors': lessSuitableColors,
++    'compatibleBottoms': compatibleBottoms,
++    'compatibleShoes': compatibleShoes,
++    'idealOccasions': idealOccasions,
++    'discouragedOccasions': discouragedOccasions,
++    'versatilityExplanation': versatilityExplanation,
++    'styleVerdict': styleVerdict,
++    'analysisLimitations': analysisLimitations,
++  };
++
+   GarmentAnalysisResult copyWith({
+     String? category,
+     String? primaryColor,
+     String? material,
+     String? season,
+     String? visibleBrand,
+     double? globalConfidence,
+     Map<String, double>? fieldConfidences,
+     List<String>? warnings,
+   }) => GarmentAnalysisResult(
+     isUsableImage: isUsableImage, rejectionReason: rejectionReason,
+     suggestedName: suggestedName, category: category, primaryColor: primaryColor,
+     material: material, season: season, visibleBrand: visibleBrand,
+     globalConfidence: globalConfidence ?? this.globalConfidence,
+     imageQualityConfidence: imageQualityConfidence, isBlurry: isBlurry,
+     isTooDark: isTooDark, isOverexposed: isOverexposed,
+     garmentIsPartiallyHidden: garmentIsPartiallyHidden,
+     garmentIsTooSmall: garmentIsTooSmall,
+     multipleMainGarments: multipleMainGarments,
+     backgroundIsProblematic: backgroundIsProblematic,
+     imageQualityWarnings: imageQualityWarnings,
+     fieldConfidences: fieldConfidences ?? this.fieldConfidences,
+     warnings: warnings ?? this.warnings,
++    styleSummary: styleSummary, styleStrengths: styleStrengths,
++    styleWeaknesses: styleWeaknesses, styleAdvice: styleAdvice,
++    compatibleColors: compatibleColors, lessSuitableColors: lessSuitableColors,
++    compatibleBottoms: compatibleBottoms, compatibleShoes: compatibleShoes,
++    idealOccasions: idealOccasions,
++    discouragedOccasions: discouragedOccasions,
++    versatilityExplanation: versatilityExplanation, styleVerdict: styleVerdict,
++    analysisLimitations: analysisLimitations,
+   );
+ }
+diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+index 96e4ff3cc9ef8ec4948c6f749a6f4ae9ea9988d4..a72379f29e640e12648411f3b777f09ba90dd735 100644
+--- a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+@@ -146,118 +146,145 @@ return result;
+         ],
+       },
+     ],
+     'text': {
+       'format': {
+         'type': 'json_schema',
+         'name': 'garment_analysis',
+         'strict': true,
+         'schema': _schema,
+       },
+     },
+   };
+ 
+   String _prompt(GarmentAnalysisRequest request) => '''
+ Tu analyses uniquement le vêtement principal visible. Ignore la personne, le
+ visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne.
+ Réponds en ${request.language} et uniquement selon le schéma JSON. N'invente
+ jamais une marque ou une matière : utilise null lorsque ce n'est pas clairement
+ observable. Distingue une photo utilisable, imparfaite et inutilisable. Un léger
+ défaut produit un avertissement ; un vêtement minuscule ou plusieurs vêtements
+ principaux indissociables produisent un rejet. N'identifie personne, ne déduis
+ ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
+ l'étiquette reste prioritaire. Baisse la confiance si texture, couleur ou logo
+ sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
+ Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
++Agis comme un styliste professionnel : observe, explique, argumente et nuance.
++Produis un résumé, des points forts et faibles, des conseils concrets, les
++couleurs, bas et chaussures compatibles, les couleurs moins adaptées, les
++occasions idéales et déconseillées, une polyvalence expliquée et un verdict
++franc. Ne flatte pas systématiquement et ne qualifie jamais une pièce
++d'élégante, polyvalente ou belle sans justification. Tu peux dire qu'une coupe
++est datée, une couleur difficile, un motif chargé ou la pièce peu polyvalente.
++Chaque critique doit indiquer pourquoi et tout défaut doit mener à une solution
++concrète. Mentionne dans analysisLimitations ce que l'image ne permet pas de
++conclure (intérieur invisible, matière estimée, vêtement masqué, par exemple).
+ category=${jsonEncode(request.allowedCategories)}
+ primaryColor=${jsonEncode(request.allowedColors)}
+ material=${jsonEncode(request.allowedMaterials)}
+ season=${jsonEncode(request.allowedSeasons)}
+ Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
+ ${jsonEncode(request.existingValues)}
+ ''';
+ 
+   static const _nullableString = {'type': ['string', 'null']};
+   static const _schema = {
+     'type': 'object',
+     'additionalProperties': false,
+     'required': [
+       'isUsableImage',
+       'rejectionReason',
+       'suggestedName',
+       'category',
+       'primaryColor',
+       'material',
+       'season',
+       'visibleBrand',
+       'globalConfidence',
+       'fieldConfidences',
+       'warnings',
+       'imageQualityConfidence', 'isBlurry', 'isTooDark', 'isOverexposed',
+       'garmentIsPartiallyHidden', 'garmentIsTooSmall',
+       'multipleMainGarments', 'backgroundIsProblematic',
+       'imageQualityWarnings',
++      'styleSummary', 'styleStrengths', 'styleWeaknesses', 'styleAdvice',
++      'compatibleColors', 'lessSuitableColors', 'compatibleBottoms',
++      'compatibleShoes', 'idealOccasions', 'discouragedOccasions',
++      'versatilityExplanation', 'styleVerdict', 'analysisLimitations',
+     ],
+     'properties': {
+       'isUsableImage': {'type': 'boolean'},
+       'rejectionReason': _nullableString,
+       'suggestedName': _nullableString,
+       'category': _nullableString,
+       'primaryColor': _nullableString,
+       'material': _nullableString,
+       'season': _nullableString,
+       'visibleBrand': _nullableString,
+       'globalConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+       'fieldConfidences': {
+   'type': 'array',
+   'items': {
+     'type': 'object',
+     'additionalProperties': false,
+     'required': ['field', 'confidence'],
+     'properties': {
+       'field': {'type': 'string'},
+       'confidence': {
+         'type': 'number',
+         'minimum': 0,
+         'maximum': 1,
+       },
+     },
+   },
+ },
+       'warnings': {
+         'type': 'array',
+         'items': {'type': 'string'},
+       },
+       'imageQualityConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+       'isBlurry': {'type': ['boolean', 'null']},
+       'isTooDark': {'type': ['boolean', 'null']},
+       'isOverexposed': {'type': ['boolean', 'null']},
+       'garmentIsPartiallyHidden': {'type': ['boolean', 'null']},
+       'garmentIsTooSmall': {'type': ['boolean', 'null']},
+       'multipleMainGarments': {'type': ['boolean', 'null']},
+       'backgroundIsProblematic': {'type': ['boolean', 'null']},
+       'imageQualityWarnings': {'type': 'array', 'items': {'type': 'string'}},
++      'styleSummary': _nullableString,
++      'styleStrengths': {'type': 'array', 'items': {'type': 'string'}},
++      'styleWeaknesses': {'type': 'array', 'items': {'type': 'string'}},
++      'styleAdvice': {'type': 'array', 'items': {'type': 'string'}},
++      'compatibleColors': {'type': 'array', 'items': {'type': 'string'}},
++      'lessSuitableColors': {'type': 'array', 'items': {'type': 'string'}},
++      'compatibleBottoms': {'type': 'array', 'items': {'type': 'string'}},
++      'compatibleShoes': {'type': 'array', 'items': {'type': 'string'}},
++      'idealOccasions': {'type': 'array', 'items': {'type': 'string'}},
++      'discouragedOccasions': {'type': 'array', 'items': {'type': 'string'}},
++      'versatilityExplanation': _nullableString,
++      'styleVerdict': _nullableString,
++      'analysisLimitations': {'type': 'array', 'items': {'type': 'string'}},
+     },
+   };
+ 
+   Map<String, dynamic> _decodeObject(String source) {
+     try {
+       final decoded = jsonDecode(source);
+       if (decoded is Map<String, dynamic>) return decoded;
+     } on FormatException {
+       // Translated below without exposing the response body.
+     }
+     throw const GarmentAnalysisException(
+       GarmentAnalysisError.invalidJson,
+       'OpenAI a renvoyé une réponse illisible.',
+     );
+   }
+ 
+   String? _outputText(Map<String, dynamic> body) {
+     if (body['output_text'] is String) return body['output_text'] as String;
+     final output = body['output'];
+     if (output is! List) return null;
+     for (final item in output.whereType<Map>()) {
+       final content = item['content'];
+       if (content is! List) continue;
+       for (final part in content.whereType<Map>()) {
+         if (part['type'] == 'output_text' && part['text'] is String) {
+diff --git a/test/features/scanner/garment_reliability_test.dart b/test/features/scanner/garment_reliability_test.dart
+index ef9623fdc0b340ff30a49998cb6aa2529bb10af2..bdbed2a6464e575ee5463f7c8b5125868e999161 100644
+--- a/test/features/scanner/garment_reliability_test.dart
++++ b/test/features/scanner/garment_reliability_test.dart
+@@ -45,26 +45,97 @@ void main() {
+   test('valide et filtre les valeurs inconnues', () {
+     final validator = GarmentAnalysisValidator(
+       categoryNormalizer: WardrobeNormalizers.categories(['Hauts', 'Chemises']),
+       colorNormalizer: WardrobeNormalizers.colors(['Bleu marine']),
+       materialNormalizer: WardrobeNormalizers.materials(['Coton']),
+       seasonNormalizer: const GarmentValueNormalizer(['Hiver']),
+     );
+     final result = validator.validate(const GarmentAnalysisResult(isUsableImage: true, category: 'shirt', primaryColor: 'navy', material: 'plastique magique', season: 'Hiver', globalConfidence: 1.2));
+     expect(result.analysis.category, 'Chemises');
+     expect(result.analysis.primaryColor, 'Bleu marine');
+     expect(result.analysis.material, isNull);
+     expect(result.rejectedFields, contains('material'));
+     expect(result.analysis.globalConfidence, 1);
+   });
+ 
+   test('mapper préserve le manuel et ignore une faible confiance', () {
+     const mapper = GarmentAnalysisMapper(categories: ['Hauts'], colors: ['Bleu'], materials: ['Coton'], seasons: ['Hiver']);
+     const current = GarmentFormValues(name: 'Mon nom', category: '', color: '', material: '', season: '', brand: '');
+     final mapped = mapper.map(const GarmentAnalysisResult(isUsableImage: true, suggestedName: 'IA', category: 'Hauts', primaryColor: 'Bleu', material: 'Coton', season: 'Hiver', globalConfidence: .9, fieldConfidences: {'category': .9, 'primaryColor': .4, 'material': .9, 'season': .7, 'suggestedName': .9}), current: current);
+     expect(mapped.name, 'Mon nom');
+     expect(mapped.category, 'Hauts');
+     expect(mapped.color, isEmpty);
+     expect(mapped.material, 'Coton');
+     expect(GarmentConfidence.label(.6), 'Confiance moyenne');
+   });
++
++  group('analyse stylistique', () {
++    test('parse tous les nouveaux champs', () {
++      final result = GarmentAnalysisResult.fromJson({
++        'isUsableImage': true,
++        'globalConfidence': .86,
++        'styleSummary': 'Une veste structurée au registre formel.',
++        'styleStrengths': ['La ligne nette structure la silhouette.'],
++        'styleWeaknesses': ['Le motif marqué limite les associations.'],
++        'styleAdvice': ['Porter un pantalon uni pour calmer le motif.'],
++        'compatibleColors': ['Marine', 'Écru'],
++        'lessSuitableColors': ['Orange vif'],
++        'compatibleBottoms': ['Pantalon droit marine'],
++        'compatibleShoes': ['Derbies sobres'],
++        'idealOccasions': ['Bureau'],
++        'discouragedOccasions': ['Sport'],
++        'versatilityExplanation': 'Polyvalence moyenne à cause du motif.',
++        'styleVerdict': 'Intéressante, mais exige des pièces sobres.',
++        'analysisLimitations': ['La doublure intérieure est invisible.'],
++      });
++
++      expect(result.styleSummary, contains('structurée'));
++      expect(result.styleStrengths, hasLength(1));
++      expect(result.styleWeaknesses.single, contains('motif'));
++      expect(result.styleAdvice.single, contains('pantalon uni'));
++      expect(result.compatibleColors, ['Marine', 'Écru']);
++      expect(result.lessSuitableColors, ['Orange vif']);
++      expect(result.compatibleBottoms, ['Pantalon droit marine']);
++      expect(result.compatibleShoes, ['Derbies sobres']);
++      expect(result.idealOccasions, ['Bureau']);
++      expect(result.discouragedOccasions, ['Sport']);
++      expect(result.versatilityExplanation, contains('motif'));
++      expect(result.styleVerdict, contains('sobres'));
++      expect(result.analysisLimitations.single, contains('invisible'));
++    });
++
++    test('sérialise puis restaure une analyse stylistique', () {
++      const source = GarmentAnalysisResult(
++        isUsableImage: true,
++        globalConfidence: .9,
++        styleSummary: 'Résumé argumenté',
++        styleStrengths: ['Point fort expliqué'],
++        styleWeaknesses: ['Point faible expliqué'],
++        styleAdvice: ['Conseil concret'],
++        styleVerdict: 'Verdict nuancé',
++        analysisLimitations: ['Matière seulement estimée'],
++      );
++
++      final restored = GarmentAnalysisResult.fromJson(source.toJson());
++      expect(restored.styleSummary, source.styleSummary);
++      expect(restored.styleStrengths, source.styleStrengths);
++      expect(restored.styleWeaknesses, source.styleWeaknesses);
++      expect(restored.styleAdvice, source.styleAdvice);
++      expect(restored.styleVerdict, source.styleVerdict);
++      expect(restored.analysisLimitations, source.analysisLimitations);
++    });
++
++    test('reste compatible avec les anciens JSON sans analyse stylistique', () {
++      final result = GarmentAnalysisResult.fromJson({
++        'isUsableImage': true,
++        'globalConfidence': .75,
++        'suggestedName': 'Chemise bleue',
++      });
++
++      expect(result.suggestedName, 'Chemise bleue');
++      expect(result.styleSummary, isNull);
++      expect(result.styleStrengths, isEmpty);
++      expect(result.styleWeaknesses, isEmpty);
++      expect(result.analysisLimitations, isEmpty);
++    });
++  });
+ }
