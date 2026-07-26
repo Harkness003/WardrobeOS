@@ -1,0 +1,1148 @@
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index 2822af35853b772073b4a102843aafa3de92ef4f..d446e6441af783066911b54d6ea430b5a5d26028 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -1,44 +1,44 @@
+ import 'package:path/path.dart' as p;
+ import 'package:sqflite/sqflite.dart';
+ import '../models/garment.dart';
+ import '../models/outfit.dart';
+ import '../models/outfit_item.dart';
+ import '../models/wear_history.dart';
+ 
+ class DatabaseService {
+   DatabaseService._();
+   static final DatabaseService instance = DatabaseService._();
+   Database? _database;
+ 
+   Future<Database> get database async => _database ??= await _open();
+ 
+   Future<Database> _open() async {
+     final dbPath = await getDatabasesPath();
+     return openDatabase(
+       p.join(dbPath, 'wardrobeos.db'),
+-      version: 5,
++      version: 6,
+       onConfigure: (db) async {
+         await db.execute('PRAGMA foreign_keys = ON');
+       },
+       onCreate: (db, version) async {
+         await db.execute('''
+           CREATE TABLE garments(
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             category TEXT NOT NULL,
+             brand TEXT,
+             color TEXT,
+             material TEXT,
+             season TEXT,
+             style TEXT,
+             occasion TEXT,
+             condition TEXT,
+             purchase_price REAL,
+             purchase_date TEXT,
+             wear_count INTEGER NOT NULL DEFAULT 0,
+             last_worn TEXT,
+             size TEXT,
+             fit TEXT,
+             composition TEXT,
+             notes TEXT,
+             image_path TEXT,
+@@ -52,50 +52,51 @@ class DatabaseService {
+             texture TEXT,
+             logo_visible INTEGER,
+             style_principal TEXT,
+             styles_secondaires TEXT,
+             niveau_formalite TEXT,
+             coupe TEXT,
+             longueur TEXT,
+             longueur_manches TEXT,
+             type_col TEXT,
+             type_fermeture TEXT,
+             matiere_principale TEXT,
+             matieres_secondaires TEXT,
+             confiance_matiere REAL,
+             saisons TEXT,
+             occasions TEXT,
+             temperature_minimum REAL,
+             temperature_maximum REAL,
+             compatible_pluie INTEGER,
+             compatible_chaleur INTEGER,
+             superposable INTEGER,
+             etat_visuel TEXT,
+             usure_visible TEXT,
+             defauts_visibles TEXT,
+             confiance_globale REAL,
+             avertissements_i_a TEXT,
++            enrichment_json TEXT,
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL
+           )
+         ''');
+         await _createWearHistoryTable(db);
+         await _createOutfitTables(db);
+         await _createIndexes(db);
+       },
+       onUpgrade: (db, oldVersion, newVersion) async {
+         if (oldVersion < 2) {
+           await _addColumn(db, 'garments', 'style', 'TEXT');
+           await _addColumn(db, 'garments', 'occasion', 'TEXT');
+           await _addColumn(db, 'garments', 'condition', 'TEXT');
+           await _addColumn(db, 'garments', 'purchase_price', 'REAL');
+           await _addColumn(db, 'garments', 'purchase_date', 'TEXT');
+           await _addColumn(
+             db,
+             'garments',
+             'wear_count',
+             'INTEGER NOT NULL DEFAULT 0',
+           );
+           await _addColumn(db, 'garments', 'last_worn', 'TEXT');
+           await _addColumn(db, 'garments', 'size', 'TEXT');
+           await _addColumn(db, 'garments', 'fit', 'TEXT');
+           await _addColumn(db, 'garments', 'composition', 'TEXT');
+@@ -115,50 +116,53 @@ class DatabaseService {
+           await _addColumn(db, 'garments', 'logo_visible', 'INTEGER');
+           await _addColumn(db, 'garments', 'style_principal', 'TEXT');
+           await _addColumn(db, 'garments', 'styles_secondaires', 'TEXT');
+           await _addColumn(db, 'garments', 'niveau_formalite', 'TEXT');
+           await _addColumn(db, 'garments', 'coupe', 'TEXT');
+           await _addColumn(db, 'garments', 'longueur', 'TEXT');
+           await _addColumn(db, 'garments', 'longueur_manches', 'TEXT');
+           await _addColumn(db, 'garments', 'type_col', 'TEXT');
+           await _addColumn(db, 'garments', 'type_fermeture', 'TEXT');
+           await _addColumn(db, 'garments', 'matiere_principale', 'TEXT');
+           await _addColumn(db, 'garments', 'matieres_secondaires', 'TEXT');
+           await _addColumn(db, 'garments', 'confiance_matiere', 'REAL');
+           await _addColumn(db, 'garments', 'saisons', 'TEXT');
+           await _addColumn(db, 'garments', 'occasions', 'TEXT');
+           await _addColumn(db, 'garments', 'temperature_minimum', 'REAL');
+           await _addColumn(db, 'garments', 'temperature_maximum', 'REAL');
+           await _addColumn(db, 'garments', 'compatible_pluie', 'INTEGER');
+           await _addColumn(db, 'garments', 'compatible_chaleur', 'INTEGER');
+           await _addColumn(db, 'garments', 'superposable', 'INTEGER');
+           await _addColumn(db, 'garments', 'etat_visuel', 'TEXT');
+           await _addColumn(db, 'garments', 'usure_visible', 'TEXT');
+           await _addColumn(db, 'garments', 'defauts_visibles', 'TEXT');
+           await _addColumn(db, 'garments', 'confiance_globale', 'REAL');
+           await _addColumn(db, 'garments', 'avertissements_i_a', 'TEXT');
+         }
++        if (oldVersion < 6) {
++          await _addColumn(db, 'garments', 'enrichment_json', 'TEXT');
++        }
+         await _createIndexes(db);
+       },
+     );
+   }
+ 
+   Future<void> _createWearHistoryTable(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS wear_history(
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         garment_id TEXT NOT NULL,
+         worn_at TEXT NOT NULL,
+         created_at TEXT NOT NULL,
+         FOREIGN KEY (garment_id) REFERENCES garments(id) ON DELETE CASCADE
+       )
+     ''');
+   }
+ 
+   Future<void> _createOutfitTables(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS outfits(
+         id TEXT PRIMARY KEY,
+         name TEXT NOT NULL,
+         season TEXT,
+         favorite INTEGER NOT NULL DEFAULT 0,
+         created_at TEXT NOT NULL,
+diff --git a/lib/features/scanner/ai/garment_analysis_result.dart b/lib/features/scanner/ai/garment_analysis_result.dart
+index bd26f078e03c96f558cee16a5d2f10a3e1ffef93..df9581c5bdbbd653b6f52471cf53d3c91d719c87 100644
+--- a/lib/features/scanner/ai/garment_analysis_result.dart
++++ b/lib/features/scanner/ai/garment_analysis_result.dart
+@@ -1,72 +1,76 @@
+ import 'dart:convert';
+ 
++import '../../../models/garment_enrichment.dart';
++
+ import 'garment_analysis_exception.dart';
+ 
+ class GarmentAnalysisResult {
+   final bool isUsableImage;
+   final String? rejectionReason;
+   final String? suggestedName;
+   final String? category;
+   final String? primaryColor;
+   final String? material;
+   final String? season;
+   final String? visibleBrand;
+   final double globalConfidence;
+   final double imageQualityConfidence;
+   final bool? isBlurry;
+   final bool? isTooDark;
+   final bool? isOverexposed;
+   final bool? garmentIsPartiallyHidden;
+   final bool? garmentIsTooSmall;
+   final bool? multipleMainGarments;
+   final bool? backgroundIsProblematic;
+   final List<String> imageQualityWarnings;
+   final Map<String, double> fieldConfidences;
+   final List<String> warnings;
++  final GarmentEnrichment? enrichment;
+ 
+   const GarmentAnalysisResult({
+     required this.isUsableImage,
+     this.rejectionReason,
+     this.suggestedName,
+     this.category,
+     this.primaryColor,
+     this.material,
+     this.season,
+     this.visibleBrand,
+     required this.globalConfidence,
+     this.imageQualityConfidence = 1,
+     this.isBlurry,
+     this.isTooDark,
+     this.isOverexposed,
+     this.garmentIsPartiallyHidden,
+     this.garmentIsTooSmall,
+     this.multipleMainGarments,
+     this.backgroundIsProblematic,
+     this.imageQualityWarnings = const [],
+     this.fieldConfidences = const {},
+     this.warnings = const [],
++    this.enrichment,
+   });
+ 
+   factory GarmentAnalysisResult.fromJsonString(String source) {
+     try {
+       final value = jsonDecode(source);
+       if (value is! Map<String, dynamic>) throw const FormatException();
+       return GarmentAnalysisResult.fromJson(value);
+     } on GarmentAnalysisException {
+       rethrow;
+     } on FormatException {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.invalidJson,
+         'La réponse de l’analyse IA est illisible.',
+       );
+     }
+   }
+ 
+   factory GarmentAnalysisResult.fromJson(Map<String, dynamic> json) {
+     if (json['isUsableImage'] is! bool ||
+         json['globalConfidence'] is! num) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.invalidSchema,
+         'La réponse de l’analyse IA est incomplète.',
+       );
+     }
+@@ -96,53 +100,84 @@ class GarmentAnalysisResult {
+ 
+     return GarmentAnalysisResult(
+       isUsableImage: json['isUsableImage'] as bool,
+       rejectionReason: text('rejectionReason'),
+       suggestedName: text('suggestedName'),
+       category: text('category'),
+       primaryColor: text('primaryColor'),
+       material: text('material'),
+       season: text('season'),
+       visibleBrand: text('visibleBrand'),
+       globalConfidence:
+           (json['globalConfidence'] as num).toDouble().clamp(0, 1).toDouble(),
+       imageQualityConfidence: json['imageQualityConfidence'] is num
+           ? (json['imageQualityConfidence'] as num).toDouble().clamp(0, 1).toDouble()
+           : 1,
+       isBlurry: json['isBlurry'] as bool?,
+       isTooDark: json['isTooDark'] as bool?,
+       isOverexposed: json['isOverexposed'] as bool?,
+       garmentIsPartiallyHidden: json['garmentIsPartiallyHidden'] as bool?,
+       garmentIsTooSmall: json['garmentIsTooSmall'] as bool?,
+       multipleMainGarments: json['multipleMainGarments'] as bool?,
+       backgroundIsProblematic: json['backgroundIsProblematic'] as bool?,
+       imageQualityWarnings: List.unmodifiable(strings('imageQualityWarnings')),
+       fieldConfidences: Map.unmodifiable(confidences),
+       warnings: List.unmodifiable(strings('warnings')),
++      enrichment: json['enrichment'] is Map
++          ? GarmentEnrichment.fromJson(
++              Map<String, dynamic>.from(json['enrichment'] as Map),
++            )
++          : null,
+     );
+   }
+ 
++  Map<String, dynamic> toJson() => {
++    'isUsableImage': isUsableImage,
++    'rejectionReason': rejectionReason,
++    'suggestedName': suggestedName,
++    'category': category,
++    'primaryColor': primaryColor,
++    'material': material,
++    'season': season,
++    'visibleBrand': visibleBrand,
++    'globalConfidence': globalConfidence,
++    'imageQualityConfidence': imageQualityConfidence,
++    'isBlurry': isBlurry,
++    'isTooDark': isTooDark,
++    'isOverexposed': isOverexposed,
++    'garmentIsPartiallyHidden': garmentIsPartiallyHidden,
++    'garmentIsTooSmall': garmentIsTooSmall,
++    'multipleMainGarments': multipleMainGarments,
++    'backgroundIsProblematic': backgroundIsProblematic,
++    'imageQualityWarnings': imageQualityWarnings,
++    'fieldConfidences': fieldConfidences,
++    'warnings': warnings,
++    'enrichment': enrichment?.toJson(),
++  };
++
+   GarmentAnalysisResult copyWith({
+     String? category,
+     String? primaryColor,
+     String? material,
+     String? season,
+     String? visibleBrand,
+     double? globalConfidence,
+     Map<String, double>? fieldConfidences,
+     List<String>? warnings,
++    GarmentEnrichment? enrichment,
+   }) => GarmentAnalysisResult(
+     isUsableImage: isUsableImage, rejectionReason: rejectionReason,
+     suggestedName: suggestedName, category: category, primaryColor: primaryColor,
+     material: material, season: season, visibleBrand: visibleBrand,
+     globalConfidence: globalConfidence ?? this.globalConfidence,
+     imageQualityConfidence: imageQualityConfidence, isBlurry: isBlurry,
+     isTooDark: isTooDark, isOverexposed: isOverexposed,
+     garmentIsPartiallyHidden: garmentIsPartiallyHidden,
+     garmentIsTooSmall: garmentIsTooSmall,
+     multipleMainGarments: multipleMainGarments,
+     backgroundIsProblematic: backgroundIsProblematic,
+     imageQualityWarnings: imageQualityWarnings,
+     fieldConfidences: fieldConfidences ?? this.fieldConfidences,
+     warnings: warnings ?? this.warnings,
++    enrichment: enrichment ?? this.enrichment,
+   );
+ }
+diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+index a7c0e588828ee07f59b3c297319ba113bae9590b..56741cd1b8a6f70770f21203bb55c39b65347ad3 100644
+--- a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+@@ -137,106 +137,130 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
+         ],
+       },
+     ],
+     'text': {
+       'format': {
+         'type': 'json_schema',
+         'name': 'garment_analysis',
+         'strict': true,
+         'schema': _schema,
+       },
+     },
+   };
+ 
+   String _prompt(GarmentAnalysisRequest request) => '''
+ Tu analyses uniquement le vêtement principal visible. Ignore la personne, le
+ visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne.
+ Réponds en ${request.language} et uniquement selon le schéma JSON. N'invente
+ jamais une marque ou une matière : utilise null lorsque ce n'est pas clairement
+ observable. Distingue une photo utilisable, imparfaite et inutilisable. Un léger
+ défaut produit un avertissement ; un vêtement minuscule ou plusieurs vêtements
+ principaux indissociables produisent un rejet. N'identifie personne, ne déduis
+ ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
+ l'étiquette reste prioritaire. Baisse la confiance si texture, couleur ou logo
+ sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
+ Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
++Renseigne l'objet enrichment seulement avec des caractéristiques visuellement
++déductibles ; conserve null pour toute section ou propriété incertaine.
+ category=${jsonEncode(request.allowedCategories)}
+ primaryColor=${jsonEncode(request.allowedColors)}
+ material=${jsonEncode(request.allowedMaterials)}
+ season=${jsonEncode(request.allowedSeasons)}
+ Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
+ ${jsonEncode(request.existingValues)}
+ ''';
+ 
+   static const _nullableString = {'type': ['string', 'null']};
++  static const _nullableStringList = {
++    'type': ['array', 'null'],
++    'items': {'type': 'string'},
++  };
+   static const _schema = {
+     'type': 'object',
+     'additionalProperties': false,
+     'required': [
+       'isUsableImage',
+       'rejectionReason',
+       'suggestedName',
+       'category',
+       'primaryColor',
+       'material',
+       'season',
+       'visibleBrand',
+       'globalConfidence',
+       'fieldConfidences',
+       'warnings',
+       'imageQualityConfidence', 'isBlurry', 'isTooDark', 'isOverexposed',
+       'garmentIsPartiallyHidden', 'garmentIsTooSmall',
+       'multipleMainGarments', 'backgroundIsProblematic',
+       'imageQualityWarnings',
++      'enrichment',
+     ],
+     'properties': {
+       'isUsableImage': {'type': 'boolean'},
+       'rejectionReason': _nullableString,
+       'suggestedName': _nullableString,
+       'category': _nullableString,
+       'primaryColor': _nullableString,
+       'material': _nullableString,
+       'season': _nullableString,
+       'visibleBrand': _nullableString,
+       'globalConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+       'fieldConfidences': {
+         'type': 'object',
+         'additionalProperties': {'type': 'number', 'minimum': 0, 'maximum': 1},
+       },
+       'warnings': {
+         'type': 'array',
+         'items': {'type': 'string'},
+       },
+       'imageQualityConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+       'isBlurry': {'type': ['boolean', 'null']},
+       'isTooDark': {'type': ['boolean', 'null']},
+       'isOverexposed': {'type': ['boolean', 'null']},
+       'garmentIsPartiallyHidden': {'type': ['boolean', 'null']},
+       'garmentIsTooSmall': {'type': ['boolean', 'null']},
+       'multipleMainGarments': {'type': ['boolean', 'null']},
+       'backgroundIsProblematic': {'type': ['boolean', 'null']},
+       'imageQualityWarnings': {'type': 'array', 'items': {'type': 'string'}},
++      'enrichment': {
++        'type': ['object', 'null'],
++        'additionalProperties': false,
++        'required': ['identification', 'appearance', 'construction', 'materials', 'style', 'climate', 'occasions', 'condition', 'care', 'styleAnalysis'],
++        'properties': {
++          'identification': {'type': ['object', 'null'], 'additionalProperties': false, 'required': ['subcategory', 'preciseType', 'visualDescription'], 'properties': {'subcategory': _nullableString, 'preciseType': _nullableString, 'visualDescription': _nullableString}},
++          'appearance': {'type': ['object', 'null'], 'additionalProperties': false, 'required': ['secondaryColors', 'pattern', 'texture', 'logo', 'visualDetails'], 'properties': {'secondaryColors': _nullableStringList, 'pattern': _nullableString, 'texture': _nullableString, 'logo': _nullableString, 'visualDetails': _nullableStringList}},
++          'construction': {'type': ['object', 'null'], 'additionalProperties': false, 'required': ['fit', 'collar', 'sleeves', 'closure', 'length', 'pockets', 'silhouette'], 'properties': {'fit': _nullableString, 'collar': _nullableString, 'sleeves': _nullableString, 'closure': _nullableString, 'length': _nullableString, 'pockets': _nullableString, 'silhouette': _nullableString}},
++          'materials': {'type': ['object', 'null'], 'additionalProperties': false, 'required': ['primaryMaterial', 'secondaryMaterials', 'estimatedComposition', 'elasticity', 'breathability', 'thickness'], 'properties': {'primaryMaterial': _nullableString, 'secondaryMaterials': _nullableStringList, 'estimatedComposition': _nullableString, 'elasticity': _nullableString, 'breathability': _nullableString, 'thickness': _nullableString}},
++          'style': {'type': ['object', 'null'], 'additionalProperties': false, 'required': ['styles', 'formality', 'versatility'], 'properties': {'styles': _nullableStringList, 'formality': _nullableString, 'versatility': _nullableString}},
++          'climate': {'type': ['object', 'null'], 'additionalProperties': false, 'required': ['minimumTemperature', 'maximumTemperature', 'warmth', 'layering'], 'properties': {'minimumTemperature': {'type': ['number', 'null']}, 'maximumTemperature': {'type': ['number', 'null']}, 'warmth': _nullableString, 'layering': _nullableString}},
++          'occasions': {'type': ['object', 'null'], 'additionalProperties': false, 'required': ['primary', 'secondary', 'discouraged'], 'properties': {'primary': _nullableStringList, 'secondary': _nullableStringList, 'discouraged': _nullableStringList}},
++          'condition': {'type': ['object', 'null'], 'additionalProperties': false, 'required': ['wear', 'pilling', 'fading', 'stains', 'visibleDefects'], 'properties': {'wear': _nullableString, 'pilling': _nullableString, 'fading': _nullableString, 'stains': _nullableString, 'visibleDefects': _nullableStringList}},
++          'care': {'type': ['object', 'null'], 'additionalProperties': false, 'required': ['washing', 'drying', 'ironing', 'cleaning', 'warnings'], 'properties': {'washing': _nullableString, 'drying': _nullableString, 'ironing': _nullableString, 'cleaning': _nullableString, 'warnings': _nullableStringList}},
++          'styleAnalysis': {'type': ['object', 'null'], 'additionalProperties': false, 'required': ['summary', 'strengths', 'weaknesses', 'advice', 'compatibleColors', 'discouragedColors', 'idealOccasions', 'verdict'], 'properties': {'summary': _nullableString, 'strengths': _nullableStringList, 'weaknesses': _nullableStringList, 'advice': _nullableStringList, 'compatibleColors': _nullableStringList, 'discouragedColors': _nullableStringList, 'idealOccasions': _nullableStringList, 'verdict': _nullableString}},
++        },
++      },
+     },
+   };
+ 
+   Map<String, dynamic> _decodeObject(String source) {
+     try {
+       final decoded = jsonDecode(source);
+       if (decoded is Map<String, dynamic>) return decoded;
+     } on FormatException {
+       // Translated below without exposing the response body.
+     }
+     throw const GarmentAnalysisException(
+       GarmentAnalysisError.invalidJson,
+       'OpenAI a renvoyé une réponse illisible.',
+     );
+   }
+ 
+   String? _outputText(Map<String, dynamic> body) {
+     if (body['output_text'] is String) return body['output_text'] as String;
+     final output = body['output'];
+     if (output is! List) return null;
+     for (final item in output.whereType<Map>()) {
+       final content = item['content'];
+       if (content is! List) continue;
+       for (final part in content.whereType<Map>()) {
+         if (part['type'] == 'output_text' && part['text'] is String) {
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index ed987ab83b91215851c610a2ce7694357f8ca82e..94766b99f50f6949ae89c718635c87a143a22eb8 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -290,50 +290,51 @@ class _ScannerScreenState extends State<ScannerScreen> {
+       return;
+     }
+     if (name.text.trim().isEmpty) {
+       _toast('Donne un nom à la pièce.');
+       return;
+     }
+ 
+     setState(() => saving = true);
+     final now = DateTime.now();
+     final garment = Garment(
+       id: const Uuid().v4(),
+       name: name.text.trim(),
+       category: category,
+       brand: brand.text.trim().isEmpty ? null : brand.text.trim(),
+       color: color.text.trim().isEmpty ? null : color.text.trim(),
+       material: material.text.trim().isEmpty ? null : material.text.trim(),
+       season: season,
+       typePrecis: result?.category,
+       descriptionIA: result?.suggestedName,
+       couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
+       matierePrincipale:
+           material.text.trim().isEmpty ? null : material.text.trim(),
+       saisons: result?.season == null ? null : [result!.season!],
+       confianceGlobale: result?.globalConfidence,
+       avertissementsIA: result?.warnings,
++      enrichment: result?.enrichment,
+       notes:
+           result == null
+               ? 'Ajout manuel depuis le scanner.'
+               : 'Suggestions IA vérifiées · confiance ${(result!.globalConfidence * 100).round()} %.',
+       imagePath: imagePath,
+       createdAt: now,
+       updatedAt: now,
+     );
+ 
+     try {
+       await wardrobe.insert(garment);
+       imageOwnedByGarment = true;
+       if (!mounted) return;
+       setState(() => saving = false);
+       Navigator.pop(context, true);
+       if (!mounted) return;
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('Pièce ajoutée au dressing.')),
+       );
+     } catch (_) {
+       if (!mounted) return;
+       _toast('Enregistrement impossible. Vérifie la fiche et réessaie.');
+     } finally {
+       if (mounted) setState(() => saving = false);
+     }
+diff --git a/lib/models/garment.dart b/lib/models/garment.dart
+index 732f44b0dbabe19684101997db43eb60f33fcb58..cb9608d41f8e6bf6a7531f949bc3c9dddf8aed4b 100644
+--- a/lib/models/garment.dart
++++ b/lib/models/garment.dart
+@@ -1,28 +1,29 @@
+ import 'dart:convert';
+ 
+ import 'garment_normalizer.dart';
++import 'garment_enrichment.dart';
+ 
+ class Garment {
+   final String id;
+   final String name;
+   final String category;
+   final String? brand;
+   final String? color;
+   final String? material;
+   final String? season;
+   final String? style;
+   final String? occasion;
+   final String? condition;
+   final double? purchasePrice;
+   final DateTime? purchaseDate;
+   final DateTime? lastWorn;
+   final String? size;
+   final String? fit;
+   final String? composition;
+   final String? notes;
+   final String? imagePath;
+   final String? sousCategorie;
+   final String? typePrecis;
+   final String? descriptionIA;
+   final String? couleurPrincipale;
+   final List<String>? couleursSecondaires;
+@@ -30,50 +31,51 @@ class Garment {
+   final String? texture;
+   final bool? logoVisible;
+   final String? stylePrincipal;
+   final List<String>? stylesSecondaires;
+   final String? niveauFormalite;
+   final String? coupe;
+   final String? longueur;
+   final String? longueurManches;
+   final String? typeCol;
+   final String? typeFermeture;
+   final String? matierePrincipale;
+   final List<String>? matieresSecondaires;
+   final double? confianceMatiere;
+   final List<String>? saisons;
+   final List<String>? occasions;
+   final double? temperatureMinimum;
+   final double? temperatureMaximum;
+   final bool? compatiblePluie;
+   final bool? compatibleChaleur;
+   final bool? superposable;
+   final String? etatVisuel;
+   final String? usureVisible;
+   final List<String>? defautsVisibles;
+   final double? confianceGlobale;
+   final List<String>? avertissementsIA;
++  final GarmentEnrichment? enrichment;
+   final int wearCount;
+   final bool isFavorite;
+   final DateTime createdAt;
+   final DateTime updatedAt;
+ 
+   const Garment({
+     required this.id,
+     required this.name,
+     required this.category,
+     this.brand,
+     this.color,
+     this.material,
+     this.season,
+     this.style,
+     this.occasion,
+     this.condition,
+     this.purchasePrice,
+     this.purchaseDate,
+     this.lastWorn,
+     this.size,
+     this.fit,
+     this.composition,
+     this.notes,
+     this.imagePath,
+     this.sousCategorie,
+@@ -85,50 +87,51 @@ class Garment {
+     this.texture,
+     this.logoVisible,
+     this.stylePrincipal,
+     this.stylesSecondaires,
+     this.niveauFormalite,
+     this.coupe,
+     this.longueur,
+     this.longueurManches,
+     this.typeCol,
+     this.typeFermeture,
+     this.matierePrincipale,
+     this.matieresSecondaires,
+     this.confianceMatiere,
+     this.saisons,
+     this.occasions,
+     this.temperatureMinimum,
+     this.temperatureMaximum,
+     this.compatiblePluie,
+     this.compatibleChaleur,
+     this.superposable,
+     this.etatVisuel,
+     this.usureVisible,
+     this.defautsVisibles,
+     this.confianceGlobale,
+     this.avertissementsIA,
++    this.enrichment,
+     this.wearCount = 0,
+     this.isFavorite = false,
+     required this.createdAt,
+     required this.updatedAt,
+   });
+ 
+   Garment copyWith({
+     String? id,
+     String? name,
+     String? category,
+     String? brand,
+     String? color,
+     String? material,
+     String? season,
+     String? style,
+     String? occasion,
+     String? condition,
+     double? purchasePrice,
+     DateTime? purchaseDate,
+     DateTime? lastWorn,
+     String? size,
+     String? fit,
+     String? composition,
+     String? notes,
+     String? imagePath,
+@@ -141,50 +144,51 @@ class Garment {
+     String? texture,
+     bool? logoVisible,
+     String? stylePrincipal,
+     List<String>? stylesSecondaires,
+     String? niveauFormalite,
+     String? coupe,
+     String? longueur,
+     String? longueurManches,
+     String? typeCol,
+     String? typeFermeture,
+     String? matierePrincipale,
+     List<String>? matieresSecondaires,
+     double? confianceMatiere,
+     List<String>? saisons,
+     List<String>? occasions,
+     double? temperatureMinimum,
+     double? temperatureMaximum,
+     bool? compatiblePluie,
+     bool? compatibleChaleur,
+     bool? superposable,
+     String? etatVisuel,
+     String? usureVisible,
+     List<String>? defautsVisibles,
+     double? confianceGlobale,
+     List<String>? avertissementsIA,
++    GarmentEnrichment? enrichment,
+     int? wearCount,
+     bool? isFavorite,
+     DateTime? createdAt,
+     DateTime? updatedAt,
+   }) => Garment(
+     id: id ?? this.id,
+     name: name ?? this.name,
+     category: category ?? this.category,
+     brand: brand ?? this.brand,
+     color: color ?? this.color,
+     material: material ?? this.material,
+     season: season ?? this.season,
+     style: style ?? this.style,
+     occasion: occasion ?? this.occasion,
+     condition: condition ?? this.condition,
+     purchasePrice: purchasePrice ?? this.purchasePrice,
+     purchaseDate: purchaseDate ?? this.purchaseDate,
+     lastWorn: lastWorn ?? this.lastWorn,
+     size: size ?? this.size,
+     fit: fit ?? this.fit,
+     composition: composition ?? this.composition,
+     notes: notes ?? this.notes,
+     imagePath: imagePath ?? this.imagePath,
+     sousCategorie: sousCategorie ?? this.sousCategorie,
+     typePrecis: typePrecis ?? this.typePrecis,
+@@ -195,50 +199,51 @@ class Garment {
+     texture: texture ?? this.texture,
+     logoVisible: logoVisible ?? this.logoVisible,
+     stylePrincipal: stylePrincipal ?? this.stylePrincipal,
+     stylesSecondaires: stylesSecondaires ?? this.stylesSecondaires,
+     niveauFormalite: niveauFormalite ?? this.niveauFormalite,
+     coupe: coupe ?? this.coupe,
+     longueur: longueur ?? this.longueur,
+     longueurManches: longueurManches ?? this.longueurManches,
+     typeCol: typeCol ?? this.typeCol,
+     typeFermeture: typeFermeture ?? this.typeFermeture,
+     matierePrincipale: matierePrincipale ?? this.matierePrincipale,
+     matieresSecondaires: matieresSecondaires ?? this.matieresSecondaires,
+     confianceMatiere: confianceMatiere ?? this.confianceMatiere,
+     saisons: saisons ?? this.saisons,
+     occasions: occasions ?? this.occasions,
+     temperatureMinimum: temperatureMinimum ?? this.temperatureMinimum,
+     temperatureMaximum: temperatureMaximum ?? this.temperatureMaximum,
+     compatiblePluie: compatiblePluie ?? this.compatiblePluie,
+     compatibleChaleur: compatibleChaleur ?? this.compatibleChaleur,
+     superposable: superposable ?? this.superposable,
+     etatVisuel: etatVisuel ?? this.etatVisuel,
+     usureVisible: usureVisible ?? this.usureVisible,
+     defautsVisibles: defautsVisibles ?? this.defautsVisibles,
+     confianceGlobale: confianceGlobale ?? this.confianceGlobale,
+     avertissementsIA: avertissementsIA ?? this.avertissementsIA,
++    enrichment: enrichment ?? this.enrichment,
+     wearCount: wearCount ?? this.wearCount,
+     isFavorite: isFavorite ?? this.isFavorite,
+     createdAt: createdAt ?? this.createdAt,
+     updatedAt: updatedAt ?? this.updatedAt,
+   );
+ 
+   Map<String, Object?> toMap() => {
+     'id': id,
+     'name': name,
+     'category': category,
+     'brand': brand,
+     'color': color,
+     'material': material,
+     'season': season,
+     'style': style,
+     'occasion': occasion,
+     'condition': condition,
+     'purchase_price': purchasePrice,
+     'purchase_date': purchaseDate?.toIso8601String(),
+     'last_worn': lastWorn?.toIso8601String(),
+     'size': size,
+     'fit': fit,
+     'composition': composition,
+     'notes': notes,
+     'image_path': imagePath,
+@@ -251,50 +256,51 @@ class Garment {
+     'texture': texture,
+     'logo_visible': logoVisible == null ? null : (logoVisible! ? 1 : 0),
+     'style_principal': stylePrincipal,
+     'styles_secondaires': stylesSecondaires == null ? null : jsonEncode(stylesSecondaires),
+     'niveau_formalite': niveauFormalite,
+     'coupe': coupe,
+     'longueur': longueur,
+     'longueur_manches': longueurManches,
+     'type_col': typeCol,
+     'type_fermeture': typeFermeture,
+     'matiere_principale': matierePrincipale,
+     'matieres_secondaires': matieresSecondaires == null ? null : jsonEncode(matieresSecondaires),
+     'confiance_matiere': confianceMatiere,
+     'saisons': saisons == null ? null : jsonEncode(saisons),
+     'occasions': occasions == null ? null : jsonEncode(occasions),
+     'temperature_minimum': temperatureMinimum,
+     'temperature_maximum': temperatureMaximum,
+     'compatible_pluie': compatiblePluie == null ? null : (compatiblePluie! ? 1 : 0),
+     'compatible_chaleur': compatibleChaleur == null ? null : (compatibleChaleur! ? 1 : 0),
+     'superposable': superposable == null ? null : (superposable! ? 1 : 0),
+     'etat_visuel': etatVisuel,
+     'usure_visible': usureVisible,
+     'defauts_visibles': defautsVisibles == null ? null : jsonEncode(defautsVisibles),
+     'confiance_globale': confianceGlobale,
+     'avertissements_i_a': avertissementsIA == null ? null : jsonEncode(avertissementsIA),
++    'enrichment_json': enrichment == null ? null : jsonEncode(enrichment!.toJson()),
+     'wear_count': wearCount,
+     'is_favorite': isFavorite ? 1 : 0,
+     'created_at': createdAt.toIso8601String(),
+     'updated_at': updatedAt.toIso8601String(),
+   };
+ 
+   factory Garment.fromMap(Map<String, Object?> map) {
+     String? text(String key) => GarmentNormalizer.value(map[key] as String?);
+     List<String>? list(String key) {
+       final value = map[key];
+       if (value == null) return null;
+       final decoded = value is String ? jsonDecode(value) : value;
+       if (decoded is! List) return null;
+       return GarmentNormalizer.values(decoded.map((e) => e.toString()));
+     }
+     double? number(String key) => (map[key] as num?)?.toDouble();
+     bool? boolean(String key) {
+       final value = map[key];
+       if (value == null) return null;
+       return value == true || value == 1;
+     }
+ 
+     return Garment(
+       id: map['id'] as String,
+       name: map['name'] as String,
+@@ -323,55 +329,68 @@ class Garment {
+       texture: text('texture'),
+       logoVisible: boolean('logo_visible'),
+       stylePrincipal: text('style_principal'),
+       stylesSecondaires: list('styles_secondaires'),
+       niveauFormalite: text('niveau_formalite'),
+       coupe: text('coupe'),
+       longueur: text('longueur'),
+       longueurManches: text('longueur_manches'),
+       typeCol: text('type_col'),
+       typeFermeture: text('type_fermeture'),
+       matierePrincipale: text('matiere_principale'),
+       matieresSecondaires: list('matieres_secondaires'),
+       confianceMatiere: number('confiance_matiere'),
+       saisons: list('saisons'),
+       occasions: list('occasions'),
+       temperatureMinimum: number('temperature_minimum'),
+       temperatureMaximum: number('temperature_maximum'),
+       compatiblePluie: boolean('compatible_pluie'),
+       compatibleChaleur: boolean('compatible_chaleur'),
+       superposable: boolean('superposable'),
+       etatVisuel: text('etat_visuel'),
+       usureVisible: text('usure_visible'),
+       defautsVisibles: list('defauts_visibles'),
+       confianceGlobale: number('confiance_globale'),
+       avertissementsIA: list('avertissements_i_a'),
++      enrichment: _enrichment(map['enrichment_json']),
+       wearCount: (map['wear_count'] as num?)?.toInt() ?? 0,
+       isFavorite: map['is_favorite'] == 1 || map['is_favorite'] == true,
+       createdAt: DateTime.parse(map['created_at'] as String),
+       updatedAt: DateTime.parse(map['updated_at'] as String),
+     );
+   }
+ 
++  static GarmentEnrichment? _enrichment(Object? value) {
++    if (value == null) return null;
++    try {
++      final decoded = value is String ? jsonDecode(value) : value;
++      return decoded is Map
++          ? GarmentEnrichment.fromJson(Map<String, dynamic>.from(decoded))
++          : null;
++    } on FormatException {
++      return null;
++    }
++  }
++
+   static DateTime? _parseDate(Object? value) {
+     if (value is! String || value.isEmpty) return null;
+     return DateTime.tryParse(value);
+   }
+ 
+   String? validate() {
+     if (temperatureMinimum != null && temperatureMaximum != null && temperatureMinimum! > temperatureMaximum!) return 'La température minimum doit être inférieure au maximum.';
+     for (final confidence in [confianceMatiere, confianceGlobale]) {
+       if (confidence != null && (confidence < 0 || confidence > 1)) return 'Une confiance doit être comprise entre 0 et 1.';
+     }
+     return null;
+   }
+ 
+   @override
+   bool operator ==(Object other) => other is Garment && _mapEquals(toMap(), other.toMap());
+   @override
+   int get hashCode => Object.hashAll(toMap().entries.map((e) => Object.hash(e.key, e.value)));
+   static bool _mapEquals(Map<String, Object?> a, Map<String, Object?> b) {
+     if (a.length != b.length) return false;
+     for (final key in a.keys) { if (a[key] != b[key]) return false; }
+     return true;
+   }
+ }
+diff --git a/lib/models/garment_enrichment.dart b/lib/models/garment_enrichment.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..72f963309fe54cad01c7561c61003e1479b38565
+--- /dev/null
++++ b/lib/models/garment_enrichment.dart
+@@ -0,0 +1,123 @@
++class GarmentEnrichment {
++  final GarmentIdentification? identification;
++  final GarmentAppearance? appearance;
++  final GarmentConstruction? construction;
++  final GarmentMaterials? materials;
++  final GarmentStyleProfile? style;
++  final GarmentClimate? climate;
++  final GarmentOccasions? occasions;
++  final GarmentConditionProfile? condition;
++  final GarmentCare? care;
++  final GarmentStyleAnalysis? styleAnalysis;
++
++  const GarmentEnrichment({this.identification, this.appearance, this.construction, this.materials, this.style, this.climate, this.occasions, this.condition, this.care, this.styleAnalysis});
++
++  factory GarmentEnrichment.fromJson(Map<String, dynamic> json) => GarmentEnrichment(
++    identification: _object(json['identification'], GarmentIdentification.fromJson),
++    appearance: _object(json['appearance'], GarmentAppearance.fromJson),
++    construction: _object(json['construction'], GarmentConstruction.fromJson),
++    materials: _object(json['materials'], GarmentMaterials.fromJson),
++    style: _object(json['style'], GarmentStyleProfile.fromJson),
++    climate: _object(json['climate'], GarmentClimate.fromJson),
++    occasions: _object(json['occasions'], GarmentOccasions.fromJson),
++    condition: _object(json['condition'], GarmentConditionProfile.fromJson),
++    care: _object(json['care'], GarmentCare.fromJson),
++    styleAnalysis: _object(json['styleAnalysis'], GarmentStyleAnalysis.fromJson),
++  );
++
++  Map<String, dynamic> toJson() => {'identification': identification?.toJson(), 'appearance': appearance?.toJson(), 'construction': construction?.toJson(), 'materials': materials?.toJson(), 'style': style?.toJson(), 'climate': climate?.toJson(), 'occasions': occasions?.toJson(), 'condition': condition?.toJson(), 'care': care?.toJson(), 'styleAnalysis': styleAnalysis?.toJson()};
++
++  GarmentEnrichment copyWith({GarmentIdentification? identification, GarmentAppearance? appearance, GarmentConstruction? construction, GarmentMaterials? materials, GarmentStyleProfile? style, GarmentClimate? climate, GarmentOccasions? occasions, GarmentConditionProfile? condition, GarmentCare? care, GarmentStyleAnalysis? styleAnalysis}) => GarmentEnrichment(identification: identification ?? this.identification, appearance: appearance ?? this.appearance, construction: construction ?? this.construction, materials: materials ?? this.materials, style: style ?? this.style, climate: climate ?? this.climate, occasions: occasions ?? this.occasions, condition: condition ?? this.condition, care: care ?? this.care, styleAnalysis: styleAnalysis ?? this.styleAnalysis);
++}
++
++class GarmentIdentification {
++  final String? subcategory, preciseType, visualDescription;
++  const GarmentIdentification({this.subcategory, this.preciseType, this.visualDescription});
++  factory GarmentIdentification.fromJson(Map<String, dynamic> j) => GarmentIdentification(subcategory: _text(j['subcategory']), preciseType: _text(j['preciseType']), visualDescription: _text(j['visualDescription']));
++  Map<String, dynamic> toJson() => {'subcategory': subcategory, 'preciseType': preciseType, 'visualDescription': visualDescription};
++  GarmentIdentification copyWith({String? subcategory, String? preciseType, String? visualDescription}) => GarmentIdentification(subcategory: subcategory ?? this.subcategory, preciseType: preciseType ?? this.preciseType, visualDescription: visualDescription ?? this.visualDescription);
++}
++
++class GarmentAppearance {
++  final List<String>? secondaryColors, visualDetails;
++  final String? pattern, texture, logo;
++  const GarmentAppearance({this.secondaryColors, this.pattern, this.texture, this.logo, this.visualDetails});
++  factory GarmentAppearance.fromJson(Map<String, dynamic> j) => GarmentAppearance(secondaryColors: _strings(j['secondaryColors']), pattern: _text(j['pattern']), texture: _text(j['texture']), logo: _text(j['logo']), visualDetails: _strings(j['visualDetails']));
++  Map<String, dynamic> toJson() => {'secondaryColors': secondaryColors, 'pattern': pattern, 'texture': texture, 'logo': logo, 'visualDetails': visualDetails};
++  GarmentAppearance copyWith({List<String>? secondaryColors, String? pattern, String? texture, String? logo, List<String>? visualDetails}) => GarmentAppearance(secondaryColors: secondaryColors ?? this.secondaryColors, pattern: pattern ?? this.pattern, texture: texture ?? this.texture, logo: logo ?? this.logo, visualDetails: visualDetails ?? this.visualDetails);
++}
++
++class GarmentConstruction {
++  final String? fit, collar, sleeves, closure, length, pockets, silhouette;
++  const GarmentConstruction({this.fit, this.collar, this.sleeves, this.closure, this.length, this.pockets, this.silhouette});
++  factory GarmentConstruction.fromJson(Map<String, dynamic> j) => GarmentConstruction(fit: _text(j['fit']), collar: _text(j['collar']), sleeves: _text(j['sleeves']), closure: _text(j['closure']), length: _text(j['length']), pockets: _text(j['pockets']), silhouette: _text(j['silhouette']));
++  Map<String, dynamic> toJson() => {'fit': fit, 'collar': collar, 'sleeves': sleeves, 'closure': closure, 'length': length, 'pockets': pockets, 'silhouette': silhouette};
++  GarmentConstruction copyWith({String? fit, String? collar, String? sleeves, String? closure, String? length, String? pockets, String? silhouette}) => GarmentConstruction(fit: fit ?? this.fit, collar: collar ?? this.collar, sleeves: sleeves ?? this.sleeves, closure: closure ?? this.closure, length: length ?? this.length, pockets: pockets ?? this.pockets, silhouette: silhouette ?? this.silhouette);
++}
++
++class GarmentMaterials {
++  final String? primaryMaterial, estimatedComposition, elasticity, breathability, thickness;
++  final List<String>? secondaryMaterials;
++  const GarmentMaterials({this.primaryMaterial, this.secondaryMaterials, this.estimatedComposition, this.elasticity, this.breathability, this.thickness});
++  factory GarmentMaterials.fromJson(Map<String, dynamic> j) => GarmentMaterials(primaryMaterial: _text(j['primaryMaterial']), secondaryMaterials: _strings(j['secondaryMaterials']), estimatedComposition: _text(j['estimatedComposition']), elasticity: _text(j['elasticity']), breathability: _text(j['breathability']), thickness: _text(j['thickness']));
++  Map<String, dynamic> toJson() => {'primaryMaterial': primaryMaterial, 'secondaryMaterials': secondaryMaterials, 'estimatedComposition': estimatedComposition, 'elasticity': elasticity, 'breathability': breathability, 'thickness': thickness};
++  GarmentMaterials copyWith({String? primaryMaterial, List<String>? secondaryMaterials, String? estimatedComposition, String? elasticity, String? breathability, String? thickness}) => GarmentMaterials(primaryMaterial: primaryMaterial ?? this.primaryMaterial, secondaryMaterials: secondaryMaterials ?? this.secondaryMaterials, estimatedComposition: estimatedComposition ?? this.estimatedComposition, elasticity: elasticity ?? this.elasticity, breathability: breathability ?? this.breathability, thickness: thickness ?? this.thickness);
++}
++
++class GarmentStyleProfile {
++  final List<String>? styles;
++  final String? formality, versatility;
++  const GarmentStyleProfile({this.styles, this.formality, this.versatility});
++  factory GarmentStyleProfile.fromJson(Map<String, dynamic> j) => GarmentStyleProfile(styles: _strings(j['styles']), formality: _text(j['formality']), versatility: _text(j['versatility']));
++  Map<String, dynamic> toJson() => {'styles': styles, 'formality': formality, 'versatility': versatility};
++  GarmentStyleProfile copyWith({List<String>? styles, String? formality, String? versatility}) => GarmentStyleProfile(styles: styles ?? this.styles, formality: formality ?? this.formality, versatility: versatility ?? this.versatility);
++}
++
++class GarmentClimate {
++  final double? minimumTemperature, maximumTemperature;
++  final String? warmth, layering;
++  const GarmentClimate({this.minimumTemperature, this.maximumTemperature, this.warmth, this.layering});
++  factory GarmentClimate.fromJson(Map<String, dynamic> j) => GarmentClimate(minimumTemperature: _number(j['minimumTemperature']), maximumTemperature: _number(j['maximumTemperature']), warmth: _text(j['warmth']), layering: _text(j['layering']));
++  Map<String, dynamic> toJson() => {'minimumTemperature': minimumTemperature, 'maximumTemperature': maximumTemperature, 'warmth': warmth, 'layering': layering};
++  GarmentClimate copyWith({double? minimumTemperature, double? maximumTemperature, String? warmth, String? layering}) => GarmentClimate(minimumTemperature: minimumTemperature ?? this.minimumTemperature, maximumTemperature: maximumTemperature ?? this.maximumTemperature, warmth: warmth ?? this.warmth, layering: layering ?? this.layering);
++}
++
++class GarmentOccasions {
++  final List<String>? primary, secondary, discouraged;
++  const GarmentOccasions({this.primary, this.secondary, this.discouraged});
++  factory GarmentOccasions.fromJson(Map<String, dynamic> j) => GarmentOccasions(primary: _strings(j['primary']), secondary: _strings(j['secondary']), discouraged: _strings(j['discouraged']));
++  Map<String, dynamic> toJson() => {'primary': primary, 'secondary': secondary, 'discouraged': discouraged};
++  GarmentOccasions copyWith({List<String>? primary, List<String>? secondary, List<String>? discouraged}) => GarmentOccasions(primary: primary ?? this.primary, secondary: secondary ?? this.secondary, discouraged: discouraged ?? this.discouraged);
++}
++
++class GarmentConditionProfile {
++  final String? wear, pilling, fading, stains;
++  final List<String>? visibleDefects;
++  const GarmentConditionProfile({this.wear, this.pilling, this.fading, this.stains, this.visibleDefects});
++  factory GarmentConditionProfile.fromJson(Map<String, dynamic> j) => GarmentConditionProfile(wear: _text(j['wear']), pilling: _text(j['pilling']), fading: _text(j['fading']), stains: _text(j['stains']), visibleDefects: _strings(j['visibleDefects']));
++  Map<String, dynamic> toJson() => {'wear': wear, 'pilling': pilling, 'fading': fading, 'stains': stains, 'visibleDefects': visibleDefects};
++  GarmentConditionProfile copyWith({String? wear, String? pilling, String? fading, String? stains, List<String>? visibleDefects}) => GarmentConditionProfile(wear: wear ?? this.wear, pilling: pilling ?? this.pilling, fading: fading ?? this.fading, stains: stains ?? this.stains, visibleDefects: visibleDefects ?? this.visibleDefects);
++}
++
++class GarmentCare {
++  final String? washing, drying, ironing, cleaning;
++  final List<String>? warnings;
++  const GarmentCare({this.washing, this.drying, this.ironing, this.cleaning, this.warnings});
++  factory GarmentCare.fromJson(Map<String, dynamic> j) => GarmentCare(washing: _text(j['washing']), drying: _text(j['drying']), ironing: _text(j['ironing']), cleaning: _text(j['cleaning']), warnings: _strings(j['warnings']));
++  Map<String, dynamic> toJson() => {'washing': washing, 'drying': drying, 'ironing': ironing, 'cleaning': cleaning, 'warnings': warnings};
++  GarmentCare copyWith({String? washing, String? drying, String? ironing, String? cleaning, List<String>? warnings}) => GarmentCare(washing: washing ?? this.washing, drying: drying ?? this.drying, ironing: ironing ?? this.ironing, cleaning: cleaning ?? this.cleaning, warnings: warnings ?? this.warnings);
++}
++
++class GarmentStyleAnalysis {
++  final String? summary, verdict;
++  final List<String>? strengths, weaknesses, advice, compatibleColors, discouragedColors, idealOccasions;
++  const GarmentStyleAnalysis({this.summary, this.strengths, this.weaknesses, this.advice, this.compatibleColors, this.discouragedColors, this.idealOccasions, this.verdict});
++  factory GarmentStyleAnalysis.fromJson(Map<String, dynamic> j) => GarmentStyleAnalysis(summary: _text(j['summary']), strengths: _strings(j['strengths']), weaknesses: _strings(j['weaknesses']), advice: _strings(j['advice']), compatibleColors: _strings(j['compatibleColors']), discouragedColors: _strings(j['discouragedColors']), idealOccasions: _strings(j['idealOccasions']), verdict: _text(j['verdict']));
++  Map<String, dynamic> toJson() => {'summary': summary, 'strengths': strengths, 'weaknesses': weaknesses, 'advice': advice, 'compatibleColors': compatibleColors, 'discouragedColors': discouragedColors, 'idealOccasions': idealOccasions, 'verdict': verdict};
++  GarmentStyleAnalysis copyWith({String? summary, List<String>? strengths, List<String>? weaknesses, List<String>? advice, List<String>? compatibleColors, List<String>? discouragedColors, List<String>? idealOccasions, String? verdict}) => GarmentStyleAnalysis(summary: summary ?? this.summary, strengths: strengths ?? this.strengths, weaknesses: weaknesses ?? this.weaknesses, advice: advice ?? this.advice, compatibleColors: compatibleColors ?? this.compatibleColors, discouragedColors: discouragedColors ?? this.discouragedColors, idealOccasions: idealOccasions ?? this.idealOccasions, verdict: verdict ?? this.verdict);
++}
++
++T? _object<T>(Object? value, T Function(Map<String, dynamic>) create) => value is Map ? create(Map<String, dynamic>.from(value)) : null;
++String? _text(Object? value) => value is String && value.trim().isNotEmpty ? value.trim() : null;
++double? _number(Object? value) => value is num ? value.toDouble() : null;
++List<String>? _strings(Object? value) => value is List ? List.unmodifiable(value.whereType<String>().map((e) => e.trim()).where((e) => e.isNotEmpty)) : null;
+diff --git a/test/features/scanner/garment_enrichment_pipeline_test.dart b/test/features/scanner/garment_enrichment_pipeline_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e77eab333398c0804f979e2d7ad3ce4b3d8feb95
+--- /dev/null
++++ b/test/features/scanner/garment_enrichment_pipeline_test.dart
+@@ -0,0 +1,137 @@
++import 'dart:convert';
++
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_result.dart';
++import 'package:wardrobeos/models/garment.dart';
++
++void main() {
++  const legacyJson = <String, dynamic>{
++    'isUsableImage': true,
++    'category': 'Hauts',
++    'globalConfidence': .8,
++  };
++
++  final richJson = <String, dynamic>{
++    ...legacyJson,
++    'enrichment': {
++      'identification': {
++        'subcategory': 'Chemise',
++        'preciseType': 'Chemise Oxford',
++        'visualDescription': 'Chemise bleue boutonnée',
++      },
++      'appearance': {
++        'secondaryColors': <String>[],
++        'pattern': 'Uni',
++        'texture': 'Tissée',
++        'logo': null,
++        'visualDetails': ['Boutons nacrés'],
++      },
++      'construction': {
++        'fit': 'Droite',
++        'collar': 'Boutonné',
++        'sleeves': 'Longues',
++        'closure': 'Boutons',
++        'length': 'Standard',
++        'pockets': 'Une poche poitrine',
++        'silhouette': 'Structurée',
++      },
++      'materials': {
++        'primaryMaterial': 'Coton',
++        'secondaryMaterials': <String>[],
++        'estimatedComposition': 'Majoritairement coton',
++        'elasticity': 'Faible',
++        'breathability': 'Bonne',
++        'thickness': 'Moyenne',
++      },
++      'style': {
++        'styles': ['Preppy', 'Classique'],
++        'formality': 'Semi-formel',
++        'versatility': 'Élevée',
++      },
++      'climate': {
++        'minimumTemperature': 12,
++        'maximumTemperature': 25,
++        'warmth': 'Légère',
++        'layering': 'Facile',
++      },
++      'occasions': {
++        'primary': ['Travail'],
++        'secondary': ['Sortie'],
++        'discouraged': <String>[],
++      },
++      'condition': {
++        'wear': 'Faible',
++        'pilling': 'Aucun',
++        'fading': 'Aucune',
++        'stains': 'Aucune',
++        'visibleDefects': <String>[],
++      },
++      'care': {
++        'washing': 'Cycle doux',
++        'drying': 'Air libre',
++        'ironing': 'Température moyenne',
++        'cleaning': 'Standard',
++        'warnings': ['Vérifier l’étiquette'],
++      },
++      'styleAnalysis': {
++        'summary': 'Une pièce polyvalente',
++        'strengths': ['Facile à associer'],
++        'weaknesses': <String>[],
++        'advice': ['Porter avec un chino'],
++        'compatibleColors': ['Beige'],
++        'discouragedColors': <String>[],
++        'idealOccasions': ['Bureau'],
++        'verdict': 'Bon basique',
++      },
++    },
++  };
++
++  test('désérialise un ancien JSON sans enrichissement', () {
++    final result = GarmentAnalysisResult.fromJson(legacyJson);
++    expect(result.enrichment, isNull);
++    expect(result.imageQualityWarnings, isEmpty);
++  });
++
++  test('désérialise et sérialise le nouveau JSON, listes vides incluses', () {
++    final result = GarmentAnalysisResult.fromJson(richJson);
++    expect(result.enrichment?.identification?.preciseType, 'Chemise Oxford');
++    expect(result.enrichment?.appearance?.secondaryColors, isEmpty);
++    final restored = GarmentAnalysisResult.fromJson(
++      jsonDecode(jsonEncode(result.toJson())) as Map<String, dynamic>,
++    );
++    expect(restored.enrichment?.styleAnalysis?.verdict, 'Bon basique');
++    expect(restored.enrichment?.occasions?.discouraged, isEmpty);
++  });
++
++  test('copyWith conserve et remplace les données enrichies', () {
++    final result = GarmentAnalysisResult.fromJson(richJson);
++    final copied = result.copyWith(globalConfidence: .9);
++    expect(copied.enrichment?.care?.washing, 'Cycle doux');
++    expect(copied.globalConfidence, .9);
++  });
++
++  test('le vêtement persistant accepte ancien et nouveau stockage', () {
++    final now = DateTime.utc(2026, 7, 26);
++    final legacy = Garment.fromMap({
++      'id': 'legacy',
++      'name': 'Ancien',
++      'category': 'Hauts',
++      'created_at': now.toIso8601String(),
++      'updated_at': now.toIso8601String(),
++    });
++    expect(legacy.enrichment, isNull);
++
++    final result = GarmentAnalysisResult.fromJson(richJson);
++    final garment = Garment(
++      id: 'new',
++      name: 'Chemise',
++      category: 'Hauts',
++      enrichment: result.enrichment,
++      createdAt: now,
++      updatedAt: now,
++    );
++    final restored = Garment.fromMap(garment.toMap());
++    expect(restored.enrichment?.materials?.primaryMaterial, 'Coton');
++    expect(restored.copyWith(name: 'Oxford').enrichment?.climate?.maximumTemperature, 25);
++  });
++}

@@ -67,16 +67,16 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
     var attempt = 0;
     while (true) {
     try {
-      final response = await client
-          .post(
-            endpoint,
-            headers: {
-              HttpHeaders.authorizationHeader: 'Bearer $apiKey',
-              HttpHeaders.contentTypeHeader: 'application/json',
-            },
-            body: jsonEncode(body),
-          )
-          .timeout(timeout);
+      final response = await client.post(
+        endpoint,
+        headers: {
+          HttpHeaders.authorizationHeader: 'Bearer ${apiKey.trim()}',
+          HttpHeaders.contentTypeHeader: 'application/json',
+        },
+        body: jsonEncode(body),
+      ).timeout(timeout);
+      print('HTTP ${response.statusCode}');
+      print(response.body);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final exception = _httpException(response.statusCode);
         if (attempt++ < maxRetries && _isTransient(response.statusCode)) {
@@ -93,7 +93,16 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
           'OpenAI a renvoyé une réponse vide.',
         );
       }
-      return GarmentAnalysisResult.fromJsonString(output);
+      print('================ IA JSON ================');
+      print(output);
+      print('=========================================');
+      final result = GarmentAnalysisResult.fromJsonString(output);
+
+print('PARSE OK');
+print('usable=${result.isUsableImage}');
+print('reason=${result.rejectionReason}');
+
+return result;
     } on GarmentAnalysisException {
       rethrow;
     } on TimeoutException {
@@ -199,9 +208,21 @@ ${jsonEncode(request.existingValues)}
       'visibleBrand': _nullableString,
       'globalConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
       'fieldConfidences': {
-        'type': 'object',
-        'additionalProperties': {'type': 'number', 'minimum': 0, 'maximum': 1},
+  'type': 'array',
+  'items': {
+    'type': 'object',
+    'additionalProperties': false,
+    'required': ['field', 'confidence'],
+    'properties': {
+      'field': {'type': 'string'},
+      'confidence': {
+        'type': 'number',
+        'minimum': 0,
+        'maximum': 1,
       },
+    },
+  },
+},
       'warnings': {
         'type': 'array',
         'items': {'type': 'string'},
