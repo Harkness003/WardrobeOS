@@ -289,8 +289,8 @@ class DatabaseService {
     }
     if (favoritesOnly) where.add('is_favorite = 1');
     if (season.trim().isNotEmpty) {
-      where.add('season = ?');
-      args.add(season.trim());
+      where.add('(season = ? OR saisons LIKE ?)');
+      args.addAll([season.trim(), '%"${season.trim()}"%']);
     }
     for (final filter in <(String, String)>[
       ('brand', brand),

@@ -33,7 +33,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
   late final Map<String, TextEditingController> richFields;
 
   late String category;
-  late String season;
+  late Set<String> selectedSeasons;
   late String style;
   late String occasion;
   late String condition;
@@ -52,13 +52,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     'Accessoires',
     'Autre',
   ];
-  static const seasons = [
-    'Toute saison',
-    'Printemps',
-    'Été',
-    'Automne',
-    'Hiver',
-  ];
+  static const seasons = Garment.availableSeasons;
   static const styles = [
     'Non défini',
     'Casual',
@@ -134,7 +128,6 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       'matierePrincipale': TextEditingController(text: g?.matierePrincipale?.toString() ?? ''),
       'matieresSecondaires': TextEditingController(text: g?.matieresSecondaires?.join(', ') ?? ''),
       'confianceMatiere': TextEditingController(text: g?.confianceMatiere?.toString() ?? ''),
-      'saisons': TextEditingController(text: g?.saisons?.join(', ') ?? ''),
       'occasions': TextEditingController(text: g?.occasions?.join(', ') ?? ''),
       'temperatureMinimum': TextEditingController(text: g?.temperatureMinimum?.toString() ?? ''),
       'temperatureMaximum': TextEditingController(text: g?.temperatureMaximum?.toString() ?? ''),
@@ -148,7 +141,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       'avertissementsIA': TextEditingController(text: g?.avertissementsIA?.join(', ') ?? ''),
     };
     category = _safeValue(g?.category, categories, 'Hauts');
-    season = _safeValue(g?.season, seasons, 'Toute saison');
+    selectedSeasons = {...?g?.effectiveSeasons};
     style = _safeValue(g?.style, styles, 'Non défini');
     occasion = _safeValue(g?.occasion, occasions, 'Non définie');
     condition = _safeValue(g?.condition, conditions, 'Non défini');
@@ -293,7 +286,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
         brand: _optional(brand),
         color: _optional(color),
         material: _optional(material),
-        season: season,
+        season: selectedSeasons.length == 1 ? selectedSeasons.single : null,
         style: _optionalChoice(style, 'Non défini'),
         occasion: _optionalChoice(occasion, 'Non définie'),
         condition: _optionalChoice(condition, 'Non défini'),
@@ -316,7 +309,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
         matierePrincipale: _rich('matierePrincipale'),
         matieresSecondaires: _richList('matieresSecondaires'),
         confianceMatiere: _richDouble('confianceMatiere'),
-        saisons: _richList('saisons'),
+        saisons: selectedSeasons.toList(growable: false),
         occasions: _richList('occasions'),
         temperatureMinimum: _richDouble('temperatureMinimum'),
         temperatureMaximum: _richDouble('temperatureMaximum'),
@@ -473,17 +466,23 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
                 title: 'Style et usage',
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: season,
-                decoration: const InputDecoration(labelText: 'Saison'),
-                items:
-                    seasons
-                        .map(
-                          (item) =>
-                              DropdownMenuItem(value: item, child: Text(item)),
-                        )
-                        .toList(),
-                onChanged: (value) => setState(() => season = value!),
+              InputDecorator(
+                decoration: const InputDecoration(labelText: 'Saisons'),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: seasons.map((item) {
+                    return FilterChip(
+                      label: Text(item),
+                      selected: selectedSeasons.contains(item),
+                      onSelected: (selected) => setState(() {
+                        selected
+                            ? selectedSeasons.add(item)
+                            : selectedSeasons.remove(item);
+                      }),
+                    );
+                  }).toList(),
+                ),
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
@@ -696,8 +695,6 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
                 title: const Text('Utilisation', style: TextStyle(fontWeight: FontWeight.w800)),
                 childrenPadding: const EdgeInsets.only(bottom: 12),
                 children: [
-                    TextFormField(controller: richFields['saisons'], decoration: const InputDecoration(labelText: 'Saisons (séparées par des virgules)', helperText: 'Suggestion IA · modifiable')),
-                    const SizedBox(height: 10),
                     TextFormField(controller: richFields['occasions'], decoration: const InputDecoration(labelText: 'Occasions (séparées par des virgules)', helperText: 'Suggestion IA · modifiable')),
                     const SizedBox(height: 10),
                     TextFormField(controller: richFields['temperatureMinimum'], decoration: const InputDecoration(labelText: 'Température minimum', helperText: 'Suggestion IA · modifiable')),

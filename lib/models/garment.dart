@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'garment_normalizer.dart';
 
 class Garment {
+  static const availableSeasons = ['Printemps', 'Été', 'Automne', 'Hiver'];
   final String id;
   final String name;
   final String category;
@@ -150,6 +151,22 @@ class Garment {
     required this.createdAt,
     required this.updatedAt,
   });
+
+  /// Saisons canoniques du vêtement, avec repli sur l'ancien champ unique.
+  List<String> get effectiveSeasons {
+    final source = saisons?.isNotEmpty == true ? saisons! : [if (season != null) season!];
+    final expanded = source.expand(
+      (value) => value.trim().toLowerCase() == 'toute saison'
+          ? availableSeasons
+          : [value],
+    );
+    return expanded
+        .map(GarmentNormalizer.value)
+        .whereType<String>()
+        .where(availableSeasons.contains)
+        .toSet()
+        .toList(growable: false);
+  }
 
   Garment copyWith({
     String? id,
@@ -306,7 +323,8 @@ class Garment {
     'brand': brand,
     'color': color,
     'material': material,
-    'season': season,
+    // Le champ historique reste alimenté pour les anciennes versions.
+    'season': effectiveSeasons.length == 1 ? effectiveSeasons.single : season,
     'style': style,
     'occasion': occasion,
     'condition': condition,
@@ -337,7 +355,7 @@ class Garment {
     'matiere_principale': matierePrincipale,
     'matieres_secondaires': matieresSecondaires == null ? null : jsonEncode(matieresSecondaires),
     'confiance_matiere': confianceMatiere,
-    'saisons': saisons == null ? null : jsonEncode(saisons),
+    'saisons': jsonEncode(effectiveSeasons),
     'occasions': occasions == null ? null : jsonEncode(occasions),
     'temperature_minimum': temperatureMinimum,
     'temperature_maximum': temperatureMaximum,
@@ -390,6 +408,16 @@ class Garment {
       return value == true || value == 1;
     }
 
+    final legacySeason = text('season');
+    final storedSeasons = list('saisons');
+    final canonicalSeasons = storedSeasons?.isNotEmpty == true
+        ? storedSeasons
+        : legacySeason == null
+            ? null
+            : legacySeason.toLowerCase() == 'toute saison'
+                ? availableSeasons
+                : [legacySeason];
+
     return Garment(
       id: map['id'] as String,
       name: map['name'] as String,
@@ -397,7 +425,7 @@ class Garment {
       brand: text('brand'),
       color: text('color'),
       material: text('material'),
-      season: text('season'),
+      season: legacySeason,
       style: text('style'),
       occasion: text('occasion'),
       condition: text('condition'),
@@ -428,7 +456,7 @@ class Garment {
       matierePrincipale: text('matiere_principale'),
       matieresSecondaires: list('matieres_secondaires'),
       confianceMatiere: number('confiance_matiere'),
-      saisons: list('saisons'),
+      saisons: canonicalSeasons,
       occasions: list('occasions'),
       temperatureMinimum: number('temperature_minimum'),
       temperatureMaximum: number('temperature_maximum'),

@@ -16,6 +16,7 @@ String? _cleanDisplayText(String? value) {
   final normalized = trimmed.toLowerCase();
   if (normalized == 'null' ||
       normalized == 'n/a' ||
+      normalized == 'vide' ||
       normalized == 'inconnu' ||
       normalized == 'inconnue') {
     return null;
@@ -311,7 +312,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
               garment.category,
               garment.color,
               garment.material,
-              garment.season,
+              ...garment.effectiveSeasons,
               garment.style,
               garment.occasion,
             ]
@@ -663,7 +664,7 @@ class _AiGarmentDetails extends StatelessWidget {
         'Explication de la polyvalence',
         garment.explicationPolyvalence,
       ),
-    ].where((entry) => entry.isNotEmpty).toList();
+    ];
     final associations = <_AiDetailEntry>[
       _AiDetailEntry.list('Couleurs compatibles', garment.couleursCompatibles),
       _AiDetailEntry.list(
@@ -675,7 +676,7 @@ class _AiGarmentDetails extends StatelessWidget {
         'Chaussures compatibles',
         garment.chaussuresCompatibles,
       ),
-    ].where((entry) => entry.isNotEmpty).toList();
+    ];
     final characteristics = <_AiDetailEntry>[
       _AiDetailEntry.text('Type précis', garment.typePrecis),
       _AiDetailEntry.text(
@@ -695,29 +696,36 @@ class _AiGarmentDetails extends StatelessWidget {
         garment.matieresSecondaires,
       ),
       _AiDetailEntry.text('Composition estimée', garment.compositionEstimee),
-    ].where((entry) => entry.isNotEmpty).toList();
+    ];
     final occasions = <_AiDetailEntry>[
       _AiDetailEntry.list('Occasions recommandées', garment.occasions),
       _AiDetailEntry.list(
         'Occasions déconseillées',
         garment.occasionsDeconseillees,
       ),
-    ].where((entry) => entry.isNotEmpty).toList();
+    ];
     final care = <_AiDetailEntry>[
       _AiDetailEntry.text('Lavage', garment.lavage),
       _AiDetailEntry.text('Séchage', garment.sechage),
       _AiDetailEntry.text('Repassage', garment.repassage),
       _AiDetailEntry.text('Nettoyage', garment.nettoyage),
-    ].where((entry) => entry.isNotEmpty).toList();
+    ];
     final condition = <_AiDetailEntry>[
       _AiDetailEntry.text('Usure', garment.usureVisible),
       _AiDetailEntry.text('Boulochage', garment.boulochage),
       _AiDetailEntry.text('Taches', garment.taches),
       _AiDetailEntry.list('Défauts visibles', garment.defautsVisibles),
-    ].where((entry) => entry.isNotEmpty).toList();
+    ];
     final limits = <_AiDetailEntry>[
+      _AiDetailEntry.text(
+        'Confiance globale',
+        garment.confianceGlobale == null
+            ? null
+            : '${(garment.confianceGlobale! * 100).round()} %',
+      ),
+      _AiDetailEntry.list('Avertissements IA', garment.avertissementsIA),
       _AiDetailEntry.list('Limites de l’analyse', garment.limitesAnalyse),
-    ].where((entry) => entry.isNotEmpty).toList();
+    ];
     final groups = <(_AiDetailGroup, List<_AiDetailEntry>)>[
       (
         const _AiDetailGroup(
@@ -750,9 +758,7 @@ class _AiGarmentDetails extends StatelessWidget {
         condition,
       ),
       (const _AiDetailGroup('Fiabilité', Icons.info_outline), limits),
-    ].where((group) => group.$2.isNotEmpty).toList();
-
-    if (groups.isEmpty) return const SizedBox.shrink();
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -840,6 +846,8 @@ class _AiDetailRow extends StatelessWidget {
         const SizedBox(height: 5),
         if (entry.values.length == 1)
           Text(entry.values.single)
+        else if (entry.values.isEmpty)
+          const Text('Information non disponible.')
         else
           for (final value in entry.values)
             Padding(

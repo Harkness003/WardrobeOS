@@ -26,7 +26,7 @@ class OutfitCandidate {
     name: garment.name,
     category: garment.category,
     color: garment.color,
-    season: garment.season,
+    season: garment.effectiveSeasons.join(', '),
     wearCount: garment.wearCount,
     lastWorn: garment.lastWorn,
   );

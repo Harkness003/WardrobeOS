@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/models/garment.dart';
 import 'package:wardrobeos/models/garment_normalizer.dart';
@@ -15,6 +17,28 @@ void main() {
     );
     expect(Garment.fromMap(garment.toMap()), garment);
     expect(garment.validate(), isNull);
+  });
+
+  test('uses multiple seasons and falls back to the legacy season', () {
+    final legacy = Garment.fromMap({
+      'id': 'legacy',
+      'name': 'Manteau',
+      'category': 'Vestes',
+      'season': 'Hiver',
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+    });
+    expect(legacy.effectiveSeasons, ['Hiver']);
+    expect(legacy.saisons, ['Hiver']);
+
+    final garment = legacy.copyWith(
+      saisons: const ['Automne', 'Hiver', 'Hiver'],
+    );
+    expect(garment.effectiveSeasons, ['Automne', 'Hiver']);
+    expect(
+      jsonDecode(garment.toMap()['saisons']! as String),
+      ['Automne', 'Hiver'],
+    );
   });
 
   test('serializes, copies and compares every rich field', () {
