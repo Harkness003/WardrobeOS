@@ -171,6 +171,18 @@ class Garment {
         .toList(growable: false);
   }
 
+  /// Utilisations du vêtement, avec repli sur l'ancien champ unique.
+  List<String> get effectiveOccasions {
+    final source = occasions?.isNotEmpty == true
+        ? occasions!
+        : [if (occasion != null) occasion!];
+    return source
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+  }
+
   Garment copyWith({
     String? id,
     String? name,

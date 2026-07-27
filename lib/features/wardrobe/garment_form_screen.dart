@@ -26,8 +26,8 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
   late final TextEditingController _name, _brand, _color, _size, _otherMaterial,
       _otherUse, _minTemp, _maxTemp, _notes;
   late String _category;
-  String? _subCategory, _material, _use;
-  late Set<String> _styles, _seasons;
+  String? _subCategory, _material;
+  late Set<String> _styles, _seasons, _uses;
   bool? _rain, _heat;
   String? _imagePath;
   bool _saving = false;
@@ -63,9 +63,11 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     final existingMaterial = g?.matierePrincipale ?? g?.material;
     _material = _choice(existingMaterial, materials);
     _otherMaterial = TextEditingController(text: _material == null ? existingMaterial ?? '' : '');
-    final existingUse = g?.occasions?.isNotEmpty == true ? g!.occasions!.first : g?.occasion;
-    _use = _choice(existingUse, uses);
-    _otherUse = TextEditingController(text: _use == null ? existingUse ?? '' : '');
+    final existingUses = g?.effectiveOccasions ?? const <String>[];
+    _uses = existingUses.where(uses.contains).toSet();
+    final customUses = existingUses.where((value) => !uses.contains(value)).toList();
+    if (customUses.isNotEmpty) _uses.add('Autre...');
+    _otherUse = TextEditingController(text: customUses.join(', '));
     _styles = {...?g?.stylesSecondaires, if (g?.stylePrincipal != null) g!.stylePrincipal!, if (g?.style != null) g!.style!}.where(styles.contains).toSet();
     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
     _rain = g?.compatiblePluie;
@@ -114,7 +116,16 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     final old = widget.garment;
     final now = DateTime.now();
     final material = _material == 'Autre...' ? _text(_otherMaterial) : _material;
-    final use = _use == 'Autre...' ? _text(_otherUse) : _use;
+    final selectedUses = _uses.where((value) => value != 'Autre...').toList();
+    if (_uses.contains('Autre...')) {
+      selectedUses.addAll(
+        _otherUse.text
+            .split(',')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty),
+      );
+    }
+    final uniqueUses = selectedUses.toSet().toList();
     final garment = Garment(
       id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: _category,
       brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes), imagePath: _imagePath,
@@ -123,7 +134,10 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       typePrecis: old?.typePrecis, superposable: old?.superposable,
       style: _styles.isEmpty ? null : _styles.first, stylePrincipal: _styles.isEmpty ? null : _styles.first, stylesSecondaires: _styles.toList(),
       season: _seasons.length == 1 ? _seasons.single : null, saisons: _seasons.toList(),
-      occasion: use, occasions: use == null ? null : [use], temperatureMinimum: min, temperatureMaximum: max,
+      // Keep the first value in the legacy scalar while persisting every use.
+      occasion: uniqueUses.isEmpty ? null : uniqueUses.first,
+      occasions: uniqueUses.isEmpty ? null : uniqueUses,
+      temperatureMinimum: min, temperatureMaximum: max,
       compatiblePluie: _rain, compatibleChaleur: _heat, layerType: _calculatedLayer(),
       descriptionIA: old?.descriptionIA, couleursSecondaires: old?.couleursSecondaires, motif: old?.motif, texture: old?.texture,
       logoVisible: old?.logoVisible, niveauFormalite: old?.niveauFormalite, coupe: old?.coupe, longueur: old?.longueur,
@@ -159,8 +173,8 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Autre matière'))],
       const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: styles, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
       const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() => _seasons = v)),
-      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _use, decoration: const InputDecoration(labelText: 'Utilisation'), items: uses.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _use = v)),
-      if (_use == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Autre utilisation'))],
+      const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() => _uses = v)),
+      if (_uses.contains('Autre...')) ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Autre utilisation', helperText: 'Séparez plusieurs utilisations par des virgules'))],
       const SizedBox(height: 10), TextFormField(controller: _size, decoration: const InputDecoration(labelText: 'Taille (facultative)', helperText: 'Jamais estimée par l’IA')),
       const SizedBox(height: 18), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'Temp. min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'Temp. max'))]),
       const SizedBox(height: 10), _TriState(label: 'Compatible pluie', value: _rain, onChanged: (v) => setState(() => _rain = v)),

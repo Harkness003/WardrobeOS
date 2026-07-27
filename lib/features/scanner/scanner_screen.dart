@@ -254,7 +254,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
         if (mapped.category.isNotEmpty) category = mapped.category;
         if (mapped.season.isNotEmpty) season = mapped.season;
       });
-      _toast('Analyse terminée · Suggestions IA appliquées.');
+      setState(() => analyzing = false);
+      await _openFullForm();
     } on GarmentAnalysisException catch (error) {
       if (!mounted) return;
       _toast(_friendlyAnalysisError(error));
@@ -284,14 +285,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
     _ => 'Analyse impossible pour le moment. Réessaie.',
   };
 
-  Future<void> save() async {
+  Future<void> _openFullForm() async {
     if (busy) return;
     if (imagePath == null) {
       _toast('Ajoute d’abord une photo.');
-      return;
-    }
-    if (name.text.trim().isEmpty) {
-      _toast('Donne un nom à la pièce.');
       return;
     }
 
@@ -300,7 +297,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     final climate = _estimateClimate(category, material.text, season);
     final garment = Garment(
       id: const Uuid().v4(),
-      name: name.text.trim(),
+      name: name.text.trim().isEmpty ? 'Vêtement à identifier' : name.text.trim(),
       category: category,
       brand: brand.text.trim().isEmpty ? null : brand.text.trim(),
       color: color.text.trim().isEmpty ? null : color.text.trim(),
@@ -331,7 +328,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
       basCompatibles: result?.compatibleBottoms,
       chaussuresCompatibles: result?.compatibleShoes,
       explicationPolyvalence: result?.versatilityExplanation,
-      occasions: result?.idealOccasions,
+      occasions: _suggestUses(result?.idealOccasions ?? const []),
       occasionsDeconseillees: result?.discouragedOccasions,
       limitesAnalyse: result?.analysisLimitations,
       notes:
@@ -392,6 +389,26 @@ class _ScannerScreenState extends State<ScannerScreen> {
     return 'Casual';
   }
 
+  List<String> _suggestUses(List<String> suggestions) {
+    const available = [
+      'Quotidien', 'Travail', 'Sport', 'Voyage', 'Maison', 'Soirée',
+      'Randonnée', 'Vacances',
+    ];
+    String normalize(String value) => value
+        .toLowerCase()
+        .replaceAll(RegExp('[éèêë]'), 'e')
+        .replaceAll(RegExp('[àâä]'), 'a');
+
+    return suggestions.map((suggestion) {
+      final normalized = normalize(suggestion);
+      return available.cast<String?>().firstWhere(
+            (value) => normalized.contains(normalize(value!)),
+            orElse: () => null,
+          ) ??
+          suggestion;
+    }).toSet().toList();
+  }
+
   void _removeBestEffort(String? path) {
     unawaited(ImageStorageService.remove(path).catchError((_) {}));
   }
@@ -444,83 +461,13 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 label: const Text('Prendre ou choisir une photo'),
               ),
             ] else ...[
-              if (result != null) _AnalysisSummary(result: result!),
-              if (result != null) const SizedBox(height: 14),
-              TextField(
-                controller: name,
-                decoration: const InputDecoration(
-                  labelText: 'Nom de la pièce',
-                  prefixIcon: Icon(Icons.edit_outlined),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: brand,
-                decoration: const InputDecoration(
-                  labelText: 'Marque (facultatif)',
-                  prefixIcon: Icon(Icons.sell_outlined),
-                ),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                initialValue: category,
-                decoration: const InputDecoration(
-                  labelText: 'Catégorie',
-                  prefixIcon: Icon(Icons.category_outlined),
-                ),
-                items:
-                    categories
-                        .map(
-                          (value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value),
-                          ),
-                        )
-                        .toList(),
-                onChanged: (value) => setState(() => category = value!),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: color,
-                decoration: const InputDecoration(
-                  labelText: 'Couleur',
-                  prefixIcon: Icon(Icons.palette_outlined),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: material,
-                decoration: const InputDecoration(
-                  labelText: 'Matière',
-                  prefixIcon: Icon(Icons.texture_outlined),
-                ),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                initialValue: season,
-                decoration: const InputDecoration(
-                  labelText: 'Saison',
-                  prefixIcon: Icon(Icons.calendar_month_outlined),
-                ),
-                items:
-                    seasons
-                        .map(
-                          (value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value),
-                          ),
-                        )
-                        .toList(),
-                onChanged: (value) => setState(() => season = value!),
-              ),
-              const SizedBox(height: 14),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: busy ? null : analyze,
-                      icon: const Icon(Icons.refresh),
-                      label: Text(result == null ? 'Analyser la photo' : 'Réanalyser'),
+                      icon: const Icon(Icons.auto_awesome),
+                      label: const Text('Analyser et compléter'),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(52),
                         shape: RoundedRectangleBorder(
@@ -544,20 +491,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: busy ? null : save,
-                icon:
-                    saving
-                        ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                        : const Icon(Icons.check),
-                label: Text(
-                  saving ? 'Ajout en cours…' : 'Valider et ajouter au dressing',
-                ),
               ),
             ],
           ],
@@ -691,75 +624,6 @@ class _IntroCard extends StatelessWidget {
             SizedBox(height: 12),
             Text(
               'L’IA propose une catégorie, une couleur, une matière et une saison. Tu gardes le contrôle et peux tout corriger avant l’enregistrement.',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AnalysisSummary extends StatelessWidget {
-  final GarmentAnalysisResult result;
-  const _AnalysisSummary({required this.result});
-
-  @override
-  Widget build(BuildContext context) {
-    final confidence = (result.globalConfidence * 100).round();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.auto_awesome, color: AppTheme.gold),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Suggestion IA',
-                    style: TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                ),
-                Chip(label: Text('$confidence %')),
-              ],
-            ),
-            const SizedBox(height: 12),
-            LinearProgressIndicator(
-              value: result.globalConfidence,
-              minHeight: 7,
-              borderRadius: BorderRadius.circular(8),
-              color: AppTheme.gold,
-            ),
-            if (result.warnings.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  result.warnings.take(2).join(' · '),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                result.globalConfidence >= .8
-                    ? 'Confiance élevée'
-                    : result.globalConfidence >= .55
-                        ? 'Confiance moyenne · À vérifier'
-                        : 'À vérifier',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Vérifie les informations : l’analyse peut se tromper.',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
             ),
           ],
         ),

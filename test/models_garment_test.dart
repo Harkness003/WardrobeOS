@@ -5,6 +5,30 @@ import 'package:wardrobeos/models/garment.dart';
 import 'package:wardrobeos/models/garment_normalizer.dart';
 
 void main() {
+  test('effectiveOccasions preserves multiple uses and supports legacy data', () {
+    final now = DateTime(2026);
+    final legacy = Garment(
+      id: 'legacy',
+      name: 'Chemise',
+      category: 'Chemises',
+      occasion: 'Travail',
+      createdAt: now,
+      updatedAt: now,
+    );
+    final multiple = Garment(
+      id: 'multiple',
+      name: 'Veste',
+      category: 'Vestes',
+      occasion: 'Quotidien',
+      occasions: const ['Travail', 'Voyage', 'Travail'],
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    expect(legacy.effectiveOccasions, ['Travail']);
+    expect(multiple.effectiveOccasions, ['Travail', 'Voyage']);
+  });
+
   final now = DateTime.utc(2026, 7, 20);
 
   test('supports minimal creation and legacy maps', () {
