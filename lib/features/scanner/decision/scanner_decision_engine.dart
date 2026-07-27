@@ -1,0 +1,206 @@
+import '../ai/garment_analysis_result.dart';
+import '../conversation/requested_photo.dart';
+
+/// Description of a scanner field and of the evidence that can improve it.
+///
+/// Keeping this catalogue injectable makes adding a field or a photo type a
+/// configuration change rather than another branch in presentation code.
+class ScannerFieldRule {
+  final String field;
+  final String label;
+  final double weight;
+  final bool essential;
+  final RequestedPhotoType? photoType;
+  final String? photoInstruction;
+  final String uncertaintyExplanation;
+  final String? photoReason;
+
+  const ScannerFieldRule({
+    required this.field,
+    required this.label,
+    required this.weight,
+    this.essential = false,
+    this.photoType,
+    this.photoInstruction,
+    required this.uncertaintyExplanation,
+    this.photoReason,
+  });
+}
+
+class ScannerFieldAssessment {
+  final String field;
+  final String label;
+  final double confidence;
+  final bool hasValue;
+  final bool requiresVerification;
+  final String? explanation;
+
+  const ScannerFieldAssessment({
+    required this.field,
+    required this.label,
+    required this.confidence,
+    required this.hasValue,
+    required this.requiresVerification,
+    this.explanation,
+  });
+}
+
+class ScannerDecision {
+  final double globalConfidence;
+  final bool canFinishAutomatically;
+  final List<ScannerFieldAssessment> fields;
+  final List<String> missingInformation;
+  final List<String> explanations;
+  final RequestedPhoto? requestedPhoto;
+
+  const ScannerDecision({
+    required this.globalConfidence,
+    required this.canFinishAutomatically,
+    required this.fields,
+    required this.missingInformation,
+    required this.explanations,
+    this.requestedPhoto,
+  });
+}
+
+/// Pure decision engine for scanner confidence, uncertainty and follow-up.
+///
+/// The engine does not trust the model's global confidence or photo choice as
+/// decisions: it recomputes confidence from field evidence and recommends only
+/// a photo with a positive, prioritized confidence gain.
+class ScannerDecisionEngine {
+  static const defaultVerificationThreshold = .72;
+  static const defaultCompletionThreshold = .72;
+
+  final double verificationThreshold;
+  final double completionThreshold;
+  final List<ScannerFieldRule> rules;
+
+  const ScannerDecisionEngine({
+    this.verificationThreshold = defaultVerificationThreshold,
+    this.completionThreshold = defaultCompletionThreshold,
+    this.rules = defaultRules,
+  });
+
+  static const defaultRules = <ScannerFieldRule>[
+    ScannerFieldRule(
+      field: 'category',
+      label: 'Catégorie',
+      weight: 1.5,
+      essential: true,
+      uncertaintyExplanation: 'Je ne peux pas confirmer la catégorie.',
+    ),
+    ScannerFieldRule(
+      field: 'primaryColor',
+      label: 'Couleur',
+      weight: 1.2,
+      essential: true,
+      uncertaintyExplanation: 'Je ne peux pas confirmer la couleur.',
+    ),
+    ScannerFieldRule(field: 'preciseType', label: 'Sous-catégorie', weight: 1.2, photoType: RequestedPhotoType.back, photoInstruction: 'Photographiez le vêtement de dos.', uncertaintyExplanation: 'La coupe ne peut pas être identifiée précisément.', photoReason: 'Le dos du vêtement est nécessaire pour identifier précisément la coupe.'),
+    ScannerFieldRule(field: 'material', label: 'Matière', weight: 1.4, photoType: RequestedPhotoType.compositionLabel, photoInstruction: 'Photographiez l’étiquette de composition.', uncertaintyExplanation: 'Je ne peux pas confirmer la matière.', photoReason: 'L’étiquette permet de confirmer la composition sans la deviner.'),
+    ScannerFieldRule(field: 'style', label: 'Style', weight: .8, uncertaintyExplanation: 'Le style reste difficile à préciser.'),
+    ScannerFieldRule(field: 'season', label: 'Saisons', weight: .7, photoType: RequestedPhotoType.compositionLabel, photoInstruction: 'Photographiez l’étiquette de composition.', uncertaintyExplanation: 'La saison d’utilisation reste incertaine.', photoReason: 'La composition aidera à estimer les saisons adaptées.'),
+    ScannerFieldRule(field: 'lining', label: 'Doublure', weight: .9, photoType: RequestedPhotoType.lining, photoInstruction: 'Photographiez l’intérieur et la doublure.', uncertaintyExplanation: 'La doublure n’est pas visible.', photoReason: 'Une vue intérieure permet de vérifier la présence et le type de doublure.'),
+    ScannerFieldRule(field: 'backCut', label: 'Coupe arrière', weight: 1.0, photoType: RequestedPhotoType.back, photoInstruction: 'Photographiez le vêtement de dos.', uncertaintyExplanation: 'Le dos du vêtement est inconnu.', photoReason: 'Le dos du vêtement est nécessaire pour identifier précisément la coupe.'),
+    ScannerFieldRule(field: 'texture', label: 'Texture', weight: .8, photoType: RequestedPhotoType.fabricCloseUp, photoInstruction: 'Prenez un gros plan net du tissu.', uncertaintyExplanation: 'Le tissu n’est pas assez visible.', photoReason: 'Un gros plan montrera la texture et les détails du tissu.'),
+    ScannerFieldRule(field: 'collar', label: 'Col', weight: .6, photoType: RequestedPhotoType.collar, photoInstruction: 'Photographiez le col de près.', uncertaintyExplanation: 'Le col est trop peu visible.', photoReason: 'Une vue rapprochée permettra d’identifier la forme du col.'),
+    ScannerFieldRule(field: 'visibleBrand', label: 'Marque', weight: .2, photoType: RequestedPhotoType.logo, photoInstruction: 'Photographiez le logo ou l’étiquette de marque.', uncertaintyExplanation: 'La marque n’est pas identifiable.', photoReason: 'Cette photo permettra de lire la marque.'),
+  ];
+
+  ScannerDecision evaluate(GarmentAnalysisResult result) {
+    final values = <String, String?>{
+      'suggestedName': result.suggestedName,
+      'category': result.category,
+      'primaryColor': result.primaryColor,
+      'preciseType': result.preciseType,
+      'material': result.material,
+      'style': result.styleSummary,
+      'season': result.season,
+      'visibleBrand': result.visibleBrand,
+    };
+
+    // Assess fields explicitly returned by the model, plus the stable fields
+    // displayed by the existing scanner. Optional future fields do not lower
+    // old scans unless the analyzer reports confidence for them.
+    final activeRules = rules.where((rule) =>
+        rule.essential ||
+        values[rule.field] != null ||
+        result.fieldConfidences.containsKey(rule.field));
+    final assessments = <ScannerFieldAssessment>[];
+    var weightedConfidence = 0.0;
+    var totalWeight = 0.0;
+    for (final rule in activeRules) {
+      final value = values[rule.field];
+      final hasValue = value != null && value.trim().isNotEmpty;
+      final reported = result.fieldConfidences[rule.field];
+      final confidence = (reported ?? (hasValue ? result.globalConfidence : 0))
+          .clamp(0, 1)
+          .toDouble();
+      final uncertain = !hasValue || confidence < verificationThreshold;
+      assessments.add(ScannerFieldAssessment(
+        field: rule.field,
+        label: rule.label,
+        confidence: confidence,
+        hasValue: hasValue,
+        requiresVerification: uncertain,
+        explanation: uncertain ? rule.uncertaintyExplanation : null,
+      ));
+      weightedConfidence += confidence * rule.weight;
+      totalWeight += rule.weight;
+    }
+    final global = totalWeight == 0 ? 0.0 : weightedConfidence / totalWeight;
+    final uncertain = assessments
+        .where((item) => item.requiresVerification)
+        .toList(growable: false);
+    final essentialReady = rules.where((rule) => rule.essential).every((rule) {
+      final item = assessments
+          .where((item) => item.field == rule.field)
+          .firstOrNull;
+      return item != null && !item.requiresVerification;
+    });
+
+    ScannerFieldRule? bestRule;
+    var bestGain = 0.0;
+    for (final item in uncertain) {
+      final rule = rules.firstWhere((candidate) => candidate.field == item.field);
+      if (rule.photoType == null) continue;
+      // Expected gain favors important, poorly known fields. A known field at
+      // 71% can therefore never outrank an unknown material at 0%.
+      final gain = rule.weight * (1 - item.confidence);
+      if (gain > bestGain) {
+        bestGain = gain;
+        bestRule = rule;
+      }
+    }
+
+    final canFinish = result.isUsableImage &&
+        essentialReady &&
+        global >= completionThreshold &&
+        bestRule == null;
+    final photo = canFinish || bestRule == null
+        ? null
+        : RequestedPhoto(
+            type: bestRule.photoType!,
+            instruction: bestRule.photoInstruction!,
+            reason: bestRule.photoReason!,
+            targetFields: [bestRule.field],
+          );
+    return ScannerDecision(
+      globalConfidence: global,
+      canFinishAutomatically: canFinish,
+      fields: List.unmodifiable(assessments),
+      missingInformation: List.unmodifiable(
+        uncertain.map((item) => item.label.toLowerCase()),
+      ),
+      explanations: List.unmodifiable(
+        uncertain.map((item) => item.explanation!),
+      ),
+      requestedPhoto: photo,
+    );
+  }
+}
+
+extension<T> on Iterable<T> {
+  T? get firstOrNull => isEmpty ? null : first;
+}
