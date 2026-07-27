@@ -3,6 +3,31 @@ import 'dart:convert';
 import 'garment_analysis_exception.dart';
 import '../conversation/requested_photo.dart';
 
+/// Read-only projection used by Expert UI without duplicating parsing or
+/// confidence fallback rules in widgets.
+class ReliabilitySummary {
+  final double? overallConfidence;
+  final Map<String, double> fieldConfidences;
+  final Map<String, String> fieldStatuses;
+  final Map<String, String> fieldSources;
+  final Map<String, String> fieldExplanations;
+
+  const ReliabilitySummary({
+    this.overallConfidence,
+    this.fieldConfidences = const {},
+    this.fieldStatuses = const {},
+    this.fieldSources = const {},
+    this.fieldExplanations = const {},
+  });
+
+  bool get hasDetails =>
+      overallConfidence != null ||
+      fieldConfidences.isNotEmpty ||
+      fieldStatuses.isNotEmpty ||
+      fieldSources.isNotEmpty ||
+      fieldExplanations.isNotEmpty;
+}
+
 class GarmentAnalysisResult {
   final bool isUsableImage;
   final String? rejectionReason;
@@ -24,6 +49,14 @@ class GarmentAnalysisResult {
   final bool? backgroundIsProblematic;
   final List<String> imageQualityWarnings;
   final Map<String, double> fieldConfidences;
+  /// Optional expert diagnostics. They stay nullable so historical analyses
+  /// and partial provider responses never have to invent evidence.
+  final Map<String, String>? fieldStatuses;
+  final Map<String, String>? fieldSources;
+  final Map<String, Object?>? fieldMetadata;
+  final double? overallConfidence;
+  final Map<String, Object?>? analysisMetadata;
+  final Map<String, String>? fieldExplanations;
   final List<String> warnings;
   final String? styleSummary;
   final List<String> styleStrengths;
@@ -40,6 +73,14 @@ class GarmentAnalysisResult {
   final List<String> analysisLimitations;
   final bool needsMorePhotos;
   final RequestedPhoto? requestedPhoto;
+
+  ReliabilitySummary get reliabilitySummary => ReliabilitySummary(
+    overallConfidence: overallConfidence,
+    fieldConfidences: fieldConfidences,
+    fieldStatuses: fieldStatuses ?? const {},
+    fieldSources: fieldSources ?? const {},
+    fieldExplanations: fieldExplanations ?? const {},
+  );
 
   const GarmentAnalysisResult({
     required this.isUsableImage,
@@ -62,6 +103,12 @@ class GarmentAnalysisResult {
     this.backgroundIsProblematic,
     this.imageQualityWarnings = const [],
     this.fieldConfidences = const {},
+    this.fieldStatuses,
+    this.fieldSources,
+    this.fieldMetadata,
+    this.overallConfidence,
+    this.analysisMetadata,
+    this.fieldExplanations,
     this.warnings = const [],
     this.styleSummary,
     this.styleStrengths = const [],
@@ -96,13 +143,6 @@ class GarmentAnalysisResult {
   }
 
   factory GarmentAnalysisResult.fromJson(Map<String, dynamic> json) {
-    if (json['isUsableImage'] is! bool ||
-        json['globalConfidence'] is! num) {
-      throw const GarmentAnalysisException(
-        GarmentAnalysisError.invalidSchema,
-        'La réponse de l’analyse IA est incomplète.',
-      );
-    }
     String? text(String key) {
       final value = json[key];
       return value is String && value.trim().isNotEmpty ? value.trim() : null;
@@ -134,6 +174,28 @@ class GarmentAnalysisResult {
                 .where((value) => value.isNotEmpty)
                 .toList(growable: false)
             : const [];
+    Map<String, String>? stringMap(String key) {
+      final value = json[key];
+      if (value is! Map) return null;
+      final result = <String, String>{};
+      for (final entry in value.entries) {
+        if (entry.key is String && entry.value is String) {
+          final text = (entry.value as String).trim();
+          if (text.isNotEmpty) result[entry.key as String] = text;
+        }
+      }
+      return result.isEmpty ? null : Map.unmodifiable(result);
+    }
+
+    Map<String, Object?>? objectMap(String key) {
+      final value = json[key];
+      if (value is! Map) return null;
+      final result = <String, Object?>{};
+      for (final entry in value.entries) {
+        if (entry.key is String) result[entry.key as String] = entry.value;
+      }
+      return result.isEmpty ? null : Map.unmodifiable(result);
+    }
     final rawRequest = json['requestedPhoto'];
     RequestedPhoto? requestedPhoto;
     if (rawRequest is Map) {
@@ -156,7 +218,9 @@ class GarmentAnalysisResult {
     }
 
     return GarmentAnalysisResult(
-      isUsableImage: json['isUsableImage'] as bool,
+      isUsableImage: json['isUsableImage'] is bool
+          ? json['isUsableImage'] as bool
+          : false,
       rejectionReason: text('rejectionReason'),
       suggestedName: text('suggestedName'),
       category: text('category'),
@@ -165,20 +229,31 @@ class GarmentAnalysisResult {
       material: text('material'),
       season: text('season'),
       visibleBrand: text('visibleBrand'),
-      globalConfidence:
-          (json['globalConfidence'] as num).toDouble().clamp(0, 1).toDouble(),
+      globalConfidence: json['globalConfidence'] is num
+          ? (json['globalConfidence'] as num).toDouble().clamp(0, 1).toDouble()
+          : json['overallConfidence'] is num
+              ? (json['overallConfidence'] as num).toDouble().clamp(0, 1).toDouble()
+              : 0,
       imageQualityConfidence: json['imageQualityConfidence'] is num
           ? (json['imageQualityConfidence'] as num).toDouble().clamp(0, 1).toDouble()
           : 1,
-      isBlurry: json['isBlurry'] as bool?,
-      isTooDark: json['isTooDark'] as bool?,
-      isOverexposed: json['isOverexposed'] as bool?,
-      garmentIsPartiallyHidden: json['garmentIsPartiallyHidden'] as bool?,
-      garmentIsTooSmall: json['garmentIsTooSmall'] as bool?,
-      multipleMainGarments: json['multipleMainGarments'] as bool?,
-      backgroundIsProblematic: json['backgroundIsProblematic'] as bool?,
+      isBlurry: json['isBlurry'] is bool ? json['isBlurry'] as bool : null,
+      isTooDark: json['isTooDark'] is bool ? json['isTooDark'] as bool : null,
+      isOverexposed: json['isOverexposed'] is bool ? json['isOverexposed'] as bool : null,
+      garmentIsPartiallyHidden: json['garmentIsPartiallyHidden'] is bool ? json['garmentIsPartiallyHidden'] as bool : null,
+      garmentIsTooSmall: json['garmentIsTooSmall'] is bool ? json['garmentIsTooSmall'] as bool : null,
+      multipleMainGarments: json['multipleMainGarments'] is bool ? json['multipleMainGarments'] as bool : null,
+      backgroundIsProblematic: json['backgroundIsProblematic'] is bool ? json['backgroundIsProblematic'] as bool : null,
       imageQualityWarnings: List.unmodifiable(strings('imageQualityWarnings')),
       fieldConfidences: Map.unmodifiable(confidences),
+      fieldStatuses: stringMap('fieldStatuses'),
+      fieldSources: stringMap('fieldSources'),
+      fieldMetadata: objectMap('fieldMetadata'),
+      overallConfidence: json['overallConfidence'] is num
+          ? (json['overallConfidence'] as num).toDouble().clamp(0, 1).toDouble()
+          : null,
+      analysisMetadata: objectMap('analysisMetadata'),
+      fieldExplanations: stringMap('fieldExplanations'),
       warnings: List.unmodifiable(strings('warnings')),
       styleSummary: text('styleSummary'),
       styleStrengths: List.unmodifiable(strings('styleStrengths')),
@@ -219,6 +294,12 @@ class GarmentAnalysisResult {
     'backgroundIsProblematic': backgroundIsProblematic,
     'imageQualityWarnings': imageQualityWarnings,
     'fieldConfidences': fieldConfidences,
+    'fieldStatuses': fieldStatuses,
+    'fieldSources': fieldSources,
+    'fieldMetadata': fieldMetadata,
+    'overallConfidence': overallConfidence,
+    'analysisMetadata': analysisMetadata,
+    'fieldExplanations': fieldExplanations,
     'warnings': warnings,
     'styleSummary': styleSummary,
     'styleStrengths': styleStrengths,
@@ -234,11 +315,14 @@ class GarmentAnalysisResult {
     'styleVerdict': styleVerdict,
     'analysisLimitations': analysisLimitations,
     'needsMorePhotos': needsMorePhotos,
-    'requestedPhoto': requestedPhoto == null ? null : {
-      'type': requestedPhoto!.type.name,
-      'instruction': requestedPhoto!.instruction,
-      'reason': requestedPhoto!.reason,
-      'targetFields': requestedPhoto!.targetFields,
+    'requestedPhoto': switch (requestedPhoto) {
+      final photo? => {
+        'type': photo.type.name,
+        'instruction': photo.instruction,
+        'reason': photo.reason,
+        'targetFields': photo.targetFields,
+      },
+      null => null,
     },
   };
 
@@ -251,6 +335,12 @@ class GarmentAnalysisResult {
     String? visibleBrand,
     double? globalConfidence,
     Map<String, double>? fieldConfidences,
+    Map<String, String>? fieldStatuses,
+    Map<String, String>? fieldSources,
+    Map<String, Object?>? fieldMetadata,
+    double? overallConfidence,
+    Map<String, Object?>? analysisMetadata,
+    Map<String, String>? fieldExplanations,
     List<String>? warnings,
   }) => GarmentAnalysisResult(
     isUsableImage: isUsableImage, rejectionReason: rejectionReason,
@@ -267,6 +357,12 @@ class GarmentAnalysisResult {
     backgroundIsProblematic: backgroundIsProblematic,
     imageQualityWarnings: imageQualityWarnings,
     fieldConfidences: fieldConfidences ?? this.fieldConfidences,
+    fieldStatuses: fieldStatuses ?? this.fieldStatuses,
+    fieldSources: fieldSources ?? this.fieldSources,
+    fieldMetadata: fieldMetadata ?? this.fieldMetadata,
+    overallConfidence: overallConfidence ?? this.overallConfidence,
+    analysisMetadata: analysisMetadata ?? this.analysisMetadata,
+    fieldExplanations: fieldExplanations ?? this.fieldExplanations,
     warnings: warnings ?? this.warnings,
     styleSummary: styleSummary, styleStrengths: styleStrengths,
     styleWeaknesses: styleWeaknesses, styleAdvice: styleAdvice,

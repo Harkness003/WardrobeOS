@@ -1,0 +1,655 @@
+diff --git a/lib/features/scanner/ai/garment_analysis_result.dart b/lib/features/scanner/ai/garment_analysis_result.dart
+index d6c4f02b6146a405d8b8fb4bbe62c69c14cd8c12..95360c809dc3c69ae61a0ebe25b50fdb85b8f7fa 100644
+--- a/lib/features/scanner/ai/garment_analysis_result.dart
++++ b/lib/features/scanner/ai/garment_analysis_result.dart
+@@ -1,281 +1,377 @@
+ import 'dart:convert';
+ 
+ import 'garment_analysis_exception.dart';
+ import '../conversation/requested_photo.dart';
+ 
++/// Read-only projection used by Expert UI without duplicating parsing or
++/// confidence fallback rules in widgets.
++class ReliabilitySummary {
++  final double? overallConfidence;
++  final Map<String, double> fieldConfidences;
++  final Map<String, String> fieldStatuses;
++  final Map<String, String> fieldSources;
++  final Map<String, String> fieldExplanations;
++
++  const ReliabilitySummary({
++    this.overallConfidence,
++    this.fieldConfidences = const {},
++    this.fieldStatuses = const {},
++    this.fieldSources = const {},
++    this.fieldExplanations = const {},
++  });
++
++  bool get hasDetails =>
++      overallConfidence != null ||
++      fieldConfidences.isNotEmpty ||
++      fieldStatuses.isNotEmpty ||
++      fieldSources.isNotEmpty ||
++      fieldExplanations.isNotEmpty;
++}
++
+ class GarmentAnalysisResult {
+   final bool isUsableImage;
+   final String? rejectionReason;
+   final String? suggestedName;
+   final String? category;
+   final String? preciseType;
+   final String? primaryColor;
+   final String? material;
+   final String? season;
+   final String? visibleBrand;
+   final double globalConfidence;
+   final double imageQualityConfidence;
+   final bool? isBlurry;
+   final bool? isTooDark;
+   final bool? isOverexposed;
+   final bool? garmentIsPartiallyHidden;
+   final bool? garmentIsTooSmall;
+   final bool? multipleMainGarments;
+   final bool? backgroundIsProblematic;
+   final List<String> imageQualityWarnings;
+   final Map<String, double> fieldConfidences;
++  /// Optional expert diagnostics. They stay nullable so historical analyses
++  /// and partial provider responses never have to invent evidence.
++  final Map<String, String>? fieldStatuses;
++  final Map<String, String>? fieldSources;
++  final Map<String, Object?>? fieldMetadata;
++  final double? overallConfidence;
++  final Map<String, Object?>? analysisMetadata;
++  final Map<String, String>? fieldExplanations;
+   final List<String> warnings;
+   final String? styleSummary;
+   final List<String> styleStrengths;
+   final List<String> styleWeaknesses;
+   final List<String> styleAdvice;
+   final List<String> compatibleColors;
+   final List<String> lessSuitableColors;
+   final List<String> compatibleBottoms;
+   final List<String> compatibleShoes;
+   final List<String> idealOccasions;
+   final List<String> discouragedOccasions;
+   final String? versatilityExplanation;
+   final String? styleVerdict;
+   final List<String> analysisLimitations;
+   final bool needsMorePhotos;
+   final RequestedPhoto? requestedPhoto;
+ 
++  ReliabilitySummary get reliabilitySummary => ReliabilitySummary(
++    overallConfidence: overallConfidence,
++    fieldConfidences: fieldConfidences,
++    fieldStatuses: fieldStatuses ?? const {},
++    fieldSources: fieldSources ?? const {},
++    fieldExplanations: fieldExplanations ?? const {},
++  );
++
+   const GarmentAnalysisResult({
+     required this.isUsableImage,
+     this.rejectionReason,
+     this.suggestedName,
+     this.category,
+     this.preciseType,
+     this.primaryColor,
+     this.material,
+     this.season,
+     this.visibleBrand,
+     required this.globalConfidence,
+     this.imageQualityConfidence = 1,
+     this.isBlurry,
+     this.isTooDark,
+     this.isOverexposed,
+     this.garmentIsPartiallyHidden,
+     this.garmentIsTooSmall,
+     this.multipleMainGarments,
+     this.backgroundIsProblematic,
+     this.imageQualityWarnings = const [],
+     this.fieldConfidences = const {},
++    this.fieldStatuses,
++    this.fieldSources,
++    this.fieldMetadata,
++    this.overallConfidence,
++    this.analysisMetadata,
++    this.fieldExplanations,
+     this.warnings = const [],
+     this.styleSummary,
+     this.styleStrengths = const [],
+     this.styleWeaknesses = const [],
+     this.styleAdvice = const [],
+     this.compatibleColors = const [],
+     this.lessSuitableColors = const [],
+     this.compatibleBottoms = const [],
+     this.compatibleShoes = const [],
+     this.idealOccasions = const [],
+     this.discouragedOccasions = const [],
+     this.versatilityExplanation,
+     this.styleVerdict,
+     this.analysisLimitations = const [],
+     this.needsMorePhotos = false,
+     this.requestedPhoto,
+   });
+ 
+   factory GarmentAnalysisResult.fromJsonString(String source) {
+     try {
+       final value = jsonDecode(source);
+       if (value is! Map<String, dynamic>) throw const FormatException();
+       return GarmentAnalysisResult.fromJson(value);
+     } on GarmentAnalysisException {
+       rethrow;
+     } on FormatException {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.invalidJson,
+         'La réponse de l’analyse IA est illisible.',
+       );
+     }
+   }
+ 
+   factory GarmentAnalysisResult.fromJson(Map<String, dynamic> json) {
+-    if (json['isUsableImage'] is! bool ||
+-        json['globalConfidence'] is! num) {
+-      throw const GarmentAnalysisException(
+-        GarmentAnalysisError.invalidSchema,
+-        'La réponse de l’analyse IA est incomplète.',
+-      );
+-    }
+     String? text(String key) {
+       final value = json[key];
+       return value is String && value.trim().isNotEmpty ? value.trim() : null;
+     }
+ 
+     final confidences = <String, double>{};
+     final rawConfidences = json['fieldConfidences'];
+     if (rawConfidences is Map) {
+       for (final entry in rawConfidences.entries) {
+         if (entry.key is String && entry.value is num) {
+           confidences[entry.key as String] =
+               (entry.value as num).toDouble().clamp(0, 1).toDouble();
+         }
+       }
+     } else if (rawConfidences is List) {
+       for (final entry in rawConfidences.whereType<Map>()) {
+         final field = entry['field'];
+         final confidence = entry['confidence'];
+         if (field is String && confidence is num) {
+           confidences[field] = confidence.toDouble().clamp(0, 1).toDouble();
+         }
+       }
+     }
+     List<String> strings(String key) =>
+         json[key] is List
+             ? (json[key] as List)
+                 .whereType<String>()
+                 .map((value) => value.trim())
+                 .where((value) => value.isNotEmpty)
+                 .toList(growable: false)
+             : const [];
++    Map<String, String>? stringMap(String key) {
++      final value = json[key];
++      if (value is! Map) return null;
++      final result = <String, String>{};
++      for (final entry in value.entries) {
++        if (entry.key is String && entry.value is String) {
++          final text = (entry.value as String).trim();
++          if (text.isNotEmpty) result[entry.key as String] = text;
++        }
++      }
++      return result.isEmpty ? null : Map.unmodifiable(result);
++    }
++
++    Map<String, Object?>? objectMap(String key) {
++      final value = json[key];
++      if (value is! Map) return null;
++      final result = <String, Object?>{};
++      for (final entry in value.entries) {
++        if (entry.key is String) result[entry.key as String] = entry.value;
++      }
++      return result.isEmpty ? null : Map.unmodifiable(result);
++    }
+     final rawRequest = json['requestedPhoto'];
+     RequestedPhoto? requestedPhoto;
+     if (rawRequest is Map) {
+       final instruction = rawRequest['instruction'];
+       final reason = rawRequest['reason'];
+       final targets = rawRequest['targetFields'];
+       if (instruction is String && instruction.trim().isNotEmpty &&
+           reason is String && reason.trim().isNotEmpty) {
+         requestedPhoto = RequestedPhoto(
+           type: RequestedPhotoType.fromWireValue(
+             rawRequest['type'] is String ? rawRequest['type'] as String : null,
+           ),
+           instruction: instruction.trim(),
+           reason: reason.trim(),
+           targetFields: targets is List
+               ? targets.whereType<String>().toList(growable: false)
+               : const [],
+         );
+       }
+     }
+ 
+     return GarmentAnalysisResult(
+-      isUsableImage: json['isUsableImage'] as bool,
++      isUsableImage: json['isUsableImage'] is bool
++          ? json['isUsableImage'] as bool
++          : false,
+       rejectionReason: text('rejectionReason'),
+       suggestedName: text('suggestedName'),
+       category: text('category'),
+       preciseType: text('preciseType'),
+       primaryColor: text('primaryColor'),
+       material: text('material'),
+       season: text('season'),
+       visibleBrand: text('visibleBrand'),
+-      globalConfidence:
+-          (json['globalConfidence'] as num).toDouble().clamp(0, 1).toDouble(),
++      globalConfidence: json['globalConfidence'] is num
++          ? (json['globalConfidence'] as num).toDouble().clamp(0, 1).toDouble()
++          : json['overallConfidence'] is num
++              ? (json['overallConfidence'] as num).toDouble().clamp(0, 1).toDouble()
++              : 0,
+       imageQualityConfidence: json['imageQualityConfidence'] is num
+           ? (json['imageQualityConfidence'] as num).toDouble().clamp(0, 1).toDouble()
+           : 1,
+-      isBlurry: json['isBlurry'] as bool?,
+-      isTooDark: json['isTooDark'] as bool?,
+-      isOverexposed: json['isOverexposed'] as bool?,
+-      garmentIsPartiallyHidden: json['garmentIsPartiallyHidden'] as bool?,
+-      garmentIsTooSmall: json['garmentIsTooSmall'] as bool?,
+-      multipleMainGarments: json['multipleMainGarments'] as bool?,
+-      backgroundIsProblematic: json['backgroundIsProblematic'] as bool?,
++      isBlurry: json['isBlurry'] is bool ? json['isBlurry'] as bool : null,
++      isTooDark: json['isTooDark'] is bool ? json['isTooDark'] as bool : null,
++      isOverexposed: json['isOverexposed'] is bool ? json['isOverexposed'] as bool : null,
++      garmentIsPartiallyHidden: json['garmentIsPartiallyHidden'] is bool ? json['garmentIsPartiallyHidden'] as bool : null,
++      garmentIsTooSmall: json['garmentIsTooSmall'] is bool ? json['garmentIsTooSmall'] as bool : null,
++      multipleMainGarments: json['multipleMainGarments'] is bool ? json['multipleMainGarments'] as bool : null,
++      backgroundIsProblematic: json['backgroundIsProblematic'] is bool ? json['backgroundIsProblematic'] as bool : null,
+       imageQualityWarnings: List.unmodifiable(strings('imageQualityWarnings')),
+       fieldConfidences: Map.unmodifiable(confidences),
++      fieldStatuses: stringMap('fieldStatuses'),
++      fieldSources: stringMap('fieldSources'),
++      fieldMetadata: objectMap('fieldMetadata'),
++      overallConfidence: json['overallConfidence'] is num
++          ? (json['overallConfidence'] as num).toDouble().clamp(0, 1).toDouble()
++          : null,
++      analysisMetadata: objectMap('analysisMetadata'),
++      fieldExplanations: stringMap('fieldExplanations'),
+       warnings: List.unmodifiable(strings('warnings')),
+       styleSummary: text('styleSummary'),
+       styleStrengths: List.unmodifiable(strings('styleStrengths')),
+       styleWeaknesses: List.unmodifiable(strings('styleWeaknesses')),
+       styleAdvice: List.unmodifiable(strings('styleAdvice')),
+       compatibleColors: List.unmodifiable(strings('compatibleColors')),
+       lessSuitableColors: List.unmodifiable(strings('lessSuitableColors')),
+       compatibleBottoms: List.unmodifiable(strings('compatibleBottoms')),
+       compatibleShoes: List.unmodifiable(strings('compatibleShoes')),
+       idealOccasions: List.unmodifiable(strings('idealOccasions')),
+       discouragedOccasions: List.unmodifiable(strings('discouragedOccasions')),
+       versatilityExplanation: text('versatilityExplanation'),
+       styleVerdict: text('styleVerdict'),
+       analysisLimitations: List.unmodifiable(strings('analysisLimitations')),
+       needsMorePhotos: json['needsMorePhotos'] == true,
+       requestedPhoto: requestedPhoto,
+     );
+   }
+ 
+   Map<String, Object?> toJson() => {
+     'isUsableImage': isUsableImage,
+     'rejectionReason': rejectionReason,
+     'suggestedName': suggestedName,
+     'category': category,
+     'preciseType': preciseType,
+     'primaryColor': primaryColor,
+     'material': material,
+     'season': season,
+     'visibleBrand': visibleBrand,
+     'globalConfidence': globalConfidence,
+     'imageQualityConfidence': imageQualityConfidence,
+     'isBlurry': isBlurry,
+     'isTooDark': isTooDark,
+     'isOverexposed': isOverexposed,
+     'garmentIsPartiallyHidden': garmentIsPartiallyHidden,
+     'garmentIsTooSmall': garmentIsTooSmall,
+     'multipleMainGarments': multipleMainGarments,
+     'backgroundIsProblematic': backgroundIsProblematic,
+     'imageQualityWarnings': imageQualityWarnings,
+     'fieldConfidences': fieldConfidences,
++    'fieldStatuses': fieldStatuses,
++    'fieldSources': fieldSources,
++    'fieldMetadata': fieldMetadata,
++    'overallConfidence': overallConfidence,
++    'analysisMetadata': analysisMetadata,
++    'fieldExplanations': fieldExplanations,
+     'warnings': warnings,
+     'styleSummary': styleSummary,
+     'styleStrengths': styleStrengths,
+     'styleWeaknesses': styleWeaknesses,
+     'styleAdvice': styleAdvice,
+     'compatibleColors': compatibleColors,
+     'lessSuitableColors': lessSuitableColors,
+     'compatibleBottoms': compatibleBottoms,
+     'compatibleShoes': compatibleShoes,
+     'idealOccasions': idealOccasions,
+     'discouragedOccasions': discouragedOccasions,
+     'versatilityExplanation': versatilityExplanation,
+     'styleVerdict': styleVerdict,
+     'analysisLimitations': analysisLimitations,
+     'needsMorePhotos': needsMorePhotos,
+-    'requestedPhoto': requestedPhoto == null ? null : {
+-      'type': requestedPhoto!.type.name,
+-      'instruction': requestedPhoto!.instruction,
+-      'reason': requestedPhoto!.reason,
+-      'targetFields': requestedPhoto!.targetFields,
++    'requestedPhoto': switch (requestedPhoto) {
++      final photo? => {
++        'type': photo.type.name,
++        'instruction': photo.instruction,
++        'reason': photo.reason,
++        'targetFields': photo.targetFields,
++      },
++      null => null,
+     },
+   };
+ 
+   GarmentAnalysisResult copyWith({
+     String? category,
+     String? preciseType,
+     String? primaryColor,
+     String? material,
+     String? season,
+     String? visibleBrand,
+     double? globalConfidence,
+     Map<String, double>? fieldConfidences,
++    Map<String, String>? fieldStatuses,
++    Map<String, String>? fieldSources,
++    Map<String, Object?>? fieldMetadata,
++    double? overallConfidence,
++    Map<String, Object?>? analysisMetadata,
++    Map<String, String>? fieldExplanations,
+     List<String>? warnings,
+   }) => GarmentAnalysisResult(
+     isUsableImage: isUsableImage, rejectionReason: rejectionReason,
+     suggestedName: suggestedName, category: category,
+     preciseType: preciseType ?? this.preciseType,
+     primaryColor: primaryColor,
+     material: material, season: season, visibleBrand: visibleBrand,
+     globalConfidence: globalConfidence ?? this.globalConfidence,
+     imageQualityConfidence: imageQualityConfidence, isBlurry: isBlurry,
+     isTooDark: isTooDark, isOverexposed: isOverexposed,
+     garmentIsPartiallyHidden: garmentIsPartiallyHidden,
+     garmentIsTooSmall: garmentIsTooSmall,
+     multipleMainGarments: multipleMainGarments,
+     backgroundIsProblematic: backgroundIsProblematic,
+     imageQualityWarnings: imageQualityWarnings,
+     fieldConfidences: fieldConfidences ?? this.fieldConfidences,
++    fieldStatuses: fieldStatuses ?? this.fieldStatuses,
++    fieldSources: fieldSources ?? this.fieldSources,
++    fieldMetadata: fieldMetadata ?? this.fieldMetadata,
++    overallConfidence: overallConfidence ?? this.overallConfidence,
++    analysisMetadata: analysisMetadata ?? this.analysisMetadata,
++    fieldExplanations: fieldExplanations ?? this.fieldExplanations,
+     warnings: warnings ?? this.warnings,
+     styleSummary: styleSummary, styleStrengths: styleStrengths,
+     styleWeaknesses: styleWeaknesses, styleAdvice: styleAdvice,
+     compatibleColors: compatibleColors, lessSuitableColors: lessSuitableColors,
+     compatibleBottoms: compatibleBottoms, compatibleShoes: compatibleShoes,
+     idealOccasions: idealOccasions,
+     discouragedOccasions: discouragedOccasions,
+     versatilityExplanation: versatilityExplanation, styleVerdict: styleVerdict,
+     analysisLimitations: analysisLimitations,
+     needsMorePhotos: needsMorePhotos, requestedPhoto: requestedPhoto,
+   );
+ }
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index 0eee790c7363b39d0cb2a162812fd1a64aaaba14..b59c7e46e9cb6c33e98df03cc22e4835e700e78c 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -310,77 +310,81 @@ class _ScannerScreenState extends State<ScannerScreen> {
+   };
+ 
+   Future<void> _openFullForm() async {
+     if (busy) return;
+     if (imagePath == null) {
+       _toast('Ajoute d’abord une photo.');
+       return;
+     }
+ 
+     setState(() => saving = true);
+     final now = DateTime.now();
+     final climate = _estimateClimate(category, material.text, season);
+     final garment = Garment(
+       id: const Uuid().v4(),
+       name: name.text.trim().isEmpty ? 'Vêtement à identifier' : name.text.trim(),
+       category: category,
+       brand: brand.text.trim().isEmpty ? null : brand.text.trim(),
+       color: color.text.trim().isEmpty ? null : color.text.trim(),
+       material: material.text.trim().isEmpty ? null : material.text.trim(),
+       season: season,
+       sousCategorie: result?.preciseType,
+       descriptionIA: result?.suggestedName,
+       couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
+       matierePrincipale:
+           material.text.trim().isEmpty ? null : material.text.trim(),
+-      saisons: result?.season == null ? null : [result!.season!],
++      saisons: switch (result?.season) {
++        final value? => [value],
++        null => null,
++      },
+       stylePrincipal: _suggestStyle(result),
+       stylesSecondaires: [_suggestStyle(result)],
+       temperatureMinimum: climate.$1,
+       temperatureMaximum: climate.$2,
+       compatiblePluie: _suggestRain(category, material.text),
+       compatibleChaleur: climate.$2 >= 25,
+       layerType: _suggestLayer(category, material.text),
+       confianceGlobale: result?.globalConfidence,
+       avertissementsIA: result?.warnings,
+       resumeStylistique: result?.styleSummary,
+       pointsForts: result?.styleStrengths,
+       pointsFaibles: result?.styleWeaknesses,
+       conseils: result?.styleAdvice,
+       verdict: result?.styleVerdict,
+       couleursCompatibles: result?.compatibleColors,
+       couleursMoinsAdaptees: result?.lessSuitableColors,
+       basCompatibles: result?.compatibleBottoms,
+       chaussuresCompatibles: result?.compatibleShoes,
+       explicationPolyvalence: result?.versatilityExplanation,
+       occasions: _suggestUses(result?.idealOccasions ?? const []),
+       occasionsDeconseillees: result?.discouragedOccasions,
+       limitesAnalyse: result?.analysisLimitations,
+-      notes:
+-          result == null
+-              ? 'Ajout manuel depuis le scanner.'
+-              : 'Suggestions IA vérifiées · confiance ${(result!.globalConfidence * 100).round()} %.',
++      notes: switch (result) {
++        final analysis? =>
++          'Suggestions IA vérifiées · confiance ${((analysis.overallConfidence ?? analysis.globalConfidence) * 100).round()} %.',
++        null => 'Ajout manuel depuis le scanner.',
++      },
+       imagePath: sessionImagePaths.isEmpty ? imagePath : sessionImagePaths.first,
+       createdAt: now,
+       updatedAt: now,
+     );
+ 
+     try {
+       if (!mounted) return;
+       setState(() => saving = false);
+       final saved = await Navigator.push<bool>(
+         context,
+         MaterialPageRoute(
+           builder: (_) => GarmentFormScreen(
+             controller: wardrobe,
+             garment: garment,
+             isDraft: true,
+           ),
+         ),
+       );
+       if (saved == true && mounted) {
+         imageOwnedByGarment = true;
+         Navigator.pop(context, true);
+       }
+     } catch (_) {
+       if (!mounted) return;
+       _toast('Enregistrement impossible. Vérifie la fiche et réessaie.');
+@@ -463,104 +467,157 @@ class _ScannerScreenState extends State<ScannerScreen> {
+                         ),
+                   ),
+               icon: const Icon(Icons.help_outline),
+             ),
+           ],
+         ),
+         body: ListView(
+           padding: const EdgeInsets.fromLTRB(18, 4, 18, 32),
+           children: [
+             _PhotoArea(
+               imagePath: imagePath,
+               analyzing: analyzing,
+               importing: importing,
+               onTap: busy ? null : chooseSource,
+             ),
+             const SizedBox(height: 18),
+             if (imagePath == null) ...[
+               const _IntroCard(),
+               const SizedBox(height: 16),
+               FilledButton.icon(
+                 onPressed: busy ? null : chooseSource,
+                 icon: const Icon(Icons.camera_alt_outlined),
+                 label: const Text('Prendre ou choisir une photo'),
+               ),
+             ] else ...[
+-              if (conversation != null) ...[
++              if (conversation case final decision?) ...[
+                 _ConversationCard(
+-                  decision: conversation!,
++                  decision: decision,
+                   photoCount: sessionImagePaths.length,
+                 ),
+                 const SizedBox(height: 14),
+               ],
++              if (result?.reliabilitySummary.hasDetails == true) ...[
++                _ExpertReliabilityCard(
++                  summary: result?.reliabilitySummary,
++                ),
++                const SizedBox(height: 14),
++              ],
+               Row(
+                 children: [
+                   Expanded(
+                     child: OutlinedButton.icon(
+                       onPressed: busy ? null : analyze,
+                       icon: const Icon(Icons.auto_awesome),
+                       label: Text(result == null ? 'Analyser et compléter' : 'Mettre à jour l’analyse'),
+                       style: OutlinedButton.styleFrom(
+                         minimumSize: const Size.fromHeight(52),
+                         shape: RoundedRectangleBorder(
+                           borderRadius: BorderRadius.circular(18),
+                         ),
+                       ),
+                     ),
+                   ),
+                   const SizedBox(width: 10),
+                   Expanded(
+                     child: OutlinedButton.icon(
+                       onPressed: busy ? null : chooseSource,
+                       icon: const Icon(Icons.photo_camera_back_outlined),
+                       label: Text(conversation?.requestedPhoto == null ? 'Changer' : 'Ajouter la photo'),
+                       style: OutlinedButton.styleFrom(
+                         minimumSize: const Size.fromHeight(52),
+                         shape: RoundedRectangleBorder(
+                           borderRadius: BorderRadius.circular(18),
+                         ),
+                       ),
+                     ),
+                   ),
+                 ],
+               ),
+               if (result != null &&
+                   conversation?.canFinishAutomatically == false) ...[
+                 const SizedBox(height: 8),
+                 TextButton(
+                   onPressed: busy ? null : _openFullForm,
+                   child: const Text('Ignorer et terminer avec cette analyse'),
+                 ),
+               ],
+             ],
+           ],
+         ),
+       ),
+     );
+   }
+ }
+ 
++class _ExpertReliabilityCard extends StatelessWidget {
++  final ReliabilitySummary? summary;
++
++  const _ExpertReliabilityCard({this.summary});
++
++  @override
++  Widget build(BuildContext context) {
++    final details = summary;
++    if (details == null || !details.hasDetails) return const SizedBox.shrink();
++    final overall = details.overallConfidence;
++    final fields = <String>{
++      ...details.fieldConfidences.keys,
++      ...details.fieldStatuses.keys,
++      ...details.fieldSources.keys,
++      ...details.fieldExplanations.keys,
++    }.toList(growable: false)..sort();
++    return Card(
++      child: ExpansionTile(
++        leading: const Icon(Icons.fact_check_outlined, color: AppTheme.gold),
++        title: const Text('Fiabilité · mode Expert'),
++        subtitle: overall == null
++            ? null
++            : Text(
++                'Confiance globale ${(overall * 100).round()} %',
++              ),
++        children: fields.map((field) {
++          final confidence = details.fieldConfidences[field];
++          final status = details.fieldStatuses[field];
++          final source = details.fieldSources[field];
++          final explanation = details.fieldExplanations[field];
++          final qualifiers = [
++            if (status != null) status,
++            if (source != null) source,
++            if (confidence != null) '${(confidence * 100).round()} %',
++          ];
++          return ListTile(
++            dense: true,
++            title: Text(field),
++            subtitle: explanation == null ? null : Text(explanation),
++            trailing: qualifiers.isEmpty ? null : Text(qualifiers.join(' · ')),
++          );
++        }).toList(growable: false),
++      ),
++    );
++  }
++}
++
+ class _ConversationCard extends StatelessWidget {
+   final ScanConversationDecision decision;
+   final int photoCount;
+ 
+   const _ConversationCard({
+     required this.decision,
+     required this.photoCount,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     final request = decision.requestedPhoto;
+     return Card(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.start,
+           children: [
+             Row(
+               children: [
+                 const Icon(Icons.forum_outlined, color: AppTheme.gold),
+                 const SizedBox(width: 10),
+                 Expanded(
+                   child: Text(
+                     photoCount == 1

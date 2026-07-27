@@ -332,7 +332,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
       couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
       matierePrincipale:
           material.text.trim().isEmpty ? null : material.text.trim(),
-      saisons: result?.season == null ? null : [result!.season!],
+      saisons: switch (result?.season) {
+        final value? => [value],
+        null => null,
+      },
       stylePrincipal: _suggestStyle(result),
       stylesSecondaires: [_suggestStyle(result)],
       temperatureMinimum: climate.$1,
@@ -355,10 +358,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
       occasions: _suggestUses(result?.idealOccasions ?? const []),
       occasionsDeconseillees: result?.discouragedOccasions,
       limitesAnalyse: result?.analysisLimitations,
-      notes:
-          result == null
-              ? 'Ajout manuel depuis le scanner.'
-              : 'Suggestions IA vérifiées · confiance ${(result!.globalConfidence * 100).round()} %.',
+      notes: switch (result) {
+        final analysis? =>
+          'Suggestions IA vérifiées · confiance ${((analysis.overallConfidence ?? analysis.globalConfidence) * 100).round()} %.',
+        null => 'Ajout manuel depuis le scanner.',
+      },
       imagePath: sessionImagePaths.isEmpty ? imagePath : sessionImagePaths.first,
       createdAt: now,
       updatedAt: now,
@@ -485,10 +489,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 label: const Text('Prendre ou choisir une photo'),
               ),
             ] else ...[
-              if (conversation != null) ...[
+              if (conversation case final decision?) ...[
                 _ConversationCard(
-                  decision: conversation!,
+                  decision: decision,
                   photoCount: sessionImagePaths.length,
+                ),
+                const SizedBox(height: 14),
+              ],
+              if (result?.reliabilitySummary.hasDetails == true) ...[
+                _ExpertReliabilityCard(
+                  summary: result?.reliabilitySummary,
                 ),
                 const SizedBox(height: 14),
               ],
@@ -534,6 +544,53 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ExpertReliabilityCard extends StatelessWidget {
+  final ReliabilitySummary? summary;
+
+  const _ExpertReliabilityCard({this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    final details = summary;
+    if (details == null || !details.hasDetails) return const SizedBox.shrink();
+    final overall = details.overallConfidence;
+    final fields = <String>{
+      ...details.fieldConfidences.keys,
+      ...details.fieldStatuses.keys,
+      ...details.fieldSources.keys,
+      ...details.fieldExplanations.keys,
+    }.toList(growable: false)..sort();
+    return Card(
+      child: ExpansionTile(
+        leading: const Icon(Icons.fact_check_outlined, color: AppTheme.gold),
+        title: const Text('Fiabilité · mode Expert'),
+        subtitle: overall == null
+            ? null
+            : Text(
+                'Confiance globale ${(overall * 100).round()} %',
+              ),
+        children: fields.map((field) {
+          final confidence = details.fieldConfidences[field];
+          final status = details.fieldStatuses[field];
+          final source = details.fieldSources[field];
+          final explanation = details.fieldExplanations[field];
+          final qualifiers = [
+            if (status != null) status,
+            if (source != null) source,
+            if (confidence != null) '${(confidence * 100).round()} %',
+          ];
+          return ListTile(
+            dense: true,
+            title: Text(field),
+            subtitle: explanation == null ? null : Text(explanation),
+            trailing: qualifiers.isEmpty ? null : Text(qualifiers.join(' · ')),
+          );
+        }).toList(growable: false),
       ),
     );
   }
