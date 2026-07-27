@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -19,6 +20,7 @@ import 'ai/garment_analysis_validator.dart';
 import 'ai/garment_image_processing.dart';
 import 'ai/normalization/garment_value_normalizer.dart';
 import 'ai/openai_garment_vision_analyzer.dart';
+import 'conversation/scan_conversation.dart';
 
 class ScannerScreen extends StatefulWidget {
   const ScannerScreen({super.key});
@@ -40,7 +42,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
   String category = 'Hauts';
   String season = 'Toute saison';
   String? imagePath;
+  final List<String> sessionImagePaths = [];
   GarmentAnalysisResult? result;
+  ScanConversationDecision? conversation;
   bool importing = false;
   bool analyzing = false;
   bool saving = false;
@@ -86,7 +90,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   @override
   void dispose() {
-    if (!imageOwnedByGarment) _removeBestEffort(imagePath);
+    for (final path in sessionImagePaths) {
+      if (!imageOwnedByGarment || path != sessionImagePaths.first) {
+        _removeBestEffort(path);
+      }
+    }
     name.dispose();
     brand.dispose();
     color.dispose();
@@ -114,13 +122,21 @@ class _ScannerScreenState extends State<ScannerScreen> {
         return;
       }
 
+      final isAdditional = result != null && conversation?.requestedPhoto != null;
       final previousPath = imagePath;
       setState(() {
         imagePath = persisted;
-        result = null;
+        sessionImagePaths.add(persisted!);
+        if (!isAdditional) {
+          result = null;
+          conversation = null;
+        }
       });
       persisted = null; // The screen now owns this copy.
-      _removeBestEffort(previousPath);
+      if (!isAdditional && previousPath != null) {
+        sessionImagePaths.remove(previousPath);
+        _removeBestEffort(previousPath);
+      }
     } catch (_) {
       _removeBestEffort(persisted);
       if (!mounted) return;
@@ -135,7 +151,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   Future<void> chooseSource() async {
     if (busy) return;
-    if (imagePath != null) {
+    if (imagePath != null && conversation?.requestedPhoto == null) {
       final replace = await showDialog<bool>(
         context: context,
         builder:
@@ -200,6 +216,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
         );
       }
       final bytes = await File(imagePath!).readAsBytes();
+      final previousBytes = <Uint8List>[];
+      for (final path in sessionImagePaths.where((path) => path != imagePath)) {
+        previousBytes.add(await File(path).readAsBytes());
+      }
       final raw = await scanner.analyze(
         GarmentAnalysisRequest(
           imageBytes: bytes,
@@ -213,6 +233,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
             if (name.text.trim().isNotEmpty) 'name': name.text.trim(),
             if (brand.text.trim().isNotEmpty) 'brand': brand.text.trim(),
           },
+          previousImageBytes: previousBytes,
+          previousAnalysis: result?.toJson(),
         ),
       );
       final validated = GarmentAnalysisValidator(
@@ -245,8 +267,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
         ),
       );
       if (!mounted) return;
+      final decision = const ScanConversationPolicy().evaluate(validated);
       setState(() {
         result = validated;
+        conversation = decision;
         name.text = mapped.name;
         brand.text = mapped.brand;
         color.text = mapped.color;
@@ -255,7 +279,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
         if (mapped.season.isNotEmpty) season = mapped.season;
       });
       setState(() => analyzing = false);
-      await _openFullForm();
+      if (decision.canFinishAutomatically) await _openFullForm();
     } on GarmentAnalysisException catch (error) {
       if (!mounted) return;
       _toast(_friendlyAnalysisError(error));
@@ -335,7 +359,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
           result == null
               ? 'Ajout manuel depuis le scanner.'
               : 'Suggestions IA vérifiées · confiance ${(result!.globalConfidence * 100).round()} %.',
-      imagePath: imagePath,
+      imagePath: sessionImagePaths.isEmpty ? imagePath : sessionImagePaths.first,
       createdAt: now,
       updatedAt: now,
     );
@@ -461,13 +485,20 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 label: const Text('Prendre ou choisir une photo'),
               ),
             ] else ...[
+              if (conversation != null) ...[
+                _ConversationCard(
+                  decision: conversation!,
+                  photoCount: sessionImagePaths.length,
+                ),
+                const SizedBox(height: 14),
+              ],
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: busy ? null : analyze,
                       icon: const Icon(Icons.auto_awesome),
-                      label: const Text('Analyser et compléter'),
+                      label: Text(result == null ? 'Analyser et compléter' : 'Mettre à jour l’analyse'),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(52),
                         shape: RoundedRectangleBorder(
@@ -481,7 +512,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     child: OutlinedButton.icon(
                       onPressed: busy ? null : chooseSource,
                       icon: const Icon(Icons.photo_camera_back_outlined),
-                      label: const Text('Changer'),
+                      label: Text(conversation?.requestedPhoto == null ? 'Changer' : 'Ajouter la photo'),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(52),
                         shape: RoundedRectangleBorder(
@@ -491,6 +522,79 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     ),
                   ),
                 ],
+              ),
+              if (result != null &&
+                  conversation?.canFinishAutomatically == false) ...[
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: busy ? null : _openFullForm,
+                  child: const Text('Ignorer et terminer avec cette analyse'),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConversationCard extends StatelessWidget {
+  final ScanConversationDecision decision;
+  final int photoCount;
+
+  const _ConversationCard({
+    required this.decision,
+    required this.photoCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final request = decision.requestedPhoto;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.forum_outlined, color: AppTheme.gold),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    photoCount == 1
+                        ? 'Première analyse'
+                        : 'Analyse mise à jour · $photoCount photos',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...decision.progress.map((item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      Icon(
+                        item.confirmed
+                            ? Icons.check_circle_outline
+                            : Icons.warning_amber_rounded,
+                        size: 19,
+                        color: item.confirmed ? Colors.green : Colors.orange,
+                      ),
+                      const SizedBox(width: 8),
+                      Text('${item.label}${item.confirmed ? '' : ' · incertain'}'),
+                    ],
+                  ),
+                )),
+            if (request != null) ...[
+              const Divider(height: 24),
+              Text(request.reason),
+              const SizedBox(height: 8),
+              Text(
+                request.instruction,
+                style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ],
           ],

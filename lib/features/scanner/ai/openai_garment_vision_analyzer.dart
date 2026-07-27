@@ -136,8 +136,15 @@ return result;
         'content': [
           {
             'type': 'input_text',
-            'text': 'Analyse cette photo selon les instructions.',
+            'text': request.previousImageBytes.isEmpty
+                ? 'Analyse cette première photo selon les instructions.'
+                : 'Mets à jour l’analyse en combinant toutes les photos. La dernière image répond à la demande précédente.',
           },
+          ...request.previousImageBytes.map((bytes) => {
+            'type': 'input_image',
+            'image_url':
+                'data:${GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg'};base64,${base64Encode(bytes)}',
+          }),
           {
             'type': 'input_image',
             'image_url':
@@ -168,6 +175,13 @@ ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
 l'étiquette reste prioritaire. Baisse la confiance si texture, couleur ou logo
 sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
 Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
+Combine toutes les images : une nouvelle photo complète l'analyse précédente et
+ne la remplace jamais. Réévalue chaque champ et sa confiance. La plupart des
+pièces doivent être finalisées avec une seule photo. Mets needsMorePhotos à true
+uniquement si une photo ciblée peut améliorer de façon importante un champ
+encore incertain. Ne demande qu'une seule photo à la fois, explique précisément
+pourquoi elle est utile et indique les champs visés. Ne redemande jamais une vue
+déjà fournie. Sinon mets needsMorePhotos à false et requestedPhoto à null.
 « category » est la catégorie générale, choisie uniquement parmi les catégories
 autorisées ci-dessous. « preciseType » est le type concret et précis observé
 (par exemple chemise Oxford, blazer croisé, jean droit, pantalon cargo,
@@ -189,6 +203,7 @@ material=${jsonEncode(request.allowedMaterials)}
 season=${jsonEncode(request.allowedSeasons)}
 Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
 ${jsonEncode(request.existingValues)}
+Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}
 ''';
 
   static const _nullableString = {'type': ['string', 'null']};
@@ -216,6 +231,7 @@ ${jsonEncode(request.existingValues)}
       'compatibleColors', 'lessSuitableColors', 'compatibleBottoms',
       'compatibleShoes', 'idealOccasions', 'discouragedOccasions',
       'versatilityExplanation', 'styleVerdict', 'analysisLimitations',
+      'needsMorePhotos', 'requestedPhoto',
     ],
     'properties': {
       'isUsableImage': {'type': 'boolean'},
@@ -270,6 +286,22 @@ ${jsonEncode(request.existingValues)}
       'versatilityExplanation': _nullableString,
       'styleVerdict': _nullableString,
       'analysisLimitations': {'type': 'array', 'items': {'type': 'string'}},
+      'needsMorePhotos': {'type': 'boolean'},
+      'requestedPhoto': {
+        'type': ['object', 'null'],
+        'additionalProperties': false,
+        'required': ['type', 'instruction', 'reason', 'targetFields'],
+        'properties': {
+          'type': {
+            'type': 'string',
+            'enum': ['composition_label', 'back', 'fabric_close_up', 'collar',
+              'cuffs', 'lining', 'buttons', 'zipper', 'logo', 'other'],
+          },
+          'instruction': {'type': 'string'},
+          'reason': {'type': 'string'},
+          'targetFields': {'type': 'array', 'items': {'type': 'string'}},
+        },
+      },
     },
   };
 

@@ -1,0 +1,1281 @@
+diff --git a/lib/features/scanner/ai/garment_analysis_request.dart b/lib/features/scanner/ai/garment_analysis_request.dart
+index d46c922beb70e2986d7059409865e917b69cb249..1667205d2846d1fa9c9494b13820308f5222bd46 100644
+--- a/lib/features/scanner/ai/garment_analysis_request.dart
++++ b/lib/features/scanner/ai/garment_analysis_request.dart
+@@ -1,28 +1,32 @@
+ import 'dart:typed_data';
+ 
+ class GarmentAnalysisRequest {
+   final Uint8List imageBytes;
+   final String mimeType;
+   final String? fileName;
+   final String language;
+   final List<String> allowedCategories;
+   final List<String> allowedColors;
+   final List<String> allowedMaterials;
+   final List<String> allowedSeasons;
+   final Map<String, String> existingValues;
++  final List<Uint8List> previousImageBytes;
++  final Map<String, Object?>? previousAnalysis;
+ 
+   const GarmentAnalysisRequest({
+     required this.imageBytes,
+     required this.mimeType,
+     this.fileName,
+     this.language = 'français',
+     required this.allowedCategories,
+     required this.allowedColors,
+     required this.allowedMaterials,
+     required this.allowedSeasons,
+     this.existingValues = const {},
++    this.previousImageBytes = const [],
++    this.previousAnalysis,
+   });
+ 
+   GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType}) =>
+-      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues);
++      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes, previousAnalysis: previousAnalysis);
+ }
+diff --git a/lib/features/scanner/ai/garment_analysis_result.dart b/lib/features/scanner/ai/garment_analysis_result.dart
+index 619327f8718fe91c681c68d8110fe1044354624a..d6c4f02b6146a405d8b8fb4bbe62c69c14cd8c12 100644
+--- a/lib/features/scanner/ai/garment_analysis_result.dart
++++ b/lib/features/scanner/ai/garment_analysis_result.dart
+@@ -1,237 +1,281 @@
+ import 'dart:convert';
+ 
+ import 'garment_analysis_exception.dart';
++import '../conversation/requested_photo.dart';
+ 
+ class GarmentAnalysisResult {
+   final bool isUsableImage;
+   final String? rejectionReason;
+   final String? suggestedName;
+   final String? category;
+   final String? preciseType;
+   final String? primaryColor;
+   final String? material;
+   final String? season;
+   final String? visibleBrand;
+   final double globalConfidence;
+   final double imageQualityConfidence;
+   final bool? isBlurry;
+   final bool? isTooDark;
+   final bool? isOverexposed;
+   final bool? garmentIsPartiallyHidden;
+   final bool? garmentIsTooSmall;
+   final bool? multipleMainGarments;
+   final bool? backgroundIsProblematic;
+   final List<String> imageQualityWarnings;
+   final Map<String, double> fieldConfidences;
+   final List<String> warnings;
+   final String? styleSummary;
+   final List<String> styleStrengths;
+   final List<String> styleWeaknesses;
+   final List<String> styleAdvice;
+   final List<String> compatibleColors;
+   final List<String> lessSuitableColors;
+   final List<String> compatibleBottoms;
+   final List<String> compatibleShoes;
+   final List<String> idealOccasions;
+   final List<String> discouragedOccasions;
+   final String? versatilityExplanation;
+   final String? styleVerdict;
+   final List<String> analysisLimitations;
++  final bool needsMorePhotos;
++  final RequestedPhoto? requestedPhoto;
+ 
+   const GarmentAnalysisResult({
+     required this.isUsableImage,
+     this.rejectionReason,
+     this.suggestedName,
+     this.category,
+     this.preciseType,
+     this.primaryColor,
+     this.material,
+     this.season,
+     this.visibleBrand,
+     required this.globalConfidence,
+     this.imageQualityConfidence = 1,
+     this.isBlurry,
+     this.isTooDark,
+     this.isOverexposed,
+     this.garmentIsPartiallyHidden,
+     this.garmentIsTooSmall,
+     this.multipleMainGarments,
+     this.backgroundIsProblematic,
+     this.imageQualityWarnings = const [],
+     this.fieldConfidences = const {},
+     this.warnings = const [],
+     this.styleSummary,
+     this.styleStrengths = const [],
+     this.styleWeaknesses = const [],
+     this.styleAdvice = const [],
+     this.compatibleColors = const [],
+     this.lessSuitableColors = const [],
+     this.compatibleBottoms = const [],
+     this.compatibleShoes = const [],
+     this.idealOccasions = const [],
+     this.discouragedOccasions = const [],
+     this.versatilityExplanation,
+     this.styleVerdict,
+     this.analysisLimitations = const [],
++    this.needsMorePhotos = false,
++    this.requestedPhoto,
+   });
+ 
+   factory GarmentAnalysisResult.fromJsonString(String source) {
+     try {
+       final value = jsonDecode(source);
+       if (value is! Map<String, dynamic>) throw const FormatException();
+       return GarmentAnalysisResult.fromJson(value);
+     } on GarmentAnalysisException {
+       rethrow;
+     } on FormatException {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.invalidJson,
+         'La réponse de l’analyse IA est illisible.',
+       );
+     }
+   }
+ 
+   factory GarmentAnalysisResult.fromJson(Map<String, dynamic> json) {
+     if (json['isUsableImage'] is! bool ||
+         json['globalConfidence'] is! num) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.invalidSchema,
+         'La réponse de l’analyse IA est incomplète.',
+       );
+     }
+     String? text(String key) {
+       final value = json[key];
+       return value is String && value.trim().isNotEmpty ? value.trim() : null;
+     }
+ 
+     final confidences = <String, double>{};
+     final rawConfidences = json['fieldConfidences'];
+     if (rawConfidences is Map) {
+       for (final entry in rawConfidences.entries) {
+         if (entry.key is String && entry.value is num) {
+           confidences[entry.key as String] =
+               (entry.value as num).toDouble().clamp(0, 1).toDouble();
+         }
+       }
++    } else if (rawConfidences is List) {
++      for (final entry in rawConfidences.whereType<Map>()) {
++        final field = entry['field'];
++        final confidence = entry['confidence'];
++        if (field is String && confidence is num) {
++          confidences[field] = confidence.toDouble().clamp(0, 1).toDouble();
++        }
++      }
+     }
+     List<String> strings(String key) =>
+         json[key] is List
+             ? (json[key] as List)
+                 .whereType<String>()
+                 .map((value) => value.trim())
+                 .where((value) => value.isNotEmpty)
+                 .toList(growable: false)
+             : const [];
++    final rawRequest = json['requestedPhoto'];
++    RequestedPhoto? requestedPhoto;
++    if (rawRequest is Map) {
++      final instruction = rawRequest['instruction'];
++      final reason = rawRequest['reason'];
++      final targets = rawRequest['targetFields'];
++      if (instruction is String && instruction.trim().isNotEmpty &&
++          reason is String && reason.trim().isNotEmpty) {
++        requestedPhoto = RequestedPhoto(
++          type: RequestedPhotoType.fromWireValue(
++            rawRequest['type'] is String ? rawRequest['type'] as String : null,
++          ),
++          instruction: instruction.trim(),
++          reason: reason.trim(),
++          targetFields: targets is List
++              ? targets.whereType<String>().toList(growable: false)
++              : const [],
++        );
++      }
++    }
+ 
+     return GarmentAnalysisResult(
+       isUsableImage: json['isUsableImage'] as bool,
+       rejectionReason: text('rejectionReason'),
+       suggestedName: text('suggestedName'),
+       category: text('category'),
+       preciseType: text('preciseType'),
+       primaryColor: text('primaryColor'),
+       material: text('material'),
+       season: text('season'),
+       visibleBrand: text('visibleBrand'),
+       globalConfidence:
+           (json['globalConfidence'] as num).toDouble().clamp(0, 1).toDouble(),
+       imageQualityConfidence: json['imageQualityConfidence'] is num
+           ? (json['imageQualityConfidence'] as num).toDouble().clamp(0, 1).toDouble()
+           : 1,
+       isBlurry: json['isBlurry'] as bool?,
+       isTooDark: json['isTooDark'] as bool?,
+       isOverexposed: json['isOverexposed'] as bool?,
+       garmentIsPartiallyHidden: json['garmentIsPartiallyHidden'] as bool?,
+       garmentIsTooSmall: json['garmentIsTooSmall'] as bool?,
+       multipleMainGarments: json['multipleMainGarments'] as bool?,
+       backgroundIsProblematic: json['backgroundIsProblematic'] as bool?,
+       imageQualityWarnings: List.unmodifiable(strings('imageQualityWarnings')),
+       fieldConfidences: Map.unmodifiable(confidences),
+       warnings: List.unmodifiable(strings('warnings')),
+       styleSummary: text('styleSummary'),
+       styleStrengths: List.unmodifiable(strings('styleStrengths')),
+       styleWeaknesses: List.unmodifiable(strings('styleWeaknesses')),
+       styleAdvice: List.unmodifiable(strings('styleAdvice')),
+       compatibleColors: List.unmodifiable(strings('compatibleColors')),
+       lessSuitableColors: List.unmodifiable(strings('lessSuitableColors')),
+       compatibleBottoms: List.unmodifiable(strings('compatibleBottoms')),
+       compatibleShoes: List.unmodifiable(strings('compatibleShoes')),
+       idealOccasions: List.unmodifiable(strings('idealOccasions')),
+       discouragedOccasions: List.unmodifiable(strings('discouragedOccasions')),
+       versatilityExplanation: text('versatilityExplanation'),
+       styleVerdict: text('styleVerdict'),
+       analysisLimitations: List.unmodifiable(strings('analysisLimitations')),
++      needsMorePhotos: json['needsMorePhotos'] == true,
++      requestedPhoto: requestedPhoto,
+     );
+   }
+ 
+   Map<String, Object?> toJson() => {
+     'isUsableImage': isUsableImage,
+     'rejectionReason': rejectionReason,
+     'suggestedName': suggestedName,
+     'category': category,
+     'preciseType': preciseType,
+     'primaryColor': primaryColor,
+     'material': material,
+     'season': season,
+     'visibleBrand': visibleBrand,
+     'globalConfidence': globalConfidence,
+     'imageQualityConfidence': imageQualityConfidence,
+     'isBlurry': isBlurry,
+     'isTooDark': isTooDark,
+     'isOverexposed': isOverexposed,
+     'garmentIsPartiallyHidden': garmentIsPartiallyHidden,
+     'garmentIsTooSmall': garmentIsTooSmall,
+     'multipleMainGarments': multipleMainGarments,
+     'backgroundIsProblematic': backgroundIsProblematic,
+     'imageQualityWarnings': imageQualityWarnings,
+     'fieldConfidences': fieldConfidences,
+     'warnings': warnings,
+     'styleSummary': styleSummary,
+     'styleStrengths': styleStrengths,
+     'styleWeaknesses': styleWeaknesses,
+     'styleAdvice': styleAdvice,
+     'compatibleColors': compatibleColors,
+     'lessSuitableColors': lessSuitableColors,
+     'compatibleBottoms': compatibleBottoms,
+     'compatibleShoes': compatibleShoes,
+     'idealOccasions': idealOccasions,
+     'discouragedOccasions': discouragedOccasions,
+     'versatilityExplanation': versatilityExplanation,
+     'styleVerdict': styleVerdict,
+     'analysisLimitations': analysisLimitations,
++    'needsMorePhotos': needsMorePhotos,
++    'requestedPhoto': requestedPhoto == null ? null : {
++      'type': requestedPhoto!.type.name,
++      'instruction': requestedPhoto!.instruction,
++      'reason': requestedPhoto!.reason,
++      'targetFields': requestedPhoto!.targetFields,
++    },
+   };
+ 
+   GarmentAnalysisResult copyWith({
+     String? category,
+     String? preciseType,
+     String? primaryColor,
+     String? material,
+     String? season,
+     String? visibleBrand,
+     double? globalConfidence,
+     Map<String, double>? fieldConfidences,
+     List<String>? warnings,
+   }) => GarmentAnalysisResult(
+     isUsableImage: isUsableImage, rejectionReason: rejectionReason,
+-    suggestedName: suggestedName, category: category, preciseType: preciseType,
++    suggestedName: suggestedName, category: category,
++    preciseType: preciseType ?? this.preciseType,
+     primaryColor: primaryColor,
+     material: material, season: season, visibleBrand: visibleBrand,
+     globalConfidence: globalConfidence ?? this.globalConfidence,
+     imageQualityConfidence: imageQualityConfidence, isBlurry: isBlurry,
+     isTooDark: isTooDark, isOverexposed: isOverexposed,
+     garmentIsPartiallyHidden: garmentIsPartiallyHidden,
+     garmentIsTooSmall: garmentIsTooSmall,
+     multipleMainGarments: multipleMainGarments,
+     backgroundIsProblematic: backgroundIsProblematic,
+     imageQualityWarnings: imageQualityWarnings,
+     fieldConfidences: fieldConfidences ?? this.fieldConfidences,
+     warnings: warnings ?? this.warnings,
+     styleSummary: styleSummary, styleStrengths: styleStrengths,
+     styleWeaknesses: styleWeaknesses, styleAdvice: styleAdvice,
+     compatibleColors: compatibleColors, lessSuitableColors: lessSuitableColors,
+     compatibleBottoms: compatibleBottoms, compatibleShoes: compatibleShoes,
+     idealOccasions: idealOccasions,
+     discouragedOccasions: discouragedOccasions,
+     versatilityExplanation: versatilityExplanation, styleVerdict: styleVerdict,
+     analysisLimitations: analysisLimitations,
++    needsMorePhotos: needsMorePhotos, requestedPhoto: requestedPhoto,
+   );
+ }
+diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+index 89124fd335d18495360c6cff4215feee6bfe67ce..c97942197d93f8421a365acff8652a0b7890ff57 100644
+--- a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+@@ -114,130 +114,146 @@ return result;
+     } on SocketException {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.network,
+         'Impossible de joindre OpenAI. Vérifiez votre connexion.',
+       );
+     } on http.ClientException {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.network,
+         'Impossible de joindre OpenAI. Vérifiez votre connexion.',
+       );
+     }
+     }
+   }
+ 
+   bool _isTransient(int status) => status == 429 || status >= 500;
+ 
+   Map<String, dynamic> _requestBody(GarmentAnalysisRequest request) => {
+     'model': model,
+     'instructions': _prompt(request),
+     'input': [
+       {
+         'role': 'user',
+         'content': [
+           {
+             'type': 'input_text',
+-            'text': 'Analyse cette photo selon les instructions.',
++            'text': request.previousImageBytes.isEmpty
++                ? 'Analyse cette première photo selon les instructions.'
++                : 'Mets à jour l’analyse en combinant toutes les photos. La dernière image répond à la demande précédente.',
+           },
++          ...request.previousImageBytes.map((bytes) => {
++            'type': 'input_image',
++            'image_url':
++                'data:${GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg'};base64,${base64Encode(bytes)}',
++          }),
+           {
+             'type': 'input_image',
+             'image_url':
+                 'data:${request.mimeType};base64,${base64Encode(request.imageBytes)}',
+           },
+         ],
+       },
+     ],
+     'text': {
+       'format': {
+         'type': 'json_schema',
+         'name': 'garment_analysis',
+         'strict': true,
+         'schema': _schema,
+       },
+     },
+   };
+ 
+   String _prompt(GarmentAnalysisRequest request) => '''
+ Tu analyses uniquement le vêtement principal visible. Ignore la personne, le
+ visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne.
+ Réponds en ${request.language} et uniquement selon le schéma JSON. N'invente
+ jamais une marque ou une matière : utilise null lorsque ce n'est pas clairement
+ observable. Distingue une photo utilisable, imparfaite et inutilisable. Un léger
+ défaut produit un avertissement ; un vêtement minuscule ou plusieurs vêtements
+ principaux indissociables produisent un rejet. N'identifie personne, ne déduis
+ ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
+ l'étiquette reste prioritaire. Baisse la confiance si texture, couleur ou logo
+ sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
+ Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
++Combine toutes les images : une nouvelle photo complète l'analyse précédente et
++ne la remplace jamais. Réévalue chaque champ et sa confiance. La plupart des
++pièces doivent être finalisées avec une seule photo. Mets needsMorePhotos à true
++uniquement si une photo ciblée peut améliorer de façon importante un champ
++encore incertain. Ne demande qu'une seule photo à la fois, explique précisément
++pourquoi elle est utile et indique les champs visés. Ne redemande jamais une vue
++déjà fournie. Sinon mets needsMorePhotos à false et requestedPhoto à null.
+ « category » est la catégorie générale, choisie uniquement parmi les catégories
+ autorisées ci-dessous. « preciseType » est le type concret et précis observé
+ (par exemple chemise Oxford, blazer croisé, jean droit, pantalon cargo,
+ cardigan, trench ou baskets basses). Utilise null si l'image ne permet pas de
+ conclure et ne répète jamais exactement « category » dans « preciseType ».
+ Agis comme un styliste professionnel : observe, explique, argumente et nuance.
+ Produis un résumé, des points forts et faibles, des conseils concrets, les
+ couleurs, bas et chaussures compatibles, les couleurs moins adaptées, les
+ occasions idéales et déconseillées, une polyvalence expliquée et un verdict
+ franc. Ne flatte pas systématiquement et ne qualifie jamais une pièce
+ d'élégante, polyvalente ou belle sans justification. Tu peux dire qu'une coupe
+ est datée, une couleur difficile, un motif chargé ou la pièce peu polyvalente.
+ Chaque critique doit indiquer pourquoi et tout défaut doit mener à une solution
+ concrète. Mentionne dans analysisLimitations ce que l'image ne permet pas de
+ conclure (intérieur invisible, matière estimée, vêtement masqué, par exemple).
+ category=${jsonEncode(request.allowedCategories)}
+ primaryColor=${jsonEncode(request.allowedColors)}
+ material=${jsonEncode(request.allowedMaterials)}
+ season=${jsonEncode(request.allowedSeasons)}
+ Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
+ ${jsonEncode(request.existingValues)}
++Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}
+ ''';
+ 
+   static const _nullableString = {'type': ['string', 'null']};
+   static const _schema = {
+     'type': 'object',
+     'additionalProperties': false,
+     'required': [
+       'isUsableImage',
+       'rejectionReason',
+       'suggestedName',
+       'category',
+       'preciseType',
+       'primaryColor',
+       'material',
+       'season',
+       'visibleBrand',
+       'globalConfidence',
+       'fieldConfidences',
+       'warnings',
+       'imageQualityConfidence', 'isBlurry', 'isTooDark', 'isOverexposed',
+       'garmentIsPartiallyHidden', 'garmentIsTooSmall',
+       'multipleMainGarments', 'backgroundIsProblematic',
+       'imageQualityWarnings',
+       'styleSummary', 'styleStrengths', 'styleWeaknesses', 'styleAdvice',
+       'compatibleColors', 'lessSuitableColors', 'compatibleBottoms',
+       'compatibleShoes', 'idealOccasions', 'discouragedOccasions',
+       'versatilityExplanation', 'styleVerdict', 'analysisLimitations',
++      'needsMorePhotos', 'requestedPhoto',
+     ],
+     'properties': {
+       'isUsableImage': {'type': 'boolean'},
+       'rejectionReason': _nullableString,
+       'suggestedName': _nullableString,
+       'category': _nullableString,
+       'preciseType': _nullableString,
+       'primaryColor': _nullableString,
+       'material': _nullableString,
+       'season': _nullableString,
+       'visibleBrand': _nullableString,
+       'globalConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+       'fieldConfidences': {
+   'type': 'array',
+   'items': {
+     'type': 'object',
+     'additionalProperties': false,
+     'required': ['field', 'confidence'],
+     'properties': {
+       'field': {'type': 'string'},
+       'confidence': {
+         'type': 'number',
+         'minimum': 0,
+         'maximum': 1,
+       },
+@@ -248,50 +264,66 @@ ${jsonEncode(request.existingValues)}
+         'type': 'array',
+         'items': {'type': 'string'},
+       },
+       'imageQualityConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+       'isBlurry': {'type': ['boolean', 'null']},
+       'isTooDark': {'type': ['boolean', 'null']},
+       'isOverexposed': {'type': ['boolean', 'null']},
+       'garmentIsPartiallyHidden': {'type': ['boolean', 'null']},
+       'garmentIsTooSmall': {'type': ['boolean', 'null']},
+       'multipleMainGarments': {'type': ['boolean', 'null']},
+       'backgroundIsProblematic': {'type': ['boolean', 'null']},
+       'imageQualityWarnings': {'type': 'array', 'items': {'type': 'string'}},
+       'styleSummary': _nullableString,
+       'styleStrengths': {'type': 'array', 'items': {'type': 'string'}},
+       'styleWeaknesses': {'type': 'array', 'items': {'type': 'string'}},
+       'styleAdvice': {'type': 'array', 'items': {'type': 'string'}},
+       'compatibleColors': {'type': 'array', 'items': {'type': 'string'}},
+       'lessSuitableColors': {'type': 'array', 'items': {'type': 'string'}},
+       'compatibleBottoms': {'type': 'array', 'items': {'type': 'string'}},
+       'compatibleShoes': {'type': 'array', 'items': {'type': 'string'}},
+       'idealOccasions': {'type': 'array', 'items': {'type': 'string'}},
+       'discouragedOccasions': {'type': 'array', 'items': {'type': 'string'}},
+       'versatilityExplanation': _nullableString,
+       'styleVerdict': _nullableString,
+       'analysisLimitations': {'type': 'array', 'items': {'type': 'string'}},
++      'needsMorePhotos': {'type': 'boolean'},
++      'requestedPhoto': {
++        'type': ['object', 'null'],
++        'additionalProperties': false,
++        'required': ['type', 'instruction', 'reason', 'targetFields'],
++        'properties': {
++          'type': {
++            'type': 'string',
++            'enum': ['composition_label', 'back', 'fabric_close_up', 'collar',
++              'cuffs', 'lining', 'buttons', 'zipper', 'logo', 'other'],
++          },
++          'instruction': {'type': 'string'},
++          'reason': {'type': 'string'},
++          'targetFields': {'type': 'array', 'items': {'type': 'string'}},
++        },
++      },
+     },
+   };
+ 
+   Map<String, dynamic> _decodeObject(String source) {
+     try {
+       final decoded = jsonDecode(source);
+       if (decoded is Map<String, dynamic>) return decoded;
+     } on FormatException {
+       // Translated below without exposing the response body.
+     }
+     throw const GarmentAnalysisException(
+       GarmentAnalysisError.invalidJson,
+       'OpenAI a renvoyé une réponse illisible.',
+     );
+   }
+ 
+   String? _outputText(Map<String, dynamic> body) {
+     if (body['output_text'] is String) return body['output_text'] as String;
+     final output = body['output'];
+     if (output is! List) return null;
+     for (final item in output.whereType<Map>()) {
+       final content = item['content'];
+       if (content is! List) continue;
+       for (final part in content.whereType<Map>()) {
+         if (part['type'] == 'output_text' && part['text'] is String) {
+diff --git a/lib/features/scanner/conversation/requested_photo.dart b/lib/features/scanner/conversation/requested_photo.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ac653593805c4b288f0311f88ec27dd6ba9eb345
+--- /dev/null
++++ b/lib/features/scanner/conversation/requested_photo.dart
+@@ -0,0 +1,39 @@
++enum RequestedPhotoType {
++  compositionLabel,
++  back,
++  fabricCloseUp,
++  collar,
++  cuffs,
++  lining,
++  buttons,
++  zipper,
++  logo,
++  other;
++
++  static RequestedPhotoType fromWireValue(String? value) => switch (value) {
++    'composition_label' => compositionLabel,
++    'back' => back,
++    'fabric_close_up' => fabricCloseUp,
++    'collar' => collar,
++    'cuffs' => cuffs,
++    'lining' => lining,
++    'buttons' => buttons,
++    'zipper' => zipper,
++    'logo' => logo,
++    _ => other,
++  };
++}
++
++class RequestedPhoto {
++  final RequestedPhotoType type;
++  final String instruction;
++  final String reason;
++  final List<String> targetFields;
++
++  const RequestedPhoto({
++    required this.type,
++    required this.instruction,
++    required this.reason,
++    this.targetFields = const [],
++  });
++}
+diff --git a/lib/features/scanner/conversation/scan_conversation.dart b/lib/features/scanner/conversation/scan_conversation.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..6ba610b686297eedaad0f491e74d6482db4ac4d4
+--- /dev/null
++++ b/lib/features/scanner/conversation/scan_conversation.dart
+@@ -0,0 +1,74 @@
++import '../ai/garment_analysis_result.dart';
++import 'requested_photo.dart';
++
++class ScanProgressItem {
++  final String field;
++  final String label;
++  final bool confirmed;
++
++  const ScanProgressItem(this.field, this.label, this.confirmed);
++}
++
++class ScanConversationDecision {
++  final bool canFinishAutomatically;
++  final RequestedPhoto? requestedPhoto;
++  final List<ScanProgressItem> progress;
++
++  const ScanConversationDecision({
++    required this.canFinishAutomatically,
++    required this.requestedPhoto,
++    required this.progress,
++  });
++}
++
++/// Centralizes the completion policy so presentation code never decides which
++/// photo is useful. The model proposes one request; this policy accepts it only
++/// when it targets information that is still uncertain.
++class ScanConversationPolicy {
++  static const confidenceThreshold = .72;
++
++  const ScanConversationPolicy();
++
++  ScanConversationDecision evaluate(GarmentAnalysisResult result) {
++    final values = <String, String?>{
++      'category': result.category,
++      'primaryColor': result.primaryColor,
++      'preciseType': result.preciseType,
++      'material': result.material,
++      'style': result.styleSummary,
++    };
++    const labels = <String, String>{
++      'category': 'Catégorie',
++      'primaryColor': 'Couleur',
++      'preciseType': 'Sous-catégorie',
++      'material': 'Matière',
++      'style': 'Style',
++    };
++    bool confirmed(String field) =>
++        values[field] != null &&
++        (result.fieldConfidences[field] ?? result.globalConfidence) >=
++            confidenceThreshold;
++
++    final progress = labels.entries
++        .map((entry) => ScanProgressItem(
++              entry.key,
++              entry.value,
++              confirmed(entry.key),
++            ))
++        .toList(growable: false);
++    final proposal = result.requestedPhoto;
++    final requestIsUseful = proposal != null &&
++        proposal.targetFields.any((field) => !confirmed(field));
++    final essentialFieldsReady =
++        confirmed('category') && confirmed('primaryColor');
++    final canFinish = essentialFieldsReady &&
++        result.globalConfidence >= confidenceThreshold &&
++        (!result.needsMorePhotos || !requestIsUseful);
++
++    return ScanConversationDecision(
++      canFinishAutomatically: canFinish,
++      requestedPhoto: canFinish || !requestIsUseful ? null : proposal,
++      progress: progress,
++    );
++  }
++}
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index d774bae1a008f0fe315219a7d7ab0cd33d347fd6..0eee790c7363b39d0cb2a162812fd1a64aaaba14 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -1,163 +1,179 @@
+ import 'dart:async';
+ import 'dart:io';
++import 'dart:typed_data';
+ 
+ import 'package:flutter/material.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../widgets/garment_image.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wardrobe/garment_form_screen.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import 'ai/garment_analysis_exception.dart';
+ import 'ai/garment_analysis_mapper.dart';
+ import 'ai/garment_analysis_request.dart';
+ import 'ai/garment_analysis_result.dart';
+ import 'ai/garment_analysis_validator.dart';
+ import 'ai/garment_image_processing.dart';
+ import 'ai/normalization/garment_value_normalizer.dart';
+ import 'ai/openai_garment_vision_analyzer.dart';
++import 'conversation/scan_conversation.dart';
+ 
+ class ScannerScreen extends StatefulWidget {
+   const ScannerScreen({super.key});
+ 
+   @override
+   State<ScannerScreen> createState() => _ScannerScreenState();
+ }
+ 
+ class _ScannerScreenState extends State<ScannerScreen> {
+   final picker = ImagePicker();
+   late final OpenAiGarmentVisionAnalyzer scanner;
+   final wardrobe = WardrobeController();
+ 
+   final name = TextEditingController();
+   final brand = TextEditingController();
+   final color = TextEditingController();
+   final material = TextEditingController();
+ 
+   String category = 'Hauts';
+   String season = 'Toute saison';
+   String? imagePath;
++  final List<String> sessionImagePaths = [];
+   GarmentAnalysisResult? result;
++  ScanConversationDecision? conversation;
+   bool importing = false;
+   bool analyzing = false;
+   bool saving = false;
+   bool imageOwnedByGarment = false;
+ 
+   bool get busy => importing || analyzing || saving;
+ 
+   static const categories = [
+     'Hauts',
+     'Chemises',
+     'Vestes',
+     'Bas',
+     'Chaussures',
+     'Accessoires',
+     'Autre',
+   ];
+ 
+   static const seasons = [
+     'Toute saison',
+     'Printemps',
+     'Été',
+     'Automne',
+     'Hiver',
+   ];
+ 
+   static const colors = [
+     'Noir', 'Blanc', 'Gris', 'Bleu marine', 'Bleu', 'Beige', 'Marron',
+     'Camel', 'Vert', 'Kaki', 'Rouge', 'Bordeaux', 'Rose', 'Violet',
+     'Jaune', 'Orange',
+   ];
+   static const materials = [
+     'Coton', 'Laine', 'Lin', 'Soie', 'Denim', 'Cuir', 'Textile',
+     'Synthétique',
+   ];
+ 
+   @override
+   void initState() {
+     super.initState();
+     scanner = OpenAiGarmentVisionAnalyzer(
+       apiKeyStorage: const ApiKeyStorage(),
+     );
+   }
+ 
+   @override
+   void dispose() {
+-    if (!imageOwnedByGarment) _removeBestEffort(imagePath);
++    for (final path in sessionImagePaths) {
++      if (!imageOwnedByGarment || path != sessionImagePaths.first) {
++        _removeBestEffort(path);
++      }
++    }
+     name.dispose();
+     brand.dispose();
+     color.dispose();
+     material.dispose();
+     scanner.close();
+     wardrobe.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> pick(ImageSource source) async {
+     if (busy) return;
+     setState(() => importing = true);
+     String? persisted;
+     try {
+       final selected = await picker.pickImage(
+         source: source,
+         imageQuality: 90,
+         maxWidth: 1800,
+       );
+       if (!mounted || selected == null) return;
+ 
+       persisted = await ImageStorageService.persist(selected.path);
+       if (!mounted) {
+         _removeBestEffort(persisted);
+         return;
+       }
+ 
++      final isAdditional = result != null && conversation?.requestedPhoto != null;
+       final previousPath = imagePath;
+       setState(() {
+         imagePath = persisted;
+-        result = null;
++        sessionImagePaths.add(persisted!);
++        if (!isAdditional) {
++          result = null;
++          conversation = null;
++        }
+       });
+       persisted = null; // The screen now owns this copy.
+-      _removeBestEffort(previousPath);
++      if (!isAdditional && previousPath != null) {
++        sessionImagePaths.remove(previousPath);
++        _removeBestEffort(previousPath);
++      }
+     } catch (_) {
+       _removeBestEffort(persisted);
+       if (!mounted) return;
+       _toast('Impossible d’importer cette photo. Réessaie avec une autre.');
+     } finally {
+       if (mounted) setState(() => importing = false);
+     }
+ 
+     // L'analyse reste une action explicite afin d'éviter tout appel coûteux
+     // involontaire après un simple changement de photo.
+   }
+ 
+   Future<void> chooseSource() async {
+     if (busy) return;
+-    if (imagePath != null) {
++    if (imagePath != null && conversation?.requestedPhoto == null) {
+       final replace = await showDialog<bool>(
+         context: context,
+         builder:
+             (context) => AlertDialog(
+               title: const Text('Remplacer la photo ?'),
+               content: const Text(
+                 'La photo actuelle sera conservée si le nouvel import échoue.',
+               ),
+               actions: [
+                 TextButton(
+                   onPressed: () => Navigator.pop(context, false),
+                   child: const Text('Annuler'),
+                 ),
+                 FilledButton(
+                   onPressed: () => Navigator.pop(context, true),
+                   child: const Text('Remplacer'),
+                 ),
+               ],
+             ),
+       );
+       if (!mounted || replace != true) return;
+     }
+ 
+     final source = await showModalBottomSheet<ImageSource>(
+       context: context,
+@@ -178,106 +194,114 @@ class _ScannerScreenState extends State<ScannerScreen> {
+                   onTap: () => Navigator.pop(context, ImageSource.gallery),
+                 ),
+               ],
+             ),
+           ),
+     );
+     if (!mounted || source == null) return;
+     await pick(source);
+   }
+ 
+   Future<void> analyze() async {
+     if (busy || imagePath == null) return;
+     setState(() => analyzing = true);
+ 
+     try {
+       final validation = await const GarmentImageValidator().validateFile(
+         imagePath!,
+       );
+       if (!validation.isValid) {
+         throw GarmentAnalysisException(
+           GarmentAnalysisError.rejectedImage,
+           validation.rejectionReason ?? 'Cette photo ne peut pas être analysée.',
+         );
+       }
+       final bytes = await File(imagePath!).readAsBytes();
++      final previousBytes = <Uint8List>[];
++      for (final path in sessionImagePaths.where((path) => path != imagePath)) {
++        previousBytes.add(await File(path).readAsBytes());
++      }
+       final raw = await scanner.analyze(
+         GarmentAnalysisRequest(
+           imageBytes: bytes,
+           mimeType:
+               GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
+           allowedCategories: categories,
+           allowedColors: colors,
+           allowedMaterials: materials,
+           allowedSeasons: seasons,
+           existingValues: {
+             if (name.text.trim().isNotEmpty) 'name': name.text.trim(),
+             if (brand.text.trim().isNotEmpty) 'brand': brand.text.trim(),
+           },
++          previousImageBytes: previousBytes,
++          previousAnalysis: result?.toJson(),
+         ),
+       );
+       final validated = GarmentAnalysisValidator(
+         categoryNormalizer: const GarmentValueNormalizer(categories),
+         colorNormalizer: const GarmentValueNormalizer(colors),
+         materialNormalizer: const GarmentValueNormalizer(materials),
+         seasonNormalizer: const GarmentValueNormalizer(seasons),
+       ).validate(raw).analysis;
+       if (!validated.isUsableImage) {
+         throw GarmentAnalysisException(
+           GarmentAnalysisError.rejectedImage,
+           validated.rejectionReason ??
+               'La photo ne permet pas d’identifier clairement un vêtement.',
+         );
+       }
+       final mapped = const GarmentAnalysisMapper(
+         categories: categories,
+         colors: colors,
+         materials: materials,
+         seasons: seasons,
+       ).map(
+         validated,
+         current: GarmentFormValues(
+           name: name.text,
+           category: '',
+           color: color.text,
+           material: material.text,
+           season: '',
+           brand: brand.text,
+         ),
+       );
+       if (!mounted) return;
++      final decision = const ScanConversationPolicy().evaluate(validated);
+       setState(() {
+         result = validated;
++        conversation = decision;
+         name.text = mapped.name;
+         brand.text = mapped.brand;
+         color.text = mapped.color;
+         material.text = mapped.material;
+         if (mapped.category.isNotEmpty) category = mapped.category;
+         if (mapped.season.isNotEmpty) season = mapped.season;
+       });
+       setState(() => analyzing = false);
+-      await _openFullForm();
++      if (decision.canFinishAutomatically) await _openFullForm();
+     } on GarmentAnalysisException catch (error) {
+       if (!mounted) return;
+       _toast(_friendlyAnalysisError(error));
+     } catch (_) {
+       if (mounted) _toast('Analyse impossible pour le moment. Réessaie.');
+     } finally {
+       if (mounted) setState(() => analyzing = false);
+     }
+   }
+ 
+   String _friendlyAnalysisError(GarmentAnalysisException exception) => switch (
+     exception.error
+   ) {
+     GarmentAnalysisError.missingApiKey =>
+       'Configure ta clé OpenAI dans le profil avant de lancer l’analyse.',
+     GarmentAnalysisError.invalidApiKey =>
+       'La clé configurée n’est pas valide. Vérifie-la dans le profil.',
+     GarmentAnalysisError.quotaExceeded =>
+       'Le service d’analyse est momentanément indisponible. Réessaie plus tard.',
+     GarmentAnalysisError.network =>
+       'Aucune connexion disponible. Vérifie ton réseau puis réessaie.',
+     GarmentAnalysisError.timeout =>
+       'L’analyse prend trop de temps. Réessaie dans quelques instants.',
+     GarmentAnalysisError.rejectedImage ||
+     GarmentAnalysisError.missingImage ||
+@@ -313,51 +337,51 @@ class _ScannerScreenState extends State<ScannerScreen> {
+       stylesSecondaires: [_suggestStyle(result)],
+       temperatureMinimum: climate.$1,
+       temperatureMaximum: climate.$2,
+       compatiblePluie: _suggestRain(category, material.text),
+       compatibleChaleur: climate.$2 >= 25,
+       layerType: _suggestLayer(category, material.text),
+       confianceGlobale: result?.globalConfidence,
+       avertissementsIA: result?.warnings,
+       resumeStylistique: result?.styleSummary,
+       pointsForts: result?.styleStrengths,
+       pointsFaibles: result?.styleWeaknesses,
+       conseils: result?.styleAdvice,
+       verdict: result?.styleVerdict,
+       couleursCompatibles: result?.compatibleColors,
+       couleursMoinsAdaptees: result?.lessSuitableColors,
+       basCompatibles: result?.compatibleBottoms,
+       chaussuresCompatibles: result?.compatibleShoes,
+       explicationPolyvalence: result?.versatilityExplanation,
+       occasions: _suggestUses(result?.idealOccasions ?? const []),
+       occasionsDeconseillees: result?.discouragedOccasions,
+       limitesAnalyse: result?.analysisLimitations,
+       notes:
+           result == null
+               ? 'Ajout manuel depuis le scanner.'
+               : 'Suggestions IA vérifiées · confiance ${(result!.globalConfidence * 100).round()} %.',
+-      imagePath: imagePath,
++      imagePath: sessionImagePaths.isEmpty ? imagePath : sessionImagePaths.first,
+       createdAt: now,
+       updatedAt: now,
+     );
+ 
+     try {
+       if (!mounted) return;
+       setState(() => saving = false);
+       final saved = await Navigator.push<bool>(
+         context,
+         MaterialPageRoute(
+           builder: (_) => GarmentFormScreen(
+             controller: wardrobe,
+             garment: garment,
+             isDraft: true,
+           ),
+         ),
+       );
+       if (saved == true && mounted) {
+         imageOwnedByGarment = true;
+         Navigator.pop(context, true);
+       }
+     } catch (_) {
+       if (!mounted) return;
+       _toast('Enregistrement impossible. Vérifie la fiche et réessaie.');
+     } finally {
+@@ -439,81 +463,161 @@ class _ScannerScreenState extends State<ScannerScreen> {
+                         ),
+                   ),
+               icon: const Icon(Icons.help_outline),
+             ),
+           ],
+         ),
+         body: ListView(
+           padding: const EdgeInsets.fromLTRB(18, 4, 18, 32),
+           children: [
+             _PhotoArea(
+               imagePath: imagePath,
+               analyzing: analyzing,
+               importing: importing,
+               onTap: busy ? null : chooseSource,
+             ),
+             const SizedBox(height: 18),
+             if (imagePath == null) ...[
+               const _IntroCard(),
+               const SizedBox(height: 16),
+               FilledButton.icon(
+                 onPressed: busy ? null : chooseSource,
+                 icon: const Icon(Icons.camera_alt_outlined),
+                 label: const Text('Prendre ou choisir une photo'),
+               ),
+             ] else ...[
++              if (conversation != null) ...[
++                _ConversationCard(
++                  decision: conversation!,
++                  photoCount: sessionImagePaths.length,
++                ),
++                const SizedBox(height: 14),
++              ],
+               Row(
+                 children: [
+                   Expanded(
+                     child: OutlinedButton.icon(
+                       onPressed: busy ? null : analyze,
+                       icon: const Icon(Icons.auto_awesome),
+-                      label: const Text('Analyser et compléter'),
++                      label: Text(result == null ? 'Analyser et compléter' : 'Mettre à jour l’analyse'),
+                       style: OutlinedButton.styleFrom(
+                         minimumSize: const Size.fromHeight(52),
+                         shape: RoundedRectangleBorder(
+                           borderRadius: BorderRadius.circular(18),
+                         ),
+                       ),
+                     ),
+                   ),
+                   const SizedBox(width: 10),
+                   Expanded(
+                     child: OutlinedButton.icon(
+                       onPressed: busy ? null : chooseSource,
+                       icon: const Icon(Icons.photo_camera_back_outlined),
+-                      label: const Text('Changer'),
++                      label: Text(conversation?.requestedPhoto == null ? 'Changer' : 'Ajouter la photo'),
+                       style: OutlinedButton.styleFrom(
+                         minimumSize: const Size.fromHeight(52),
+                         shape: RoundedRectangleBorder(
+                           borderRadius: BorderRadius.circular(18),
+                         ),
+                       ),
+                     ),
+                   ),
+                 ],
+               ),
++              if (result != null &&
++                  conversation?.canFinishAutomatically == false) ...[
++                const SizedBox(height: 8),
++                TextButton(
++                  onPressed: busy ? null : _openFullForm,
++                  child: const Text('Ignorer et terminer avec cette analyse'),
++                ),
++              ],
++            ],
++          ],
++        ),
++      ),
++    );
++  }
++}
++
++class _ConversationCard extends StatelessWidget {
++  final ScanConversationDecision decision;
++  final int photoCount;
++
++  const _ConversationCard({
++    required this.decision,
++    required this.photoCount,
++  });
++
++  @override
++  Widget build(BuildContext context) {
++    final request = decision.requestedPhoto;
++    return Card(
++      child: Padding(
++        padding: const EdgeInsets.all(18),
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.start,
++          children: [
++            Row(
++              children: [
++                const Icon(Icons.forum_outlined, color: AppTheme.gold),
++                const SizedBox(width: 10),
++                Expanded(
++                  child: Text(
++                    photoCount == 1
++                        ? 'Première analyse'
++                        : 'Analyse mise à jour · $photoCount photos',
++                    style: const TextStyle(fontWeight: FontWeight.w900),
++                  ),
++                ),
++              ],
++            ),
++            const SizedBox(height: 12),
++            ...decision.progress.map((item) => Padding(
++                  padding: const EdgeInsets.only(bottom: 6),
++                  child: Row(
++                    children: [
++                      Icon(
++                        item.confirmed
++                            ? Icons.check_circle_outline
++                            : Icons.warning_amber_rounded,
++                        size: 19,
++                        color: item.confirmed ? Colors.green : Colors.orange,
++                      ),
++                      const SizedBox(width: 8),
++                      Text('${item.label}${item.confirmed ? '' : ' · incertain'}'),
++                    ],
++                  ),
++                )),
++            if (request != null) ...[
++              const Divider(height: 24),
++              Text(request.reason),
++              const SizedBox(height: 8),
++              Text(
++                request.instruction,
++                style: const TextStyle(fontWeight: FontWeight.w800),
++              ),
+             ],
+           ],
+         ),
+       ),
+     );
+   }
+ }
+ 
+ class _PhotoArea extends StatelessWidget {
+   final String? imagePath;
+   final bool analyzing;
+   final bool importing;
+   final VoidCallback? onTap;
+ 
+   const _PhotoArea({
+     required this.imagePath,
+     required this.analyzing,
+     required this.importing,
+     required this.onTap,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     return GestureDetector(
+       onTap: analyzing || importing ? null : onTap,
+diff --git a/test/features/scanner/scan_conversation_test.dart b/test/features/scanner/scan_conversation_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..3277f7f57af5086bb262ddff0630b9329d85c47d
+--- /dev/null
++++ b/test/features/scanner/scan_conversation_test.dart
+@@ -0,0 +1,85 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_result.dart';
++import 'package:wardrobeos/features/scanner/conversation/requested_photo.dart';
++import 'package:wardrobeos/features/scanner/conversation/scan_conversation.dart';
++
++void main() {
++  const policy = ScanConversationPolicy();
++
++  test('a reliable first photo completes without another request', () {
++    const result = GarmentAnalysisResult(
++      isUsableImage: true,
++      category: 'Hauts',
++      primaryColor: 'Bleu',
++      material: 'Coton',
++      preciseType: 'T-shirt',
++      styleSummary: 'Casual',
++      globalConfidence: .9,
++      fieldConfidences: {
++        'category': .95,
++        'primaryColor': .9,
++        'material': .86,
++        'preciseType': .9,
++        'style': .8,
++      },
++    );
++
++    final decision = policy.evaluate(result);
++
++    expect(decision.canFinishAutomatically, isTrue);
++    expect(decision.requestedPhoto, isNull);
++  });
++
++  test('keeps one useful contextual request when material is uncertain', () {
++    const result = GarmentAnalysisResult(
++      isUsableImage: true,
++      category: 'Hauts',
++      primaryColor: 'Bleu',
++      material: 'Coton',
++      globalConfidence: .68,
++      fieldConfidences: {
++        'category': .9,
++        'primaryColor': .9,
++        'material': .4,
++      },
++      needsMorePhotos: true,
++      requestedPhoto: RequestedPhoto(
++        type: RequestedPhotoType.compositionLabel,
++        instruction: 'Photographie l’étiquette de composition.',
++        reason: 'La matière ne peut pas être confirmée visuellement.',
++        targetFields: ['material'],
++      ),
++    );
++
++    final decision = policy.evaluate(result);
++
++    expect(decision.canFinishAutomatically, isFalse);
++    expect(decision.requestedPhoto?.type, RequestedPhotoType.compositionLabel);
++    expect(
++      decision.progress.singleWhere((item) => item.field == 'material').confirmed,
++      isFalse,
++    );
++  });
++
++  test('rejects a photo request that cannot improve an uncertain field', () {
++    const result = GarmentAnalysisResult(
++      isUsableImage: true,
++      category: 'Hauts',
++      primaryColor: 'Bleu',
++      globalConfidence: .8,
++      fieldConfidences: {'category': .9, 'primaryColor': .9},
++      needsMorePhotos: true,
++      requestedPhoto: RequestedPhoto(
++        type: RequestedPhotoType.logo,
++        instruction: 'Photographie le logo.',
++        reason: 'Pour lire la marque.',
++        targetFields: ['category'],
++      ),
++    );
++
++    final decision = policy.evaluate(result);
++
++    expect(decision.canFinishAutomatically, isTrue);
++    expect(decision.requestedPhoto, isNull);
++  });
++}

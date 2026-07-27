@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'garment_analysis_exception.dart';
+import '../conversation/requested_photo.dart';
 
 class GarmentAnalysisResult {
   final bool isUsableImage;
@@ -37,6 +38,8 @@ class GarmentAnalysisResult {
   final String? versatilityExplanation;
   final String? styleVerdict;
   final List<String> analysisLimitations;
+  final bool needsMorePhotos;
+  final RequestedPhoto? requestedPhoto;
 
   const GarmentAnalysisResult({
     required this.isUsableImage,
@@ -73,6 +76,8 @@ class GarmentAnalysisResult {
     this.versatilityExplanation,
     this.styleVerdict,
     this.analysisLimitations = const [],
+    this.needsMorePhotos = false,
+    this.requestedPhoto,
   });
 
   factory GarmentAnalysisResult.fromJsonString(String source) {
@@ -112,6 +117,14 @@ class GarmentAnalysisResult {
               (entry.value as num).toDouble().clamp(0, 1).toDouble();
         }
       }
+    } else if (rawConfidences is List) {
+      for (final entry in rawConfidences.whereType<Map>()) {
+        final field = entry['field'];
+        final confidence = entry['confidence'];
+        if (field is String && confidence is num) {
+          confidences[field] = confidence.toDouble().clamp(0, 1).toDouble();
+        }
+      }
     }
     List<String> strings(String key) =>
         json[key] is List
@@ -121,6 +134,26 @@ class GarmentAnalysisResult {
                 .where((value) => value.isNotEmpty)
                 .toList(growable: false)
             : const [];
+    final rawRequest = json['requestedPhoto'];
+    RequestedPhoto? requestedPhoto;
+    if (rawRequest is Map) {
+      final instruction = rawRequest['instruction'];
+      final reason = rawRequest['reason'];
+      final targets = rawRequest['targetFields'];
+      if (instruction is String && instruction.trim().isNotEmpty &&
+          reason is String && reason.trim().isNotEmpty) {
+        requestedPhoto = RequestedPhoto(
+          type: RequestedPhotoType.fromWireValue(
+            rawRequest['type'] is String ? rawRequest['type'] as String : null,
+          ),
+          instruction: instruction.trim(),
+          reason: reason.trim(),
+          targetFields: targets is List
+              ? targets.whereType<String>().toList(growable: false)
+              : const [],
+        );
+      }
+    }
 
     return GarmentAnalysisResult(
       isUsableImage: json['isUsableImage'] as bool,
@@ -160,6 +193,8 @@ class GarmentAnalysisResult {
       versatilityExplanation: text('versatilityExplanation'),
       styleVerdict: text('styleVerdict'),
       analysisLimitations: List.unmodifiable(strings('analysisLimitations')),
+      needsMorePhotos: json['needsMorePhotos'] == true,
+      requestedPhoto: requestedPhoto,
     );
   }
 
@@ -198,6 +233,13 @@ class GarmentAnalysisResult {
     'versatilityExplanation': versatilityExplanation,
     'styleVerdict': styleVerdict,
     'analysisLimitations': analysisLimitations,
+    'needsMorePhotos': needsMorePhotos,
+    'requestedPhoto': requestedPhoto == null ? null : {
+      'type': requestedPhoto!.type.name,
+      'instruction': requestedPhoto!.instruction,
+      'reason': requestedPhoto!.reason,
+      'targetFields': requestedPhoto!.targetFields,
+    },
   };
 
   GarmentAnalysisResult copyWith({
@@ -212,7 +254,8 @@ class GarmentAnalysisResult {
     List<String>? warnings,
   }) => GarmentAnalysisResult(
     isUsableImage: isUsableImage, rejectionReason: rejectionReason,
-    suggestedName: suggestedName, category: category, preciseType: preciseType,
+    suggestedName: suggestedName, category: category,
+    preciseType: preciseType ?? this.preciseType,
     primaryColor: primaryColor,
     material: material, season: season, visibleBrand: visibleBrand,
     globalConfidence: globalConfidence ?? this.globalConfidence,
@@ -233,5 +276,6 @@ class GarmentAnalysisResult {
     discouragedOccasions: discouragedOccasions,
     versatilityExplanation: versatilityExplanation, styleVerdict: styleVerdict,
     analysisLimitations: analysisLimitations,
+    needsMorePhotos: needsMorePhotos, requestedPhoto: requestedPhoto,
   );
 }
