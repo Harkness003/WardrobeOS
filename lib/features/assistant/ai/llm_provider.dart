@@ -2,6 +2,12 @@ abstract interface class LlmProvider {
   Future<String> generate(String prompt);
 }
 
+abstract interface class StreamingLlmProvider implements LlmProvider {
+  /// Emits response fragments as soon as they are available.
+  ///
+  Stream<String> generateStream(String prompt);
+}
+
 sealed class LlmException implements Exception {
   final String message;
 

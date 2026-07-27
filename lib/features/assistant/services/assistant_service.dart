@@ -78,14 +78,25 @@ class AssistantService {
   }
 
   Future<String> generateMessage({String? userMessage}) async {
+    final chunks = <String>[];
+    await for (final chunk in generateMessageStream(userMessage: userMessage)) {
+      chunks.add(chunk);
+    }
+    return chunks.join();
+  }
+
+  Stream<String> generateMessageStream({String? userMessage}) async* {
     try {
-      return await _llmProvider.generate(
-        await generatePrompt(userMessage: userMessage),
-      );
+      final prompt = await generatePrompt(userMessage: userMessage);
+      if (_llmProvider case final StreamingLlmProvider provider) {
+        yield* provider.generateStream(prompt);
+      } else {
+        yield await _llmProvider.generate(prompt);
+      }
     } on LlmException catch (error) {
-      return error.message;
+      yield error.message;
     } catch (_) {
-      return 'WardrobeGPT est temporairement indisponible. Réessayez.';
+      yield 'WardrobeGPT est temporairement indisponible. Réessayez.';
     }
   }
 }

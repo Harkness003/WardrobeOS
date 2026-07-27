@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
 import 'package:wardrobeos/features/assistant/services/assistant_service.dart';
 import 'package:wardrobeos/features/assistant/ai/fake_llm_provider.dart';
+import 'package:wardrobeos/features/assistant/ai/llm_provider.dart';
 import 'package:wardrobeos/features/assistant/tools/assistant_tool.dart';
 import 'package:wardrobeos/features/assistant/tools/assistant_tool_context_builder.dart';
 import 'package:wardrobeos/features/outfits/outfits_controller.dart';
@@ -40,6 +41,17 @@ class _BusinessTool implements AssistantTool {
   String get description => 'Données de test';
   @override
   Future<AssistantToolData> getData() async => {'available': true};
+}
+
+class _StreamingProvider implements StreamingLlmProvider {
+  @override
+  Future<String> generate(String prompt) async => 'Premier second';
+
+  @override
+  Stream<String> generateStream(String prompt) async* {
+    yield 'Premier ';
+    yield 'second';
+  }
 }
 
 void main() {
@@ -102,6 +114,23 @@ void main() {
 
     expect(await service.generateMessage(), 'Conseil hors ligne');
     expect(service.lastToolContext['business']?['data'], {'available': true});
+  });
+
+  test('transmet progressivement les fragments du fournisseur', () async {
+    final service = AssistantService(
+      contextBuilder: AssistantContextBuilder(
+        weatherService: _WeatherService(),
+        wardrobeController: WardrobeController()..loading = false,
+        outfitsController: OutfitsController()..loading = false,
+      ),
+      llmProvider: _StreamingProvider(),
+    );
+
+    expect(
+      await service.generateMessageStream().toList(),
+      ['Premier ', 'second'],
+    );
+    expect(await service.generateMessage(), 'Premier second');
   });
 
   test('génère une recommandation avec FakeLlmProvider', () async {

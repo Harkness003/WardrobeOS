@@ -1,0 +1,1015 @@
+diff --git a/lib/features/assistant/ai/fake_llm_provider.dart b/lib/features/assistant/ai/fake_llm_provider.dart
+index 823d8262864dd952b7c03de69c93320ff0223a0c..8eae4be54c6dd0ba2aba4b7a158d110026ad5831 100644
+--- a/lib/features/assistant/ai/fake_llm_provider.dart
++++ b/lib/features/assistant/ai/fake_llm_provider.dart
+@@ -1,12 +1,17 @@
+ import 'llm_provider.dart';
+ 
+-class FakeLlmProvider implements LlmProvider {
++class FakeLlmProvider implements StreamingLlmProvider {
+   final String response;
+ 
+   const FakeLlmProvider({
+     this.response = 'Je suis WardrobeGPT en mode démonstration.',
+   });
+ 
+   @override
+   Future<String> generate(String prompt) async => response;
++
++  @override
++  Stream<String> generateStream(String prompt) async* {
++    yield response;
++  }
+ }
+diff --git a/lib/features/assistant/ai/llm_provider.dart b/lib/features/assistant/ai/llm_provider.dart
+index 61da3852a9724a411497d30eb62db3ebb4fa6a4a..de6b39fd1f055523406ffe0f7e45396984e7fd4b 100644
+--- a/lib/features/assistant/ai/llm_provider.dart
++++ b/lib/features/assistant/ai/llm_provider.dart
+@@ -1,29 +1,35 @@
+ abstract interface class LlmProvider {
+   Future<String> generate(String prompt);
+ }
+ 
++abstract interface class StreamingLlmProvider implements LlmProvider {
++  /// Emits response fragments as soon as they are available.
++  ///
++  Stream<String> generateStream(String prompt);
++}
++
+ sealed class LlmException implements Exception {
+   final String message;
+ 
+   const LlmException(this.message);
+ 
+   @override
+   String toString() => message;
+ }
+ 
+ class MissingApiKeyException extends LlmException {
+   const MissingApiKeyException() : super('Aucune clé API OpenAI configurée.');
+ }
+ 
+ class LlmNetworkException extends LlmException {
+   const LlmNetworkException()
+     : super('Impossible de joindre le service IA. Vérifiez votre connexion.');
+ }
+ 
+ class LlmTimeoutException extends LlmException {
+   const LlmTimeoutException()
+     : super('Le service IA met trop de temps à répondre. Réessayez.');
+ }
+ 
+ class LlmApiException extends LlmException {
+   const LlmApiException(super.message);
+diff --git a/lib/features/assistant/ai/openai_provider.dart b/lib/features/assistant/ai/openai_provider.dart
+index 6e2eee43bc3a80c885140cb3f09d4da32e2d5e04..faf8ea400b2e0ca494f66404aed04dde7bec69cb 100644
+--- a/lib/features/assistant/ai/openai_provider.dart
++++ b/lib/features/assistant/ai/openai_provider.dart
+@@ -1,101 +1,108 @@
+ import 'dart:async';
+ import 'dart:convert';
+ import 'dart:io';
+ 
+ import 'package:http/http.dart' as http;
+ 
+ import '../settings/api_key_storage.dart';
+ import 'llm_provider.dart';
+ 
+-class OpenAiProvider implements LlmProvider {
++class OpenAiProvider implements StreamingLlmProvider {
+   static const _endpoint = 'https://api.openai.com/v1/responses';
+ 
+   final ApiKeyStorage _apiKeyStorage;
+   final http.Client _client;
+   final Duration timeout;
+   final String model;
+ 
+   OpenAiProvider({
+     required ApiKeyStorage apiKeyStorage,
+     http.Client? client,
+     this.timeout = const Duration(seconds: 30),
+     this.model = 'gpt-5-mini',
+   }) : _apiKeyStorage = apiKeyStorage,
+        _client = client ?? http.Client();
+ 
+   @override
+   Future<String> generate(String prompt) async {
++    final chunks = <String>[];
++    await for (final chunk in generateStream(prompt)) {
++      chunks.add(chunk);
++    }
++    final text = chunks.join().trim();
++    if (text.isEmpty) {
++      throw const LlmApiException('Le service IA a renvoyé une réponse vide.');
++    }
++    return text;
++  }
++
++  @override
++  Stream<String> generateStream(String prompt) async* {
+     final apiKey = await _apiKeyStorage.read();
+     if (apiKey == null) throw const MissingApiKeyException();
+ 
+     try {
+-      final response = await _client
+-          .post(
+-            Uri.parse(_endpoint),
+-            headers: {
+-              HttpHeaders.authorizationHeader: 'Bearer $apiKey',
+-              HttpHeaders.contentTypeHeader: 'application/json',
+-            },
+-            body: jsonEncode({'model': model, 'input': prompt}),
+-          )
+-          .timeout(timeout);
+-
+-      final body = _decode(response.body);
++      final request = http.Request('POST', Uri.parse(_endpoint))
++        ..headers.addAll({
++          HttpHeaders.authorizationHeader: 'Bearer $apiKey',
++          HttpHeaders.contentTypeHeader: 'application/json',
++          HttpHeaders.acceptHeader: 'text/event-stream',
++        })
++        ..body = jsonEncode({'model': model, 'input': prompt, 'stream': true});
++      final response = await _client.send(request).timeout(timeout);
+       if (response.statusCode < 200 || response.statusCode >= 300) {
++        final body = _decode(await response.stream.bytesToString());
+         final apiMessage = _apiError(body);
+         throw LlmApiException(
+           response.statusCode == 401
+               ? 'La clé API OpenAI est invalide.'
+               : apiMessage ?? 'Le service IA a refusé la requête.',
+         );
+       }
+ 
+-      final text = _outputText(body);
+-      if (text == null || text.trim().isEmpty) {
++      var emittedText = false;
++      await for (final line in response.stream
++          .transform(utf8.decoder)
++          .transform(const LineSplitter())) {
++        if (!line.startsWith('data:')) continue;
++        final data = line.substring(5).trim();
++        if (data.isEmpty || data == '[DONE]') continue;
++        final event = _decode(data);
++        if (event['type'] == 'response.output_text.delta' &&
++            event['delta'] is String) {
++          yield event['delta'] as String;
++          emittedText = true;
++        } else if (event['type'] == 'error') {
++          throw LlmApiException(_apiError(event) ?? 'Erreur de streaming IA.');
++        }
++      }
++      if (!emittedText) {
+         throw const LlmApiException(
+           'Le service IA a renvoyé une réponse vide.',
+         );
+       }
+-      return text.trim();
+     } on TimeoutException {
+       throw const LlmTimeoutException();
+     } on SocketException {
+       throw const LlmNetworkException();
+     } on http.ClientException {
+       throw const LlmNetworkException();
+     }
+   }
+ 
+   Map<String, dynamic> _decode(String value) {
+     try {
+       final decoded = jsonDecode(value);
+       return decoded is Map<String, dynamic> ? decoded : const {};
+     } on FormatException {
+       return const {};
+     }
+   }
+ 
+   String? _apiError(Map<String, dynamic> body) {
+     final error = body['error'];
+     return error is Map<String, dynamic> && error['message'] is String
+         ? error['message'] as String
+         : null;
+   }
+-
+-  String? _outputText(Map<String, dynamic> body) {
+-    final direct = body['output_text'];
+-    if (direct is String) return direct;
+-    final output = body['output'];
+-    if (output is! List) return null;
+-    for (final item in output.whereType<Map>()) {
+-      final content = item['content'];
+-      if (content is! List) continue;
+-      for (final part in content.whereType<Map>()) {
+-        if (part['type'] == 'output_text' && part['text'] is String) {
+-          return part['text'] as String;
+-        }
+-      }
+-    }
+-    return null;
+-  }
+ }
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index 52b5b7ef5cbadaf890b60a6494a7223034b2b684..8a8bc0e3af6ede983250a1f5f613ae34a2c51ebe 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,112 +1,130 @@
++import 'dart:async';
+ import 'dart:convert';
+ 
+ import 'package:flutter/material.dart';
+ 
+ import 'services/assistant_service.dart';
+ 
+ class AssistantScreen extends StatefulWidget {
+   final AssistantService service;
+ 
+   const AssistantScreen({super.key, required this.service});
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
+   final _controller = TextEditingController();
+   String? _message;
+   bool _isLoading = false;
+   Map<String, Object?> _toolContext = const {};
+   List<({String name, String category})> _candidates = const [];
++  StreamSubscription<String>? _generation;
+ 
+   @override
+   void dispose() {
++    _generation?.cancel();
+     _controller.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> _send() async {
+     final userMessage = _controller.text.trim();
+     if (userMessage.isEmpty) return;
+     setState(() => _isLoading = true);
+-    final message = await widget.service.generateMessage(
+-      userMessage: userMessage,
+-    );
++    setState(() {
++      _message = '';
++    });
++    _generation = widget.service
++        .generateMessageStream(userMessage: userMessage)
++        .listen(
++          (chunk) {
++            if (mounted) setState(() => _message = '${_message ?? ''}$chunk');
++          },
++          onDone: _finishGeneration,
++        );
++  }
++
++  void _finishGeneration() {
+     if (!mounted) return;
+     setState(() {
+-      _message = message;
+       _toolContext = widget.service.lastToolContext;
+       _candidates = widget.service.lastRecommendationCandidates
+           .map((item) => (name: item.name, category: item.category))
+           .toList(growable: false);
+       _isLoading = false;
+     });
+   }
+ 
++  Future<void> _stop() async {
++    await _generation?.cancel();
++    _finishGeneration();
++  }
++
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.stretch,
+           children: [
+             const Row(
+               children: [
+                 Expanded(
+                   child: Text(
+                     'WardrobeGPT',
+                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 CircleAvatar(child: Icon(Icons.auto_awesome)),
+               ],
+             ),
+             const SizedBox(height: 32),
+             if (widget.service.lastIntent case final intent?)
+               Padding(
+                 padding: const EdgeInsets.only(bottom: 12),
+                 child: Text(
+                   'Intention détectée : ${intent.type.label}',
+                   key: const Key('detected-intent'),
+                   style: Theme.of(context).textTheme.labelLarge,
+                 ),
+               ),
+             Expanded(
+               child: ListView(
+                 children: [
+                   SizedBox(
+                     height: 220,
+                     child: Center(
+                       child:
+-                          _isLoading
++                          _isLoading && (_message?.isEmpty ?? true)
+                               ? const CircularProgressIndicator()
+                               : Text(
+                                 _message ?? 'WardrobeGPT est prêt.',
+-                                textAlign: TextAlign.center,
++                                textAlign: TextAlign.start,
+                                 style: Theme.of(context).textTheme.titleMedium,
+                               ),
+                     ),
+                   ),
+                   if (_toolContext.isNotEmpty)
+                     ExpansionTile(
+                       title: const Text('Données utilisées par WardrobeGPT'),
+                       children: [
+                         _DebugData(
+                           title: 'Météo utilisée',
+                           value: _toolContext['weather'],
+                         ),
+                         if (_toolContext['calendar'] != null)
+                           _DebugData(
+                             title: 'Événement pris en compte',
+                             value: _toolContext['calendar'],
+                           ),
+                         _DebugData(
+                           title: 'Informations dressing',
+                           value: _toolContext['wardrobe'],
+                         ),
+                         _DebugData(
+                           title: 'Statistiques utilisées',
+                           value: _toolContext['statistics'],
+                         ),
+@@ -118,48 +136,48 @@ class _AssistantScreenState extends State<AssistantScreen> {
+                       children: _candidates
+                           .map(
+                             (item) => ListTile(
+                               title: Text(item.name),
+                               subtitle: Text(item.category),
+                             ),
+                           )
+                           .toList(growable: false),
+                     ),
+                 ],
+               ),
+             ),
+             TextField(
+               controller: _controller,
+               enabled: !_isLoading,
+               textInputAction: TextInputAction.send,
+               onSubmitted: (_) => _send(),
+               decoration: const InputDecoration(
+                 labelText: 'Votre demande',
+                 hintText: "Que mettre aujourd'hui ?",
+                 border: OutlineInputBorder(),
+               ),
+             ),
+             const SizedBox(height: 12),
+             FilledButton.icon(
+-              onPressed: _isLoading ? null : _send,
+-              icon: const Icon(Icons.send),
+-              label: const Text('Envoyer'),
++              onPressed: _isLoading ? _stop : _send,
++              icon: Icon(_isLoading ? Icons.stop : Icons.send),
++              label: Text(_isLoading ? 'Arrêter' : 'Envoyer'),
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+ }
+ 
+ class _DebugData extends StatelessWidget {
+   final String title;
+   final Object? value;
+ 
+   const _DebugData({required this.title, required this.value});
+ 
+   @override
+   Widget build(BuildContext context) => ListTile(
+     title: Text(title),
+     subtitle: SelectableText(const JsonEncoder.withIndent('  ').convert(value)),
+   );
+ }
+diff --git a/lib/features/assistant/context/assistant_context_builder.dart b/lib/features/assistant/context/assistant_context_builder.dart
+index 5f5e0b66955829213271286fd42dd2498c4fb827..bc2b055be671b6ea0ef715238cf0297cbafbaa25 100644
+--- a/lib/features/assistant/context/assistant_context_builder.dart
++++ b/lib/features/assistant/context/assistant_context_builder.dart
+@@ -1,79 +1,86 @@
++import '../../../weather/models/weather_data.dart';
+ import '../../../weather/services/weather_service.dart';
+ import '../../calendar/calendar_context_builder.dart';
+ import '../../outfits/outfits_controller.dart';
+ import '../../wardrobe/wardrobe_controller.dart';
+ import 'assistant_context.dart';
+ 
+ typedef AssistantClock = DateTime Function();
+ 
+ class AssistantContextBuilder {
+   final WeatherService _weatherService;
+   final WardrobeController _wardrobeController;
+   final OutfitsController _outfitsController;
+   final AssistantClock _clock;
+   final CalendarContextBuilder? _calendarContextBuilder;
+ 
+   const AssistantContextBuilder({
+     required WeatherService weatherService,
+     required WardrobeController wardrobeController,
+     required OutfitsController outfitsController,
+     AssistantClock clock = DateTime.now,
+     CalendarContextBuilder? calendarContextBuilder,
+   }) : _weatherService = weatherService,
+        _wardrobeController = wardrobeController,
+        _outfitsController = outfitsController,
+        _clock = clock,
+        _calendarContextBuilder = calendarContextBuilder;
+ 
+   Future<AssistantContext> build() async {
+     final weatherFuture = _weatherService.getCurrentWeather();
+-    final calendarFuture = _calendarContextBuilder?.build();
++    final calendarFuture = _calendarContextBuilder?.build().then<CalendarContext?>(
++      (value) => value,
++    ).catchError((_) => null);
+     if (_wardrobeController.loading) await _wardrobeController.load();
+     if (_outfitsController.loading) await _outfitsController.load();
+-    final weather = await weatherFuture;
++    final weather = await weatherFuture
++        .then<WeatherData?>((value) => value)
++        .catchError((_) => null);
+     final now = _clock();
+ 
+     final recentGarments =
+         _wardrobeController.garments
+             .where((garment) => garment.lastWorn != null)
+             .toList()
+           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
+     final wornOutfits =
+         _outfitsController.outfits
+             .where((outfit) => outfit.lastWorn != null)
+             .toList()
+           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
+     final lastOutfit = wornOutfits.isEmpty ? null : wornOutfits.first;
+ 
+     return AssistantContext(
+       calendar: await calendarFuture,
+-      weather: AssistantWeather(
+-        temperature: weather.temperature,
+-        condition: weather.description,
+-        city: weather.city,
+-      ),
++      weather: weather == null
++          ? null
++          : AssistantWeather(
++            temperature: weather.temperature,
++            condition: weather.description,
++            city: weather.city,
++          ),
+       statistics: AssistantStatistics(
+         garmentCount: _wardrobeController.garments.length,
+         outfitCount: _outfitsController.outfits.length,
+         recordedWearCount: _wardrobeController.garments.fold(
+           0,
+           (total, garment) => total + garment.wearCount,
+         ),
+       ),
+       history: AssistantHistory(
+         lastWornOutfit:
+             lastOutfit == null
+                 ? null
+                 : WornOutfit(
+                   id: lastOutfit.id,
+                   name: lastOutfit.name,
+                   wornAt: lastOutfit.lastWorn!,
+                 ),
+         recentlyWornGarments: recentGarments
+             .map(
+               (garment) => WornGarment(
+                 id: garment.id,
+                 name: garment.name,
+                 wornAt: garment.lastWorn!,
+               ),
+             )
+diff --git a/lib/features/assistant/prompt/prompt_section.dart b/lib/features/assistant/prompt/prompt_section.dart
+index 07874502c4b1b02c01964309b3058166bc546721..90a78f32f1dc21e42b24792b52bcc3b40d402b82 100644
+--- a/lib/features/assistant/prompt/prompt_section.dart
++++ b/lib/features/assistant/prompt/prompt_section.dart
+@@ -1,42 +1,48 @@
+ import '../../calendar/calendar_event.dart';
+ import '../context/assistant_context.dart';
+ 
+ /// A self-contained piece of the prompt.
+ abstract interface class PromptSection {
+   String get title;
+ 
+   /// Returns no content when this section is not relevant to [context].
+   String? build(AssistantContext context);
+ }
+ 
+ class SystemPromptSection implements PromptSection {
+   static const instructions = [
+     'Tu es WardrobeGPT.',
+     'Tu es un conseiller vestimentaire intelligent.',
+-    'Tu privilégies les recommandations utiles.',
+-    'Tu expliques toujours tes choix.',
++    'Fournis par défaut une réponse détaillée, concrète et directement utile.',
++    'Explique brièvement les raisons de tes conseils sans révéler de raisonnement interne.',
++    'Propose plusieurs options et justifie chaque recommandation lorsque pertinent.',
++    'Cite toujours le nom réel des vêtements présents dans le contexte, jamais un nom générique à leur place.',
++    'Prends en compte la garde-robe, la saison, la météo, l’occasion, les préférences et l’historique lorsqu’ils sont disponibles.',
++    'Si une donnée manque, indique-le brièvement puis continue avec le contexte restant : ne bloque jamais la réponse.',
++    'Pour une demande élaborée, structure souplement la réponse avec Résumé, Pourquoi, Conseils, Alternatives et Attention.',
++    'Signale clairement les limites et incertitudes de tes conseils.',
+     "N'invente jamais d'informations absentes du contexte.",
+   ];
+ 
+   const SystemPromptSection();
+ 
+   @override
+   String get title => 'SYSTÈME';
+ 
+   @override
+   String build(AssistantContext context) => instructions.join('\n');
+ }
+ 
+ class WeatherPromptSection implements PromptSection {
+   const WeatherPromptSection();
+ 
+   @override
+   String get title => 'MÉTÉO';
+ 
+   @override
+   String? build(AssistantContext context) {
+     final weather = context.weather;
+     if (weather == null) return null;
+     final temperature =
+         weather.temperature == weather.temperature.roundToDouble()
+             ? weather.temperature.toInt().toString()
+@@ -74,40 +80,59 @@ class WardrobePromptSection implements PromptSection {
+   @override
+   String build(AssistantContext context) =>
+       'Nombre de vêtements : ${context.statistics.garmentCount}\n'
+       'Nombre de tenues : ${context.statistics.outfitCount}';
+ }
+ 
+ class StatisticsPromptSection implements PromptSection {
+   const StatisticsPromptSection();
+ 
+   @override
+   String get title => 'STATISTIQUES';
+ 
+   @override
+   String build(AssistantContext context) =>
+       'Utilisations enregistrées : ${context.statistics.recordedWearCount}';
+ }
+ 
+ /// Extension point for future wear frequency and forgotten-garment insights.
+ class HistoryPromptSection implements PromptSection {
+   const HistoryPromptSection();
+ 
+   @override
+   String get title => 'HISTORIQUE';
+ 
+   @override
+-  String? build(AssistantContext context) => null;
++  String? build(AssistantContext context) {
++    final history = context.history;
++    if (history.lastWornOutfit == null && history.recentlyWornGarments.isEmpty) {
++      return null;
++    }
++    final lines = <String>[];
++    if (history.lastWornOutfit case final outfit?) {
++      lines.add(
++        'Dernière tenue : ${outfit.name} '
++        '(${outfit.wornAt.toIso8601String()})',
++      );
++    }
++    if (history.recentlyWornGarments.isNotEmpty) {
++      lines.add(
++        'Vêtements portés récemment : '
++        '${history.recentlyWornGarments.map((item) => item.name).join(', ')}',
++      );
++    }
++    return lines.join('\n');
++  }
+ }
+ 
+ class DatePromptSection implements PromptSection {
+   const DatePromptSection();
+ 
+   @override
+   String get title => 'DATE';
+ 
+   @override
+   String build(AssistantContext context) =>
+       'Jour : ${context.date.day}\n'
+       'Heure : ${context.date.time}\n'
+       'Saison : ${context.date.season}';
+ }
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index 6857291ea314c251407c93ec548951f2fe00e0d4..eb48091e6a010f1737e0533901ad886410089b75 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -56,36 +56,47 @@ class AssistantService {
+           AssistantIntentType.dailyOutfit,
+           AssistantIntentType.weatherOutfit,
+           AssistantIntentType.eventOutfit,
+           AssistantIntentType.forgottenGarments,
+         }.contains(_lastIntent!.type);
+     final recommendation =
+         shouldRecommend && _recommendationEngine != null
+             ? await _recommendationEngine.recommend(
+               OutfitRecommendationRequest.fromIntent(_lastIntent!, context),
+             )
+             : null;
+     _lastRecommendationCandidates = recommendation?.candidates ?? const [];
+     final prompt = _promptBuilder.build(
+       context,
+       toolContext: _lastToolContext,
+       recommendation: recommendation,
+     );
+     if (_lastIntent == null) return prompt;
+     return '$prompt\n\n### DEMANDE UTILISATEUR\n'
+         'Intention : ${_lastIntent!.type.name}\n'
+         'Paramètres : ${_lastIntent!.parameters}\n'
+         'Message : ${_lastIntent!.originalText}';
+   }
+ 
+   Future<String> generateMessage({String? userMessage}) async {
++    final chunks = <String>[];
++    await for (final chunk in generateMessageStream(userMessage: userMessage)) {
++      chunks.add(chunk);
++    }
++    return chunks.join();
++  }
++
++  Stream<String> generateMessageStream({String? userMessage}) async* {
+     try {
+-      return await _llmProvider.generate(
+-        await generatePrompt(userMessage: userMessage),
+-      );
++      final prompt = await generatePrompt(userMessage: userMessage);
++      if (_llmProvider case final StreamingLlmProvider provider) {
++        yield* provider.generateStream(prompt);
++      } else {
++        yield await _llmProvider.generate(prompt);
++      }
+     } on LlmException catch (error) {
+-      return error.message;
++      yield error.message;
+     } catch (_) {
+-      return 'WardrobeGPT est temporairement indisponible. Réessayez.';
++      yield 'WardrobeGPT est temporairement indisponible. Réessayez.';
+     }
+   }
+ }
+diff --git a/lib/features/assistant/tools/assistant_tool_context_builder.dart b/lib/features/assistant/tools/assistant_tool_context_builder.dart
+index baf2e7f40853eab8ba36246770d7e5d980dad9e5..42bae20da4eb5b502b886c43ed56f707065d98d2 100644
+--- a/lib/features/assistant/tools/assistant_tool_context_builder.dart
++++ b/lib/features/assistant/tools/assistant_tool_context_builder.dart
+@@ -3,33 +3,37 @@ import 'assistant_tool.dart';
+ 
+ typedef AssistantToolContext = Map<String, AssistantToolData>;
+ 
+ class AssistantToolContextBuilder {
+   final List<AssistantTool> _tools;
+ 
+   AssistantToolContextBuilder({required List<AssistantTool> tools})
+     : _tools = List.unmodifiable(tools) {
+     final ids = _tools.map((tool) => tool.id).toSet();
+     if (ids.length != _tools.length) {
+       throw ArgumentError(
+         'Chaque outil assistant doit avoir un identifiant unique.',
+       );
+     }
+   }
+ 
+   Future<AssistantToolContext> build({CalendarContext? calendar}) async {
+     final context = <String, AssistantToolData>{};
+     if (calendar != null) {
+       context['calendar'] = {
+         'description': 'Événement pris en compte',
+         'data': calendar.toMap(),
+       };
+     }
+     for (final tool in _tools) {
+-      context[tool.id] = {
+-        'description': tool.description,
+-        'data': await tool.getData(),
+-      };
++      try {
++        context[tool.id] = {
++          'description': tool.description,
++          'data': await tool.getData(),
++        };
++      } catch (_) {
++        // A missing optional source (notably location/weather) must not block.
++      }
+     }
+     return Map.unmodifiable(context);
+   }
+ }
+diff --git a/test/features/assistant/assistant_context_builder_test.dart b/test/features/assistant/assistant_context_builder_test.dart
+index 6b51193ff4dafd271f611987638290fcb3aacca2..049fd948d0f5fa20c9e8c10709ff8b2d26e141d6 100644
+--- a/test/features/assistant/assistant_context_builder_test.dart
++++ b/test/features/assistant/assistant_context_builder_test.dart
+@@ -6,74 +6,96 @@ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/outfit.dart';
+ import 'package:wardrobeos/weather/models/weather_data.dart';
+ import 'package:wardrobeos/weather/services/weather_service.dart';
+ 
+ class _WeatherService implements WeatherService {
+   @override
+   void clearCache() {}
+ 
+   @override
+   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
+       WeatherData(
+         city: 'Lyon',
+         latitude: 0,
+         longitude: 0,
+         temperature: 22,
+         apparentTemperature: 22,
+         humidity: 50,
+         windSpeed: 4,
+         windDirection: 0,
+         weatherCode: 0,
+         description: 'Ensoleillé',
+         measuredAt: DateTime(2026),
+       );
+ }
+ 
++class _UnavailableWeatherService implements WeatherService {
++  @override
++  void clearCache() {}
++
++  @override
++  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) =>
++      Future.error(StateError('Localisation indisponible'));
++}
++
+ void main() {
+   test('agrège météo, contrôleurs, historique et date', () async {
+     final wardrobe =
+         WardrobeController()
+           ..loading = false
+           ..garments = [
+             Garment(
+               id: 'g1',
+               name: 'Chemise',
+               category: 'Haut',
+               wearCount: 3,
+               lastWorn: DateTime(2026, 7, 13),
+               createdAt: DateTime(2026),
+               updatedAt: DateTime(2026),
+             ),
+           ];
+     final outfits =
+         OutfitsController()
+           ..loading = false
+           ..outfits = [
+             Outfit(
+               id: 'o1',
+               name: 'Bureau',
+               timesWorn: 2,
+               lastWorn: DateTime(2026, 7, 12),
+               createdAt: DateTime(2026),
+               updatedAt: DateTime(2026),
+             ),
+           ];
+ 
+     final context =
+         await AssistantContextBuilder(
+           weatherService: _WeatherService(),
+           wardrobeController: wardrobe,
+           outfitsController: outfits,
+           clock: () => DateTime(2026, 7, 14, 9, 5),
+         ).build();
+ 
+     expect(context.weather!.city, 'Lyon');
+     expect(context.statistics.garmentCount, 1);
+     expect(context.statistics.outfitCount, 1);
+     expect(context.statistics.recordedWearCount, 3);
+     expect(context.history.lastWornOutfit?.name, 'Bureau');
+     expect(context.history.recentlyWornGarments.single.name, 'Chemise');
+     expect(context.date.day, 'mardi');
+     expect(context.date.time, '09:05');
+     expect(context.date.season, 'été');
+   });
++
++  test('continue sans météo lorsque la localisation est indisponible', () async {
++    final context = await AssistantContextBuilder(
++      weatherService: _UnavailableWeatherService(),
++      wardrobeController: WardrobeController()..loading = false,
++      outfitsController: OutfitsController()..loading = false,
++      clock: () => DateTime(2026, 7, 14),
++    ).build();
++
++    expect(context.weather, isNull);
++    expect(context.date.season, 'été');
++    expect(context.statistics.garmentCount, 0);
++  });
+ }
+diff --git a/test/features/assistant/assistant_service_test.dart b/test/features/assistant/assistant_service_test.dart
+index a7367868c9b5491f23c3ea906fdfbffc9cff4269..6a32abac09528ccea6ec0226556c0aae6fe6f308 100644
+--- a/test/features/assistant/assistant_service_test.dart
++++ b/test/features/assistant/assistant_service_test.dart
+@@ -1,69 +1,81 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
+ import 'package:wardrobeos/features/assistant/services/assistant_service.dart';
+ import 'package:wardrobeos/features/assistant/ai/fake_llm_provider.dart';
++import 'package:wardrobeos/features/assistant/ai/llm_provider.dart';
+ import 'package:wardrobeos/features/assistant/tools/assistant_tool.dart';
+ import 'package:wardrobeos/features/assistant/tools/assistant_tool_context_builder.dart';
+ import 'package:wardrobeos/features/outfits/outfits_controller.dart';
+ import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/outfit.dart';
+ import 'package:wardrobeos/weather/models/weather_data.dart';
+ import 'package:wardrobeos/weather/services/weather_service.dart';
+ import 'package:wardrobeos/features/assistant/recommendation/outfit_candidate.dart';
+ import 'package:wardrobeos/features/assistant/recommendation/outfit_recommendation_engine.dart';
+ 
+ class _WeatherService implements WeatherService {
+   @override
+   void clearCache() {}
+   @override
+   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
+       WeatherData(
+         city: 'Lyon',
+         latitude: 0,
+         longitude: 0,
+         temperature: 22,
+         apparentTemperature: 22,
+         humidity: 0,
+         windSpeed: 0,
+         windDirection: 0,
+         weatherCode: 0,
+         description: 'Clair',
+         measuredAt: DateTime(2026),
+       );
+ }
+ 
+ class _BusinessTool implements AssistantTool {
+   @override
+   String get id => 'business';
+   @override
+   String get description => 'Données de test';
+   @override
+   Future<AssistantToolData> getData() async => {'available': true};
+ }
+ 
++class _StreamingProvider implements StreamingLlmProvider {
++  @override
++  Future<String> generate(String prompt) async => 'Premier second';
++
++  @override
++  Stream<String> generateStream(String prompt) async* {
++    yield 'Premier ';
++    yield 'second';
++  }
++}
++
+ void main() {
+   test('génère un prompt à partir du contexte', () async {
+     final wardrobe =
+         WardrobeController()
+           ..loading = false
+           ..garments = List.generate(
+             2,
+             (index) => Garment(
+               id: '$index',
+               name: 'Vêtement $index',
+               category: 'Haut',
+               createdAt: DateTime(2026),
+               updatedAt: DateTime(2026),
+             ),
+           );
+     final outfits =
+         OutfitsController()
+           ..loading = false
+           ..outfits = [
+             Outfit(
+               id: 'o1',
+               name: 'Tenue',
+               createdAt: DateTime(2026),
+               updatedAt: DateTime(2026),
+             ),
+@@ -82,50 +94,67 @@ void main() {
+ 
+     expect(message, contains('Jour : mardi'));
+     expect(message, contains('Température : 22°C'));
+     expect(message, contains('Ville : Lyon'));
+     expect(message, contains('Nombre de vêtements : 2'));
+     expect(message, contains('Nombre de tenues : 1'));
+   });
+ 
+   test('génère une réponse avec le fournisseur injecté', () async {
+     final wardrobe = WardrobeController()..loading = false;
+     final outfits = OutfitsController()..loading = false;
+     final service = AssistantService(
+       contextBuilder: AssistantContextBuilder(
+         weatherService: _WeatherService(),
+         wardrobeController: wardrobe,
+         outfitsController: outfits,
+       ),
+       toolContextBuilder: AssistantToolContextBuilder(tools: [_BusinessTool()]),
+       llmProvider: const FakeLlmProvider(response: 'Conseil hors ligne'),
+     );
+ 
+     expect(await service.generateMessage(), 'Conseil hors ligne');
+     expect(service.lastToolContext['business']?['data'], {'available': true});
+   });
+ 
++  test('transmet progressivement les fragments du fournisseur', () async {
++    final service = AssistantService(
++      contextBuilder: AssistantContextBuilder(
++        weatherService: _WeatherService(),
++        wardrobeController: WardrobeController()..loading = false,
++        outfitsController: OutfitsController()..loading = false,
++      ),
++      llmProvider: _StreamingProvider(),
++    );
++
++    expect(
++      await service.generateMessageStream().toList(),
++      ['Premier ', 'second'],
++    );
++    expect(await service.generateMessage(), 'Premier second');
++  });
++
+   test('génère une recommandation avec FakeLlmProvider', () async {
+     final wardrobe = WardrobeController()..loading = false;
+     final outfits = OutfitsController()..loading = false;
+     final service = AssistantService(
+       contextBuilder: AssistantContextBuilder(
+         weatherService: _WeatherService(),
+         wardrobeController: wardrobe,
+         outfitsController: outfits,
+         clock: () => DateTime(2026, 7, 18),
+       ),
+       recommendationEngine: OutfitRecommendationEngine(
+         candidateSource:
+             () async => const [
+               OutfitCandidate(
+                 id: 'shirt',
+                 name: 'Chemise bleue',
+                 category: 'Hauts',
+                 season: 'été',
+               ),
+             ],
+         clock: () => DateTime(2026, 7, 18),
+       ),
+       llmProvider: const FakeLlmProvider(response: 'Portez la chemise bleue.'),
+     );
+ 
+diff --git a/test/features/assistant/prompt/prompt_test.dart b/test/features/assistant/prompt/prompt_test.dart
+index 59c0a27590b594a2fe2b270e9f24d05acbf39753..33c7a83c25dee6d25b3b2d23f596a7a1407332d8 100644
+--- a/test/features/assistant/prompt/prompt_test.dart
++++ b/test/features/assistant/prompt/prompt_test.dart
+@@ -56,34 +56,36 @@ void main() {
+     });
+   });
+ 
+   group('Sections', () {
+     test('la météo est absente sans données météo', () {
+       expect(
+         const WeatherPromptSection().build(_context(withWeather: false)),
+         isNull,
+       );
+     });
+ 
+     test('la garde-robe expose les nombres de vêtements et tenues', () {
+       final section = const WardrobePromptSection().build(_context());
+       expect(section, contains('Nombre de vêtements : 12'));
+       expect(section, contains('Nombre de tenues : 4'));
+     });
+ 
+     test('historique réserve une extension sans produire de contenu', () {
+       expect(const HistoryPromptSection().build(_context()), isNull);
+     });
+   });
+ 
+   test('PromptBuilder produit un prompt complet', () {
+     final prompt = PromptBuilder().build(_context());
+     expect(prompt, contains('Tu es WardrobeGPT.'));
++    expect(prompt, contains('réponse détaillée'));
++    expect(prompt, contains('ne bloque jamais la réponse'));
+     expect(prompt, contains('Ville : Lyon'));
+     expect(prompt, contains('Température : 21.5°C'));
+     expect(prompt, contains('Condition : Clair'));
+     expect(prompt, contains('Nombre de vêtements : 12'));
+     expect(prompt, contains('Utilisations enregistrées : 7'));
+     expect(prompt, contains('Jour : samedi'));
+     expect(prompt, isNot(contains('## HISTORIQUE')));
+   });
+ }

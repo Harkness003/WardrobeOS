@@ -13,8 +13,14 @@ class SystemPromptSection implements PromptSection {
   static const instructions = [
     'Tu es WardrobeGPT.',
     'Tu es un conseiller vestimentaire intelligent.',
-    'Tu privilégies les recommandations utiles.',
-    'Tu expliques toujours tes choix.',
+    'Fournis par défaut une réponse détaillée, concrète et directement utile.',
+    'Explique brièvement les raisons de tes conseils sans révéler de raisonnement interne.',
+    'Propose plusieurs options et justifie chaque recommandation lorsque pertinent.',
+    'Cite toujours le nom réel des vêtements présents dans le contexte, jamais un nom générique à leur place.',
+    'Prends en compte la garde-robe, la saison, la météo, l’occasion, les préférences et l’historique lorsqu’ils sont disponibles.',
+    'Si une donnée manque, indique-le brièvement puis continue avec le contexte restant : ne bloque jamais la réponse.',
+    'Pour une demande élaborée, structure souplement la réponse avec Résumé, Pourquoi, Conseils, Alternatives et Attention.',
+    'Signale clairement les limites et incertitudes de tes conseils.',
     "N'invente jamais d'informations absentes du contexte.",
   ];
 
@@ -96,7 +102,26 @@ class HistoryPromptSection implements PromptSection {
   String get title => 'HISTORIQUE';
 
   @override
-  String? build(AssistantContext context) => null;
+  String? build(AssistantContext context) {
+    final history = context.history;
+    if (history.lastWornOutfit == null && history.recentlyWornGarments.isEmpty) {
+      return null;
+    }
+    final lines = <String>[];
+    if (history.lastWornOutfit case final outfit?) {
+      lines.add(
+        'Dernière tenue : ${outfit.name} '
+        '(${outfit.wornAt.toIso8601String()})',
+      );
+    }
+    if (history.recentlyWornGarments.isNotEmpty) {
+      lines.add(
+        'Vêtements portés récemment : '
+        '${history.recentlyWornGarments.map((item) => item.name).join(', ')}',
+      );
+    }
+    return lines.join('\n');
+  }
 }
 
 class DatePromptSection implements PromptSection {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -19,9 +20,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
   bool _isLoading = false;
   Map<String, Object?> _toolContext = const {};
   List<({String name, String category})> _candidates = const [];
+  StreamSubscription<String>? _generation;
 
   @override
   void dispose() {
+    _generation?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -30,18 +33,33 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final userMessage = _controller.text.trim();
     if (userMessage.isEmpty) return;
     setState(() => _isLoading = true);
-    final message = await widget.service.generateMessage(
-      userMessage: userMessage,
-    );
+    setState(() {
+      _message = '';
+    });
+    _generation = widget.service
+        .generateMessageStream(userMessage: userMessage)
+        .listen(
+          (chunk) {
+            if (mounted) setState(() => _message = '${_message ?? ''}$chunk');
+          },
+          onDone: _finishGeneration,
+        );
+  }
+
+  void _finishGeneration() {
     if (!mounted) return;
     setState(() {
-      _message = message;
       _toolContext = widget.service.lastToolContext;
       _candidates = widget.service.lastRecommendationCandidates
           .map((item) => (name: item.name, category: item.category))
           .toList(growable: false);
       _isLoading = false;
     });
+  }
+
+  Future<void> _stop() async {
+    await _generation?.cancel();
+    _finishGeneration();
   }
 
   @override
@@ -80,11 +98,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     height: 220,
                     child: Center(
                       child:
-                          _isLoading
+                          _isLoading && (_message?.isEmpty ?? true)
                               ? const CircularProgressIndicator()
                               : Text(
                                 _message ?? 'WardrobeGPT est prêt.',
-                                textAlign: TextAlign.center,
+                                textAlign: TextAlign.start,
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                     ),
@@ -140,9 +158,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: _isLoading ? null : _send,
-              icon: const Icon(Icons.send),
-              label: const Text('Envoyer'),
+              onPressed: _isLoading ? _stop : _send,
+              icon: Icon(_isLoading ? Icons.stop : Icons.send),
+              label: Text(_isLoading ? 'Arrêter' : 'Envoyer'),
             ),
           ],
         ),

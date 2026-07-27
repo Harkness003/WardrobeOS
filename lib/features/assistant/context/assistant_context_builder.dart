@@ -1,3 +1,4 @@
+import '../../../weather/models/weather_data.dart';
 import '../../../weather/services/weather_service.dart';
 import '../../calendar/calendar_context_builder.dart';
 import '../../outfits/outfits_controller.dart';
@@ -27,10 +28,14 @@ class AssistantContextBuilder {
 
   Future<AssistantContext> build() async {
     final weatherFuture = _weatherService.getCurrentWeather();
-    final calendarFuture = _calendarContextBuilder?.build();
+    final calendarFuture = _calendarContextBuilder?.build().then<CalendarContext?>(
+      (value) => value,
+    ).catchError((_) => null);
     if (_wardrobeController.loading) await _wardrobeController.load();
     if (_outfitsController.loading) await _outfitsController.load();
-    final weather = await weatherFuture;
+    final weather = await weatherFuture
+        .then<WeatherData?>((value) => value)
+        .catchError((_) => null);
     final now = _clock();
 
     final recentGarments =
@@ -47,11 +52,13 @@ class AssistantContextBuilder {
 
     return AssistantContext(
       calendar: await calendarFuture,
-      weather: AssistantWeather(
-        temperature: weather.temperature,
-        condition: weather.description,
-        city: weather.city,
-      ),
+      weather: weather == null
+          ? null
+          : AssistantWeather(
+            temperature: weather.temperature,
+            condition: weather.description,
+            city: weather.city,
+          ),
       statistics: AssistantStatistics(
         garmentCount: _wardrobeController.garments.length,
         outfitCount: _outfitsController.outfits.length,

@@ -78,6 +78,8 @@ void main() {
   test('PromptBuilder produit un prompt complet', () {
     final prompt = PromptBuilder().build(_context());
     expect(prompt, contains('Tu es WardrobeGPT.'));
+    expect(prompt, contains('réponse détaillée'));
+    expect(prompt, contains('ne bloque jamais la réponse'));
     expect(prompt, contains('Ville : Lyon'));
     expect(prompt, contains('Température : 21.5°C'));
     expect(prompt, contains('Condition : Clair'));

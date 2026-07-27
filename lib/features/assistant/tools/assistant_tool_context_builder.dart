@@ -25,10 +25,14 @@ class AssistantToolContextBuilder {
       };
     }
     for (final tool in _tools) {
-      context[tool.id] = {
-        'description': tool.description,
-        'data': await tool.getData(),
-      };
+      try {
+        context[tool.id] = {
+          'description': tool.description,
+          'data': await tool.getData(),
+        };
+      } catch (_) {
+        // A missing optional source (notably location/weather) must not block.
+      }
     }
     return Map.unmodifiable(context);
   }

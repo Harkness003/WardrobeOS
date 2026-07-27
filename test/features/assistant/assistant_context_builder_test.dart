@@ -28,6 +28,15 @@ class _WeatherService implements WeatherService {
       );
 }
 
+class _UnavailableWeatherService implements WeatherService {
+  @override
+  void clearCache() {}
+
+  @override
+  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) =>
+      Future.error(StateError('Localisation indisponible'));
+}
+
 void main() {
   test('agrège météo, contrôleurs, historique et date', () async {
     final wardrobe =
@@ -75,5 +84,18 @@ void main() {
     expect(context.date.day, 'mardi');
     expect(context.date.time, '09:05');
     expect(context.date.season, 'été');
+  });
+
+  test('continue sans météo lorsque la localisation est indisponible', () async {
+    final context = await AssistantContextBuilder(
+      weatherService: _UnavailableWeatherService(),
+      wardrobeController: WardrobeController()..loading = false,
+      outfitsController: OutfitsController()..loading = false,
+      clock: () => DateTime(2026, 7, 14),
+    ).build();
+
+    expect(context.weather, isNull);
+    expect(context.date.season, 'été');
+    expect(context.statistics.garmentCount, 0);
   });
 }

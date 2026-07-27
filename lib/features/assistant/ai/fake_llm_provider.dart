@@ -1,6 +1,6 @@
 import 'llm_provider.dart';
 
-class FakeLlmProvider implements LlmProvider {
+class FakeLlmProvider implements StreamingLlmProvider {
   final String response;
 
   const FakeLlmProvider({
@@ -9,4 +9,9 @@ class FakeLlmProvider implements LlmProvider {
 
   @override
   Future<String> generate(String prompt) async => response;
+
+  @override
+  Stream<String> generateStream(String prompt) async* {
+    yield response;
+  }
 }
