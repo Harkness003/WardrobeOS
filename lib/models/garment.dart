@@ -48,6 +48,8 @@ class Garment {
   final bool? compatiblePluie;
   final bool? compatibleChaleur;
   final bool? superposable;
+  /// Couche calculée par l'analyse (jamais demandée à l'utilisateur).
+  final String? layerType;
   final String? etatVisuel;
   final String? usureVisible;
   final List<String>? defautsVisibles;
@@ -122,6 +124,7 @@ class Garment {
     this.compatiblePluie,
     this.compatibleChaleur,
     this.superposable,
+    this.layerType,
     this.etatVisuel,
     this.usureVisible,
     this.defautsVisibles,
@@ -213,6 +216,7 @@ class Garment {
     bool? compatiblePluie,
     bool? compatibleChaleur,
     bool? superposable,
+    String? layerType,
     String? etatVisuel,
     String? usureVisible,
     List<String>? defautsVisibles,
@@ -286,6 +290,7 @@ class Garment {
     compatiblePluie: compatiblePluie ?? this.compatiblePluie,
     compatibleChaleur: compatibleChaleur ?? this.compatibleChaleur,
     superposable: superposable ?? this.superposable,
+    layerType: layerType ?? this.layerType,
     etatVisuel: etatVisuel ?? this.etatVisuel,
     usureVisible: usureVisible ?? this.usureVisible,
     defautsVisibles: defautsVisibles ?? this.defautsVisibles,
@@ -362,6 +367,7 @@ class Garment {
     'compatible_pluie': compatiblePluie == null ? null : (compatiblePluie! ? 1 : 0),
     'compatible_chaleur': compatibleChaleur == null ? null : (compatibleChaleur! ? 1 : 0),
     'superposable': superposable == null ? null : (superposable! ? 1 : 0),
+    'layer_type': layerType,
     'etat_visuel': etatVisuel,
     'usure_visible': usureVisible,
     'defauts_visibles': defautsVisibles == null ? null : jsonEncode(defautsVisibles),
@@ -463,6 +469,7 @@ class Garment {
       compatiblePluie: boolean('compatible_pluie'),
       compatibleChaleur: boolean('compatible_chaleur'),
       superposable: boolean('superposable'),
+      layerType: text('layer_type') ?? _legacyLayer(boolean('superposable'), text('category')),
       etatVisuel: text('etat_visuel'),
       usureVisible: text('usure_visible'),
       defautsVisibles: list('defauts_visibles'),
@@ -497,6 +504,13 @@ class Garment {
   static DateTime? _parseDate(Object? value) {
     if (value is! String || value.isEmpty) return null;
     return DateTime.tryParse(value);
+  }
+
+  static String? _legacyLayer(bool? superposable, String? category) {
+    if (superposable == false) return null;
+    if (category == 'Vestes') return 'Couche extérieure';
+    if (category == 'Hauts' || category == 'Chemises') return 'Couche de base';
+    return superposable == true ? 'Couche intermédiaire' : null;
   }
 
   String? validate() {

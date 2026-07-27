@@ -9,6 +9,7 @@ import '../../data/image_storage_service.dart';
 import '../../models/garment.dart';
 import '../../widgets/garment_image.dart';
 import '../wardrobe/wardrobe_controller.dart';
+import '../wardrobe/garment_form_screen.dart';
 import '../assistant/settings/api_key_storage.dart';
 import 'ai/garment_analysis_exception.dart';
 import 'ai/garment_analysis_mapper.dart';
@@ -296,6 +297,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
     setState(() => saving = true);
     final now = DateTime.now();
+    final climate = _estimateClimate(category, material.text, season);
     final garment = Garment(
       id: const Uuid().v4(),
       name: name.text.trim(),
@@ -304,12 +306,19 @@ class _ScannerScreenState extends State<ScannerScreen> {
       color: color.text.trim().isEmpty ? null : color.text.trim(),
       material: material.text.trim().isEmpty ? null : material.text.trim(),
       season: season,
-      typePrecis: result?.preciseType,
+      sousCategorie: result?.preciseType,
       descriptionIA: result?.suggestedName,
       couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
       matierePrincipale:
           material.text.trim().isEmpty ? null : material.text.trim(),
       saisons: result?.season == null ? null : [result!.season!],
+      stylePrincipal: _suggestStyle(result),
+      stylesSecondaires: [_suggestStyle(result)],
+      temperatureMinimum: climate.$1,
+      temperatureMaximum: climate.$2,
+      compatiblePluie: _suggestRain(category, material.text),
+      compatibleChaleur: climate.$2 >= 25,
+      layerType: _suggestLayer(category, material.text),
       confianceGlobale: result?.globalConfidence,
       avertissementsIA: result?.warnings,
       resumeStylistique: result?.styleSummary,
@@ -335,21 +344,52 @@ class _ScannerScreenState extends State<ScannerScreen> {
     );
 
     try {
-      await wardrobe.insert(garment);
-      imageOwnedByGarment = true;
       if (!mounted) return;
       setState(() => saving = false);
-      Navigator.pop(context, true);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pièce ajoutée au dressing.')),
+      final saved = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GarmentFormScreen(
+            controller: wardrobe,
+            garment: garment,
+            isDraft: true,
+          ),
+        ),
       );
+      if (saved == true && mounted) {
+        imageOwnedByGarment = true;
+        Navigator.pop(context, true);
+      }
     } catch (_) {
       if (!mounted) return;
       _toast('Enregistrement impossible. Vérifie la fiche et réessaie.');
     } finally {
       if (mounted) setState(() => saving = false);
     }
+  }
+
+  (double, double) _estimateClimate(String category, String material, String season) {
+    final warm = RegExp('laine|mérinos|cachemire|doudoune', caseSensitive: false).hasMatch('$material $category');
+    if (warm || season == 'Hiver') return (-5, 12);
+    if (season == 'Été' || RegExp('lin|soie', caseSensitive: false).hasMatch(material)) return (18, 35);
+    return (8, 24);
+  }
+
+  bool _suggestRain(String category, String material) =>
+      RegExp('imperméable|parka|nylon|synthétique', caseSensitive: false).hasMatch('$category $material');
+
+  String _suggestLayer(String category, String material) {
+    if (category == 'Vestes') return 'Couche extérieure';
+    if (RegExp('laine|mérinos|cachemire', caseSensitive: false).hasMatch(material)) return 'Couche chaude';
+    return 'Couche de base';
+  }
+
+  String _suggestStyle(GarmentAnalysisResult? analysis) {
+    final source = '${analysis?.styleSummary ?? ''} ${analysis?.styleVerdict ?? ''}'.toLowerCase();
+    for (final style in const ['Streetwear', 'Business', 'Sport', 'Outdoor', 'Vintage', 'Minimaliste', 'Élégant', 'Casual']) {
+      if (source.contains(style.toLowerCase())) return style;
+    }
+    return 'Casual';
   }
 
   void _removeBestEffort(String? path) {

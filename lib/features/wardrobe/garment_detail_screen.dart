@@ -80,6 +80,41 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     if (changed == true) _refreshGarment();
   }
 
+  void _openPhoto() {
+    if (!_hasText(garment.imagePath)) return;
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black,
+      builder: (dialogContext) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: 1,
+                maxScale: 5,
+                child: Center(
+                  child: GarmentImage(
+                    imagePath: garment.imagePath,
+                    width: double.infinity,
+                    height: double.infinity,
+                  ),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: IconButton.filled(
+                tooltip: 'Fermer',
+                onPressed: () => Navigator.pop(dialogContext),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<List<WearHistory>> _loadWearHistory() {
     return widget.controller.getWearHistory(garment.id);
   }
@@ -353,13 +388,16 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 4, 18, 34),
         children: [
-          Hero(
-            tag: 'garment-${garment.id}',
-            child: GarmentImage(
-              imagePath: garment.imagePath,
-              width: double.infinity,
-              height: 390,
-              borderRadius: BorderRadius.circular(32),
+          GestureDetector(
+            onTap: _openPhoto,
+            child: Hero(
+              tag: 'garment-${garment.id}',
+              child: GarmentImage(
+                imagePath: garment.imagePath,
+                width: double.infinity,
+                height: 390,
+                borderRadius: BorderRadius.circular(32),
+              ),
             ),
           ),
           const SizedBox(height: 20),
@@ -399,6 +437,12 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: edit,
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('Modifier cette pièce'),
           ),
           if (identityChips.isNotEmpty) ...[
             const SizedBox(height: 17),
@@ -556,12 +600,6 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
               ),
             ),
           ],
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: edit,
-            icon: const Icon(Icons.edit_outlined),
-            label: const Text('Modifier cette pièce'),
-          ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
             onPressed: _recordingWear ? null : recordWear,

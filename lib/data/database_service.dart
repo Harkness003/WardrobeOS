@@ -16,7 +16,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 7,
+      version: 8,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -69,6 +69,7 @@ class DatabaseService {
             compatible_pluie INTEGER,
             compatible_chaleur INTEGER,
             superposable INTEGER,
+            layer_type TEXT,
             etat_visuel TEXT,
             usure_visible TEXT,
             defauts_visibles TEXT,
@@ -186,6 +187,17 @@ class DatabaseService {
           ]) {
             await _addColumn(db, 'garments', column, 'TEXT');
           }
+        }
+        if (oldVersion < 8) {
+          await _addColumn(db, 'garments', 'layer_type', 'TEXT');
+          await db.execute('''
+            UPDATE garments SET layer_type = CASE
+              WHEN category = 'Vestes' THEN 'Couche extérieure'
+              WHEN category IN ('Hauts', 'Chemises') THEN 'Couche de base'
+              WHEN superposable = 1 THEN 'Couche intermédiaire'
+            END
+            WHERE layer_type IS NULL
+          ''');
         }
         await _createIndexes(db);
       },
