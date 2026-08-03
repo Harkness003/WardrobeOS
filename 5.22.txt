@@ -1,0 +1,1448 @@
+diff --git a/5.22.txt b/5.22.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..1f92c3450051dc928da4b8090e495f3f089237b2
+--- /dev/null
++++ b/5.22.txt
+@@ -0,0 +1,591 @@
++diff --git a/docs/SPRINT_5_22_LOCALISATION_METEO.md b/docs/SPRINT_5_22_LOCALISATION_METEO.md
++new file mode 100644
++index 0000000..2de9954
++--- /dev/null
+++++ b/docs/SPRINT_5_22_LOCALISATION_METEO.md
++@@ -0,0 +1,36 @@
+++# Sprint 5.22 — Localisation et météo robustes
+++
+++## Architecture livrée
+++
+++- `UserLocation` représente une préférence entièrement nullable : mode, ville,
+++  pays, coordonnées, date de mise à jour et source.
+++- `UserLocationController` est l'unique arbitre de localisation. Une ville
+++  manuelle valide est retournée sans solliciter le GPS ; le mode automatique
+++  utilise le GPS ; le mode désactivé retourne volontairement aucune position.
+++- `SecureLocationPreferencesRepository` conserve le choix localement et
+++  `GeocodingCitySearchService` assure la recherche et la résolution des villes.
+++- `CachedWeatherService` demeure le point d'entrée météo unique. Il résout la
+++  localisation avant d'appeler Open-Meteo et retourne `null` lorsque la météo
+++  est désactivée ou qu'aucune position n'est disponible.
+++
+++## Dégradation sans localisation
+++
+++Le contrat `WeatherService` expose désormais une météo facultative. Les
+++consommateurs existants (Daily Brief, Agenda et contexte de WardrobeGPT)
+++traitaient déjà l'absence ou l'échec météo comme une donnée optionnelle. L'outil
+++météo renvoie à présent un contexte vide en l'absence de données. Les moteurs de
+++recommandation continuent donc avec leur contexte dressing, agenda et mémoire.
+++
+++## Réglages
+++
+++La section **Localisation & météo** du profil permet de sélectionner le GPS,
+++rechercher puis choisir/modifier/supprimer une ville, ou désactiver la météo.
+++Un changement invalide immédiatement le cache météo afin que la nouvelle source
+++soit utilisée lors de la prochaine demande.
+++
+++## Vérifications
+++
+++Conformément aux contraintes du sprint, aucune commande Flutter, aucun build et
+++aucun test n'ont été exécutés. `git diff --check` a été utilisé pour contrôler
+++l'intégrité du patch. L'environnement ne fournit pas la commande autonome
+++`dart`, le formatage/analyse statique n'a donc pas pu être exécuté.
++diff --git a/lib/app.dart b/lib/app.dart
++index 49f9062..dcba624 100644
++--- a/lib/app.dart
+++++ b/lib/app.dart
++@@ -4,6 +4,9 @@ import 'core/theme/app_theme.dart';
++ import 'features/shell/main_shell.dart';
++ import 'weather/api/open_meteo_api.dart';
++ import 'weather/location/geolocator_location_service.dart';
+++import 'weather/location/city_search_service.dart';
+++import 'weather/location/location_preferences_repository.dart';
+++import 'weather/location/user_location_controller.dart';
++ import 'weather/services/cached_weather_service.dart';
++
++ class WardrobeOSApp extends StatefulWidget {
++@@ -15,8 +18,13 @@ class WardrobeOSApp extends StatefulWidget {
++
++ class _WardrobeOSAppState extends State<WardrobeOSApp> {
++   final settings = AppSettings();
+++  late final locationController = UserLocationController(
+++    repository: const SecureLocationPreferencesRepository(),
+++    citySearchService: const GeocodingCitySearchService(),
+++    gpsService: GeolocatorLocationService(),
+++  )..load();
++   late final weatherService = CachedWeatherService(
++-    locationService: GeolocatorLocationService(),
+++    locationController: locationController,
++     weatherApi: OpenMeteoApi(),
++   );
++
++@@ -24,6 +32,7 @@ class _WardrobeOSAppState extends State<WardrobeOSApp> {
++   void initState() {
++     super.initState();
++     settings.addListener(_refresh);
+++    locationController.addListener(weatherService.clearCache);
++   }
++
++   void _refresh() => setState(() {});
++@@ -31,6 +40,8 @@ class _WardrobeOSAppState extends State<WardrobeOSApp> {
++   @override
++   void dispose() {
++     settings.removeListener(_refresh);
+++    locationController.removeListener(weatherService.clearCache);
+++    locationController.dispose();
++     settings.dispose();
++     super.dispose();
++   }
++@@ -43,7 +54,7 @@ class _WardrobeOSAppState extends State<WardrobeOSApp> {
++       theme: AppTheme.light,
++       darkTheme: AppTheme.darkTheme,
++       themeMode: settings.themeMode,
++-      home: MainShell(settings: settings, weatherService: weatherService),
+++      home: MainShell(settings: settings, weatherService: weatherService, locationController: locationController),
++     );
++   }
++ }
++diff --git a/lib/features/assistant/tools/weather_tool.dart b/lib/features/assistant/tools/weather_tool.dart
++index 817538a..e697023 100644
++--- a/lib/features/assistant/tools/weather_tool.dart
+++++ b/lib/features/assistant/tools/weather_tool.dart
++@@ -16,6 +16,7 @@ class WeatherTool implements AssistantTool {
++   @override
++   Future<AssistantToolData> getData() async {
++     final weather = await _weatherService.getCurrentWeather();
+++    if (weather == null) return const {};
++     return {
++       'city': weather.city,
++       'temperature': weather.temperature,
++diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
++index 310a012..e724c7b 100644
++--- a/lib/features/profile/profile_screen.dart
+++++ b/lib/features/profile/profile_screen.dart
++@@ -2,16 +2,20 @@ import 'package:flutter/material.dart';
++ import '../../core/settings/app_settings.dart';
++ import '../assistant/settings/ai_settings_controller.dart';
++ import '../backup/backup_controller.dart';
+++import '../../weather/location/user_location_controller.dart';
+++import '../../weather/models/user_location.dart';
++
++ class ProfileScreen extends StatelessWidget {
++   final AppSettings settings;
++   final AiSettingsController aiSettings;
++   final BackupController backupController;
+++  final UserLocationController locationController;
++   const ProfileScreen({
++     super.key,
++     required this.settings,
++     required this.aiSettings,
++     required this.backupController,
+++    required this.locationController,
++   });
++
++   @override
++@@ -75,6 +79,7 @@ class ProfileScreen extends StatelessWidget {
++             ),
++           ),
++           _BackupSettings(controller: backupController),
+++          _LocationSettings(controller: locationController),
++           _WardrobeGptSettings(controller: aiSettings),
++           _Tile(icon: Icons.info_outline, title: 'À propos'),
++           const SizedBox(height: 18),
++@@ -90,6 +95,115 @@ class ProfileScreen extends StatelessWidget {
++   }
++ }
++
+++class _LocationSettings extends StatelessWidget {
+++  final UserLocationController controller;
+++  const _LocationSettings({required this.controller});
+++
+++  Future<void> _chooseCity(BuildContext context) async {
+++    final selected = await showModalBottomSheet<UserLocation>(
+++      context: context,
+++      isScrollControlled: true,
+++      builder: (_) => _CitySearchSheet(controller: controller),
+++    );
+++    if (selected != null) await controller.selectCity(selected);
+++  }
+++
+++  @override
+++  Widget build(BuildContext context) => AnimatedBuilder(
+++    animation: controller,
+++    builder: (context, _) {
+++      final location = controller.preference;
+++      final mode = location.mode ?? LocationMode.automatic;
+++      return Card(
+++        margin: const EdgeInsets.only(bottom: 10),
+++        child: Padding(
+++          padding: const EdgeInsets.all(16),
+++          child: Column(
+++            crossAxisAlignment: CrossAxisAlignment.stretch,
+++            children: [
+++              const Text('Localisation & météo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+++              const SizedBox(height: 6),
+++              const Text('La météo enrichit les recommandations mais reste toujours facultative.'),
+++              const SizedBox(height: 12),
+++              SegmentedButton<LocationMode>(
+++                segments: const [
+++                  ButtonSegment(value: LocationMode.automatic, icon: Icon(Icons.my_location), label: Text('GPS')),
+++                  ButtonSegment(value: LocationMode.manual, icon: Icon(Icons.location_city), label: Text('Ville')),
+++                  ButtonSegment(value: LocationMode.disabled, icon: Icon(Icons.cloud_off), label: Text('Désactivée')),
+++                ],
+++                selected: {mode},
+++                onSelectionChanged: (selection) async {
+++                  switch (selection.first) {
+++                    case LocationMode.automatic: await controller.useGps();
+++                    case LocationMode.manual: if (context.mounted) await _chooseCity(context);
+++                    case LocationMode.disabled: await controller.disable();
+++                  }
+++                },
+++              ),
+++              if (mode == LocationMode.manual) ...[
+++                const SizedBox(height: 12),
+++                ListTile(
+++                  contentPadding: EdgeInsets.zero,
+++                  leading: const Icon(Icons.place_outlined),
+++                  title: Text(location.city ?? 'Choisir une ville'),
+++                  subtitle: location.country == null ? null : Text(location.country!),
+++                  trailing: Wrap(children: [
+++                    IconButton(tooltip: 'Changer', onPressed: () => _chooseCity(context), icon: const Icon(Icons.edit_outlined)),
+++                    IconButton(tooltip: 'Supprimer', onPressed: controller.removeCity, icon: const Icon(Icons.delete_outline)),
+++                  ]),
+++                  onTap: () => _chooseCity(context),
+++                ),
+++              ],
+++            ],
+++          ),
+++        ),
+++      );
+++    },
+++  );
+++}
+++
+++class _CitySearchSheet extends StatefulWidget {
+++  final UserLocationController controller;
+++  const _CitySearchSheet({required this.controller});
+++  @override
+++  State<_CitySearchSheet> createState() => _CitySearchSheetState();
+++}
+++
+++class _CitySearchSheetState extends State<_CitySearchSheet> {
+++  final _query = TextEditingController();
+++  Future<List<UserLocation>>? _results;
+++
+++  @override
+++  void dispose() { _query.dispose(); super.dispose(); }
+++
+++  void _search() => setState(() => _results = widget.controller.searchCities(_query.text));
+++
+++  @override
+++  Widget build(BuildContext context) => SafeArea(
+++    child: Padding(
+++      padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.viewInsetsOf(context).bottom + 20),
+++      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+++        const Text('Choisir une ville', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+++        const SizedBox(height: 12),
+++        TextField(controller: _query, autofocus: true, textInputAction: TextInputAction.search, onSubmitted: (_) => _search(), decoration: InputDecoration(hintText: 'Paris, Montréal, Dakar…', prefixIcon: const Icon(Icons.search), suffixIcon: IconButton(onPressed: _search, icon: const Icon(Icons.arrow_forward)))),
+++        SizedBox(height: 280, child: _results == null ? const Center(child: Text('Saisissez au moins deux caractères.')) : FutureBuilder<List<UserLocation>>(
+++          future: _results,
+++          builder: (context, snapshot) {
+++            if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+++            if (snapshot.hasError) return const Center(child: Text('Recherche indisponible. Réessayez plus tard.'));
+++            final results = snapshot.data ?? const [];
+++            if (results.isEmpty) return const Center(child: Text('Aucune ville trouvée.'));
+++            return ListView.builder(itemCount: results.length, itemBuilder: (context, index) {
+++              final city = results[index];
+++              return ListTile(leading: const Icon(Icons.location_on_outlined), title: Text(city.city ?? 'Ville'), subtitle: city.country == null ? null : Text(city.country!), onTap: () => Navigator.pop(context, city));
+++            });
+++          },
+++        )),
+++      ]),
+++    ),
+++  );
+++}
+++
++ class _BackupSettings extends StatelessWidget {
++   final BackupController controller;
++   const _BackupSettings({required this.controller});
++diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
++index 19fd3ae..f0b0a8f 100644
++--- a/lib/features/shell/main_shell.dart
+++++ b/lib/features/shell/main_shell.dart
++@@ -10,6 +10,7 @@ import '../wardrobe/wardrobe_screen.dart';
++ import '../wardrobe/wardrobe_controller.dart';
++ import '../wishlist/wishlist_screen.dart';
++ import '../../weather/services/weather_service.dart';
+++import '../../weather/location/user_location_controller.dart';
++ import '../assistant/context/assistant_context_builder.dart';
++ import '../assistant/services/assistant_service.dart';
++ import '../assistant/ai/openai_provider.dart';
++@@ -39,11 +40,13 @@ import '../assistant/tools/agenda_tool.dart';
++ class MainShell extends StatefulWidget {
++   final AppSettings settings;
++   final WeatherService weatherService;
+++  final UserLocationController locationController;
++
++   const MainShell({
++     super.key,
++     required this.settings,
++     required this.weatherService,
+++    required this.locationController,
++   });
++
++   @override
++@@ -155,6 +158,7 @@ class _MainShellState extends State<MainShell> {
++         settings: widget.settings,
++         aiSettings: _aiSettings,
++         backupController: _backupController,
+++        locationController: widget.locationController,
++       ),
++     ];
++
++diff --git a/lib/weather/location/city_search_service.dart b/lib/weather/location/city_search_service.dart
++new file mode 100644
++index 0000000..f42f296
++--- /dev/null
+++++ b/lib/weather/location/city_search_service.dart
++@@ -0,0 +1,33 @@
+++import 'package:geocoding/geocoding.dart';
+++
+++import '../models/user_location.dart';
+++
+++abstract interface class CitySearchService {
+++  Future<List<UserLocation>> search(String query);
+++}
+++
+++class GeocodingCitySearchService implements CitySearchService {
+++  const GeocodingCitySearchService();
+++
+++  @override
+++  Future<List<UserLocation>> search(String query) async {
+++    final normalized = query.trim();
+++    if (normalized.length < 2) return const [];
+++    final coordinates = await locationFromAddress(normalized);
+++    final results = <UserLocation>[];
+++    for (final coordinate in coordinates.take(5)) {
+++      final placemarks = await placemarkFromCoordinates(coordinate.latitude, coordinate.longitude);
+++      final place = placemarks.firstOrNull;
+++      results.add(UserLocation(
+++        mode: LocationMode.manual,
+++        city: place?.locality ?? place?.subAdministrativeArea ?? normalized,
+++        country: place?.country,
+++        latitude: coordinate.latitude,
+++        longitude: coordinate.longitude,
+++        updatedAt: DateTime.now(),
+++        source: LocationSource.manual,
+++      ));
+++    }
+++    return results;
+++  }
+++}
++diff --git a/lib/weather/location/geolocator_location_service.dart b/lib/weather/location/geolocator_location_service.dart
++index 91eed66..e89fdc4 100644
++--- a/lib/weather/location/geolocator_location_service.dart
+++++ b/lib/weather/location/geolocator_location_service.dart
++@@ -32,6 +32,7 @@ class GeolocatorLocationService implements LocationService {
++       latitude: position.latitude,
++       longitude: position.longitude,
++       city: city,
+++      country: places.firstOrNull?.country,
++     );
++   }
++ }
++diff --git a/lib/weather/location/location_preferences_repository.dart b/lib/weather/location/location_preferences_repository.dart
++new file mode 100644
++index 0000000..1d55608
++--- /dev/null
+++++ b/lib/weather/location/location_preferences_repository.dart
++@@ -0,0 +1,30 @@
+++import 'dart:convert';
+++
+++import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+++
+++import '../models/user_location.dart';
+++
+++abstract interface class LocationPreferencesRepository {
+++  Future<UserLocation?> read();
+++  Future<void> write(UserLocation location);
+++}
+++
+++class SecureLocationPreferencesRepository implements LocationPreferencesRepository {
+++  static const _key = 'weather_location_preferences_v1';
+++  final FlutterSecureStorage _storage;
+++
+++  const SecureLocationPreferencesRepository({FlutterSecureStorage storage = const FlutterSecureStorage()})
+++    : _storage = storage;
+++
+++  @override
+++  Future<UserLocation?> read() async {
+++    final value = await _storage.read(key: _key);
+++    if (value == null) return null;
+++    final json = jsonDecode(value);
+++    return json is Map<String, dynamic> ? UserLocation.fromJson(json) : null;
+++  }
+++
+++  @override
+++  Future<void> write(UserLocation location) =>
+++      _storage.write(key: _key, value: jsonEncode(location.toJson()));
+++}
++diff --git a/lib/weather/location/location_service.dart b/lib/weather/location/location_service.dart
++index bde39f2..c7c41d9 100644
++--- a/lib/weather/location/location_service.dart
+++++ b/lib/weather/location/location_service.dart
++@@ -2,11 +2,13 @@ class LocationData {
++   final double latitude;
++   final double longitude;
++   final String city;
+++  final String? country;
++
++   const LocationData({
++     required this.latitude,
++     required this.longitude,
++     required this.city,
+++    this.country,
++   });
++ }
++
++diff --git a/lib/weather/location/user_location_controller.dart b/lib/weather/location/user_location_controller.dart
++new file mode 100644
++index 0000000..30f408d
++--- /dev/null
+++++ b/lib/weather/location/user_location_controller.dart
++@@ -0,0 +1,73 @@
+++import 'package:flutter/foundation.dart';
+++
+++import '../models/user_location.dart';
+++import 'city_search_service.dart';
+++import 'location_preferences_repository.dart';
+++import 'location_service.dart';
+++
+++class UserLocationController extends ChangeNotifier {
+++  final LocationPreferencesRepository repository;
+++  final CitySearchService citySearchService;
+++  final LocationService gpsService;
+++  UserLocation _preference = const UserLocation(mode: LocationMode.automatic);
+++  bool _loaded = false;
+++
+++  UserLocationController({required this.repository, required this.citySearchService, required this.gpsService});
+++
+++  UserLocation get preference => _preference;
+++  bool get loaded => _loaded;
+++
+++  Future<void> load() async {
+++    _preference = await repository.read() ?? _preference;
+++    _loaded = true;
+++    notifyListeners();
+++  }
+++
+++  Future<List<UserLocation>> searchCities(String query) => citySearchService.search(query);
+++
+++  Future<void> selectCity(UserLocation city) => _save(UserLocation(
+++    mode: LocationMode.manual,
+++    city: city.city,
+++    country: city.country,
+++    latitude: city.latitude,
+++    longitude: city.longitude,
+++    updatedAt: DateTime.now(),
+++    source: LocationSource.manual,
+++  ));
+++
+++  Future<void> useGps() => _save(UserLocation(
+++    mode: LocationMode.automatic,
+++    updatedAt: DateTime.now(),
+++    source: LocationSource.gps,
+++  ));
+++
+++  Future<void> disable() => _save(UserLocation(
+++    mode: LocationMode.disabled,
+++    updatedAt: DateTime.now(),
+++    source: LocationSource.none,
+++  ));
+++
+++  Future<void> removeCity() => useGps();
+++
+++  Future<UserLocation?> resolve() async {
+++    if (!_loaded) await load();
+++    if (_preference.mode == LocationMode.disabled) return null;
+++    if (_preference.mode == LocationMode.manual && _preference.hasCoordinates) return _preference;
+++    final gps = await gpsService.getCurrentLocation();
+++    return UserLocation(
+++      mode: LocationMode.automatic,
+++      city: gps.city,
+++      country: gps.country,
+++      latitude: gps.latitude,
+++      longitude: gps.longitude,
+++      updatedAt: DateTime.now(),
+++      source: LocationSource.gps,
+++    );
+++  }
+++
+++  Future<void> _save(UserLocation value) async {
+++    _preference = value;
+++    await repository.write(value);
+++    notifyListeners();
+++  }
+++}
++diff --git a/lib/weather/models/user_location.dart b/lib/weather/models/user_location.dart
++new file mode 100644
++index 0000000..47d6f1d
++--- /dev/null
+++++ b/lib/weather/models/user_location.dart
++@@ -0,0 +1,45 @@
+++enum LocationMode { automatic, manual, disabled }
+++
+++enum LocationSource { gps, manual, none }
+++
+++class UserLocation {
+++  final LocationMode? mode;
+++  final String? city;
+++  final String? country;
+++  final double? latitude;
+++  final double? longitude;
+++  final DateTime? updatedAt;
+++  final LocationSource? source;
+++
+++  const UserLocation({
+++    this.mode,
+++    this.city,
+++    this.country,
+++    this.latitude,
+++    this.longitude,
+++    this.updatedAt,
+++    this.source,
+++  });
+++
+++  bool get hasCoordinates => latitude != null && longitude != null;
+++
+++  Map<String, Object?> toJson() => {
+++    'mode': mode?.name,
+++    'city': city,
+++    'country': country,
+++    'latitude': latitude,
+++    'longitude': longitude,
+++    'updatedAt': updatedAt?.toIso8601String(),
+++    'source': source?.name,
+++  };
+++
+++  factory UserLocation.fromJson(Map<String, Object?> json) => UserLocation(
+++    mode: LocationMode.values.where((value) => value.name == json['mode']).firstOrNull,
+++    city: json['city'] as String?,
+++    country: json['country'] as String?,
+++    latitude: (json['latitude'] as num?)?.toDouble(),
+++    longitude: (json['longitude'] as num?)?.toDouble(),
+++    updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
+++    source: LocationSource.values.where((value) => value.name == json['source']).firstOrNull,
+++  );
+++}
++diff --git a/lib/weather/services/cached_weather_service.dart b/lib/weather/services/cached_weather_service.dart
++index 98b9df3..8c7f197 100644
++--- a/lib/weather/services/cached_weather_service.dart
+++++ b/lib/weather/services/cached_weather_service.dart
++@@ -1,25 +1,25 @@
++ import '../api/weather_api.dart';
++-import '../location/location_service.dart';
+++import '../location/user_location_controller.dart';
++ import '../mapping/weather_code_mapper.dart';
++ import '../models/weather_data.dart';
++ import 'weather_service.dart';
++
++ class CachedWeatherService implements WeatherService {
++   static const cacheDuration = Duration(minutes: 15);
++-  final LocationService locationService;
+++  final UserLocationController locationController;
++   final WeatherApi weatherApi;
++   final DateTime Function() _now;
++   WeatherData? _cached;
++   DateTime? _cachedAt;
++
++   CachedWeatherService({
++-    required this.locationService,
+++    required this.locationController,
++     required this.weatherApi,
++     DateTime Function()? now,
++   }) : _now = now ?? DateTime.now;
++
++   @override
++-  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async {
+++  Future<WeatherData?> getCurrentWeather({bool forceRefresh = false}) async {
++     final cached = _cached;
++     final cachedAt = _cachedAt;
++     if (!forceRefresh &&
++@@ -28,12 +28,13 @@ class CachedWeatherService implements WeatherService {
++         _now().difference(cachedAt) < cacheDuration) {
++       return cached;
++     }
++-    final location = await locationService.getCurrentLocation();
+++    final location = await locationController.resolve();
+++    if (location == null || !location.hasCoordinates) return null;
++     final json = await weatherApi.fetchCurrent(
++-      latitude: location.latitude,
++-      longitude: location.longitude,
+++      latitude: location.latitude!,
+++      longitude: location.longitude!,
++     );
++-    final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city);
+++    final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city ?? 'Emplacement choisi');
++     final result = parsed.copyWith(
++       description: WeatherCodeMapper.description(parsed.weatherCode),
++     );
++diff --git a/lib/weather/services/weather_service.dart b/lib/weather/services/weather_service.dart
++index d79d424..c21a605 100644
++--- a/lib/weather/services/weather_service.dart
+++++ b/lib/weather/services/weather_service.dart
++@@ -1,6 +1,6 @@
++ import '../models/weather_data.dart';
++
++ abstract interface class WeatherService {
++-  Future<WeatherData> getCurrentWeather({bool forceRefresh = false});
+++  Future<WeatherData?> getCurrentWeather({bool forceRefresh = false});
++   void clearCache();
++ }
+diff --git a/docs/SPRINT_5_22_LOCALISATION_METEO.md b/docs/SPRINT_5_22_LOCALISATION_METEO.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2de9954e93a198d0cfda0f3bb51b2b6b7d8513dc
+--- /dev/null
++++ b/docs/SPRINT_5_22_LOCALISATION_METEO.md
+@@ -0,0 +1,36 @@
++# Sprint 5.22 — Localisation et météo robustes
++
++## Architecture livrée
++
++- `UserLocation` représente une préférence entièrement nullable : mode, ville,
++  pays, coordonnées, date de mise à jour et source.
++- `UserLocationController` est l'unique arbitre de localisation. Une ville
++  manuelle valide est retournée sans solliciter le GPS ; le mode automatique
++  utilise le GPS ; le mode désactivé retourne volontairement aucune position.
++- `SecureLocationPreferencesRepository` conserve le choix localement et
++  `GeocodingCitySearchService` assure la recherche et la résolution des villes.
++- `CachedWeatherService` demeure le point d'entrée météo unique. Il résout la
++  localisation avant d'appeler Open-Meteo et retourne `null` lorsque la météo
++  est désactivée ou qu'aucune position n'est disponible.
++
++## Dégradation sans localisation
++
++Le contrat `WeatherService` expose désormais une météo facultative. Les
++consommateurs existants (Daily Brief, Agenda et contexte de WardrobeGPT)
++traitaient déjà l'absence ou l'échec météo comme une donnée optionnelle. L'outil
++météo renvoie à présent un contexte vide en l'absence de données. Les moteurs de
++recommandation continuent donc avec leur contexte dressing, agenda et mémoire.
++
++## Réglages
++
++La section **Localisation & météo** du profil permet de sélectionner le GPS,
++rechercher puis choisir/modifier/supprimer une ville, ou désactiver la météo.
++Un changement invalide immédiatement le cache météo afin que la nouvelle source
++soit utilisée lors de la prochaine demande.
++
++## Vérifications
++
++Conformément aux contraintes du sprint, aucune commande Flutter, aucun build et
++aucun test n'ont été exécutés. `git diff --check` a été utilisé pour contrôler
++l'intégrité du patch. L'environnement ne fournit pas la commande autonome
++`dart`, le formatage/analyse statique n'a donc pas pu être exécuté.
+diff --git a/lib/app.dart b/lib/app.dart
+index 49f90624f7afb05cf80552d2c127bf93fe0af8c1..dcba62493ba7f473f90b7235a0377ae688e95e6e 100644
+--- a/lib/app.dart
++++ b/lib/app.dart
+@@ -1,49 +1,60 @@
+ import 'package:flutter/material.dart';
+ import 'core/settings/app_settings.dart';
+ import 'core/theme/app_theme.dart';
+ import 'features/shell/main_shell.dart';
+ import 'weather/api/open_meteo_api.dart';
+ import 'weather/location/geolocator_location_service.dart';
++import 'weather/location/city_search_service.dart';
++import 'weather/location/location_preferences_repository.dart';
++import 'weather/location/user_location_controller.dart';
+ import 'weather/services/cached_weather_service.dart';
+ 
+ class WardrobeOSApp extends StatefulWidget {
+   const WardrobeOSApp({super.key});
+ 
+   @override
+   State<WardrobeOSApp> createState() => _WardrobeOSAppState();
+ }
+ 
+ class _WardrobeOSAppState extends State<WardrobeOSApp> {
+   final settings = AppSettings();
++  late final locationController = UserLocationController(
++    repository: const SecureLocationPreferencesRepository(),
++    citySearchService: const GeocodingCitySearchService(),
++    gpsService: GeolocatorLocationService(),
++  )..load();
+   late final weatherService = CachedWeatherService(
+-    locationService: GeolocatorLocationService(),
++    locationController: locationController,
+     weatherApi: OpenMeteoApi(),
+   );
+ 
+   @override
+   void initState() {
+     super.initState();
+     settings.addListener(_refresh);
++    locationController.addListener(weatherService.clearCache);
+   }
+ 
+   void _refresh() => setState(() {});
+ 
+   @override
+   void dispose() {
+     settings.removeListener(_refresh);
++    locationController.removeListener(weatherService.clearCache);
++    locationController.dispose();
+     settings.dispose();
+     super.dispose();
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return MaterialApp(
+       debugShowCheckedModeBanner: false,
+       title: 'WardrobeOS',
+       theme: AppTheme.light,
+       darkTheme: AppTheme.darkTheme,
+       themeMode: settings.themeMode,
+-      home: MainShell(settings: settings, weatherService: weatherService),
++      home: MainShell(settings: settings, weatherService: weatherService, locationController: locationController),
+     );
+   }
+ }
+diff --git a/lib/features/assistant/tools/weather_tool.dart b/lib/features/assistant/tools/weather_tool.dart
+index 817538ad045312f3ddf6724724dc8a602f597ca6..e697023835778cdabe24ebde7c60440bbb115d7b 100644
+--- a/lib/features/assistant/tools/weather_tool.dart
++++ b/lib/features/assistant/tools/weather_tool.dart
+@@ -1,25 +1,26 @@
+ import '../../../weather/services/weather_service.dart';
+ import 'assistant_tool.dart';
+ 
+ class WeatherTool implements AssistantTool {
+   final WeatherService _weatherService;
+ 
+   const WeatherTool({required WeatherService weatherService})
+     : _weatherService = weatherService;
+ 
+   @override
+   String get id => 'weather';
+ 
+   @override
+   String get description => 'Conditions météo à la position actuelle.';
+ 
+   @override
+   Future<AssistantToolData> getData() async {
+     final weather = await _weatherService.getCurrentWeather();
++    if (weather == null) return const {};
+     return {
+       'city': weather.city,
+       'temperature': weather.temperature,
+       'condition': weather.description,
+     };
+   }
+ }
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index 310a0121c5e9da4d5e3308128977ff333ac84b0b..e724c7b7121a27e147858e0676d0db77a7f0af7f 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -1,39 +1,43 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../backup/backup_controller.dart';
++import '../../weather/location/user_location_controller.dart';
++import '../../weather/models/user_location.dart';
+ 
+ class ProfileScreen extends StatelessWidget {
+   final AppSettings settings;
+   final AiSettingsController aiSettings;
+   final BackupController backupController;
++  final UserLocationController locationController;
+   const ProfileScreen({
+     super.key,
+     required this.settings,
+     required this.aiSettings,
+     required this.backupController,
++    required this.locationController,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
+         children: [
+           const Text(
+             'Profil',
+             style: TextStyle(
+               fontSize: 30,
+               fontWeight: FontWeight.w900,
+               letterSpacing: -1,
+             ),
+           ),
+           const SizedBox(height: 18),
+           const Card(
+             child: Padding(
+               padding: EdgeInsets.all(18),
+               child: Row(
+                 children: [
+                   CircleAvatar(radius: 31, child: Icon(Icons.person, size: 32)),
+                   SizedBox(width: 15),
+                   Expanded(
+@@ -53,65 +57,175 @@ class ProfileScreen extends StatelessWidget {
+                   ),
+                 ],
+               ),
+             ),
+           ),
+           const SizedBox(height: 18),
+           _Tile(
+             icon: Icons.accessibility_new,
+             title: 'Morphologie & proportions',
+           ),
+           _Tile(icon: Icons.style_outlined, title: 'Préférences de style'),
+           _Tile(icon: Icons.notifications_none, title: 'Notifications'),
+           Card(
+             margin: const EdgeInsets.only(bottom: 10),
+             child: SwitchListTile(
+               secondary: const Icon(Icons.dark_mode_outlined),
+               title: const Text(
+                 'Mode sombre',
+                 style: TextStyle(fontWeight: FontWeight.w800),
+               ),
+               value: settings.darkMode,
+               onChanged: settings.setDarkMode,
+             ),
+           ),
+           _BackupSettings(controller: backupController),
++          _LocationSettings(controller: locationController),
+           _WardrobeGptSettings(controller: aiSettings),
+           _Tile(icon: Icons.info_outline, title: 'À propos'),
+           const SizedBox(height: 18),
+           Center(
+             child: Text(
+               'WardrobeOS Sprint 2 · Premium UI',
+               style: Theme.of(context).textTheme.bodySmall,
+             ),
+           ),
+         ],
+       ),
+     );
+   }
+ }
+ 
++class _LocationSettings extends StatelessWidget {
++  final UserLocationController controller;
++  const _LocationSettings({required this.controller});
++
++  Future<void> _chooseCity(BuildContext context) async {
++    final selected = await showModalBottomSheet<UserLocation>(
++      context: context,
++      isScrollControlled: true,
++      builder: (_) => _CitySearchSheet(controller: controller),
++    );
++    if (selected != null) await controller.selectCity(selected);
++  }
++
++  @override
++  Widget build(BuildContext context) => AnimatedBuilder(
++    animation: controller,
++    builder: (context, _) {
++      final location = controller.preference;
++      final mode = location.mode ?? LocationMode.automatic;
++      return Card(
++        margin: const EdgeInsets.only(bottom: 10),
++        child: Padding(
++          padding: const EdgeInsets.all(16),
++          child: Column(
++            crossAxisAlignment: CrossAxisAlignment.stretch,
++            children: [
++              const Text('Localisation & météo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
++              const SizedBox(height: 6),
++              const Text('La météo enrichit les recommandations mais reste toujours facultative.'),
++              const SizedBox(height: 12),
++              SegmentedButton<LocationMode>(
++                segments: const [
++                  ButtonSegment(value: LocationMode.automatic, icon: Icon(Icons.my_location), label: Text('GPS')),
++                  ButtonSegment(value: LocationMode.manual, icon: Icon(Icons.location_city), label: Text('Ville')),
++                  ButtonSegment(value: LocationMode.disabled, icon: Icon(Icons.cloud_off), label: Text('Désactivée')),
++                ],
++                selected: {mode},
++                onSelectionChanged: (selection) async {
++                  switch (selection.first) {
++                    case LocationMode.automatic: await controller.useGps();
++                    case LocationMode.manual: if (context.mounted) await _chooseCity(context);
++                    case LocationMode.disabled: await controller.disable();
++                  }
++                },
++              ),
++              if (mode == LocationMode.manual) ...[
++                const SizedBox(height: 12),
++                ListTile(
++                  contentPadding: EdgeInsets.zero,
++                  leading: const Icon(Icons.place_outlined),
++                  title: Text(location.city ?? 'Choisir une ville'),
++                  subtitle: location.country == null ? null : Text(location.country!),
++                  trailing: Wrap(children: [
++                    IconButton(tooltip: 'Changer', onPressed: () => _chooseCity(context), icon: const Icon(Icons.edit_outlined)),
++                    IconButton(tooltip: 'Supprimer', onPressed: controller.removeCity, icon: const Icon(Icons.delete_outline)),
++                  ]),
++                  onTap: () => _chooseCity(context),
++                ),
++              ],
++            ],
++          ),
++        ),
++      );
++    },
++  );
++}
++
++class _CitySearchSheet extends StatefulWidget {
++  final UserLocationController controller;
++  const _CitySearchSheet({required this.controller});
++  @override
++  State<_CitySearchSheet> createState() => _CitySearchSheetState();
++}
++
++class _CitySearchSheetState extends State<_CitySearchSheet> {
++  final _query = TextEditingController();
++  Future<List<UserLocation>>? _results;
++
++  @override
++  void dispose() { _query.dispose(); super.dispose(); }
++
++  void _search() => setState(() => _results = widget.controller.searchCities(_query.text));
++
++  @override
++  Widget build(BuildContext context) => SafeArea(
++    child: Padding(
++      padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.viewInsetsOf(context).bottom + 20),
++      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
++        const Text('Choisir une ville', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
++        const SizedBox(height: 12),
++        TextField(controller: _query, autofocus: true, textInputAction: TextInputAction.search, onSubmitted: (_) => _search(), decoration: InputDecoration(hintText: 'Paris, Montréal, Dakar…', prefixIcon: const Icon(Icons.search), suffixIcon: IconButton(onPressed: _search, icon: const Icon(Icons.arrow_forward)))),
++        SizedBox(height: 280, child: _results == null ? const Center(child: Text('Saisissez au moins deux caractères.')) : FutureBuilder<List<UserLocation>>(
++          future: _results,
++          builder: (context, snapshot) {
++            if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
++            if (snapshot.hasError) return const Center(child: Text('Recherche indisponible. Réessayez plus tard.'));
++            final results = snapshot.data ?? const [];
++            if (results.isEmpty) return const Center(child: Text('Aucune ville trouvée.'));
++            return ListView.builder(itemCount: results.length, itemBuilder: (context, index) {
++              final city = results[index];
++              return ListTile(leading: const Icon(Icons.location_on_outlined), title: Text(city.city ?? 'Ville'), subtitle: city.country == null ? null : Text(city.country!), onTap: () => Navigator.pop(context, city));
++            });
++          },
++        )),
++      ]),
++    ),
++  );
++}
++
+ class _BackupSettings extends StatelessWidget {
+   final BackupController controller;
+   const _BackupSettings({required this.controller});
+ 
+   Future<void> _confirmRestore(BuildContext context) async {
+     final confirmed = await showDialog<bool>(
+       context: context,
+       builder:
+           (context) => AlertDialog(
+             title: const Text('Restaurer la sauvegarde ?'),
+             content: const Text(
+               'Cette opération remplacera les données actuelles.',
+             ),
+             actions: [
+               TextButton(
+                 onPressed: () => Navigator.pop(context, false),
+                 child: const Text('Annuler'),
+               ),
+               FilledButton(
+                 onPressed: () => Navigator.pop(context, true),
+                 child: const Text('Restaurer'),
+               ),
+             ],
+           ),
+     );
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 19fd3ae233864a71145ba8cba49e0a6f3b85a6d1..f0b0a8f57881957d15666c501e219c6f0f11824e 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -1,71 +1,74 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
++import '../../weather/location/user_location_controller.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import '../assistant/tools/assistant_tool_context_builder.dart';
+ import '../assistant/tools/outfit_tool.dart';
+ import '../assistant/tools/statistics_tool.dart';
+ import '../assistant/tools/wardrobe_tool.dart';
+ import '../assistant/tools/weather_tool.dart';
+ import '../assistant/recommendation/outfit_candidate.dart';
+ import '../assistant/recommendation/outfit_recommendation_engine.dart';
+ import '../assistant/memory/database_memory_repository.dart';
+ import '../assistant/memory/memory_service.dart';
+ import '../calendar/calendar_context_builder.dart';
+ import '../calendar/fake_calendar_service.dart';
+ import '../../data/database_service.dart';
+ import '../backup/backup_controller.dart';
+ import '../backup/backup_service.dart';
+ import '../backup/restore_service.dart';
+ import '../daily_brief/daily_brief_service.dart';
+ import '../agenda/agenda_controller.dart';
+ import '../agenda/agenda_screen.dart';
+ import '../agenda/agenda_service.dart';
+ import '../assistant/tools/agenda_tool.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
++  final UserLocationController locationController;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
++    required this.locationController,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
+   late final _backupRepository = DatabaseBackupRepository(
+     DatabaseService.instance,
+   );
+   late final _memoryService = MemoryService(
+     repository: DatabaseMemoryRepository(DatabaseService.instance),
+   );
+   late final _agendaCalendar = FakeCalendarService();
+   late final _agendaService = AgendaService(
+     database: DatabaseService.instance,
+@@ -133,50 +136,51 @@ class _MainShellState extends State<MainShell> {
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         dailyBriefService: _dailyBriefService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(4),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+             MaterialPageRoute(builder: (_) => const ScannerScreen()),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+           }
+         },
+       ),
+       const WardrobeScreen(),
+       const OutfitsScreen(),
+       AgendaScreen(controller: _agendaController, outfitsController: _assistantOutfits),
+       AssistantScreen(service: _assistantService),
+       const WishlistScreen(),
+       ProfileScreen(
+         settings: widget.settings,
+         aiSettings: _aiSettings,
+         backupController: _backupController,
++        locationController: widget.locationController,
+       ),
+     ];
+ 
+     return Scaffold(
+       body: AnimatedSwitcher(
+         duration: const Duration(milliseconds: 240),
+         transitionBuilder: (child, animation) {
+           return FadeTransition(
+             opacity: animation,
+             child: SlideTransition(
+               position: Tween<Offset>(
+                 begin: const Offset(.02, 0),
+                 end: Offset.zero,
+               ).animate(animation),
+               child: child,
+             ),
+           );
+         },
+         child: KeyedSubtree(key: ValueKey(index), child: pages[index]),
+       ),
+       bottomNavigationBar: NavigationBar(
+         selectedIndex: index,
+         onDestinationSelected: goTo,
+         destinations: const [
+           NavigationDestination(
+diff --git a/lib/weather/location/city_search_service.dart b/lib/weather/location/city_search_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..f42f296582a9dc8afdf2550b10a87d37e66bad5a
+--- /dev/null
++++ b/lib/weather/location/city_search_service.dart
+@@ -0,0 +1,33 @@
++import 'package:geocoding/geocoding.dart';
++
++import '../models/user_location.dart';
++
++abstract interface class CitySearchService {
++  Future<List<UserLocation>> search(String query);
++}
++
++class GeocodingCitySearchService implements CitySearchService {
++  const GeocodingCitySearchService();
++
++  @override
++  Future<List<UserLocation>> search(String query) async {
++    final normalized = query.trim();
++    if (normalized.length < 2) return const [];
++    final coordinates = await locationFromAddress(normalized);
++    final results = <UserLocation>[];
++    for (final coordinate in coordinates.take(5)) {
++      final placemarks = await placemarkFromCoordinates(coordinate.latitude, coordinate.longitude);
++      final place = placemarks.firstOrNull;
++      results.add(UserLocation(
++        mode: LocationMode.manual,
++        city: place?.locality ?? place?.subAdministrativeArea ?? normalized,
++        country: place?.country,
++        latitude: coordinate.latitude,
++        longitude: coordinate.longitude,
++        updatedAt: DateTime.now(),
++        source: LocationSource.manual,
++      ));
++    }
++    return results;
++  }
++}
+diff --git a/lib/weather/location/geolocator_location_service.dart b/lib/weather/location/geolocator_location_service.dart
+index 91eed6614e9905178c33cc36ec48af7df7f2a1ad..e89fdc46e411f776022e275584ad17f92543b0d3 100644
+--- a/lib/weather/location/geolocator_location_service.dart
++++ b/lib/weather/location/geolocator_location_service.dart
+@@ -10,28 +10,29 @@ class GeolocatorLocationService implements LocationService {
+       throw const LocationServicesDisabledException();
+     }
+     var permission = await Geolocator.checkPermission();
+     if (permission == LocationPermission.denied) {
+       permission = await Geolocator.requestPermission();
+     }
+     if (permission == LocationPermission.denied) {
+       throw const LocationPermissionDeniedException();
+     }
+     if (permission == LocationPermission.deniedForever) {
+       throw const LocationPermissionPermanentlyDeniedException();
+     }
+     final position = await Geolocator.getCurrentPosition();
+     final places = await placemarkFromCoordinates(
+       position.latitude,
+       position.longitude,
+     );
+     final city =
+         places.isEmpty
+             ? 'Position actuelle'
+             : (places.first.locality ?? 'Position actuelle');
+     return LocationData(
+       latitude: position.latitude,
+       longitude: position.longitude,
+       city: city,
++      country: places.firstOrNull?.country,
+     );
+   }
+ }
+diff --git a/lib/weather/location/location_preferences_repository.dart b/lib/weather/location/location_preferences_repository.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..1d5560818bcaa42d08216fdfc738b74241af3bf1
+--- /dev/null
++++ b/lib/weather/location/location_preferences_repository.dart
+@@ -0,0 +1,30 @@
++import 'dart:convert';
++
++import 'package:flutter_secure_storage/flutter_secure_storage.dart';
++
++import '../models/user_location.dart';
++
++abstract interface class LocationPreferencesRepository {
++  Future<UserLocation?> read();
++  Future<void> write(UserLocation location);
++}
++
++class SecureLocationPreferencesRepository implements LocationPreferencesRepository {
++  static const _key = 'weather_location_preferences_v1';
++  final FlutterSecureStorage _storage;
++
++  const SecureLocationPreferencesRepository({FlutterSecureStorage storage = const FlutterSecureStorage()})
++    : _storage = storage;
++
++  @override
++  Future<UserLocation?> read() async {
++    final value = await _storage.read(key: _key);
++    if (value == null) return null;
++    final json = jsonDecode(value);
++    return json is Map<String, dynamic> ? UserLocation.fromJson(json) : null;
++  }
++
++  @override
++  Future<void> write(UserLocation location) =>
++      _storage.write(key: _key, value: jsonEncode(location.toJson()));
++}
+diff --git a/lib/weather/location/location_service.dart b/lib/weather/location/location_service.dart
+index bde39f256bd5010cb74135114c284d6e67a0c151..c7c41d933a9af9bf123bee780e019d93794b9ce1 100644
+--- a/lib/weather/location/location_service.dart
++++ b/lib/weather/location/location_service.dart
+@@ -1,34 +1,36 @@
+ class LocationData {
+   final double latitude;
+   final double longitude;
+   final String city;
++  final String? country;
+ 
+   const LocationData({
+     required this.latitude,
+     required this.longitude,
+     required this.city,
++    this.country,
+   });
+ }
+ 
+ sealed class LocationException implements Exception {
+   final String message;
+   const LocationException(this.message);
+   @override
+   String toString() => message;
+ }
+ 
+ class LocationServicesDisabledException extends LocationException {
+   const LocationServicesDisabledException() : super('Le GPS est désactivé.');
+ }
+ 
+ class LocationPermissionDeniedException extends LocationException {
+   const LocationPermissionDeniedException()
+     : super('Permission de localisation refusée.');
+ }
+ 
+ class LocationPermissionPermanentlyDeniedException extends LocationException {
+   const LocationPermissionPermanentlyDeniedException()
+     : super('Permission de localisation refusée définitivement.');
+ }
+ 
+ abstract interface class LocationService {
+diff --git a/lib/weather/location/user_location_controller.dart b/lib/weather/location/user_location_controller.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..30f408d24f134273c6d2a52ac0ee8418788d193c
+--- /dev/null
++++ b/lib/weather/location/user_location_controller.dart
+@@ -0,0 +1,73 @@
++import 'package:flutter/foundation.dart';
++
++import '../models/user_location.dart';
++import 'city_search_service.dart';
++import 'location_preferences_repository.dart';
++import 'location_service.dart';
++
++class UserLocationController extends ChangeNotifier {
++  final LocationPreferencesRepository repository;
++  final CitySearchService citySearchService;
++  final LocationService gpsService;
++  UserLocation _preference = const UserLocation(mode: LocationMode.automatic);
++  bool _loaded = false;
++
++  UserLocationController({required this.repository, required this.citySearchService, required this.gpsService});
++
++  UserLocation get preference => _preference;
++  bool get loaded => _loaded;
++
++  Future<void> load() async {
++    _preference = await repository.read() ?? _preference;
++    _loaded = true;
++    notifyListeners();
++  }
++
++  Future<List<UserLocation>> searchCities(String query) => citySearchService.search(query);
++
++  Future<void> selectCity(UserLocation city) => _save(UserLocation(
++    mode: LocationMode.manual,
++    city: city.city,
++    country: city.country,
++    latitude: city.latitude,
++    longitude: city.longitude,
++    updatedAt: DateTime.now(),
++    source: LocationSource.manual,
++  ));
++
++  Future<void> useGps() => _save(UserLocation(
++    mode: LocationMode.automatic,
++    updatedAt: DateTime.now(),
++    source: LocationSource.gps,
++  ));
++
++  Future<void> disable() => _save(UserLocation(
++    mode: LocationMode.disabled,
++    updatedAt: DateTime.now(),
++    source: LocationSource.none,
++  ));
++
++  Future<void> removeCity() => useGps();
++
++  Future<UserLocation?> resolve() async {
++    if (!_loaded) await load();
++    if (_preference.mode == LocationMode.disabled) return null;
++    if (_preference.mode == LocationMode.manual && _preference.hasCoordinates) return _preference;
++    final gps = await gpsService.getCurrentLocation();
++    return UserLocation(
++      mode: LocationMode.automatic,
++      city: gps.city,
++      country: gps.country,
++      latitude: gps.latitude,
++      longitude: gps.longitude,
++      updatedAt: DateTime.now(),
++      source: LocationSource.gps,
++    );
++  }
++
++  Future<void> _save(UserLocation value) async {
++    _preference = value;
++    await repository.write(value);
++    notifyListeners();
++  }
++}
+diff --git a/lib/weather/models/user_location.dart b/lib/weather/models/user_location.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..47d6f1d690834c160e9f4196ae80e648ec36e8e5
+--- /dev/null
++++ b/lib/weather/models/user_location.dart
+@@ -0,0 +1,45 @@
++enum LocationMode { automatic, manual, disabled }
++
++enum LocationSource { gps, manual, none }
++
++class UserLocation {
++  final LocationMode? mode;
++  final String? city;
++  final String? country;
++  final double? latitude;
++  final double? longitude;
++  final DateTime? updatedAt;
++  final LocationSource? source;
++
++  const UserLocation({
++    this.mode,
++    this.city,
++    this.country,
++    this.latitude,
++    this.longitude,
++    this.updatedAt,
++    this.source,
++  });
++
++  bool get hasCoordinates => latitude != null && longitude != null;
++
++  Map<String, Object?> toJson() => {
++    'mode': mode?.name,
++    'city': city,
++    'country': country,
++    'latitude': latitude,
++    'longitude': longitude,
++    'updatedAt': updatedAt?.toIso8601String(),
++    'source': source?.name,
++  };
++
++  factory UserLocation.fromJson(Map<String, Object?> json) => UserLocation(
++    mode: LocationMode.values.where((value) => value.name == json['mode']).firstOrNull,
++    city: json['city'] as String?,
++    country: json['country'] as String?,
++    latitude: (json['latitude'] as num?)?.toDouble(),
++    longitude: (json['longitude'] as num?)?.toDouble(),
++    updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
++    source: LocationSource.values.where((value) => value.name == json['source']).firstOrNull,
++  );
++}
+diff --git a/lib/weather/services/cached_weather_service.dart b/lib/weather/services/cached_weather_service.dart
+index 98b9df388233bb508dfe77c644f8d266e4cb731e..8c7f1970513fefb9ab616b17759c98c76eab3e32 100644
+--- a/lib/weather/services/cached_weather_service.dart
++++ b/lib/weather/services/cached_weather_service.dart
+@@ -1,50 +1,51 @@
+ import '../api/weather_api.dart';
+-import '../location/location_service.dart';
++import '../location/user_location_controller.dart';
+ import '../mapping/weather_code_mapper.dart';
+ import '../models/weather_data.dart';
+ import 'weather_service.dart';
+ 
+ class CachedWeatherService implements WeatherService {
+   static const cacheDuration = Duration(minutes: 15);
+-  final LocationService locationService;
++  final UserLocationController locationController;
+   final WeatherApi weatherApi;
+   final DateTime Function() _now;
+   WeatherData? _cached;
+   DateTime? _cachedAt;
+ 
+   CachedWeatherService({
+-    required this.locationService,
++    required this.locationController,
+     required this.weatherApi,
+     DateTime Function()? now,
+   }) : _now = now ?? DateTime.now;
+ 
+   @override
+-  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async {
++  Future<WeatherData?> getCurrentWeather({bool forceRefresh = false}) async {
+     final cached = _cached;
+     final cachedAt = _cachedAt;
+     if (!forceRefresh &&
+         cached != null &&
+         cachedAt != null &&
+         _now().difference(cachedAt) < cacheDuration) {
+       return cached;
+     }
+-    final location = await locationService.getCurrentLocation();
++    final location = await locationController.resolve();
++    if (location == null || !location.hasCoordinates) return null;
+     final json = await weatherApi.fetchCurrent(
+-      latitude: location.latitude,
+-      longitude: location.longitude,
++      latitude: location.latitude!,
++      longitude: location.longitude!,
+     );
+-    final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city);
++    final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city ?? 'Emplacement choisi');
+     final result = parsed.copyWith(
+       description: WeatherCodeMapper.description(parsed.weatherCode),
+     );
+     _cached = result;
+     _cachedAt = _now();
+     return result;
+   }
+ 
+   @override
+   void clearCache() {
+     _cached = null;
+     _cachedAt = null;
+   }
+ }
+diff --git a/lib/weather/services/weather_service.dart b/lib/weather/services/weather_service.dart
+index d79d424084065503fc0d61b548e854ee266cc16f..c21a6051f3053c9415e92c492f4669a2cd32a07a 100644
+--- a/lib/weather/services/weather_service.dart
++++ b/lib/weather/services/weather_service.dart
+@@ -1,6 +1,6 @@
+ import '../models/weather_data.dart';
+ 
+ abstract interface class WeatherService {
+-  Future<WeatherData> getCurrentWeather({bool forceRefresh = false});
++  Future<WeatherData?> getCurrentWeather({bool forceRefresh = false});
+   void clearCache();
+ }
