@@ -1,0 +1,493 @@
+diff --git a/docs/SPRINT_5_20_OUTFIT_ENGINE.md b/docs/SPRINT_5_20_OUTFIT_ENGINE.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..46fa28f69c76cc20c93a9c1500c997fa4286fb98
+--- /dev/null
++++ b/docs/SPRINT_5_20_OUTFIT_ENGINE.md
+@@ -0,0 +1,30 @@
++# Sprint 5.20 — Outfit Engine
++
++## Architecture
++
++`Outfit` est désormais l'objet métier central d'une tenue. Il conserve ses
++champs persistés historiques et porte en plus des vêtements groupés par
++catégorie, un score explicable et une justification. La collection par
++catégorie autorise naturellement la superposition.
++
++`OutfitEngine` constitue l'API publique : `generateBestOutfit`,
++`generateAlternatives`, `scoreOutfit`, `explainOutfit` et `validateOutfit`.
++Il délègue les compatibilités au `RecommendationEngine` existant afin de ne
++pas dupliquer les règles de style, météo, température et formalité.
++
++L'adaptateur historique de l'assistant continue d'exposer les candidats et le
++résultat de recommandation précédents, tout en ajoutant la tenue composée dans
++`OutfitRecommendationResult.outfit`. Cette évolution est donc additive.
++
++## Extensibilité
++
++Les champs historiques de port et de favori restent disponibles sur `Outfit`.
++La persistance actuelle n'est pas modifiée : date de port, fréquence, archive
++et notation pourront être regroupées dans une évolution dédiée sans activer
++ces fonctionnalités dans ce sprint.
++
++## Variantes
++
++Les variantes remplacent une seule catégorie (chaussures, veste, manteau ou
++accessoire), conservent toutes les autres pièces puis recalculent score et
++justification via la même API centrale.
+diff --git a/lib/core/outfit/outfit_engine.dart b/lib/core/outfit/outfit_engine.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..328b9c4489d1f293bfc141b47c2db8ad8680ba59
+--- /dev/null
++++ b/lib/core/outfit/outfit_engine.dart
+@@ -0,0 +1,192 @@
++import '../../models/garment.dart';
++import '../../models/outfit.dart';
++import '../recommendation/recommendation_context.dart';
++import '../recommendation/recommendation_engine.dart';
++
++class OutfitValidation {
++  final bool isValid;
++  final List<String> issues;
++
++  OutfitValidation({required this.isValid, required Iterable<String> issues})
++    : issues = List.unmodifiable(issues);
++}
++
++/// Point d'entrée métier unique pour composer, noter, expliquer et décliner
++/// des tenues. Les calculs de compatibilité restent délégués au moteur de
++/// recommandation existant.
++class OutfitEngine {
++  final RecommendationEngine recommendationEngine;
++
++  const OutfitEngine({this.recommendationEngine = const RecommendationEngine()});
++
++  Outfit? generateBestOutfit({
++    required Iterable<Garment> wardrobe,
++    RecommendationContext context = const RecommendationContext(),
++  }) {
++    final available = wardrobe.toList(growable: false);
++    if (available.isEmpty) return null;
++    final selected = <OutfitCategory, List<Garment>>{};
++    Garment? anchor;
++    for (final category in const [
++      OutfitCategory.top,
++      OutfitCategory.bottom,
++      OutfitCategory.shoes,
++      OutfitCategory.jacket,
++      OutfitCategory.coat,
++      OutfitCategory.bag,
++      OutfitCategory.accessory,
++      OutfitCategory.jewelry,
++      OutfitCategory.otherLayer,
++    ]) {
++      final pool = available
++          .where((item) => categoryFor(item) == category)
++          .where((item) => !selected.values.expand((items) => items).contains(item));
++      final choice = recommendationEngine
++          .recommend(wardrobe: pool, anchor: anchor, context: context, alternativeCount: 0)
++          .bestChoice
++          ?.garment;
++      if (choice != null) {
++        selected.putIfAbsent(category, () => []).add(choice);
++        anchor ??= choice;
++      }
++    }
++    if (selected.isEmpty) return null;
++    final draft = Outfit(
++      id: 'generated-${DateTime.now().microsecondsSinceEpoch}',
++      name: 'Tenue recommandée',
++      createdAt: DateTime.now(),
++      updatedAt: DateTime.now(),
++      garments: _freeze(selected),
++    );
++    final score = scoreOutfit(draft, context: context);
++    return draft.copyWith(score: score, justification: explainOutfit(draft, score: score));
++  }
++
++  List<Outfit> generateAlternatives(
++    Outfit outfit, {
++    required Iterable<Garment> wardrobe,
++    RecommendationContext context = const RecommendationContext(),
++    int limit = 4,
++  }) {
++    final variants = <Outfit>[];
++    const replaceable = [
++      OutfitCategory.shoes,
++      OutfitCategory.jacket,
++      OutfitCategory.coat,
++      OutfitCategory.accessory,
++    ];
++    for (final category in replaceable) {
++      if (variants.length == limit) break;
++      final currentIds = outfit.allGarments.map((item) => item.id).toSet();
++      final anchor = outfit.allGarments.where((item) => categoryFor(item) != category).firstOrNull;
++      final replacement = recommendationEngine
++          .recommend(
++            wardrobe: wardrobe.where(
++              (item) => categoryFor(item) == category && !currentIds.contains(item.id),
++            ),
++            anchor: anchor,
++            context: context,
++            alternativeCount: 0,
++          )
++          .bestChoice
++          ?.garment;
++      if (replacement == null) continue;
++      final items = <OutfitCategory, List<Garment>>{
++        for (final entry in outfit.garments.entries) entry.key: [...entry.value],
++        category: [replacement],
++      };
++      var variant = outfit.copyWith(
++        name: '${outfit.name} — variante ${_label(category)}',
++        garments: _freeze(items),
++        updatedAt: DateTime.now(),
++      );
++      final score = scoreOutfit(variant, context: context);
++      variant = variant.copyWith(score: score, justification: explainOutfit(variant, score: score));
++      variants.add(variant);
++    }
++    return List.unmodifiable(variants);
++  }
++
++  OutfitScore scoreOutfit(
++    Outfit outfit, {
++    RecommendationContext context = const RecommendationContext(),
++  }) {
++    final items = outfit.allGarments;
++    final evaluations = <String, List<double>>{};
++    for (var index = 0; index < items.length; index++) {
++      final anchor = index == 0 ? null : items.first;
++      final result = recommendationEngine.recommend(
++        wardrobe: [items[index]], anchor: anchor, context: context, alternativeCount: 0,
++      );
++      for (final detail in result.bestChoice?.details ?? const []) {
++        evaluations.putIfAbsent(detail.criterion, () => []).add(detail.score);
++      }
++    }
++    double average(String key, [double fallback = .7]) {
++      final values = evaluations[key];
++      return values == null || values.isEmpty
++          ? fallback
++          : values.reduce((a, b) => a + b) / values.length;
++    }
++    final styles = average('style');
++    final colors = average('couleurs');
++    final weather = average('température');
++    final formality = average('formalité');
++    final uniqueCategories = outfit.garments.values.where((items) => items.isNotEmpty).length;
++    final diversity = items.isEmpty ? 0.0 : (uniqueCategories / 5).clamp(0, 1).toDouble();
++    final confidenceValues = items.map((item) => item.confianceGlobale).whereType<double>();
++    final confidence = confidenceValues.isEmpty
++        ? .65
++        : confidenceValues.reduce((a, b) => a + b) / confidenceValues.length;
++    return OutfitScore(
++      styleCoherence: OutfitCriterionScore(value: (styles + colors) / 2, explanation: 'Compatibilité moyenne des styles et couleurs.'),
++      weatherSuitability: OutfitCriterionScore(value: weather, explanation: 'Compatibilité avec les conditions météo disponibles.'),
++      temperatureSuitability: OutfitCriterionScore(value: weather, explanation: 'Respect des plages de température des vêtements.'),
++      formality: OutfitCriterionScore(value: formality, explanation: 'Cohérence des niveaux de formalité.'),
++      diversity: OutfitCriterionScore(value: diversity, explanation: '$uniqueCategories catégories complémentaires représentées.'),
++      overallConfidence: OutfitCriterionScore(value: confidence.clamp(0, 1).toDouble(), explanation: 'Moyenne des confiances issues de l’analyse des vêtements.'),
++    );
++  }
++
++  List<String> explainOutfit(Outfit outfit, {OutfitScore? score}) {
++    final result = score ?? outfit.score ?? scoreOutfit(outfit);
++    return List.unmodifiable([
++      if (result.styleCoherence.value >= .6) 'Les couleurs et les styles sont harmonieux.',
++      if (result.formality.value >= .6) 'Les niveaux de formalité sont cohérents.',
++      if (result.temperatureSuitability.value >= .6) 'La température prévue est adaptée.',
++      if (result.weatherSuitability.value < .6) 'Certains éléments sont moins adaptés à la météo prévue.',
++    ]);
++  }
++
++  OutfitValidation validateOutfit(Outfit outfit) {
++    final issues = <String>[];
++    if (outfit.allGarments.isEmpty) issues.add('La tenue ne contient aucun vêtement.');
++    if (outfit.itemsFor(OutfitCategory.top).isEmpty &&
++        outfit.itemsFor(OutfitCategory.otherLayer).isEmpty) {
++      issues.add('La tenue ne contient ni haut ni autre couche.');
++    }
++    return OutfitValidation(isValid: issues.isEmpty, issues: issues);
++  }
++
++  static OutfitCategory categoryFor(Garment garment) {
++    final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.layerType ?? ''}'.toLowerCase();
++    if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) return OutfitCategory.shoes;
++    if (value.contains('pantal') || value.contains('jupe') || value.contains('short') || value.contains('bas')) return OutfitCategory.bottom;
++    if (value.contains('manteau') || value.contains('parka')) return OutfitCategory.coat;
++    if (value.contains('veste') || value.contains('blazer')) return OutfitCategory.jacket;
++    if (value.contains('sac')) return OutfitCategory.bag;
++    if (value.contains('bijou') || value.contains('collier') || value.contains('bracelet')) return OutfitCategory.jewelry;
++    if (value.contains('access')) return OutfitCategory.accessory;
++    if (value.contains('haut') || value.contains('chemise') || value.contains('pull') || value.contains('t-shirt')) return OutfitCategory.top;
++    return OutfitCategory.otherLayer;
++  }
++
++  static Map<OutfitCategory, List<Garment>> _freeze(Map<OutfitCategory, List<Garment>> source) =>
++      Map.unmodifiable(source.map((key, value) => MapEntry(key, List.unmodifiable(value))));
++
++  static String _label(OutfitCategory category) => category.name;
++}
++
++extension<T> on Iterable<T> {
++  T? get firstOrNull => isEmpty ? null : first;
++}
+diff --git a/lib/features/assistant/recommendation/outfit_recommendation_engine.dart b/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
+index 23297b6bb65c1605c7e4106e7f578d43d88b2b4a..4519dbd7a891814a7116ddfa6137809065d4ec0b 100644
+--- a/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
++++ b/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
+@@ -1,89 +1,107 @@
+ import '../../../core/recommendation/recommendation_context.dart';
+ import '../../../core/recommendation/recommendation_engine.dart';
++import '../../../core/outfit/outfit_engine.dart';
+ import 'outfit_candidate.dart';
+ import 'outfit_recommendation_request.dart';
+ import 'outfit_recommendation_result.dart';
+ 
+ typedef OutfitCandidateSource = Future<List<OutfitCandidate>> Function();
+ typedef RecommendationClock = DateTime Function();
+ 
+ /// Adaptateur historique de l'assistant vers le moteur central.
+ ///
+ /// Il reste volontairement sans logique de score afin que tous les points
+ /// d'entrée de l'application utilisent les mêmes règles métier.
+ class OutfitRecommendationEngine {
+   final OutfitCandidateSource _candidateSource;
+   final RecommendationEngine _engine;
++  final OutfitEngine _outfitEngine;
+   final int maximumCandidates;
+ 
+   OutfitRecommendationEngine({
+     required OutfitCandidateSource candidateSource,
+     RecommendationClock clock = DateTime.now,
+     RecommendationEngine engine = const RecommendationEngine(),
+     this.maximumCandidates = 12,
+     Duration recentWearWindow = const Duration(days: 2),
+   }) : _candidateSource = candidateSource,
+        _engine = engine,
++       _outfitEngine = OutfitEngine(recommendationEngine: engine),
+        assert(maximumCandidates >= 0),
+        assert(!recentWearWindow.isNegative);
+ 
+   Future<OutfitRecommendationResult> recommend(
+     OutfitRecommendationRequest request,
+   ) async {
+     final candidates = (await _candidateSource())
+         .where((candidate) => candidate.isAvailable)
+         .where(
+           (candidate) => request.requestedCategory == null ||
+               _normalize(candidate.category).contains(
+                 _normalize(request.requestedCategory!),
+               ),
+         )
+         .where(
+           (candidate) => request.season == null ||
+               candidate.season == null ||
+               _normalize(candidate.season!).contains('toute') ||
+               _normalize(candidate.season!).contains(_normalize(request.season!)),
+         )
+         .toList();
+     final byId = {for (final candidate in candidates) candidate.id: candidate};
+     final result = _engine.recommend(
+       wardrobe: candidates.map((candidate) => candidate.garment),
+       context: RecommendationContext(
+         season: request.season,
+         occasion: request.occasion,
+         desiredStyle: request.desiredStyle,
+         weather: request.weather == null
+             ? null
+             : RecommendationWeather(
+                 temperature: request.weather!.temperature,
+                 condition: request.weather!.condition,
+                 isRaining: _isRain(request.weather!.condition),
+               ),
+         isTravel: _normalize(request.userIntent).contains('voyage'),
+         metadata: request.metadata,
+       ),
+       alternativeCount: maximumCandidates == 0 ? 0 : maximumCandidates - 1,
+     );
+     return OutfitRecommendationResult(
+       request: request,
+       candidates: result.choices
+           .map((choice) => byId[choice.garment.id])
+           .whereType<OutfitCandidate>(),
+       recommendation: result,
++      outfit: _outfitEngine.generateBestOutfit(
++        wardrobe: candidates.map((candidate) => candidate.garment),
++        context: RecommendationContext(
++          season: request.season,
++          occasion: request.occasion,
++          desiredStyle: request.desiredStyle,
++          weather: request.weather == null
++              ? null
++              : RecommendationWeather(
++                  temperature: request.weather!.temperature,
++                  condition: request.weather!.condition,
++                  isRaining: _isRain(request.weather!.condition),
++                ),
++        ),
++      ),
+     );
+   }
+ 
+   bool _isRain(String? condition) {
+     final value = _normalize(condition ?? '');
+     return value.contains('pluie') || value.contains('averse');
+   }
+ 
+   String _normalize(String value) => value
+       .toLowerCase()
+       .replaceAll(RegExp(r'[àáâä]'), 'a')
+       .replaceAll(RegExp(r'[éèêë]'), 'e')
+       .replaceAll(RegExp(r'[îï]'), 'i')
+       .replaceAll(RegExp(r'[ôö]'), 'o')
+       .replaceAll(RegExp(r'[ùûü]'), 'u')
+       .replaceAll('ç', 'c');
+ }
+diff --git a/lib/features/assistant/recommendation/outfit_recommendation_result.dart b/lib/features/assistant/recommendation/outfit_recommendation_result.dart
+index 1ee6727d653cffd4b2bd42cf3ecf96f4a497bf0d..11e0c6b1ceb2c6bc5b925cfe477de65109956b2b 100644
+--- a/lib/features/assistant/recommendation/outfit_recommendation_result.dart
++++ b/lib/features/assistant/recommendation/outfit_recommendation_result.dart
+@@ -1,15 +1,18 @@
+ import 'outfit_candidate.dart';
+ import 'outfit_recommendation_request.dart';
+ import '../../../core/recommendation/recommendation_result.dart';
++import '../../../models/outfit.dart';
+ 
+ class OutfitRecommendationResult {
+   final OutfitRecommendationRequest request;
+   final List<OutfitCandidate> candidates;
+   final RecommendationResult? recommendation;
++  final Outfit? outfit;
+ 
+   OutfitRecommendationResult({
+     required this.request,
+     required Iterable<OutfitCandidate> candidates,
+     this.recommendation,
++    this.outfit,
+   }) : candidates = List.unmodifiable(candidates);
+ }
+diff --git a/lib/models/outfit.dart b/lib/models/outfit.dart
+index 7e595622c05decea53e94911b6b86c0f6f3f0d83..dac05c457f44f7e91692a388fd1e7228df180b4c 100644
+--- a/lib/models/outfit.dart
++++ b/lib/models/outfit.dart
+@@ -1,60 +1,119 @@
++import 'garment.dart';
++
++enum OutfitCategory {
++  top,
++  bottom,
++  shoes,
++  jacket,
++  coat,
++  accessory,
++  bag,
++  jewelry,
++  otherLayer,
++}
++
++class OutfitCriterionScore {
++  final double value;
++  final String explanation;
++
++  const OutfitCriterionScore({required this.value, required this.explanation})
++    : assert(value >= 0 && value <= 1);
++}
++
++class OutfitScore {
++  final OutfitCriterionScore styleCoherence;
++  final OutfitCriterionScore weatherSuitability;
++  final OutfitCriterionScore temperatureSuitability;
++  final OutfitCriterionScore formality;
++  final OutfitCriterionScore diversity;
++  final OutfitCriterionScore overallConfidence;
++
++  const OutfitScore({
++    required this.styleCoherence,
++    required this.weatherSuitability,
++    required this.temperatureSuitability,
++    required this.formality,
++    required this.diversity,
++    required this.overallConfidence,
++  });
++}
++
+ class Outfit {
+   final String id;
+   final String name;
+   final String? season;
+   final bool favorite;
+   final DateTime createdAt;
+   final DateTime updatedAt;
+   final int timesWorn;
+   final DateTime? lastWorn;
++  final Map<OutfitCategory, List<Garment>> garments;
++  final OutfitScore? score;
++  final List<String> justification;
+ 
+   const Outfit({
+     required this.id,
+     required this.name,
+     this.season,
+     this.favorite = false,
+     required this.createdAt,
+     required this.updatedAt,
+     this.timesWorn = 0,
+     this.lastWorn,
++    this.garments = const {},
++    this.score,
++    this.justification = const [],
+   });
+ 
++  List<Garment> get allGarments => List.unmodifiable(
++    OutfitCategory.values.expand((category) => garments[category] ?? const []),
++  );
++
++  List<Garment> itemsFor(OutfitCategory category) =>
++      List.unmodifiable(garments[category] ?? const []);
++
+   Outfit copyWith({
+     String? name,
+     String? season,
+     bool? favorite,
+     DateTime? updatedAt,
++    Map<OutfitCategory, List<Garment>>? garments,
++    OutfitScore? score,
++    List<String>? justification,
+   }) => Outfit(
+     id: id,
+     name: name ?? this.name,
+     season: season ?? this.season,
+     favorite: favorite ?? this.favorite,
+     createdAt: createdAt,
+     updatedAt: updatedAt ?? this.updatedAt,
+     timesWorn: timesWorn,
+     lastWorn: lastWorn,
++    garments: garments ?? this.garments,
++    score: score ?? this.score,
++    justification: justification ?? this.justification,
+   );
+ 
+   Map<String, Object?> toMap() => {
+     'id': id,
+     'name': name,
+     'season': season,
+     'favorite': favorite ? 1 : 0,
+     'created_at': createdAt.toIso8601String(),
+     'updated_at': updatedAt.toIso8601String(),
+     'times_worn': timesWorn,
+     'last_worn': lastWorn?.toIso8601String(),
+   };
+ 
+   factory Outfit.fromMap(Map<String, Object?> map) => Outfit(
+     id: _text(map['id']) ?? '',
+     name: _text(map['name']) ?? '',
+     season: _text(map['season']),
+     favorite: map['favorite'] == 1 || map['favorite'] == true,
+     createdAt:
+         _parseDate(map['created_at']) ??
+         DateTime.fromMillisecondsSinceEpoch(0),
+     updatedAt:
+         _parseDate(map['updated_at']) ??
+         DateTime.fromMillisecondsSinceEpoch(0),
+     timesWorn: _integer(map['times_worn']) ?? 0,

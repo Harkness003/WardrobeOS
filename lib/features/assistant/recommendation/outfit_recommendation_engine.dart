@@ -1,5 +1,6 @@
 import '../../../core/recommendation/recommendation_context.dart';
 import '../../../core/recommendation/recommendation_engine.dart';
+import '../../../core/outfit/outfit_engine.dart';
 import 'outfit_candidate.dart';
 import 'outfit_recommendation_request.dart';
 import 'outfit_recommendation_result.dart';
@@ -14,6 +15,7 @@ typedef RecommendationClock = DateTime Function();
 class OutfitRecommendationEngine {
   final OutfitCandidateSource _candidateSource;
   final RecommendationEngine _engine;
+  final OutfitEngine _outfitEngine;
   final int maximumCandidates;
 
   OutfitRecommendationEngine({
@@ -24,6 +26,7 @@ class OutfitRecommendationEngine {
     Duration recentWearWindow = const Duration(days: 2),
   }) : _candidateSource = candidateSource,
        _engine = engine,
+       _outfitEngine = OutfitEngine(recommendationEngine: engine),
        assert(maximumCandidates >= 0),
        assert(!recentWearWindow.isNegative);
 
@@ -70,6 +73,21 @@ class OutfitRecommendationEngine {
           .map((choice) => byId[choice.garment.id])
           .whereType<OutfitCandidate>(),
       recommendation: result,
+      outfit: _outfitEngine.generateBestOutfit(
+        wardrobe: candidates.map((candidate) => candidate.garment),
+        context: RecommendationContext(
+          season: request.season,
+          occasion: request.occasion,
+          desiredStyle: request.desiredStyle,
+          weather: request.weather == null
+              ? null
+              : RecommendationWeather(
+                  temperature: request.weather!.temperature,
+                  condition: request.weather!.condition,
+                  isRaining: _isRain(request.weather!.condition),
+                ),
+        ),
+      ),
     );
   }
 

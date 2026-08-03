@@ -1,3 +1,43 @@
+import 'garment.dart';
+
+enum OutfitCategory {
+  top,
+  bottom,
+  shoes,
+  jacket,
+  coat,
+  accessory,
+  bag,
+  jewelry,
+  otherLayer,
+}
+
+class OutfitCriterionScore {
+  final double value;
+  final String explanation;
+
+  const OutfitCriterionScore({required this.value, required this.explanation})
+    : assert(value >= 0 && value <= 1);
+}
+
+class OutfitScore {
+  final OutfitCriterionScore styleCoherence;
+  final OutfitCriterionScore weatherSuitability;
+  final OutfitCriterionScore temperatureSuitability;
+  final OutfitCriterionScore formality;
+  final OutfitCriterionScore diversity;
+  final OutfitCriterionScore overallConfidence;
+
+  const OutfitScore({
+    required this.styleCoherence,
+    required this.weatherSuitability,
+    required this.temperatureSuitability,
+    required this.formality,
+    required this.diversity,
+    required this.overallConfidence,
+  });
+}
+
 class Outfit {
   final String id;
   final String name;
@@ -7,6 +47,9 @@ class Outfit {
   final DateTime updatedAt;
   final int timesWorn;
   final DateTime? lastWorn;
+  final Map<OutfitCategory, List<Garment>> garments;
+  final OutfitScore? score;
+  final List<String> justification;
 
   const Outfit({
     required this.id,
@@ -17,13 +60,26 @@ class Outfit {
     required this.updatedAt,
     this.timesWorn = 0,
     this.lastWorn,
+    this.garments = const {},
+    this.score,
+    this.justification = const [],
   });
+
+  List<Garment> get allGarments => List.unmodifiable(
+    OutfitCategory.values.expand((category) => garments[category] ?? const []),
+  );
+
+  List<Garment> itemsFor(OutfitCategory category) =>
+      List.unmodifiable(garments[category] ?? const []);
 
   Outfit copyWith({
     String? name,
     String? season,
     bool? favorite,
     DateTime? updatedAt,
+    Map<OutfitCategory, List<Garment>>? garments,
+    OutfitScore? score,
+    List<String>? justification,
   }) => Outfit(
     id: id,
     name: name ?? this.name,
@@ -33,6 +89,9 @@ class Outfit {
     updatedAt: updatedAt ?? this.updatedAt,
     timesWorn: timesWorn,
     lastWorn: lastWorn,
+    garments: garments ?? this.garments,
+    score: score ?? this.score,
+    justification: justification ?? this.justification,
   );
 
   Map<String, Object?> toMap() => {
