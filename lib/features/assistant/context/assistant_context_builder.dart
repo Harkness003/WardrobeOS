@@ -3,6 +3,8 @@ import '../../../weather/services/weather_service.dart';
 import '../../calendar/calendar_context_builder.dart';
 import '../../outfits/outfits_controller.dart';
 import '../../wardrobe/wardrobe_controller.dart';
+import '../memory/memory_service.dart';
+import '../memory/personalization_snapshot.dart';
 import 'assistant_context.dart';
 
 typedef AssistantClock = DateTime Function();
@@ -13,6 +15,7 @@ class AssistantContextBuilder {
   final OutfitsController _outfitsController;
   final AssistantClock _clock;
   final CalendarContextBuilder? _calendarContextBuilder;
+  final MemoryService? _memoryService;
 
   const AssistantContextBuilder({
     required WeatherService weatherService,
@@ -20,17 +23,22 @@ class AssistantContextBuilder {
     required OutfitsController outfitsController,
     AssistantClock clock = DateTime.now,
     CalendarContextBuilder? calendarContextBuilder,
+    MemoryService? memoryService,
   }) : _weatherService = weatherService,
        _wardrobeController = wardrobeController,
        _outfitsController = outfitsController,
        _clock = clock,
-       _calendarContextBuilder = calendarContextBuilder;
+       _calendarContextBuilder = calendarContextBuilder,
+       _memoryService = memoryService;
 
   Future<AssistantContext> build() async {
     final weatherFuture = _weatherService.getCurrentWeather();
     final calendarFuture = _calendarContextBuilder?.build().then<CalendarContext?>(
       (value) => value,
     ).catchError((_) => null);
+    final personalizationFuture = _memoryService?.loadSnapshot()
+        .then<PersonalizationSnapshot?>((value) => value)
+        .catchError((_) => null);
     if (_wardrobeController.loading) await _wardrobeController.load();
     if (_outfitsController.loading) await _outfitsController.load();
     final weather = await weatherFuture
@@ -52,6 +60,7 @@ class AssistantContextBuilder {
 
     return AssistantContext(
       calendar: await calendarFuture,
+      personalization: await personalizationFuture,
       weather: weather == null
           ? null
           : AssistantWeather(

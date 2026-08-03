@@ -1,529 +1,1680 @@
-diff --git a/docs/SPRINT_5_18_WARDROBE_INTELLIGENCE.md b/docs/SPRINT_5_18_WARDROBE_INTELLIGENCE.md
+diff --git a/docs/SPRINT_5_18_MEMORY_PERSONALITY.md b/docs/SPRINT_5_18_MEMORY_PERSONALITY.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..063efb48aa5b694558283d9ad8846407199d5538
+index 0000000000000000000000000000000000000000..fc00939ac03e545cdff53986289f771b2cb5a438
 --- /dev/null
-+++ b/docs/SPRINT_5_18_WARDROBE_INTELLIGENCE.md
-@@ -0,0 +1,48 @@
-+# Sprint 5.18 — Wardrobe Intelligence Engine
++++ b/docs/SPRINT_5_18_MEMORY_PERSONALITY.md
+@@ -0,0 +1,69 @@
++# Sprint 5.18 — Mémoire et personnalité de WardrobeGPT
 +
-+## Architecture
++## Architecture livrée
 +
-+Le moteur est un composant Dart pur situé dans `lib/core/wardrobe_intelligence`.
-+Il ne dépend ni de Flutter, ni d’un widget, ni de la base de données. Ses appelants
-+lui transmettent simplement une collection de `Garment`. Le résultat immuable peut
-+ainsi être consommé par WardrobeGPT, les recommandations, l’agenda, le voyage, les
-+achats, les notifications, les statistiques ou de futurs objectifs.
++La personnalisation est isolée dans `lib/features/assistant/memory`. Les modèles
++sont indépendants des widgets et toutes leurs propriétés métier facultatives ont
++des valeurs neutres. `MemoryRepository` permet de remplacer SQLite sans modifier
++WardrobeGPT ; `DatabaseMemoryRepository` fournit la persistance locale actuelle.
 +
-+## API publique
++`MemoryService` expose la mémoire déclarative, les objectifs et le profil de
++style. `BehavioralObservationService` est une entrée distincte : chaque nouvel
++indice augmente ou diminue graduellement la confiance, sans jamais transformer
++une observation en fait déclaré. Les modifications d'une mémoire sont conservées
++dans une table de révisions, tandis qu'une suppression efface aussi son historique.
 +
-+- `WardrobeIntelligenceEngine.analyze(Iterable<Garment>)` produit un rapport complet.
-+- `WardrobeIntelligenceEngine(rules:, clock:)` permet d’ajouter/remplacer les règles
-+  et d’injecter une horloge déterministe.
-+- `WardrobeIntelligenceReport` expose distributions, pièces peu portées, groupes de
-+  doublons, manques, score explicable et insights structurés.
-+- `WardrobeGapRule.evaluate(WardrobeRuleContext)` est le point d’extension des règles.
-+- `wardrobe_intelligence.dart` constitue le barrel d’import public.
++## Modèles et données
 +
-+## Indicateurs
++- `UserMemory` distingue explicitement déclaration et observation, avec confiance,
++  nombre d'indices, statut et dates de création/mise à jour.
++- `PersonalGoal` porte priorité et cycle de vie (actif, atteint, suspendu, abandonné).
++- `StyleProfile` reste indépendant du dressing. Coupes, formalité, couleurs, styles
++  et contraintes sont tous optionnels.
++- `ProbabilisticStyleAnalysis` prépare morphologie et colorimétrie avec confiance,
++  date et indicateur de correction utilisateur. Une analyse ne peut être enregistrée
++  dans le modèle sans le consentement correspondant.
++- `PersonalizationSnapshot` constitue la vue en lecture injectée dans WardrobeGPT.
++- `ProactiveInsight` est le contrat futur des initiatives ; aucun planificateur ni
++  aucune notification automatique ne sont activés dans ce sprint.
 +
-+Les distributions des catégories, couleurs, styles, saisons et matières contiennent
-+les effectifs connus, inconnus et la part de chaque valeur. L’analyse détecte aussi
-+les pièces sous-utilisées quand des données de port existent, les rôles similaires,
-+les besoins non couverts et la faible couverture des fortes chaleurs.
++La base passe en version 9 et crée quatre tables additives. Les profils existants
++restent valides : aucune nouvelle colonne n'est requise dans une table historique.
++Les sauvegardes incluent les nouvelles données, tout en acceptant les sauvegardes
++version 1 qui n'ont pas encore ces sections.
 +
-+Le score sur 100 détaille cinq composantes pondérées : diversité des catégories,
-+diversité des couleurs, couverture saisonnière, couverture des besoins et redondance
-+des rôles. Chaque composante fournit sa valeur, son poids et une explication.
++## Adaptation de WardrobeGPT
 +
-+## Règles livrées
++Le contexte de l'assistant charge facultativement un instantané de personnalisation.
++Une indisponibilité de cette mémoire ne bloque pas une réponse. Le prompt distingue
++les préférences déclarées, prioritaires, des hypothèses comportementales avec leur
++confiance et leurs indices. Il ajoute objectifs et profil lorsque présents.
 +
-+Les règles par défaut détectent l’absence de vêtement de pluie, une couverture hiver
-+insuffisante, l’absence de chaussures habillées, le manque de couleurs neutres et
-+les groupes trop similaires. Elles sont centralisées dans
-+`wardrobe_intelligence_rules.dart` et implémentent toutes le même contrat.
++La personnalité système exige désormais une réponse honnête, argumentée et
++bienveillante, mais non complaisante. WardrobeGPT peut contredire l'utilisateur en
++expliquant pourquoi. Les analyses morphologiques et colorimétriques doivent toujours
++être formulées comme probabilistes.
++
++## Points d'extension
++
++- Brancher une extraction structurée et confirmée des déclarations depuis une
++  conversation avant d'appeler `MemoryService.remember`.
++- Alimenter `BehavioralObservationService` depuis les acceptations/refus de tenues,
++  les ports et les choix récurrents.
++- Implémenter des analyseurs de morphologie/colorimétrie derrière des interfaces
++  dédiées, seulement après recueil explicite du consentement.
++- Produire des `ProactiveInsight` et ajouter ultérieurement arbitrage, fréquence,
++  canal et opt-in avant toute notification.
++- Ajouter une interface de gestion où l'utilisateur peut consulter, corriger et
++  supprimer chaque mémoire, objectif et analyse.
 +
 +## Limitations
 +
-+- La qualité dépend de la complétude et de la normalisation des métadonnées existantes.
-+- Les seuils sont des valeurs par défaut génériques, sans profil utilisateur, climat
-+  local, profession ou fréquence réelle des occasions.
-+- Un doublon est une similarité de rôle fondée sur les métadonnées, pas une identité
-+  visuelle calculée à partir des images.
-+- Les pièces peu portées ne sont produites que si le dressing contient au moins une
-+  donnée de port ; l’âge de possession n’est pas encore pris en compte.
-+- Le moteur ne persiste pas les rapports et ne déclenche aucune fonctionnalité future.
-diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence.dart
-new file mode 100644
-index 0000000000000000000000000000000000000000..e7d8a236c32e9e829a2e4452cb79ca6aa2a7e558
---- /dev/null
-+++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence.dart
-@@ -0,0 +1,3 @@
-+export 'wardrobe_intelligence_engine.dart';
-+export 'wardrobe_intelligence_models.dart';
-+export 'wardrobe_intelligence_rules.dart';
-diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart
-new file mode 100644
-index 0000000000000000000000000000000000000000..c1b5df07f6cc477542c52aaf95db4bc7a0e29b2a
---- /dev/null
-+++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart
-@@ -0,0 +1,177 @@
-+import '../../models/garment.dart';
-+import '../../models/garment_normalizer.dart';
-+import 'wardrobe_intelligence_models.dart';
-+import 'wardrobe_intelligence_rules.dart';
++- Aucune extraction automatique depuis le texte libre n'est activée : cela évite
++  de mémoriser silencieusement une phrase ambiguë.
++- Les observations doivent encore être émises par les futurs points d'intégration
++  produit ; le moteur d'évolution est prêt mais ne devine rien seul.
++- Aucune analyse d'image morphologique ou colorimétrique n'est réalisée.
++- Aucune notification proactive n'est générée.
++- La suppression de mémoire est définitive ; l'historique sert à comprendre les
++  modifications, pas à restaurer une donnée que l'utilisateur a demandé d'oublier.
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index 945a91a083b70e1d4e4c11bca05c80990315cf4b..c860c74cde9a9863f6a48c6728e11f2f7a13a524 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -1,44 +1,44 @@
+ import 'package:path/path.dart' as p;
+ import 'package:sqflite/sqflite.dart';
+ import '../models/garment.dart';
+ import '../models/outfit.dart';
+ import '../models/outfit_item.dart';
+ import '../models/wear_history.dart';
+ 
+ class DatabaseService {
+   DatabaseService._();
+   static final DatabaseService instance = DatabaseService._();
+   Database? _database;
+ 
+   Future<Database> get database async => _database ??= await _open();
+ 
+   Future<Database> _open() async {
+     final dbPath = await getDatabasesPath();
+     return openDatabase(
+       p.join(dbPath, 'wardrobeos.db'),
+-      version: 8,
++      version: 9,
+       onConfigure: (db) async {
+         await db.execute('PRAGMA foreign_keys = ON');
+       },
+       onCreate: (db, version) async {
+         await db.execute('''
+           CREATE TABLE garments(
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             category TEXT NOT NULL,
+             brand TEXT,
+             color TEXT,
+             material TEXT,
+             season TEXT,
+             style TEXT,
+             occasion TEXT,
+             condition TEXT,
+             purchase_price REAL,
+             purchase_date TEXT,
+             wear_count INTEGER NOT NULL DEFAULT 0,
+             last_worn TEXT,
+             size TEXT,
+             fit TEXT,
+             composition TEXT,
+             notes TEXT,
+             image_path TEXT,
+@@ -78,50 +78,51 @@ class DatabaseService {
+             resume_stylistique TEXT,
+             points_forts TEXT,
+             points_faibles TEXT,
+             conseils TEXT,
+             verdict TEXT,
+             couleurs_compatibles TEXT,
+             couleurs_moins_adaptees TEXT,
+             bas_compatibles TEXT,
+             chaussures_compatibles TEXT,
+             explication_polyvalence TEXT,
+             occasions_deconseillees TEXT,
+             composition_estimee TEXT,
+             lavage TEXT,
+             sechage TEXT,
+             repassage TEXT,
+             nettoyage TEXT,
+             boulochage TEXT,
+             taches TEXT,
+             limites_analyse TEXT,
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL
+           )
+         ''');
+         await _createWearHistoryTable(db);
+         await _createOutfitTables(db);
++        await _createPersonalizationTables(db);
+         await _createIndexes(db);
+       },
+       onUpgrade: (db, oldVersion, newVersion) async {
+         if (oldVersion < 2) {
+           await _addColumn(db, 'garments', 'style', 'TEXT');
+           await _addColumn(db, 'garments', 'occasion', 'TEXT');
+           await _addColumn(db, 'garments', 'condition', 'TEXT');
+           await _addColumn(db, 'garments', 'purchase_price', 'REAL');
+           await _addColumn(db, 'garments', 'purchase_date', 'TEXT');
+           await _addColumn(
+             db,
+             'garments',
+             'wear_count',
+             'INTEGER NOT NULL DEFAULT 0',
+           );
+           await _addColumn(db, 'garments', 'last_worn', 'TEXT');
+           await _addColumn(db, 'garments', 'size', 'TEXT');
+           await _addColumn(db, 'garments', 'fit', 'TEXT');
+           await _addColumn(db, 'garments', 'composition', 'TEXT');
+         }
+         if (oldVersion < 3) {
+           await _createWearHistoryTable(db);
+         }
+         if (oldVersion < 4) await _createOutfitTables(db);
+         if (oldVersion < 5) {
+@@ -177,123 +178,184 @@ class DatabaseService {
+             await _addColumn(db, 'garments', column, 'TEXT');
+           }
+         }
+         if (oldVersion < 7) {
+           for (final column in const [
+             'couleurs_compatibles',
+             'couleurs_moins_adaptees',
+             'bas_compatibles',
+             'chaussures_compatibles',
+             'explication_polyvalence',
+           ]) {
+             await _addColumn(db, 'garments', column, 'TEXT');
+           }
+         }
+         if (oldVersion < 8) {
+           await _addColumn(db, 'garments', 'layer_type', 'TEXT');
+           await db.execute('''
+             UPDATE garments SET layer_type = CASE
+               WHEN category = 'Vestes' THEN 'Couche extérieure'
+               WHEN category IN ('Hauts', 'Chemises') THEN 'Couche de base'
+               WHEN superposable = 1 THEN 'Couche intermédiaire'
+             END
+             WHERE layer_type IS NULL
+           ''');
+         }
++        if (oldVersion < 9) await _createPersonalizationTables(db);
+         await _createIndexes(db);
+       },
+     );
+   }
+ 
+   Future<void> _createWearHistoryTable(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS wear_history(
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         garment_id TEXT NOT NULL,
+         worn_at TEXT NOT NULL,
+         created_at TEXT NOT NULL,
+         FOREIGN KEY (garment_id) REFERENCES garments(id) ON DELETE CASCADE
+       )
+     ''');
+   }
+ 
+   Future<void> _createOutfitTables(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS outfits(
+         id TEXT PRIMARY KEY,
+         name TEXT NOT NULL,
+         season TEXT,
+         favorite INTEGER NOT NULL DEFAULT 0,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         times_worn INTEGER NOT NULL DEFAULT 0,
+         last_worn TEXT
+       )
+     ''');
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS outfit_items(
+         outfit_id TEXT NOT NULL,
+         garment_id TEXT NOT NULL,
+         PRIMARY KEY (outfit_id, garment_id),
+         FOREIGN KEY (outfit_id) REFERENCES outfits(id) ON DELETE CASCADE,
+         FOREIGN KEY (garment_id) REFERENCES garments(id) ON DELETE CASCADE
+       )
+     ''');
+   }
+ 
++  Future<void> _createPersonalizationTables(Database db) async {
++    await db.execute('''
++      CREATE TABLE IF NOT EXISTS user_memories(
++        id TEXT PRIMARY KEY,
++        kind TEXT NOT NULL,
++        topic TEXT NOT NULL,
++        statement TEXT NOT NULL,
++        confidence REAL NOT NULL,
++        evidence_count INTEGER NOT NULL DEFAULT 1,
++        status TEXT NOT NULL DEFAULT 'active',
++        created_at TEXT NOT NULL,
++        updated_at TEXT NOT NULL
++      )
++    ''');
++    await db.execute('''
++      CREATE TABLE IF NOT EXISTS user_memory_revisions(
++        id INTEGER PRIMARY KEY AUTOINCREMENT,
++        memory_id TEXT NOT NULL,
++        statement TEXT NOT NULL,
++        confidence REAL NOT NULL,
++        recorded_at TEXT NOT NULL,
++        FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE
++      )
++    ''');
++    await db.execute('''
++      CREATE TABLE IF NOT EXISTS personal_goals(
++        id TEXT PRIMARY KEY,
++        title TEXT NOT NULL,
++        details TEXT,
++        priority REAL NOT NULL DEFAULT 0.5,
++        status TEXT NOT NULL DEFAULT 'active',
++        created_at TEXT NOT NULL,
++        updated_at TEXT NOT NULL
++      )
++    ''');
++    await db.execute('''
++      CREATE TABLE IF NOT EXISTS style_profiles(
++        id TEXT PRIMARY KEY,
++        preferred_fits TEXT NOT NULL DEFAULT '[]',
++        preferred_formality TEXT,
++        preferred_colors TEXT NOT NULL DEFAULT '[]',
++        avoided_colors TEXT NOT NULL DEFAULT '[]',
++        favorite_styles TEXT NOT NULL DEFAULT '[]',
++        professional_constraints TEXT NOT NULL DEFAULT '[]',
++        climate_constraints TEXT NOT NULL DEFAULT '[]',
++        morphology_consent INTEGER NOT NULL DEFAULT 0,
++        morphology TEXT,
++        colorimetry_consent INTEGER NOT NULL DEFAULT 0,
++        colorimetry TEXT,
++        updated_at TEXT NOT NULL
++      )
++    ''');
++  }
 +
-+class WardrobeIntelligenceEngine {
-+  final List<WardrobeGapRule> rules;
-+  final DateTime Function() _clock;
-+
-+  WardrobeIntelligenceEngine({
-+    List<WardrobeGapRule> rules = defaultWardrobeGapRules,
-+    DateTime Function()? clock,
-+  }) : rules = List.unmodifiable(rules), _clock = clock ?? DateTime.now;
-+
-+  WardrobeIntelligenceReport analyze(Iterable<Garment> source) {
-+    final garments = List<Garment>.unmodifiable(source);
-+    final categories = _distribution(garments.map((item) => item.category));
-+    final colors = _distribution(garments.map(
-+      (item) => item.couleurPrincipale ?? item.color,
-+    ));
-+    final styles = _distribution(garments.expand(_styles));
-+    final seasons = _distribution(garments.expand((item) => item.effectiveSeasons));
-+    final materials = _distribution(garments.expand(_materials));
-+    final duplicates = _duplicates(garments);
-+    final context = WardrobeRuleContext(
-+      garments: garments,
-+      categories: categories,
-+      colors: colors,
-+      seasons: seasons,
-+      duplicates: duplicates,
+   Future<void> _addColumn(
+     Database db,
+     String table,
+     String column,
+     String definition,
+   ) async {
+     final columns = await db.rawQuery('PRAGMA table_info($table)');
+     final exists = columns.any((row) => row['name'] == column);
+     if (!exists) {
+       await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
+     }
+   }
+ 
+   Future<void> _createIndexes(Database db) async {
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_garments_category ON garments(category)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_garments_name ON garments(name)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_garments_last_worn ON garments(last_worn)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_wear_history_garment ON wear_history(garment_id)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_wear_history_worn_at ON wear_history(worn_at)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_outfit_items_garment ON outfit_items(garment_id)',
+     );
++    await db.execute(
++      'CREATE INDEX IF NOT EXISTS idx_user_memories_kind ON user_memories(kind, status)',
 +    );
-+    final gaps = rules.map((rule) => rule.evaluate(context)).whereType<WardrobeGap>().toList(growable: false);
-+    final underused = _underused(garments);
-+    final balance = _balance(garments, categories, colors, seasons, gaps, duplicates);
-+    return WardrobeIntelligenceReport(
-+      generatedAt: _clock(),
-+      garmentCount: garments.length,
-+      categories: categories,
-+      colors: colors,
-+      styles: styles,
-+      seasons: seasons,
-+      materials: materials,
-+      underusedGarments: underused,
-+      duplicateGroups: duplicates,
-+      gaps: gaps,
-+      balance: balance,
-+      insights: _insights(garments, styles, seasons, underused, gaps, duplicates),
++    await db.execute(
++      'CREATE INDEX IF NOT EXISTS idx_memory_revisions_memory ON user_memory_revisions(memory_id)',
++    );
+   }
+ 
+   Future<List<Garment>> getGarments({
+     String search = '',
+     String category = 'Tout',
+     bool favoritesOnly = false,
+     String season = '',
+     String brand = '',
+     String color = '',
+     String material = '',
+     String style = '',
+     String occasion = '',
+   }) async {
+     final db = await database;
+     final where = <String>[];
+     final args = <Object?>[];
+     if (search.trim().isNotEmpty) {
+       where.add(
+         '(name LIKE ? OR brand LIKE ? OR color LIKE ? OR style LIKE ? OR occasion LIKE ?)',
+       );
+       final q = '%${search.trim()}%';
+       args.addAll([q, q, q, q, q]);
+     }
+     if (category != 'Tout') {
+       where.add('category = ?');
+@@ -617,55 +679,75 @@ class DatabaseService {
+   }
+ 
+   Future<void> removeGarmentFromOutfit(
+     String outfitId,
+     String garmentId,
+   ) async {
+     final db = await database;
+     await db.delete(
+       'outfit_items',
+       where: 'outfit_id = ? AND garment_id = ?',
+       whereArgs: [outfitId, garmentId],
+     );
+   }
+ 
+   /// Returns a consistent, JSON-ready view of every persisted wardrobe table.
+   Future<Map<String, List<Map<String, Object?>>>> exportBackupData() async {
+     final db = await database;
+     return db.transaction(
+       (txn) async => {
+         'garments': await txn.query('garments'),
+         'outfits': await txn.query('outfits'),
+         'outfitItems': await txn.query('outfit_items'),
+         // Wishlist V1 is currently UI-only and therefore has no persisted rows.
+         'wishlist': <Map<String, Object?>>[],
+         'wearHistory': await txn.query('wear_history'),
++        'userMemories': await txn.query('user_memories'),
++        'userMemoryRevisions': await txn.query('user_memory_revisions'),
++        'personalGoals': await txn.query('personal_goals'),
++        'styleProfiles': await txn.query('style_profiles'),
+       },
+     );
+   }
+ 
+   /// Atomically replaces all persisted wardrobe data with a validated backup.
+   Future<void> restoreBackupData(
+     Map<String, List<Map<String, Object?>>> data,
+   ) async {
+     final db = await database;
+     await db.transaction((txn) async {
+       await txn.delete('outfit_items');
+       await txn.delete('wear_history');
+       await txn.delete('outfits');
+       await txn.delete('garments');
++      await txn.delete('user_memory_revisions');
++      await txn.delete('user_memories');
++      await txn.delete('personal_goals');
++      await txn.delete('style_profiles');
+ 
+       for (final row in data['garments']!) {
+         await txn.insert('garments', row);
+       }
+       for (final row in data['outfits']!) {
+         await txn.insert('outfits', row);
+       }
+       for (final row in data['outfitItems']!) {
+         await txn.insert('outfit_items', row);
+       }
+       for (final row in data['wearHistory']!) {
+         await txn.insert('wear_history', row);
+       }
++      for (final row in data['userMemories'] ?? const []) {
++        await txn.insert('user_memories', row);
++      }
++      for (final row in data['userMemoryRevisions'] ?? const []) {
++        await txn.insert('user_memory_revisions', row);
++      }
++      for (final row in data['personalGoals'] ?? const []) {
++        await txn.insert('personal_goals', row);
++      }
++      for (final row in data['styleProfiles'] ?? const []) {
++        await txn.insert('style_profiles', row);
++      }
+     });
+   }
+ }
+diff --git a/lib/features/assistant/context/assistant_context.dart b/lib/features/assistant/context/assistant_context.dart
+index 03ff87fcb587a30c973bf0ddfceef725636f79cd..52d751a4487f5b4e1123e62ccddc1aecf7b2a750 100644
+--- a/lib/features/assistant/context/assistant_context.dart
++++ b/lib/features/assistant/context/assistant_context.dart
+@@ -1,40 +1,43 @@
+ import '../../calendar/calendar_context_builder.dart';
++import '../memory/personalization_snapshot.dart';
+ 
+ class AssistantContext {
+   final CalendarContext? calendar;
+   final AssistantWeather? weather;
+   final AssistantStatistics statistics;
+   final AssistantHistory history;
+   final AssistantDate date;
++  final PersonalizationSnapshot? personalization;
+ 
+   const AssistantContext({
+     this.calendar,
+     required this.weather,
+     required this.statistics,
+     required this.history,
+     required this.date,
++    this.personalization,
+   });
+ }
+ 
+ class AssistantWeather {
+   final double temperature;
+   final String condition;
+   final String city;
+ 
+   const AssistantWeather({
+     required this.temperature,
+     required this.condition,
+     required this.city,
+   });
+ }
+ 
+ class AssistantStatistics {
+   final int garmentCount;
+   final int outfitCount;
+   final int recordedWearCount;
+ 
+   const AssistantStatistics({
+     required this.garmentCount,
+     required this.outfitCount,
+     required this.recordedWearCount,
+   });
+diff --git a/lib/features/assistant/context/assistant_context_builder.dart b/lib/features/assistant/context/assistant_context_builder.dart
+index bc2b055be671b6ea0ef715238cf0297cbafbaa25..c265c41a57ad42614e9abd7e14fdb70535b85841 100644
+--- a/lib/features/assistant/context/assistant_context_builder.dart
++++ b/lib/features/assistant/context/assistant_context_builder.dart
+@@ -1,79 +1,88 @@
+ import '../../../weather/models/weather_data.dart';
+ import '../../../weather/services/weather_service.dart';
+ import '../../calendar/calendar_context_builder.dart';
+ import '../../outfits/outfits_controller.dart';
+ import '../../wardrobe/wardrobe_controller.dart';
++import '../memory/memory_service.dart';
++import '../memory/personalization_snapshot.dart';
+ import 'assistant_context.dart';
+ 
+ typedef AssistantClock = DateTime Function();
+ 
+ class AssistantContextBuilder {
+   final WeatherService _weatherService;
+   final WardrobeController _wardrobeController;
+   final OutfitsController _outfitsController;
+   final AssistantClock _clock;
+   final CalendarContextBuilder? _calendarContextBuilder;
++  final MemoryService? _memoryService;
+ 
+   const AssistantContextBuilder({
+     required WeatherService weatherService,
+     required WardrobeController wardrobeController,
+     required OutfitsController outfitsController,
+     AssistantClock clock = DateTime.now,
+     CalendarContextBuilder? calendarContextBuilder,
++    MemoryService? memoryService,
+   }) : _weatherService = weatherService,
+        _wardrobeController = wardrobeController,
+        _outfitsController = outfitsController,
+        _clock = clock,
+-       _calendarContextBuilder = calendarContextBuilder;
++       _calendarContextBuilder = calendarContextBuilder,
++       _memoryService = memoryService;
+ 
+   Future<AssistantContext> build() async {
+     final weatherFuture = _weatherService.getCurrentWeather();
+     final calendarFuture = _calendarContextBuilder?.build().then<CalendarContext?>(
+       (value) => value,
+     ).catchError((_) => null);
++    final personalizationFuture = _memoryService?.loadSnapshot()
++        .then<PersonalizationSnapshot?>((value) => value)
++        .catchError((_) => null);
+     if (_wardrobeController.loading) await _wardrobeController.load();
+     if (_outfitsController.loading) await _outfitsController.load();
+     final weather = await weatherFuture
+         .then<WeatherData?>((value) => value)
+         .catchError((_) => null);
+     final now = _clock();
+ 
+     final recentGarments =
+         _wardrobeController.garments
+             .where((garment) => garment.lastWorn != null)
+             .toList()
+           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
+     final wornOutfits =
+         _outfitsController.outfits
+             .where((outfit) => outfit.lastWorn != null)
+             .toList()
+           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
+     final lastOutfit = wornOutfits.isEmpty ? null : wornOutfits.first;
+ 
+     return AssistantContext(
+       calendar: await calendarFuture,
++      personalization: await personalizationFuture,
+       weather: weather == null
+           ? null
+           : AssistantWeather(
+             temperature: weather.temperature,
+             condition: weather.description,
+             city: weather.city,
+           ),
+       statistics: AssistantStatistics(
+         garmentCount: _wardrobeController.garments.length,
+         outfitCount: _outfitsController.outfits.length,
+         recordedWearCount: _wardrobeController.garments.fold(
+           0,
+           (total, garment) => total + garment.wearCount,
+         ),
+       ),
+       history: AssistantHistory(
+         lastWornOutfit:
+             lastOutfit == null
+                 ? null
+                 : WornOutfit(
+                   id: lastOutfit.id,
+                   name: lastOutfit.name,
+                   wornAt: lastOutfit.lastWorn!,
+                 ),
+         recentlyWornGarments: recentGarments
+diff --git a/lib/features/assistant/memory/database_memory_repository.dart b/lib/features/assistant/memory/database_memory_repository.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..a1a6276c11a6d23edc827b47b028efd7c2016ca0
+--- /dev/null
++++ b/lib/features/assistant/memory/database_memory_repository.dart
+@@ -0,0 +1,123 @@
++import '../../../data/database_service.dart';
++import 'package:sqflite/sqflite.dart';
++import 'memory_repository.dart';
++import 'personal_goal.dart';
++import 'style_profile.dart';
++import 'user_memory.dart';
++
++class DatabaseMemoryRepository implements MemoryRepository {
++  final DatabaseService databaseService;
++
++  const DatabaseMemoryRepository(this.databaseService);
++
++  @override
++  Future<List<UserMemory>> getMemories({UserMemoryKind? kind}) async {
++    final db = await databaseService.database;
++    final rows = await db.query(
++      'user_memories',
++      where: kind == null ? 'status = ?' : 'status = ? AND kind = ?',
++      whereArgs: [UserMemoryStatus.active.name, if (kind != null) kind.name],
++      orderBy: 'updated_at DESC',
++    );
++    return rows.map(UserMemory.fromMap).toList(growable: false);
++  }
++
++  @override
++  Future<void> saveMemory(
++    UserMemory memory, {
++    bool recordRevision = true,
++  }) async {
++    final db = await databaseService.database;
++    await db.transaction((txn) async {
++      if (recordRevision) {
++        final previous = await txn.query(
++          'user_memories',
++          where: 'id = ?',
++          whereArgs: [memory.id],
++          limit: 1,
++        );
++        if (previous.isNotEmpty) {
++          final old = UserMemory.fromMap(previous.first);
++          await txn.insert(
++            'user_memory_revisions',
++            UserMemoryRevision(
++              memoryId: old.id,
++              statement: old.statement,
++              confidence: old.confidence,
++              recordedAt: memory.updatedAt,
++            ).toMap(),
++          );
++        }
++      }
++      await txn.insert(
++        'user_memories',
++        memory.toMap(),
++        conflictAlgorithm: ConflictAlgorithm.replace,
++      );
++    });
++  }
++
++  @override
++  Future<void> deleteMemory(String id) async {
++    final db = await databaseService.database;
++    await db.delete('user_memories', where: 'id = ?', whereArgs: [id]);
++  }
++
++  @override
++  Future<List<UserMemoryRevision>> getMemoryHistory(String memoryId) async {
++    final db = await databaseService.database;
++    final rows = await db.query(
++      'user_memory_revisions',
++      where: 'memory_id = ?',
++      whereArgs: [memoryId],
++      orderBy: 'recorded_at DESC, id DESC',
++    );
++    return rows.map(UserMemoryRevision.fromMap).toList(growable: false);
++  }
++
++  @override
++  Future<List<PersonalGoal>> getGoals() async {
++    final db = await databaseService.database;
++    final rows = await db.query('personal_goals', orderBy: 'priority DESC, updated_at DESC');
++    return rows.map(PersonalGoal.fromMap).toList(growable: false);
++  }
++
++  @override
++  Future<void> saveGoal(PersonalGoal goal) async {
++    final db = await databaseService.database;
++    await db.insert(
++      'personal_goals',
++      goal.toMap(),
++      conflictAlgorithm: ConflictAlgorithm.replace,
 +    );
 +  }
 +
-+  static Iterable<String?> _styles(Garment item) => [
-+    item.stylePrincipal ?? item.style,
-+    ...?item.stylesSecondaires,
-+  ];
++  @override
++  Future<void> deleteGoal(String id) async {
++    final db = await databaseService.database;
++    await db.delete('personal_goals', where: 'id = ?', whereArgs: [id]);
++  }
 +
-+  static Iterable<String?> _materials(Garment item) => [
-+    item.matierePrincipale ?? item.material,
-+    ...?item.matieresSecondaires,
-+  ];
++  @override
++  Future<StyleProfile?> getStyleProfile() async {
++    final db = await databaseService.database;
++    final rows = await db.query('style_profiles', limit: 1);
++    return rows.isEmpty ? null : StyleProfile.fromMap(rows.first);
++  }
 +
-+  static WardrobeDistribution _distribution(Iterable<String?> values) {
-+    final counts = <String, int>{};
-+    var unknown = 0;
-+    for (final raw in values) {
-+      final value = GarmentNormalizer.value(raw);
-+      if (value == null) {
-+        unknown++;
-+      } else {
-+        counts.update(value, (count) => count + 1, ifAbsent: () => 1);
++  @override
++  Future<void> saveStyleProfile(StyleProfile profile) async {
++    final db = await databaseService.database;
++    await db.insert(
++      'style_profiles',
++      profile.toMap(),
++      conflictAlgorithm: ConflictAlgorithm.replace,
++    );
++  }
++
++  @override
++  Future<void> deleteStyleProfile() async {
++    final db = await databaseService.database;
++    await db.delete('style_profiles');
++  }
++}
+diff --git a/lib/features/assistant/memory/memory.dart b/lib/features/assistant/memory/memory.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ce35b5ec345d77981b5ec68985de7ef2f423b544
+--- /dev/null
++++ b/lib/features/assistant/memory/memory.dart
+@@ -0,0 +1,8 @@
++export 'database_memory_repository.dart';
++export 'memory_repository.dart';
++export 'memory_service.dart';
++export 'personal_goal.dart';
++export 'personalization_snapshot.dart';
++export 'proactive_insight.dart';
++export 'style_profile.dart';
++export 'user_memory.dart';
+diff --git a/lib/features/assistant/memory/memory_repository.dart b/lib/features/assistant/memory/memory_repository.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..2f578e3d779b98cc9370a46549b245b848cc2aea
+--- /dev/null
++++ b/lib/features/assistant/memory/memory_repository.dart
+@@ -0,0 +1,16 @@
++import 'personal_goal.dart';
++import 'style_profile.dart';
++import 'user_memory.dart';
++
++abstract interface class MemoryRepository {
++  Future<List<UserMemory>> getMemories({UserMemoryKind? kind});
++  Future<void> saveMemory(UserMemory memory, {bool recordRevision = true});
++  Future<void> deleteMemory(String id);
++  Future<List<UserMemoryRevision>> getMemoryHistory(String memoryId);
++  Future<List<PersonalGoal>> getGoals();
++  Future<void> saveGoal(PersonalGoal goal);
++  Future<void> deleteGoal(String id);
++  Future<StyleProfile?> getStyleProfile();
++  Future<void> saveStyleProfile(StyleProfile profile);
++  Future<void> deleteStyleProfile();
++}
+diff --git a/lib/features/assistant/memory/memory_service.dart b/lib/features/assistant/memory/memory_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..3c04dc037d8233a96e112846a3189ab09290d647
+--- /dev/null
++++ b/lib/features/assistant/memory/memory_service.dart
+@@ -0,0 +1,126 @@
++import 'package:uuid/uuid.dart';
++
++import 'memory_repository.dart';
++import 'personal_goal.dart';
++import 'personalization_snapshot.dart';
++import 'style_profile.dart';
++import 'user_memory.dart';
++
++typedef MemoryClock = DateTime Function();
++typedef MemoryIdFactory = String Function();
++
++class MemoryService {
++  final MemoryRepository repository;
++  final MemoryClock _clock;
++  final MemoryIdFactory _idFactory;
++
++  MemoryService({
++    required this.repository,
++    MemoryClock? clock,
++    MemoryIdFactory? idFactory,
++  }) : _clock = clock ?? DateTime.now,
++       _idFactory = idFactory ?? const Uuid().v4;
++
++  Future<PersonalizationSnapshot> loadSnapshot() async {
++    final results = await Future.wait<Object?>([
++      repository.getMemories(kind: UserMemoryKind.declarative),
++      repository.getMemories(kind: UserMemoryKind.behavioral),
++      repository.getGoals(),
++      repository.getStyleProfile(),
++    ]);
++    return PersonalizationSnapshot(
++      declarativeMemories: results[0] as List<UserMemory>,
++      behavioralObservations: results[1] as List<UserMemory>,
++      goals: (results[2] as List<PersonalGoal>)
++          .where((goal) => goal.status == PersonalGoalStatus.active)
++          .toList(growable: false),
++      styleProfile: results[3] as StyleProfile?,
++    );
++  }
++
++  Future<UserMemory> remember({
++    required String topic,
++    required String statement,
++    double confidence = 1,
++  }) async {
++    final now = _clock();
++    final memory = UserMemory(
++      id: _idFactory(),
++      kind: UserMemoryKind.declarative,
++      topic: topic.trim(),
++      statement: statement.trim(),
++      confidence: confidence.clamp(0, 1).toDouble(),
++      createdAt: now,
++      updatedAt: now,
++    );
++    await repository.saveMemory(memory);
++    return memory;
++  }
++
++  Future<void> updateMemory(UserMemory memory) => repository.saveMemory(
++    memory.copyWith(updatedAt: _clock()),
++  );
++
++  Future<void> forget(String id) => repository.deleteMemory(id);
++
++  Future<void> saveGoal(PersonalGoal goal) => repository.saveGoal(goal);
++
++  Future<void> deleteGoal(String id) => repository.deleteGoal(id);
++
++  Future<void> saveStyleProfile(StyleProfile profile) =>
++      repository.saveStyleProfile(profile);
++
++  Future<void> deleteStyleProfile() => repository.deleteStyleProfile();
++}
++
++/// Updates an observation gradually. It never promotes inferred behavior to a
++/// declarative fact and contradictory evidence naturally lowers confidence.
++class BehavioralObservationService {
++  final MemoryRepository repository;
++  final MemoryClock _clock;
++  final MemoryIdFactory _idFactory;
++
++  BehavioralObservationService({
++    required this.repository,
++    MemoryClock? clock,
++    MemoryIdFactory? idFactory,
++  }) : _clock = clock ?? DateTime.now,
++       _idFactory = idFactory ?? const Uuid().v4;
++
++  Future<UserMemory> observe({
++    required String topic,
++    required String statement,
++    required bool supportsObservation,
++    double evidenceWeight = .15,
++  }) async {
++    final observations = await repository.getMemories(
++      kind: UserMemoryKind.behavioral,
++    );
++    UserMemory? existing;
++    for (final observation in observations) {
++      if (observation.topic == topic) {
++        existing = observation;
++        break;
 +      }
 +    }
-+    final sorted = counts.entries.toList()
-+      ..sort((a, b) => b.value.compareTo(a.value) != 0
-+          ? b.value.compareTo(a.value) : a.key.compareTo(b.key));
-+    return WardrobeDistribution(
-+      knownCount: counts.values.fold(0, (sum, count) => sum + count),
-+      unknownCount: unknown,
-+      counts: Map.unmodifiable(Map.fromEntries(sorted)),
++    final now = _clock();
++    final weight = evidenceWeight.clamp(0, 1).toDouble();
++    final confidence = existing == null
++        ? (supportsObservation ? weight : 0)
++        : (existing.confidence + (supportsObservation ? weight : -weight))
++            .clamp(0, 1)
++            .toDouble();
++    final updated = UserMemory(
++      id: existing?.id ?? _idFactory(),
++      kind: UserMemoryKind.behavioral,
++      topic: topic,
++      statement: statement,
++      confidence: confidence,
++      evidenceCount: (existing?.evidenceCount ?? 0) + 1,
++      createdAt: existing?.createdAt ?? now,
++      updatedAt: now,
 +    );
++    await repository.saveMemory(updated);
++    return updated;
 +  }
-+
-+  static List<Garment> _underused(List<Garment> garments) {
-+    if (!garments.any((item) => item.wearCount > 0 || item.lastWorn != null)) return const [];
-+    final used = garments.where((item) => item.wearCount > 0).map((item) => item.wearCount).toList()..sort();
-+    final threshold = used.isEmpty ? 0 : used[(used.length - 1) ~/ 4];
-+    return List.unmodifiable(garments.where((item) => item.wearCount <= threshold));
-+  }
-+
-+  static List<WardrobeDuplicateGroup> _duplicates(List<Garment> garments) {
-+    final groups = <String, List<Garment>>{};
-+    for (final item in garments) {
-+      final parts = [item.category, item.sousCategorie, item.typePrecis,
-+        item.couleurPrincipale ?? item.color, item.stylePrincipal ?? item.style]
-+          .map(_key).where((value) => value.isNotEmpty).toList();
-+      if (parts.length < 3) continue;
-+      groups.putIfAbsent(parts.join('|'), () => []).add(item);
-+    }
-+    return List.unmodifiable(groups.entries
-+        .where((entry) => entry.value.length >= 2)
-+        .map((entry) => WardrobeDuplicateGroup(
-+          role: entry.key.replaceAll('|', ' · '),
-+          garments: List.unmodifiable(entry.value),
-+        )));
-+  }
-+
-+  static WardrobeBalanceScore _balance(
-+    List<Garment> garments,
-+    WardrobeDistribution categories,
-+    WardrobeDistribution colors,
-+    WardrobeDistribution seasons,
-+    List<WardrobeGap> gaps,
-+    List<WardrobeDuplicateGroup> duplicates,
-+  ) {
-+    if (garments.isEmpty) return const WardrobeBalanceScore(value: 0, components: []);
-+    double diversity(WardrobeDistribution value, int target) =>
-+        (value.counts.length / target).clamp(0, 1);
-+    final components = <WardrobeBalanceComponent>[
-+      WardrobeBalanceComponent(code: 'category_diversity', label: 'Diversité des catégories', score: diversity(categories, 6) * 100, weight: .25, explanation: '${categories.counts.length} catégories représentées.'),
-+      WardrobeBalanceComponent(code: 'color_diversity', label: 'Diversité des couleurs', score: diversity(colors, 5) * 100, weight: .15, explanation: '${colors.counts.length} couleurs représentées.'),
-+      WardrobeBalanceComponent(code: 'season_coverage', label: 'Couverture saisonnière', score: diversity(seasons, 4) * 100, weight: .25, explanation: '${seasons.counts.length} saisons couvertes sur 4.'),
-+      WardrobeBalanceComponent(code: 'needs_coverage', label: 'Couverture des besoins', score: (1 - gaps.fold<double>(0, (sum, gap) => sum + gap.impact) / 4).clamp(0, 1) * 100, weight: .25, explanation: '${gaps.length} manque(s) détecté(s).'),
-+      WardrobeBalanceComponent(code: 'role_redundancy', label: 'Redondance des rôles', score: (1 - duplicates.fold<int>(0, (sum, group) => sum + group.garments.length - 1) / garments.length).clamp(0, 1) * 100, weight: .10, explanation: '${duplicates.length} groupe(s) similaire(s).'),
-+    ];
-+    final score = components.fold<double>(0, (sum, item) => sum + item.score * item.weight) /
-+        components.fold<double>(0, (sum, item) => sum + item.weight);
-+    return WardrobeBalanceScore(value: double.parse(score.toStringAsFixed(1)), components: List.unmodifiable(components));
-+  }
-+
-+  static List<WardrobeInsight> _insights(
-+    List<Garment> garments,
-+    WardrobeDistribution styles,
-+    WardrobeDistribution seasons,
-+    List<Garment> underused,
-+    List<WardrobeGap> gaps,
-+    List<WardrobeDuplicateGroup> duplicates,
-+  ) {
-+    final result = <WardrobeInsight>[];
-+    if (styles.counts.isNotEmpty) {
-+      final dominant = styles.counts.entries.first;
-+      if (styles.shareOf(dominant.key) >= .4) result.add(WardrobeInsight(
-+        code: 'dominant_style', type: WardrobeInsightType.dominant,
-+        severity: WardrobeInsightSeverity.info, title: 'Style dominant',
-+        message: 'Votre dressing est principalement ${dominant.key}.',
-+        evidence: {'style': dominant.key, 'count': dominant.value, 'share': styles.shareOf(dominant.key)},
-+      ));
-+    }
-+    for (final gap in gaps) {
-+      result.add(WardrobeInsight(code: gap.code, type: WardrobeInsightType.gap,
-+        severity: gap.impact >= .75 ? WardrobeInsightSeverity.warning : WardrobeInsightSeverity.recommendation,
-+        title: gap.label, message: gap.explanation, evidence: gap.evidence));
-+    }
-+    for (final group in duplicates) {
-+      result.add(WardrobeInsight(code: 'duplicate_role', type: WardrobeInsightType.duplicate,
-+        severity: WardrobeInsightSeverity.recommendation, title: 'Rôle en double',
-+        message: '${group.garments.length} pièces remplissent un rôle très similaire.',
-+        evidence: {'role': group.role, 'count': group.garments.length},
-+        garmentIds: group.garments.map((item) => item.id).toList(growable: false)));
-+    }
-+    if (underused.isNotEmpty) result.add(WardrobeInsight(
-+      code: 'underused_items', type: WardrobeInsightType.usage,
-+      severity: WardrobeInsightSeverity.info, title: 'Pièces peu portées',
-+      message: '${underused.length} pièce(s) sont peu portées par rapport au dressing.',
-+      evidence: {'count': underused.length},
-+      garmentIds: underused.map((item) => item.id).toList(growable: false),
-+    ));
-+    final hotWeather = garments.where((item) => item.compatibleChaleur == true).length;
-+    if (garments.length >= 5 && hotWeather / garments.length < .15) result.add(WardrobeInsight(
-+      code: 'low_hot_weather_coverage', type: WardrobeInsightType.gap,
-+      severity: WardrobeInsightSeverity.recommendation, title: 'Fortes chaleurs',
-+      message: 'Vous disposez de peu de vêtements explicitement adaptés aux fortes chaleurs.',
-+      evidence: {'count': hotWeather, 'total': garments.length},
-+    ));
-+    return List.unmodifiable(result);
-+  }
-+
-+  static String _key(String? value) => (value ?? '').trim().toLowerCase();
 +}
-diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence_models.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence_models.dart
+diff --git a/lib/features/assistant/memory/personal_goal.dart b/lib/features/assistant/memory/personal_goal.dart
 new file mode 100644
-index 0000000000000000000000000000000000000000..fdfcdd88e2250bad50352b3c740b97d5b148237f
+index 0000000000000000000000000000000000000000..dfbf14e86680641746aa168aa08b31751754b901
 --- /dev/null
-+++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence_models.dart
-@@ -0,0 +1,119 @@
-+import '../../models/garment.dart';
++++ b/lib/features/assistant/memory/personal_goal.dart
+@@ -0,0 +1,43 @@
++enum PersonalGoalStatus { active, achieved, paused, abandoned }
 +
-+enum WardrobeInsightType { dominant, gap, duplicate, imbalance, usage }
-+
-+enum WardrobeInsightSeverity { info, recommendation, warning }
-+
-+/// A machine-readable observation that consumers may render in their own way.
-+class WardrobeInsight {
-+  final String code;
-+  final WardrobeInsightType type;
-+  final WardrobeInsightSeverity severity;
++class PersonalGoal {
++  final String id;
 +  final String title;
-+  final String message;
-+  final Map<String, Object?> evidence;
-+  final List<String> garmentIds;
++  final String? details;
++  final double priority;
++  final PersonalGoalStatus status;
++  final DateTime createdAt;
++  final DateTime updatedAt;
 +
-+  const WardrobeInsight({
-+    required this.code,
-+    required this.type,
-+    required this.severity,
++  const PersonalGoal({
++    required this.id,
 +    required this.title,
-+    required this.message,
-+    this.evidence = const {},
-+    this.garmentIds = const [],
-+  });
++    this.details,
++    this.priority = .5,
++    this.status = PersonalGoalStatus.active,
++    required this.createdAt,
++    required this.updatedAt,
++  }) : assert(priority >= 0 && priority <= 1);
++
++  Map<String, Object?> toMap() => {
++    'id': id,
++    'title': title,
++    'details': details,
++    'priority': priority,
++    'status': status.name,
++    'created_at': createdAt.toIso8601String(),
++    'updated_at': updatedAt.toIso8601String(),
++  };
++
++  factory PersonalGoal.fromMap(Map<String, Object?> map) => PersonalGoal(
++    id: map['id'] as String,
++    title: map['title'] as String,
++    details: map['details'] as String?,
++    priority: (map['priority'] as num?)?.toDouble() ?? .5,
++    status: PersonalGoalStatus.values.byName(
++      map['status'] as String? ?? PersonalGoalStatus.active.name,
++    ),
++    createdAt: DateTime.parse(map['created_at'] as String),
++    updatedAt: DateTime.parse(map['updated_at'] as String),
++  );
 +}
-+
-+class WardrobeDistribution {
-+  final int knownCount;
-+  final int unknownCount;
-+  final Map<String, int> counts;
-+
-+  const WardrobeDistribution({
-+    required this.knownCount,
-+    required this.unknownCount,
-+    required this.counts,
-+  });
-+
-+  double shareOf(String value) => knownCount == 0
-+      ? 0
-+      : (counts[value] ?? 0) / knownCount;
-+}
-+
-+class WardrobeDuplicateGroup {
-+  final String role;
-+  final List<Garment> garments;
-+
-+  const WardrobeDuplicateGroup({required this.role, required this.garments});
-+}
-+
-+class WardrobeGap {
-+  final String code;
-+  final String label;
-+  final String explanation;
-+  final double impact;
-+  final Map<String, Object?> evidence;
-+
-+  const WardrobeGap({
-+    required this.code,
-+    required this.label,
-+    required this.explanation,
-+    required this.impact,
-+    this.evidence = const {},
-+  });
-+}
-+
-+class WardrobeBalanceComponent {
-+  final String code;
-+  final String label;
-+  final double score;
-+  final double weight;
-+  final String explanation;
-+
-+  const WardrobeBalanceComponent({
-+    required this.code,
-+    required this.label,
-+    required this.score,
-+    required this.weight,
-+    required this.explanation,
-+  });
-+}
-+
-+class WardrobeBalanceScore {
-+  final double value;
-+  final List<WardrobeBalanceComponent> components;
-+
-+  const WardrobeBalanceScore({required this.value, required this.components});
-+}
-+
-+/// Immutable result shared by assistants, recommendations and future features.
-+class WardrobeIntelligenceReport {
-+  final DateTime generatedAt;
-+  final int garmentCount;
-+  final WardrobeDistribution categories;
-+  final WardrobeDistribution colors;
-+  final WardrobeDistribution styles;
-+  final WardrobeDistribution seasons;
-+  final WardrobeDistribution materials;
-+  final List<Garment> underusedGarments;
-+  final List<WardrobeDuplicateGroup> duplicateGroups;
-+  final List<WardrobeGap> gaps;
-+  final WardrobeBalanceScore balance;
-+  final List<WardrobeInsight> insights;
-+
-+  const WardrobeIntelligenceReport({
-+    required this.generatedAt,
-+    required this.garmentCount,
-+    required this.categories,
-+    required this.colors,
-+    required this.styles,
-+    required this.seasons,
-+    required this.materials,
-+    required this.underusedGarments,
-+    required this.duplicateGroups,
-+    required this.gaps,
-+    required this.balance,
-+    required this.insights,
-+  });
-+}
-diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence_rules.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence_rules.dart
+diff --git a/lib/features/assistant/memory/personalization_snapshot.dart b/lib/features/assistant/memory/personalization_snapshot.dart
 new file mode 100644
-index 0000000000000000000000000000000000000000..dd35f7b181d7f523e4b1ffb5b7dfcf5e1c42af75
+index 0000000000000000000000000000000000000000..21af76aacf13fcc16eb4fe77cf7ef3491e4b93ed
 --- /dev/null
-+++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence_rules.dart
-@@ -0,0 +1,152 @@
-+import '../../models/garment.dart';
-+import 'wardrobe_intelligence_models.dart';
++++ b/lib/features/assistant/memory/personalization_snapshot.dart
+@@ -0,0 +1,20 @@
++import 'personal_goal.dart';
++import 'style_profile.dart';
++import 'user_memory.dart';
 +
-+class WardrobeRuleContext {
-+  final List<Garment> garments;
-+  final WardrobeDistribution categories;
-+  final WardrobeDistribution colors;
-+  final WardrobeDistribution seasons;
-+  final List<WardrobeDuplicateGroup> duplicates;
++class PersonalizationSnapshot {
++  final List<UserMemory> declarativeMemories;
++  final List<UserMemory> behavioralObservations;
++  final List<PersonalGoal> goals;
++  final StyleProfile? styleProfile;
 +
-+  const WardrobeRuleContext({
-+    required this.garments,
-+    required this.categories,
-+    required this.colors,
-+    required this.seasons,
-+    required this.duplicates,
++  const PersonalizationSnapshot({
++    this.declarativeMemories = const [],
++    this.behavioralObservations = const [],
++    this.goals = const [],
++    this.styleProfile,
 +  });
++
++  bool get isEmpty => declarativeMemories.isEmpty &&
++      behavioralObservations.isEmpty && goals.isEmpty && styleProfile == null;
++}
+diff --git a/lib/features/assistant/memory/proactive_insight.dart b/lib/features/assistant/memory/proactive_insight.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..b8322db44c9251937b18e02ee3f1f346a648aecb
+--- /dev/null
++++ b/lib/features/assistant/memory/proactive_insight.dart
+@@ -0,0 +1,26 @@
++enum ProactiveInsightType {
++  outfit,
++  relevantRemark,
++  forgottenGarment,
++  wardrobeImprovement,
++  styleEvolution,
 +}
 +
-+abstract interface class WardrobeGapRule {
-+  String get code;
-+  WardrobeGap? evaluate(WardrobeRuleContext context);
++/// Candidate only: this sprint deliberately does not schedule notifications.
++class ProactiveInsight {
++  final String id;
++  final ProactiveInsightType type;
++  final String message;
++  final double relevance;
++  final DateTime createdAt;
++  final DateTime? expiresAt;
++
++  const ProactiveInsight({
++    required this.id,
++    required this.type,
++    required this.message,
++    required this.relevance,
++    required this.createdAt,
++    this.expiresAt,
++  }) : assert(relevance >= 0 && relevance <= 1);
++}
+diff --git a/lib/features/assistant/memory/style_profile.dart b/lib/features/assistant/memory/style_profile.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..c5c2c37e7f87c91ba7a601a49d27526cc20ffd43
+--- /dev/null
++++ b/lib/features/assistant/memory/style_profile.dart
+@@ -0,0 +1,109 @@
++import 'dart:convert';
++
++class ProbabilisticStyleAnalysis {
++  final String value;
++  final double confidence;
++  final bool userCorrected;
++  final DateTime updatedAt;
++
++  const ProbabilisticStyleAnalysis({
++    required this.value,
++    required this.confidence,
++    this.userCorrected = false,
++    required this.updatedAt,
++  }) : assert(confidence >= 0 && confidence <= 1);
++
++  Map<String, Object?> toJson() => {
++    'value': value,
++    'confidence': confidence,
++    'userCorrected': userCorrected,
++    'updatedAt': updatedAt.toIso8601String(),
++  };
++
++  factory ProbabilisticStyleAnalysis.fromJson(Map<String, Object?> json) =>
++      ProbabilisticStyleAnalysis(
++        value: json['value'] as String,
++        confidence: (json['confidence'] as num).toDouble(),
++        userCorrected: json['userCorrected'] as bool? ?? false,
++        updatedAt: DateTime.parse(json['updatedAt'] as String),
++      );
 +}
 +
-+class MissingRainwearRule implements WardrobeGapRule {
-+  const MissingRainwearRule();
-+  @override
-+  String get code => 'missing_rainwear';
++/// Optional profile data that belongs to the person, not to their wardrobe.
++class StyleProfile {
++  static const singletonId = 'current_user';
 +
-+  @override
-+  WardrobeGap? evaluate(WardrobeRuleContext context) {
-+    if (context.garments.isEmpty ||
-+        context.garments.any((item) => item.compatiblePluie == true)) {
-+      return null;
++  final String id;
++  final List<String> preferredFits;
++  final String? preferredFormality;
++  final List<String> preferredColors;
++  final List<String> avoidedColors;
++  final List<String> favoriteStyles;
++  final List<String> professionalConstraints;
++  final List<String> climateConstraints;
++  final bool morphologyConsent;
++  final ProbabilisticStyleAnalysis? morphology;
++  final bool colorimetryConsent;
++  final ProbabilisticStyleAnalysis? colorimetry;
++  final DateTime updatedAt;
++
++  const StyleProfile({
++    this.id = singletonId,
++    this.preferredFits = const [],
++    this.preferredFormality,
++    this.preferredColors = const [],
++    this.avoidedColors = const [],
++    this.favoriteStyles = const [],
++    this.professionalConstraints = const [],
++    this.climateConstraints = const [],
++    this.morphologyConsent = false,
++    this.morphology,
++    this.colorimetryConsent = false,
++    this.colorimetry,
++    required this.updatedAt,
++  }) : assert(morphologyConsent || morphology == null),
++       assert(colorimetryConsent || colorimetry == null);
++
++  Map<String, Object?> toMap() => {
++    'id': id,
++    'preferred_fits': jsonEncode(preferredFits),
++    'preferred_formality': preferredFormality,
++    'preferred_colors': jsonEncode(preferredColors),
++    'avoided_colors': jsonEncode(avoidedColors),
++    'favorite_styles': jsonEncode(favoriteStyles),
++    'professional_constraints': jsonEncode(professionalConstraints),
++    'climate_constraints': jsonEncode(climateConstraints),
++    'morphology_consent': morphologyConsent ? 1 : 0,
++    'morphology': morphology == null ? null : jsonEncode(morphology!.toJson()),
++    'colorimetry_consent': colorimetryConsent ? 1 : 0,
++    'colorimetry': colorimetry == null ? null : jsonEncode(colorimetry!.toJson()),
++    'updated_at': updatedAt.toIso8601String(),
++  };
++
++  factory StyleProfile.fromMap(Map<String, Object?> map) {
++    List<String> list(String key) => (jsonDecode(map[key] as String? ?? '[]') as List)
++        .map((value) => value.toString()).toList(growable: false);
++    ProbabilisticStyleAnalysis? analysis(String key) {
++      final value = map[key] as String?;
++      if (value == null) return null;
++      return ProbabilisticStyleAnalysis.fromJson(
++        (jsonDecode(value) as Map).cast<String, Object?>(),
++      );
 +    }
-+    return const WardrobeGap(
-+      code: 'missing_rainwear',
-+      label: 'Pièce imperméable',
-+      explanation: 'Aucun vêtement n’est identifié comme compatible avec la pluie.',
-+      impact: .9,
++    return StyleProfile(
++      id: map['id'] as String,
++      preferredFits: list('preferred_fits'),
++      preferredFormality: map['preferred_formality'] as String?,
++      preferredColors: list('preferred_colors'),
++      avoidedColors: list('avoided_colors'),
++      favoriteStyles: list('favorite_styles'),
++      professionalConstraints: list('professional_constraints'),
++      climateConstraints: list('climate_constraints'),
++      morphologyConsent: map['morphology_consent'] == 1,
++      morphology: analysis('morphology'),
++      colorimetryConsent: map['colorimetry_consent'] == 1,
++      colorimetry: analysis('colorimetry'),
++      updatedAt: DateTime.parse(map['updated_at'] as String),
 +    );
 +  }
 +}
+diff --git a/lib/features/assistant/memory/user_memory.dart b/lib/features/assistant/memory/user_memory.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..8a805b82c8af7bf2103221e8d23e15913ed0ee22
+--- /dev/null
++++ b/lib/features/assistant/memory/user_memory.dart
+@@ -0,0 +1,108 @@
++enum UserMemoryKind { declarative, behavioral }
 +
-+class InsufficientWinterRule implements WardrobeGapRule {
-+  final double minimumShare;
-+  const InsufficientWinterRule({this.minimumShare = .2});
-+  @override
-+  String get code => 'insufficient_winter';
++enum UserMemoryStatus { active, archived }
++
++/// A fact or a fallible observation used to personalize WardrobeGPT.
++class UserMemory {
++  final String id;
++  final UserMemoryKind kind;
++  final String topic;
++  final String statement;
++  final double confidence;
++  final int evidenceCount;
++  final UserMemoryStatus status;
++  final DateTime createdAt;
++  final DateTime updatedAt;
++
++  const UserMemory({
++    required this.id,
++    required this.kind,
++    required this.topic,
++    required this.statement,
++    required this.confidence,
++    this.evidenceCount = 1,
++    this.status = UserMemoryStatus.active,
++    required this.createdAt,
++    required this.updatedAt,
++  }) : assert(confidence >= 0 && confidence <= 1),
++       assert(evidenceCount > 0);
++
++  bool get isBehavioral => kind == UserMemoryKind.behavioral;
++
++  UserMemory copyWith({
++    String? statement,
++    double? confidence,
++    int? evidenceCount,
++    UserMemoryStatus? status,
++    DateTime? updatedAt,
++  }) => UserMemory(
++    id: id,
++    kind: kind,
++    topic: topic,
++    statement: statement ?? this.statement,
++    confidence: confidence ?? this.confidence,
++    evidenceCount: evidenceCount ?? this.evidenceCount,
++    status: status ?? this.status,
++    createdAt: createdAt,
++    updatedAt: updatedAt ?? this.updatedAt,
++  );
++
++  Map<String, Object?> toMap() => {
++    'id': id,
++    'kind': kind.name,
++    'topic': topic,
++    'statement': statement,
++    'confidence': confidence,
++    'evidence_count': evidenceCount,
++    'status': status.name,
++    'created_at': createdAt.toIso8601String(),
++    'updated_at': updatedAt.toIso8601String(),
++  };
++
++  factory UserMemory.fromMap(Map<String, Object?> map) => UserMemory(
++    id: map['id'] as String,
++    kind: UserMemoryKind.values.byName(map['kind'] as String),
++    topic: map['topic'] as String,
++    statement: map['statement'] as String,
++    confidence: (map['confidence'] as num).toDouble(),
++    evidenceCount: map['evidence_count'] as int? ?? 1,
++    status: UserMemoryStatus.values.byName(
++      map['status'] as String? ?? UserMemoryStatus.active.name,
++    ),
++    createdAt: DateTime.parse(map['created_at'] as String),
++    updatedAt: DateTime.parse(map['updated_at'] as String),
++  );
++}
++
++class UserMemoryRevision {
++  final int? id;
++  final String memoryId;
++  final String statement;
++  final double confidence;
++  final DateTime recordedAt;
++
++  const UserMemoryRevision({
++    this.id,
++    required this.memoryId,
++    required this.statement,
++    required this.confidence,
++    required this.recordedAt,
++  });
++
++  Map<String, Object?> toMap() => {
++    if (id != null) 'id': id,
++    'memory_id': memoryId,
++    'statement': statement,
++    'confidence': confidence,
++    'recorded_at': recordedAt.toIso8601String(),
++  };
++
++  factory UserMemoryRevision.fromMap(Map<String, Object?> map) =>
++      UserMemoryRevision(
++        id: map['id'] as int?,
++        memoryId: map['memory_id'] as String,
++        statement: map['statement'] as String,
++        confidence: (map['confidence'] as num).toDouble(),
++        recordedAt: DateTime.parse(map['recorded_at'] as String),
++      );
++}
+diff --git a/lib/features/assistant/prompt/prompt_builder.dart b/lib/features/assistant/prompt/prompt_builder.dart
+index 68e64348bcddfddd21338c7c061d438a2544dd6b..42d722d92ee34c2411cf8eaf289eb5b1f107b9c3 100644
+--- a/lib/features/assistant/prompt/prompt_builder.dart
++++ b/lib/features/assistant/prompt/prompt_builder.dart
+@@ -20,33 +20,34 @@ class PromptBuilder {
+     OutfitRecommendationResult? recommendation,
+   }) {
+     var prompt = composer.compose(context, sections);
+     const encoder = JsonEncoder.withIndent('  ');
+     if (toolContext.isNotEmpty) {
+       prompt =
+           '$prompt\n\n### DONNÉES MÉTIER STRUCTURÉES\n'
+           '${encoder.convert(toolContext)}';
+     }
+     if (recommendation != null) {
+       final request = recommendation.request;
+       prompt =
+           '$prompt\n\n### RECOMMANDATION TENUE\n'
+           'Demande utilisateur : ${request.originalMessage}\n'
+           'Contexte météo : ${encoder.convert(request.weather?.toMap())}\n'
+           'Vêtements candidats : '
+           '${encoder.convert(recommendation.candidates.map((item) => item.toMap()).toList())}\n'
+           'Explique pourquoi la tenue est adaptée, les associations choisies '
+           'et les alternatives possibles. Utilise uniquement ces candidats.';
+     }
+     return prompt;
+   }
+ 
+   static const List<PromptSection> _defaultSections = [
+     SystemPromptSection(),
++    PersonalizationPromptSection(),
+     CalendarPromptSection(),
+     WeatherPromptSection(),
+     WardrobePromptSection(),
+     StatisticsPromptSection(),
+     HistoryPromptSection(),
+     DatePromptSection(),
+   ];
+ }
+diff --git a/lib/features/assistant/prompt/prompt_section.dart b/lib/features/assistant/prompt/prompt_section.dart
+index 90a78f32f1dc21e42b24792b52bcc3b40d402b82..6791fcd094cd4007b3da9c352c8e086cb09a326f 100644
+--- a/lib/features/assistant/prompt/prompt_section.dart
++++ b/lib/features/assistant/prompt/prompt_section.dart
+@@ -1,60 +1,118 @@
+ import '../../calendar/calendar_event.dart';
+ import '../context/assistant_context.dart';
+ 
+ /// A self-contained piece of the prompt.
+ abstract interface class PromptSection {
+   String get title;
+ 
+   /// Returns no content when this section is not relevant to [context].
+   String? build(AssistantContext context);
+ }
+ 
+ class SystemPromptSection implements PromptSection {
+   static const instructions = [
+     'Tu es WardrobeGPT.',
+     'Tu es un conseiller vestimentaire intelligent.',
+     'Fournis par défaut une réponse détaillée, concrète et directement utile.',
+     'Explique brièvement les raisons de tes conseils sans révéler de raisonnement interne.',
+     'Propose plusieurs options et justifie chaque recommandation lorsque pertinent.',
+     'Cite toujours le nom réel des vêtements présents dans le contexte, jamais un nom générique à leur place.',
+     'Prends en compte la garde-robe, la saison, la météo, l’occasion, les préférences et l’historique lorsqu’ils sont disponibles.',
+     'Si une donnée manque, indique-le brièvement puis continue avec le contexte restant : ne bloque jamais la réponse.',
+     'Pour une demande élaborée, structure souplement la réponse avec Résumé, Pourquoi, Conseils, Alternatives et Attention.',
+     'Signale clairement les limites et incertitudes de tes conseils.',
+     "N'invente jamais d'informations absentes du contexte.",
++    "Reste bienveillant mais jamais complaisant : ne cherche pas à valider systématiquement l'utilisateur.",
++    "Contredis l'utilisateur lorsque les faits stylistiques ou son objectif le justifient, en expliquant clairement pourquoi.",
++    'Traite les observations comportementales comme des hypothèses révisables, jamais comme des vérités.',
++    'Présente toute analyse morphologique ou colorimétrique comme probabiliste et rappelle sa confiance.',
+   ];
+ 
+   const SystemPromptSection();
+ 
+   @override
+   String get title => 'SYSTÈME';
+ 
+   @override
+   String build(AssistantContext context) => instructions.join('\n');
+ }
+ 
++class PersonalizationPromptSection implements PromptSection {
++  const PersonalizationPromptSection();
 +
 +  @override
-+  WardrobeGap? evaluate(WardrobeRuleContext context) {
-+    if (context.garments.length < 5 ||
-+        context.seasons.shareOf('Hiver') >= minimumShare) return null;
-+    return WardrobeGap(
-+      code: code,
-+      label: 'Vêtements d’hiver',
-+      explanation: 'La part de vêtements adaptés à l’hiver est inférieure au seuil attendu.',
-+      impact: .75,
-+      evidence: {'share': context.seasons.shareOf('Hiver'), 'minimumShare': minimumShare},
-+    );
++  String get title => 'PERSONNALISATION UTILISATEUR';
++
++  @override
++  String? build(AssistantContext context) {
++    final snapshot = context.personalization;
++    if (snapshot == null || snapshot.isEmpty) return null;
++    final lines = <String>[];
++    if (snapshot.declarativeMemories.isNotEmpty) {
++      lines.add('Préférences déclarées (prioritaires) :');
++      for (final memory in snapshot.declarativeMemories) {
++        lines.add('- ${memory.statement} (confiance ${(memory.confidence * 100).round()} %)');
++      }
++    }
++    if (snapshot.behavioralObservations.isNotEmpty) {
++      lines.add('Observations comportementales (hypothèses, à nuancer) :');
++      for (final memory in snapshot.behavioralObservations) {
++        lines.add('- ${memory.statement} (confiance ${(memory.confidence * 100).round()} %, ${memory.evidenceCount} indice(s))');
++      }
++    }
++    if (snapshot.goals.isNotEmpty) {
++      lines.add('Objectifs personnels à concilier avec la demande :');
++      for (final goal in snapshot.goals) {
++        lines.add('- ${goal.title}${goal.details == null ? '' : ' — ${goal.details}'}');
++      }
++    }
++    final profile = snapshot.styleProfile;
++    if (profile != null) {
++      void addList(String label, List<String> values) {
++        if (values.isNotEmpty) lines.add('$label : ${values.join(', ')}');
++      }
++      addList('Coupes préférées', profile.preferredFits);
++      if (profile.preferredFormality != null) {
++        lines.add('Formalité préférée : ${profile.preferredFormality}');
++      }
++      addList('Couleurs préférées', profile.preferredColors);
++      addList('Couleurs évitées', profile.avoidedColors);
++      addList('Styles favoris', profile.favoriteStyles);
++      addList('Contraintes professionnelles', profile.professionalConstraints);
++      addList('Contraintes climatiques', profile.climateConstraints);
++      if (profile.morphology case final analysis?) {
++        lines.add('Morphologie probable (analyse consentie, corrigeable) : ${analysis.value} — confiance ${(analysis.confidence * 100).round()} %');
++      }
++      if (profile.colorimetry case final analysis?) {
++        lines.add('Colorimétrie probable (analyse consentie, évolutive) : ${analysis.value} — confiance ${(analysis.confidence * 100).round()} %');
++      }
++    }
++    return lines.join('\n');
 +  }
 +}
 +
-+class MissingFormalShoesRule implements WardrobeGapRule {
-+  const MissingFormalShoesRule();
-+  @override
-+  String get code => 'missing_formal_shoes';
+ class WeatherPromptSection implements PromptSection {
+   const WeatherPromptSection();
+ 
+   @override
+   String get title => 'MÉTÉO';
+ 
+   @override
+   String? build(AssistantContext context) {
+     final weather = context.weather;
+     if (weather == null) return null;
+     final temperature =
+         weather.temperature == weather.temperature.roundToDouble()
+             ? weather.temperature.toInt().toString()
+             : weather.temperature.toStringAsFixed(1);
+     return 'Ville : ${weather.city}\n'
+         'Température : $temperature°C\n'
+         'Condition : ${weather.condition}';
+   }
+ }
+ 
+ class CalendarPromptSection implements PromptSection {
+   const CalendarPromptSection();
+ 
+   @override
+   String get title => 'CONTEXTE CALENDRIER';
+diff --git a/lib/features/backup/backup_file.dart b/lib/features/backup/backup_file.dart
+index a6e9df9047a2d279536d9261ff9756a36f64c32b..dc6c0a7a58b257f8a54ea54b09088f2bb4a07472 100644
+--- a/lib/features/backup/backup_file.dart
++++ b/lib/features/backup/backup_file.dart
+@@ -1,97 +1,116 @@
+ import 'dart:convert';
+ 
+ class BackupFormatException implements Exception {
+   final String message;
+   const BackupFormatException(this.message);
+ 
+   @override
+   String toString() => message;
+ }
+ 
+ class BackupFile {
+   static const currentVersion = 1;
+ 
+   final int version;
+   final DateTime createdAt;
+   final List<Map<String, Object?>> garments;
+   final List<Map<String, Object?>> images;
+   final List<Map<String, Object?>> outfits;
+   final List<Map<String, Object?>> outfitItems;
+   final List<Map<String, Object?>> wishlist;
+   final List<Map<String, Object?>> wearHistory;
++  final List<Map<String, Object?>> userMemories;
++  final List<Map<String, Object?>> userMemoryRevisions;
++  final List<Map<String, Object?>> personalGoals;
++  final List<Map<String, Object?>> styleProfiles;
+ 
+   const BackupFile({
+     required this.version,
+     required this.createdAt,
+     required this.garments,
+     required this.images,
+     required this.outfits,
+     required this.outfitItems,
+     required this.wishlist,
+     required this.wearHistory,
++    this.userMemories = const [],
++    this.userMemoryRevisions = const [],
++    this.personalGoals = const [],
++    this.styleProfiles = const [],
+   });
+ 
+   Map<String, Object?> toJson() => {
+     'version': version,
+     'createdAt': createdAt.toUtc().toIso8601String(),
+     'garments': garments,
+     'images': images,
+     'outfits': outfits,
+     'outfitItems': outfitItems,
+     'wishlist': wishlist,
+     'wearHistory': wearHistory,
++    'userMemories': userMemories,
++    'userMemoryRevisions': userMemoryRevisions,
++    'personalGoals': personalGoals,
++    'styleProfiles': styleProfiles,
+   };
+ 
+   String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
+ 
+   factory BackupFile.decode(String source) {
+     final Object? decoded;
+     try {
+       decoded = jsonDecode(source);
+     } on FormatException {
+       throw const BackupFormatException('Le fichier JSON est invalide.');
+     }
+     if (decoded is! Map<String, Object?>) {
+       throw const BackupFormatException(
+         'Le contenu de la sauvegarde est invalide.',
+       );
+     }
+     final document = decoded;
+     final version = document['version'];
+     if (version != currentVersion) {
+       throw BackupFormatException(
+         'Version de sauvegarde non prise en charge : $version.',
+       );
+     }
+     final createdAt = DateTime.tryParse(document['createdAt'] as String? ?? '');
+     if (createdAt == null) {
+       throw const BackupFormatException('La date de sauvegarde est invalide.');
+     }
+ 
+     List<Map<String, Object?>> rows(String key) {
+       final value = document[key];
+       if (value is! List) {
+         throw BackupFormatException('Section « $key » invalide.');
+       }
+       return value
+           .map((row) {
+             if (row is! Map) {
+               throw BackupFormatException('Entrée « $key » invalide.');
+             }
+             return row.map((key, value) => MapEntry(key.toString(), value));
+           })
+           .toList(growable: false);
+     }
+ 
++    List<Map<String, Object?>> optionalRows(String key) =>
++        document.containsKey(key) ? rows(key) : const [];
 +
-+  @override
-+  WardrobeGap? evaluate(WardrobeRuleContext context) {
-+    if (context.garments.isEmpty) return null;
-+    final hasFormalShoes = context.garments.any((item) {
-+      final category = _text(item.category);
-+      final type = _text('${item.sousCategorie ?? ''} ${item.typePrecis ?? ''}');
-+      final formality = _text(item.niveauFormalite);
-+      return category.contains('chauss') &&
-+          (formality.contains('formel') || formality.contains('habill') ||
-+              type.contains('richelieu') || type.contains('derby') ||
-+              type.contains('mocassin') || type.contains('escarpin'));
-+    });
-+    return hasFormalShoes ? null : const WardrobeGap(
-+      code: 'missing_formal_shoes',
-+      label: 'Chaussures habillées',
-+      explanation: 'Aucune chaussure habillée n’a été identifiée.',
-+      impact: .65,
-+    );
-+  }
-+}
-+
-+class InsufficientNeutralColorsRule implements WardrobeGapRule {
-+  final double minimumShare;
-+  const InsufficientNeutralColorsRule({this.minimumShare = .3});
-+  @override
-+  String get code => 'insufficient_neutrals';
-+
-+  @override
-+  WardrobeGap? evaluate(WardrobeRuleContext context) {
-+    if (context.colors.knownCount < 5) return null;
-+    const neutrals = {'noir', 'blanc', 'gris', 'beige', 'ecru', 'bleu marine', 'marine', 'marron'};
-+    final count = context.colors.counts.entries
-+        .where((entry) => neutrals.contains(_text(entry.key)))
-+        .fold<int>(0, (sum, entry) => sum + entry.value);
-+    final share = count / context.colors.knownCount;
-+    return share >= minimumShare ? null : WardrobeGap(
-+      code: code,
-+      label: 'Couleurs neutres',
-+      explanation: 'La base de couleurs neutres est limitée pour composer des tenues.',
-+      impact: .55,
-+      evidence: {'share': share, 'minimumShare': minimumShare},
-+    );
-+  }
-+}
-+
-+class ExcessSimilarItemsRule implements WardrobeGapRule {
-+  final int minimumGroupSize;
-+  const ExcessSimilarItemsRule({this.minimumGroupSize = 3});
-+  @override
-+  String get code => 'excess_similar_items';
-+
-+  @override
-+  WardrobeGap? evaluate(WardrobeRuleContext context) {
-+    final groups = context.duplicates
-+        .where((group) => group.garments.length >= minimumGroupSize)
-+        .toList(growable: false);
-+    if (groups.isEmpty) return null;
-+    return WardrobeGap(
-+      code: code,
-+      label: 'Pièces très similaires',
-+      explanation: 'Plusieurs vêtements remplissent le même rôle stylistique.',
-+      impact: .45,
-+      evidence: {'groupCount': groups.length, 'roles': groups.map((group) => group.role).toList()},
-+    );
-+  }
-+}
-+
-+String _text(String? value) => (value ?? '')
-+    .trim()
-+    .toLowerCase()
-+    .replaceAll(RegExp(r'[éèêë]'), 'e')
-+    .replaceAll(RegExp(r'[àâä]'), 'a')
-+    .replaceAll(RegExp(r'[îï]'), 'i')
-+    .replaceAll(RegExp(r'[ôö]'), 'o')
-+    .replaceAll(RegExp(r'[ùûü]'), 'u');
-+
-+const defaultWardrobeGapRules = <WardrobeGapRule>[
-+  MissingRainwearRule(),
-+  InsufficientWinterRule(),
-+  MissingFormalShoesRule(),
-+  InsufficientNeutralColorsRule(),
-+  ExcessSimilarItemsRule(),
-+];
+     return BackupFile(
+       version: version as int,
+       createdAt: createdAt,
+       garments: rows('garments'),
+       images: rows('images'),
+       outfits: rows('outfits'),
+       outfitItems: rows('outfitItems'),
+       wishlist: rows('wishlist'),
+       wearHistory: rows('wearHistory'),
++      userMemories: optionalRows('userMemories'),
++      userMemoryRevisions: optionalRows('userMemoryRevisions'),
++      personalGoals: optionalRows('personalGoals'),
++      styleProfiles: optionalRows('styleProfiles'),
+     );
+   }
+ }
+diff --git a/lib/features/backup/backup_service.dart b/lib/features/backup/backup_service.dart
+index ccdb3230b4e890764497af61f57e1f0c7b4758c2..b76b30f4d8e8e5b63d0582ef29a9ff551f04e5d7 100644
+--- a/lib/features/backup/backup_service.dart
++++ b/lib/features/backup/backup_service.dart
+@@ -45,31 +45,35 @@ class BackupService {
+           if (await file.exists()) {
+             final reference = 'garment:${garment['id']}';
+             images.add({
+               'reference': reference,
+               'fileName': file.uri.pathSegments.last,
+               'data': base64Encode(await file.readAsBytes()),
+             });
+             exported['image_reference'] = reference;
+           }
+         } on FileSystemException {
+           // The garment remains usable even when its image cannot be read.
+         }
+       }
+       exportedGarments.add(exported);
+     }
+ 
+     return BackupFile(
+       version: BackupFile.currentVersion,
+       createdAt: now(),
+       garments: exportedGarments,
+       images: images,
+       outfits: data['outfits'] ?? const [],
+       outfitItems: data['outfitItems'] ?? const [],
+       wishlist: data['wishlist'] ?? const [],
+       wearHistory: data['wearHistory'] ?? const [],
++      userMemories: data['userMemories'] ?? const [],
++      userMemoryRevisions: data['userMemoryRevisions'] ?? const [],
++      personalGoals: data['personalGoals'] ?? const [],
++      styleProfiles: data['styleProfiles'] ?? const [],
+     );
+   }
+ 
+   Future<void> writeBackup(BackupFile backup, String path) =>
+       File(path).writeAsString(backup.encode(), flush: true);
+ }
+diff --git a/lib/features/backup/restore_service.dart b/lib/features/backup/restore_service.dart
+index 36cbe39feaef85b86e730894bb648e413c5b4e03..2eb402a4ac0aa973419b3b7facae271101152338 100644
+--- a/lib/features/backup/restore_service.dart
++++ b/lib/features/backup/restore_service.dart
+@@ -43,29 +43,33 @@ class RestoreService {
+           base64Decode(image['data'] as String),
+           flush: true,
+         );
+         imagePaths[reference] = target.path;
+       } catch (_) {
+         // Image restoration is best-effort; relational data must still restore.
+       }
+     }
+ 
+     final garments = backup.garments
+         .map((row) {
+           final restored = Map<String, Object?>.from(row);
+           final reference = restored.remove('image_reference') as String?;
+           restored['image_path'] =
+               reference == null ? null : imagePaths[reference];
+           return restored;
+         })
+         .toList(growable: false);
+ 
+     await repository.restoreData({
+       'garments': garments,
+       'outfits': backup.outfits,
+       'outfitItems': backup.outfitItems,
+       'wishlist': backup.wishlist,
+       'wearHistory': backup.wearHistory,
++      'userMemories': backup.userMemories,
++      'userMemoryRevisions': backup.userMemoryRevisions,
++      'personalGoals': backup.personalGoals,
++      'styleProfiles': backup.styleProfiles,
+     });
+     return backup;
+   }
+ }
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 45f37cc6f0657906688eb2eae821b001e470ddb8..6147fbf1347cb8d1d7d5181cf1f7f38b411e0d92 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -1,95 +1,101 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import '../assistant/tools/assistant_tool_context_builder.dart';
+ import '../assistant/tools/outfit_tool.dart';
+ import '../assistant/tools/statistics_tool.dart';
+ import '../assistant/tools/wardrobe_tool.dart';
+ import '../assistant/tools/weather_tool.dart';
+ import '../assistant/recommendation/outfit_candidate.dart';
+ import '../assistant/recommendation/outfit_recommendation_engine.dart';
++import '../assistant/memory/database_memory_repository.dart';
++import '../assistant/memory/memory_service.dart';
+ import '../calendar/calendar_context_builder.dart';
+ import '../calendar/fake_calendar_service.dart';
+ import '../../data/database_service.dart';
+ import '../backup/backup_controller.dart';
+ import '../backup/backup_service.dart';
+ import '../backup/restore_service.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
+   late final _backupRepository = DatabaseBackupRepository(
+     DatabaseService.instance,
+   );
++  late final _memoryService = MemoryService(
++    repository: DatabaseMemoryRepository(DatabaseService.instance),
++  );
+   late final _backupController = BackupController(
+     backupService: BackupService(repository: _backupRepository),
+     restoreService: RestoreService(repository: _backupRepository),
+   );
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+       outfitsController: _assistantOutfits,
+       calendarContextBuilder: CalendarContextBuilder(
+         service: FakeCalendarService(),
+       ),
++      memoryService: _memoryService,
+     ),
+     toolContextBuilder: AssistantToolContextBuilder(
+       tools: [
+         WeatherTool(weatherService: widget.weatherService),
+         WardrobeTool(controller: _assistantWardrobe),
+         OutfitTool(controller: _assistantOutfits),
+         StatisticsTool(controller: _assistantWardrobe),
+       ],
+     ),
+     llmProvider: _openAiProvider,
+     recommendationEngine: OutfitRecommendationEngine(
+       candidateSource:
+           () async => _assistantWardrobe.garments
+               .map(OutfitCandidate.fromGarment)
+               .toList(growable: false),
+     ),
+   );
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _assistantOutfits.dispose();
+     _aiSettings.dispose();
+     _backupController.dispose();
+     super.dispose();

@@ -42,6 +42,7 @@ class PromptBuilder {
 
   static const List<PromptSection> _defaultSections = [
     SystemPromptSection(),
+    PersonalizationPromptSection(),
     CalendarPromptSection(),
     WeatherPromptSection(),
     WardrobePromptSection(),

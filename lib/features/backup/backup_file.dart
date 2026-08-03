@@ -19,6 +19,10 @@ class BackupFile {
   final List<Map<String, Object?>> outfitItems;
   final List<Map<String, Object?>> wishlist;
   final List<Map<String, Object?>> wearHistory;
+  final List<Map<String, Object?>> userMemories;
+  final List<Map<String, Object?>> userMemoryRevisions;
+  final List<Map<String, Object?>> personalGoals;
+  final List<Map<String, Object?>> styleProfiles;
 
   const BackupFile({
     required this.version,
@@ -29,6 +33,10 @@ class BackupFile {
     required this.outfitItems,
     required this.wishlist,
     required this.wearHistory,
+    this.userMemories = const [],
+    this.userMemoryRevisions = const [],
+    this.personalGoals = const [],
+    this.styleProfiles = const [],
   });
 
   Map<String, Object?> toJson() => {
@@ -40,6 +48,10 @@ class BackupFile {
     'outfitItems': outfitItems,
     'wishlist': wishlist,
     'wearHistory': wearHistory,
+    'userMemories': userMemories,
+    'userMemoryRevisions': userMemoryRevisions,
+    'personalGoals': personalGoals,
+    'styleProfiles': styleProfiles,
   };
 
   String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
@@ -83,6 +95,9 @@ class BackupFile {
           .toList(growable: false);
     }
 
+    List<Map<String, Object?>> optionalRows(String key) =>
+        document.containsKey(key) ? rows(key) : const [];
+
     return BackupFile(
       version: version as int,
       createdAt: createdAt,
@@ -92,6 +107,10 @@ class BackupFile {
       outfitItems: rows('outfitItems'),
       wishlist: rows('wishlist'),
       wearHistory: rows('wearHistory'),
+      userMemories: optionalRows('userMemories'),
+      userMemoryRevisions: optionalRows('userMemoryRevisions'),
+      personalGoals: optionalRows('personalGoals'),
+      styleProfiles: optionalRows('styleProfiles'),
     );
   }
 }

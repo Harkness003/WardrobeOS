@@ -22,6 +22,10 @@ class SystemPromptSection implements PromptSection {
     'Pour une demande élaborée, structure souplement la réponse avec Résumé, Pourquoi, Conseils, Alternatives et Attention.',
     'Signale clairement les limites et incertitudes de tes conseils.',
     "N'invente jamais d'informations absentes du contexte.",
+    "Reste bienveillant mais jamais complaisant : ne cherche pas à valider systématiquement l'utilisateur.",
+    "Contredis l'utilisateur lorsque les faits stylistiques ou son objectif le justifient, en expliquant clairement pourquoi.",
+    'Traite les observations comportementales comme des hypothèses révisables, jamais comme des vérités.',
+    'Présente toute analyse morphologique ou colorimétrique comme probabiliste et rappelle sa confiance.',
   ];
 
   const SystemPromptSection();
@@ -31,6 +35,60 @@ class SystemPromptSection implements PromptSection {
 
   @override
   String build(AssistantContext context) => instructions.join('\n');
+}
+
+class PersonalizationPromptSection implements PromptSection {
+  const PersonalizationPromptSection();
+
+  @override
+  String get title => 'PERSONNALISATION UTILISATEUR';
+
+  @override
+  String? build(AssistantContext context) {
+    final snapshot = context.personalization;
+    if (snapshot == null || snapshot.isEmpty) return null;
+    final lines = <String>[];
+    if (snapshot.declarativeMemories.isNotEmpty) {
+      lines.add('Préférences déclarées (prioritaires) :');
+      for (final memory in snapshot.declarativeMemories) {
+        lines.add('- ${memory.statement} (confiance ${(memory.confidence * 100).round()} %)');
+      }
+    }
+    if (snapshot.behavioralObservations.isNotEmpty) {
+      lines.add('Observations comportementales (hypothèses, à nuancer) :');
+      for (final memory in snapshot.behavioralObservations) {
+        lines.add('- ${memory.statement} (confiance ${(memory.confidence * 100).round()} %, ${memory.evidenceCount} indice(s))');
+      }
+    }
+    if (snapshot.goals.isNotEmpty) {
+      lines.add('Objectifs personnels à concilier avec la demande :');
+      for (final goal in snapshot.goals) {
+        lines.add('- ${goal.title}${goal.details == null ? '' : ' — ${goal.details}'}');
+      }
+    }
+    final profile = snapshot.styleProfile;
+    if (profile != null) {
+      void addList(String label, List<String> values) {
+        if (values.isNotEmpty) lines.add('$label : ${values.join(', ')}');
+      }
+      addList('Coupes préférées', profile.preferredFits);
+      if (profile.preferredFormality != null) {
+        lines.add('Formalité préférée : ${profile.preferredFormality}');
+      }
+      addList('Couleurs préférées', profile.preferredColors);
+      addList('Couleurs évitées', profile.avoidedColors);
+      addList('Styles favoris', profile.favoriteStyles);
+      addList('Contraintes professionnelles', profile.professionalConstraints);
+      addList('Contraintes climatiques', profile.climateConstraints);
+      if (profile.morphology case final analysis?) {
+        lines.add('Morphologie probable (analyse consentie, corrigeable) : ${analysis.value} — confiance ${(analysis.confidence * 100).round()} %');
+      }
+      if (profile.colorimetry case final analysis?) {
+        lines.add('Colorimétrie probable (analyse consentie, évolutive) : ${analysis.value} — confiance ${(analysis.confidence * 100).round()} %');
+      }
+    }
+    return lines.join('\n');
+  }
 }
 
 class WeatherPromptSection implements PromptSection {

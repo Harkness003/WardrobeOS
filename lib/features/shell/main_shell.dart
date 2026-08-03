@@ -22,6 +22,8 @@ import '../assistant/tools/wardrobe_tool.dart';
 import '../assistant/tools/weather_tool.dart';
 import '../assistant/recommendation/outfit_candidate.dart';
 import '../assistant/recommendation/outfit_recommendation_engine.dart';
+import '../assistant/memory/database_memory_repository.dart';
+import '../assistant/memory/memory_service.dart';
 import '../calendar/calendar_context_builder.dart';
 import '../calendar/fake_calendar_service.dart';
 import '../../data/database_service.dart';
@@ -56,6 +58,9 @@ class _MainShellState extends State<MainShell> {
   late final _backupRepository = DatabaseBackupRepository(
     DatabaseService.instance,
   );
+  late final _memoryService = MemoryService(
+    repository: DatabaseMemoryRepository(DatabaseService.instance),
+  );
   late final _backupController = BackupController(
     backupService: BackupService(repository: _backupRepository),
     restoreService: RestoreService(repository: _backupRepository),
@@ -68,6 +73,7 @@ class _MainShellState extends State<MainShell> {
       calendarContextBuilder: CalendarContextBuilder(
         service: FakeCalendarService(),
       ),
+      memoryService: _memoryService,
     ),
     toolContextBuilder: AssistantToolContextBuilder(
       tools: [

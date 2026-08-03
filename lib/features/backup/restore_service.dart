@@ -65,6 +65,10 @@ class RestoreService {
       'outfitItems': backup.outfitItems,
       'wishlist': backup.wishlist,
       'wearHistory': backup.wearHistory,
+      'userMemories': backup.userMemories,
+      'userMemoryRevisions': backup.userMemoryRevisions,
+      'personalGoals': backup.personalGoals,
+      'styleProfiles': backup.styleProfiles,
     });
     return backup;
   }

@@ -67,6 +67,10 @@ class BackupService {
       outfitItems: data['outfitItems'] ?? const [],
       wishlist: data['wishlist'] ?? const [],
       wearHistory: data['wearHistory'] ?? const [],
+      userMemories: data['userMemories'] ?? const [],
+      userMemoryRevisions: data['userMemoryRevisions'] ?? const [],
+      personalGoals: data['personalGoals'] ?? const [],
+      styleProfiles: data['styleProfiles'] ?? const [],
     );
   }
 

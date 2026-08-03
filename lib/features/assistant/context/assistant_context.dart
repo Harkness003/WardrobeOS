@@ -1,4 +1,5 @@
 import '../../calendar/calendar_context_builder.dart';
+import '../memory/personalization_snapshot.dart';
 
 class AssistantContext {
   final CalendarContext? calendar;
@@ -6,6 +7,7 @@ class AssistantContext {
   final AssistantStatistics statistics;
   final AssistantHistory history;
   final AssistantDate date;
+  final PersonalizationSnapshot? personalization;
 
   const AssistantContext({
     this.calendar,
@@ -13,6 +15,7 @@ class AssistantContext {
     required this.statistics,
     required this.history,
     required this.date,
+    this.personalization,
   });
 }
 

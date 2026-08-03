@@ -16,7 +16,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 8,
+      version: 9,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -100,6 +100,7 @@ class DatabaseService {
         ''');
         await _createWearHistoryTable(db);
         await _createOutfitTables(db);
+        await _createPersonalizationTables(db);
         await _createIndexes(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -199,6 +200,7 @@ class DatabaseService {
             WHERE layer_type IS NULL
           ''');
         }
+        if (oldVersion < 9) await _createPersonalizationTables(db);
         await _createIndexes(db);
       },
     );
@@ -240,6 +242,60 @@ class DatabaseService {
     ''');
   }
 
+  Future<void> _createPersonalizationTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS user_memories(
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        statement TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        evidence_count INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS user_memory_revisions(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id TEXT NOT NULL,
+        statement TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        recorded_at TEXT NOT NULL,
+        FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS personal_goals(
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        details TEXT,
+        priority REAL NOT NULL DEFAULT 0.5,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS style_profiles(
+        id TEXT PRIMARY KEY,
+        preferred_fits TEXT NOT NULL DEFAULT '[]',
+        preferred_formality TEXT,
+        preferred_colors TEXT NOT NULL DEFAULT '[]',
+        avoided_colors TEXT NOT NULL DEFAULT '[]',
+        favorite_styles TEXT NOT NULL DEFAULT '[]',
+        professional_constraints TEXT NOT NULL DEFAULT '[]',
+        climate_constraints TEXT NOT NULL DEFAULT '[]',
+        morphology_consent INTEGER NOT NULL DEFAULT 0,
+        morphology TEXT,
+        colorimetry_consent INTEGER NOT NULL DEFAULT 0,
+        colorimetry TEXT,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
   Future<void> _addColumn(
     Database db,
     String table,
@@ -271,6 +327,12 @@ class DatabaseService {
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_outfit_items_garment ON outfit_items(garment_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_user_memories_kind ON user_memories(kind, status)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_memory_revisions_memory ON user_memory_revisions(memory_id)',
     );
   }
 
@@ -639,6 +701,10 @@ class DatabaseService {
         // Wishlist V1 is currently UI-only and therefore has no persisted rows.
         'wishlist': <Map<String, Object?>>[],
         'wearHistory': await txn.query('wear_history'),
+        'userMemories': await txn.query('user_memories'),
+        'userMemoryRevisions': await txn.query('user_memory_revisions'),
+        'personalGoals': await txn.query('personal_goals'),
+        'styleProfiles': await txn.query('style_profiles'),
       },
     );
   }
@@ -653,6 +719,10 @@ class DatabaseService {
       await txn.delete('wear_history');
       await txn.delete('outfits');
       await txn.delete('garments');
+      await txn.delete('user_memory_revisions');
+      await txn.delete('user_memories');
+      await txn.delete('personal_goals');
+      await txn.delete('style_profiles');
 
       for (final row in data['garments']!) {
         await txn.insert('garments', row);
@@ -665,6 +735,18 @@ class DatabaseService {
       }
       for (final row in data['wearHistory']!) {
         await txn.insert('wear_history', row);
+      }
+      for (final row in data['userMemories'] ?? const []) {
+        await txn.insert('user_memories', row);
+      }
+      for (final row in data['userMemoryRevisions'] ?? const []) {
+        await txn.insert('user_memory_revisions', row);
+      }
+      for (final row in data['personalGoals'] ?? const []) {
+        await txn.insert('personal_goals', row);
+      }
+      for (final row in data['styleProfiles'] ?? const []) {
+        await txn.insert('style_profiles', row);
       }
     });
   }
