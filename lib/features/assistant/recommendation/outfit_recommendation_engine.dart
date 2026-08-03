@@ -1,3 +1,5 @@
+import '../../../core/recommendation/recommendation_context.dart';
+import '../../../core/recommendation/recommendation_engine.dart';
 import 'outfit_candidate.dart';
 import 'outfit_recommendation_request.dart';
 import 'outfit_recommendation_result.dart';
@@ -5,87 +7,75 @@ import 'outfit_recommendation_result.dart';
 typedef OutfitCandidateSource = Future<List<OutfitCandidate>> Function();
 typedef RecommendationClock = DateTime Function();
 
+/// Adaptateur historique de l'assistant vers le moteur central.
+///
+/// Il reste volontairement sans logique de score afin que tous les points
+/// d'entrée de l'application utilisent les mêmes règles métier.
 class OutfitRecommendationEngine {
   final OutfitCandidateSource _candidateSource;
-  final RecommendationClock _clock;
+  final RecommendationEngine _engine;
   final int maximumCandidates;
-  final Duration recentWearWindow;
 
   OutfitRecommendationEngine({
     required OutfitCandidateSource candidateSource,
     RecommendationClock clock = DateTime.now,
+    RecommendationEngine engine = const RecommendationEngine(),
     this.maximumCandidates = 12,
-    this.recentWearWindow = const Duration(days: 2),
+    Duration recentWearWindow = const Duration(days: 2),
   }) : _candidateSource = candidateSource,
-       _clock = clock,
+       _engine = engine,
        assert(maximumCandidates >= 0),
        assert(!recentWearWindow.isNegative);
 
   Future<OutfitRecommendationResult> recommend(
     OutfitRecommendationRequest request,
   ) async {
-    final now = _clock();
-    final candidates =
-        (await _candidateSource())
-            .where((candidate) => candidate.isAvailable)
-            .where((candidate) => _matchesCategory(candidate, request))
-            .where((candidate) => _matchesSeason(candidate, request.season))
-            .where((candidate) => !_wasWornRecently(candidate, now))
-            .toList();
-
-    candidates.sort(
-      (left, right) =>
-          _score(right, request, now).compareTo(_score(left, request, now)),
+    final candidates = (await _candidateSource())
+        .where((candidate) => candidate.isAvailable)
+        .where(
+          (candidate) => request.requestedCategory == null ||
+              _normalize(candidate.category).contains(
+                _normalize(request.requestedCategory!),
+              ),
+        )
+        .where(
+          (candidate) => request.season == null ||
+              candidate.season == null ||
+              _normalize(candidate.season!).contains('toute') ||
+              _normalize(candidate.season!).contains(_normalize(request.season!)),
+        )
+        .toList();
+    final byId = {for (final candidate in candidates) candidate.id: candidate};
+    final result = _engine.recommend(
+      wardrobe: candidates.map((candidate) => candidate.garment),
+      context: RecommendationContext(
+        season: request.season,
+        occasion: request.occasion,
+        desiredStyle: request.desiredStyle,
+        weather: request.weather == null
+            ? null
+            : RecommendationWeather(
+                temperature: request.weather!.temperature,
+                condition: request.weather!.condition,
+                isRaining: _isRain(request.weather!.condition),
+              ),
+        isTravel: _normalize(request.userIntent).contains('voyage'),
+        metadata: request.metadata,
+      ),
+      alternativeCount: maximumCandidates == 0 ? 0 : maximumCandidates - 1,
     );
     return OutfitRecommendationResult(
       request: request,
-      candidates: candidates.take(maximumCandidates),
+      candidates: result.choices
+          .map((choice) => byId[choice.garment.id])
+          .whereType<OutfitCandidate>(),
+      recommendation: result,
     );
   }
 
-  bool _matchesCategory(
-    OutfitCandidate candidate,
-    OutfitRecommendationRequest request,
-  ) {
-    final requested = request.requestedCategory;
-    return requested == null ||
-        _normalize(candidate.category).contains(_normalize(requested));
-  }
-
-  bool _matchesSeason(OutfitCandidate candidate, String? requestedSeason) {
-    final season = _normalize(candidate.season ?? '');
-    if (season.isEmpty || season.contains('toute')) return true;
-    return requestedSeason == null ||
-        season.contains(_normalize(requestedSeason));
-  }
-
-  bool _wasWornRecently(OutfitCandidate candidate, DateTime now) {
-    final lastWorn = candidate.lastWorn;
-    return lastWorn != null && now.difference(lastWorn) < recentWearWindow;
-  }
-
-  int _score(
-    OutfitCandidate candidate,
-    OutfitRecommendationRequest request,
-    DateTime now,
-  ) {
-    var score = 100 - candidate.wearCount.clamp(0, 100).toInt();
-    if (candidate.lastWorn == null) score += 40;
-    if (candidate.lastWorn != null) {
-      score += now.difference(candidate.lastWorn!).inDays.clamp(0, 60).toInt();
-    }
-    final category = _normalize(candidate.category);
-    if (request.weather?.isCold ?? false) {
-      if (['manteau', 'veste', 'pull', 'pantalon'].any(category.contains)) {
-        score += 50;
-      }
-    }
-    if (request.weather?.isHot ?? false) {
-      if (['short', 'robe', 't shirt', 'haut'].any(category.contains)) {
-        score += 50;
-      }
-    }
-    return score;
+  bool _isRain(String? condition) {
+    final value = _normalize(condition ?? '');
+    return value.contains('pluie') || value.contains('averse');
   }
 
   String _normalize(String value) => value

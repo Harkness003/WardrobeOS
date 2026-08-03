@@ -1,0 +1,673 @@
+diff --git a/lib/core/recommendation/recommendation_context.dart b/lib/core/recommendation/recommendation_context.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..f668095d9932a244695ca4b03d1934d188813190
+--- /dev/null
++++ b/lib/core/recommendation/recommendation_context.dart
+@@ -0,0 +1,72 @@
++class RecommendationWeather {
++  final double? temperature;
++  final bool? isRaining;
++  final String? condition;
++
++  const RecommendationWeather({
++    this.temperature,
++    this.isRaining,
++    this.condition,
++  });
++}
++
++/// Contexte indépendant de toute interface, extensible par [metadata] pour les
++/// futurs agenda, voyage, packing list, achats et notifications.
++class RecommendationContext {
++  final String? season;
++  final String? occasion;
++  final String? desiredStyle;
++  final RecommendationWeather? weather;
++  final bool isTravel;
++  final Map<String, Object?> metadata;
++
++  const RecommendationContext({
++    this.season,
++    this.occasion,
++    this.desiredStyle,
++    this.weather,
++    this.isTravel = false,
++    this.metadata = const {},
++  });
++}
++
++class RecommendationPreferences {
++  final Set<String> preferredStyles;
++  final Set<String> preferredColors;
++  final Set<String> avoidedMaterials;
++
++  const RecommendationPreferences({
++    this.preferredStyles = const {},
++    this.preferredColors = const {},
++    this.avoidedMaterials = const {},
++  });
++}
++
++/// Corrections explicites prioritaires sur les informations issues de l'IA.
++class GarmentRecommendationCorrection {
++  final String garmentId;
++  final String? style;
++  final String? formality;
++  final List<String>? seasons;
++  final List<String>? occasions;
++  final String? color;
++  final String? material;
++  final double? minimumTemperature;
++  final double? maximumTemperature;
++  final bool? rainCompatible;
++  final bool? layerable;
++
++  const GarmentRecommendationCorrection({
++    required this.garmentId,
++    this.style,
++    this.formality,
++    this.seasons,
++    this.occasions,
++    this.color,
++    this.material,
++    this.minimumTemperature,
++    this.maximumTemperature,
++    this.rainCompatible,
++    this.layerable,
++  });
++}
+diff --git a/lib/core/recommendation/recommendation_engine.dart b/lib/core/recommendation/recommendation_engine.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..02167dd8afd6511a29935ea96382dca15bf2390a
+--- /dev/null
++++ b/lib/core/recommendation/recommendation_engine.dart
+@@ -0,0 +1,228 @@
++import '../../models/garment.dart';
++import 'recommendation_context.dart';
++import 'recommendation_result.dart';
++import 'recommendation_rotation_policy.dart';
++import 'recommendation_weights.dart';
++
++class RecommendationEngine {
++  final RecommendationWeights weights;
++  final RecommendationRotationPolicy rotationPolicy;
++
++  const RecommendationEngine({
++    this.weights = const RecommendationWeights(),
++    this.rotationPolicy = const NoRecommendationRotation(),
++  });
++
++  RecommendationResult recommend({
++    required Iterable<Garment> wardrobe,
++    Garment? anchor,
++    RecommendationContext context = const RecommendationContext(),
++    RecommendationPreferences preferences = const RecommendationPreferences(),
++    Iterable<GarmentRecommendationCorrection> corrections = const [],
++    int alternativeCount = 3,
++  }) {
++    assert(alternativeCount >= 0);
++    final correctionById = {
++      for (final correction in corrections) correction.garmentId: correction,
++    };
++    final ranked = wardrobe
++        .where((garment) => garment.id != anchor?.id)
++        .map(
++          (garment) => _evaluate(
++            garment,
++            anchor: anchor,
++            context: context,
++            preferences: preferences,
++            correction: correctionById[garment.id],
++            anchorCorrection:
++                anchor == null ? null : correctionById[anchor.id],
++          ),
++        )
++        .toList()
++      ..sort((left, right) {
++        final scoreOrder = right.score.compareTo(left.score);
++        return scoreOrder != 0
++            ? scoreOrder
++            : left.garment.name.compareTo(right.garment.name);
++      });
++    final choices = ranked.take(alternativeCount + 1).toList();
++    return RecommendationResult(
++      choices: choices,
++      explanation: choices.isEmpty
++          ? 'Aucun vêtement disponible ne permet de formuler une recommandation.'
++          : 'Les choix sont classés selon leur compatibilité stylistique et le contexte disponible.',
++    );
++  }
++
++  RankedGarmentRecommendation _evaluate(
++    Garment garment, {
++    required Garment? anchor,
++    required RecommendationContext context,
++    required RecommendationPreferences preferences,
++    required GarmentRecommendationCorrection? correction,
++    required GarmentRecommendationCorrection? anchorCorrection,
++  }) {
++    final candidate = _Profile(garment, correction);
++    final base = anchor == null ? null : _Profile(anchor, anchorCorrection);
++    final details = <RecommendationCriterionScore>[
++      _detail('style', weights.style, _style(candidate, base, context, preferences)),
++      _detail('formalité', weights.formality, _same(candidate.formality, base?.formality)),
++      _detail('saison', weights.season, _season(candidate, context)),
++      _detail('température', weights.temperature, _temperature(candidate, context)),
++      _detail('couleurs', weights.color, _color(candidate, base, preferences)),
++      _detail('matières', weights.material, _material(candidate, base, preferences)),
++      _detail('superposition', weights.layering, _layering(candidate, base)),
++      _detail('occasion', weights.occasion, _occasion(candidate, context)),
++    ];
++    final weighted = details.fold<double>(
++      0,
++      (sum, detail) => sum + detail.score * detail.weight,
++    );
++    final raw = weights.total == 0 ? 0 : weighted / weights.total;
++    final adjusted = raw + rotationPolicy.scoreAdjustment(garment, context);
++    final score = (adjusted * 100).round().clamp(0, 100).toInt();
++    return RankedGarmentRecommendation(
++      garment: garment,
++      score: score,
++      explanation: _explain(candidate, base, context, details, score),
++      details: details,
++    );
++  }
++
++  RecommendationCriterionScore _detail(String name, double weight, double score) =>
++      RecommendationCriterionScore(criterion: name, score: score, weight: weight);
++
++  double _style(_Profile item, _Profile? anchor, RecommendationContext context,
++      RecommendationPreferences preferences) {
++    final desired = _normalize(context.desiredStyle);
++    if (desired.isNotEmpty) return item.styles.contains(desired) ? 1 : .35;
++    if (anchor != null && item.styles.intersection(anchor.styles).isNotEmpty) return 1;
++    if (item.styles.any(preferences.preferredStyles.map(_normalize).contains)) return .85;
++    return item.styles.isEmpty ? .65 : .55;
++  }
++
++  double _same(String? left, String? right) {
++    final a = _normalize(left);
++    final b = _normalize(right);
++    if (a.isEmpty || b.isEmpty) return .65;
++    return a == b ? 1 : .3;
++  }
++
++  double _season(_Profile item, RecommendationContext context) {
++    final season = _normalize(context.season);
++    if (season.isEmpty || item.seasons.isEmpty) return .7;
++    return item.seasons.contains(season) ? 1 : .15;
++  }
++
++  double _temperature(_Profile item, RecommendationContext context) {
++    final temperature = context.weather?.temperature;
++    if (temperature == null) return .7;
++    if (item.minimumTemperature != null && temperature < item.minimumTemperature!) {
++      return (1 - (item.minimumTemperature! - temperature) / 15)
++          .clamp(0, 1)
++          .toDouble();
++    }
++    if (item.maximumTemperature != null && temperature > item.maximumTemperature!) {
++      return (1 - (temperature - item.maximumTemperature!) / 15)
++          .clamp(0, 1)
++          .toDouble();
++    }
++    if (context.weather?.isRaining == true && item.rainCompatible == false) return .2;
++    return 1;
++  }
++
++  double _color(_Profile item, _Profile? anchor, RecommendationPreferences preferences) {
++    if (preferences.preferredColors.map(_normalize).contains(item.color)) return 1;
++    if (anchor == null || item.color.isEmpty || anchor.color.isEmpty) return .7;
++    if (item.compatibleColors.contains(anchor.color) ||
++        anchor.compatibleColors.contains(item.color)) return 1;
++    if (item.incompatibleColors.contains(anchor.color)) return .15;
++    const neutrals = {'noir', 'blanc', 'gris', 'beige', 'marine', 'bleu marine'};
++    return neutrals.contains(item.color) || neutrals.contains(anchor.color) ? .9 : .6;
++  }
++
++  double _material(_Profile item, _Profile? anchor, RecommendationPreferences preferences) {
++    if (preferences.avoidedMaterials.map(_normalize).contains(item.material)) return 0;
++    if (anchor == null || item.material.isEmpty || anchor.material.isEmpty) return .7;
++    return item.material == anchor.material ? .85 : .75;
++  }
++
++  double _layering(_Profile item, _Profile? anchor) {
++    if (anchor == null) return item.layerable == false ? .6 : .8;
++    if (item.layerType.isEmpty || anchor.layerType.isEmpty) return .65;
++    if (item.layerType == anchor.layerType) return .35;
++    return item.layerable == false && anchor.layerable == false ? .35 : 1;
++  }
++
++  double _occasion(_Profile item, RecommendationContext context) {
++    final occasion = _normalize(context.occasion);
++    if (occasion.isEmpty || item.occasions.isEmpty) return .7;
++    if (item.discouragedOccasions.contains(occasion)) return 0;
++    return item.occasions.contains(occasion) ? 1 : .3;
++  }
++
++  String _explain(_Profile item, _Profile? anchor, RecommendationContext context,
++      List<RecommendationCriterionScore> details, int score) {
++    final temperature = context.weather?.temperature;
++    if (temperature != null && item.maximumTemperature != null &&
++        temperature > item.maximumTemperature! + 5) {
++      return '${item.garment.name} est déconseillé car la température prévue dépasse largement sa plage idéale.';
++    }
++    if (context.weather?.isRaining == true && item.rainCompatible == false) {
++      return '${item.garment.name} est peu conseillé sous la pluie car il n’est pas déclaré compatible.';
++    }
++    final best = details.reduce((a, b) => a.score > b.score ? a : b);
++    if (anchor != null && item.styles.intersection(anchor.styles).isNotEmpty) {
++      final style = item.styles.intersection(anchor.styles).first;
++      return '${item.garment.name} fonctionne avec ${anchor.garment.name} : ils partagent le registre ${_label(style)} (score $score %).';
++    }
++    return '${item.garment.name} obtient $score % grâce principalement à sa compatibilité ${best.criterion} avec le contexte disponible.';
++  }
++
++  static String _normalize(String? value) => (value ?? '')
++      .trim().toLowerCase()
++      .replaceAll(RegExp(r'[àáâä]'), 'a')
++      .replaceAll(RegExp(r'[éèêë]'), 'e')
++      .replaceAll(RegExp(r'[îï]'), 'i')
++      .replaceAll(RegExp(r'[ôö]'), 'o')
++      .replaceAll(RegExp(r'[ùûü]'), 'u')
++      .replaceAll('ç', 'c');
++
++  static String _label(String value) => value
++      .split(' ')
++      .map((word) => word.isEmpty ? word : '${word[0].toUpperCase()}${word.substring(1)}')
++      .join(' ');
++}
++
++class _Profile {
++  final Garment garment;
++  final GarmentRecommendationCorrection? correction;
++  _Profile(this.garment, this.correction);
++
++  Set<String> get styles => {
++    correction?.style,
++    if (correction?.style == null) garment.stylePrincipal,
++    if (correction?.style == null) garment.style,
++    if (correction?.style == null) ...?garment.stylesSecondaires,
++  }.map(RecommendationEngine._normalize).where((value) => value.isNotEmpty).toSet();
++  String? get formality => correction?.formality ?? garment.niveauFormalite;
++  Set<String> get seasons => (correction?.seasons ?? garment.effectiveSeasons)
++      .map(RecommendationEngine._normalize).toSet();
++  Set<String> get occasions => (correction?.occasions ?? garment.effectiveOccasions)
++      .map(RecommendationEngine._normalize).toSet();
++  String get color => RecommendationEngine._normalize(
++      correction?.color ?? garment.couleurPrincipale ?? garment.color);
++  String get material => RecommendationEngine._normalize(
++      correction?.material ?? garment.matierePrincipale ?? garment.material);
++  Set<String> get compatibleColors => (garment.couleursCompatibles ?? const [])
++      .map(RecommendationEngine._normalize).toSet();
++  Set<String> get incompatibleColors => (garment.couleursMoinsAdaptees ?? const [])
++      .map(RecommendationEngine._normalize).toSet();
++  Set<String> get discouragedOccasions => (garment.occasionsDeconseillees ?? const [])
++      .map(RecommendationEngine._normalize).toSet();
++  double? get minimumTemperature => correction?.minimumTemperature ?? garment.temperatureMinimum;
++  double? get maximumTemperature => correction?.maximumTemperature ?? garment.temperatureMaximum;
++  bool? get rainCompatible => correction?.rainCompatible ?? garment.compatiblePluie;
++  bool? get layerable => correction?.layerable ?? garment.superposable;
++  String get layerType => RecommendationEngine._normalize(garment.layerType);
++}
+diff --git a/lib/core/recommendation/recommendation_result.dart b/lib/core/recommendation/recommendation_result.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..d8dfdc4675422e19823ecc028d4f3325702ee99d
+--- /dev/null
++++ b/lib/core/recommendation/recommendation_result.dart
+@@ -0,0 +1,48 @@
++import '../../models/garment.dart';
++
++class RecommendationCriterionScore {
++  final String criterion;
++  final double score;
++  final double weight;
++
++  const RecommendationCriterionScore({
++    required this.criterion,
++    required this.score,
++    required this.weight,
++  });
++}
++
++class RankedGarmentRecommendation {
++  final Garment garment;
++  final int score;
++  final String explanation;
++  final List<RecommendationCriterionScore> details;
++
++  RankedGarmentRecommendation({
++    required this.garment,
++    required this.score,
++    required this.explanation,
++    required Iterable<RecommendationCriterionScore> details,
++  }) : details = List.unmodifiable(details),
++       assert(score >= 0 && score <= 100),
++       assert(explanation != '');
++}
++
++/// Le premier élément est le meilleur choix, les suivants ses alternatives
++/// triées. Même une liste vide conserve une explication exploitable par l'appelant.
++class RecommendationResult {
++  final List<RankedGarmentRecommendation> choices;
++  final String explanation;
++
++  RecommendationResult({
++    required Iterable<RankedGarmentRecommendation> choices,
++    required this.explanation,
++  }) : choices = List.unmodifiable(choices),
++       assert(explanation != '');
++
++  RankedGarmentRecommendation? get bestChoice =>
++      choices.isEmpty ? null : choices.first;
++
++  List<RankedGarmentRecommendation> get alternatives =>
++      choices.length < 2 ? const [] : List.unmodifiable(choices.skip(1));
++}
+diff --git a/lib/core/recommendation/recommendation_rotation_policy.dart b/lib/core/recommendation/recommendation_rotation_policy.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..716c4b278a6acf0665752d0e0f5c60f78e4acd58
+--- /dev/null
++++ b/lib/core/recommendation/recommendation_rotation_policy.dart
+@@ -0,0 +1,15 @@
++import '../../models/garment.dart';
++import 'recommendation_context.dart';
++
++/// Point d'extension pour l'historique, la fréquence et les rotations.
++/// Aucun comportement de rotation n'est appliqué dans ce sprint.
++abstract interface class RecommendationRotationPolicy {
++  double scoreAdjustment(Garment garment, RecommendationContext context);
++}
++
++class NoRecommendationRotation implements RecommendationRotationPolicy {
++  const NoRecommendationRotation();
++
++  @override
++  double scoreAdjustment(Garment garment, RecommendationContext context) => 0;
++}
+diff --git a/lib/core/recommendation/recommendation_weights.dart b/lib/core/recommendation/recommendation_weights.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..6936399e7c46090d8ee906319827c0610bc746f7
+--- /dev/null
++++ b/lib/core/recommendation/recommendation_weights.dart
+@@ -0,0 +1,43 @@
++/// Coefficients de compatibilité utilisés par tout le moteur.
++///
++/// Leur somme vaut 100 afin que le score final soit directement exprimé en
++/// pourcentage. Une configuration différente peut être injectée sans modifier
++/// les règles métier.
++class RecommendationWeights {
++  final double style;
++  final double formality;
++  final double season;
++  final double temperature;
++  final double color;
++  final double material;
++  final double layering;
++  final double occasion;
++
++  const RecommendationWeights({
++    this.style = 18,
++    this.formality = 14,
++    this.season = 12,
++    this.temperature = 14,
++    this.color = 16,
++    this.material = 8,
++    this.layering = 8,
++    this.occasion = 10,
++  }) : assert(style >= 0),
++       assert(formality >= 0),
++       assert(season >= 0),
++       assert(temperature >= 0),
++       assert(color >= 0),
++       assert(material >= 0),
++       assert(layering >= 0),
++       assert(occasion >= 0);
++
++  double get total =>
++      style +
++      formality +
++      season +
++      temperature +
++      color +
++      material +
++      layering +
++      occasion;
++}
+diff --git a/lib/features/assistant/recommendation/outfit_candidate.dart b/lib/features/assistant/recommendation/outfit_candidate.dart
+index ca417a257a228d22a3823357545aa57dcc863a09..4d9f1036353b0d8b45d96235db1ed4c03ee624c3 100644
+--- a/lib/features/assistant/recommendation/outfit_candidate.dart
++++ b/lib/features/assistant/recommendation/outfit_candidate.dart
+@@ -1,43 +1,58 @@
+ import '../../../models/garment.dart';
+ 
+ class OutfitCandidate {
++  final Garment? sourceGarment;
+   final String id;
+   final String name;
+   final String category;
+   final String? color;
+   final String? season;
+   final int wearCount;
+   final DateTime? lastWorn;
+   final bool isAvailable;
+ 
+   const OutfitCandidate({
++    this.sourceGarment,
+     required this.id,
+     required this.name,
+     required this.category,
+     this.color,
+     this.season,
+     this.wearCount = 0,
+     this.lastWorn,
+     this.isAvailable = true,
+   });
+ 
++  Garment get garment => sourceGarment ?? Garment(
++    id: id,
++    name: name,
++    category: category,
++    color: color,
++    season: season,
++    wearCount: wearCount,
++    lastWorn: lastWorn,
++    createdAt: DateTime.fromMillisecondsSinceEpoch(0),
++    updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
++  );
++
+   factory OutfitCandidate.fromGarment(Garment garment) => OutfitCandidate(
++    sourceGarment: garment,
+     id: garment.id,
+     name: garment.name,
+     category: garment.category,
+     color: garment.color,
+     season: garment.effectiveSeasons.join(', '),
+     wearCount: garment.wearCount,
+     lastWorn: garment.lastWorn,
+   );
+ 
+   Map<String, Object?> toMap() => {
+     'id': id,
+     'nom': name,
+     'catégorie': category,
+     'couleur': color,
+     'saison': season,
+     'fréquenceDePort': wearCount,
+     'dernièreUtilisation': lastWorn?.toIso8601String(),
+   };
+ }
+diff --git a/lib/features/assistant/recommendation/outfit_recommendation_engine.dart b/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
+index 29ab67334f8c69eb2301efaf8657330770580c47..23297b6bb65c1605c7e4106e7f578d43d88b2b4a 100644
+--- a/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
++++ b/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
+@@ -1,99 +1,89 @@
++import '../../../core/recommendation/recommendation_context.dart';
++import '../../../core/recommendation/recommendation_engine.dart';
+ import 'outfit_candidate.dart';
+ import 'outfit_recommendation_request.dart';
+ import 'outfit_recommendation_result.dart';
+ 
+ typedef OutfitCandidateSource = Future<List<OutfitCandidate>> Function();
+ typedef RecommendationClock = DateTime Function();
+ 
++/// Adaptateur historique de l'assistant vers le moteur central.
++///
++/// Il reste volontairement sans logique de score afin que tous les points
++/// d'entrée de l'application utilisent les mêmes règles métier.
+ class OutfitRecommendationEngine {
+   final OutfitCandidateSource _candidateSource;
+-  final RecommendationClock _clock;
++  final RecommendationEngine _engine;
+   final int maximumCandidates;
+-  final Duration recentWearWindow;
+ 
+   OutfitRecommendationEngine({
+     required OutfitCandidateSource candidateSource,
+     RecommendationClock clock = DateTime.now,
++    RecommendationEngine engine = const RecommendationEngine(),
+     this.maximumCandidates = 12,
+-    this.recentWearWindow = const Duration(days: 2),
++    Duration recentWearWindow = const Duration(days: 2),
+   }) : _candidateSource = candidateSource,
+-       _clock = clock,
++       _engine = engine,
+        assert(maximumCandidates >= 0),
+        assert(!recentWearWindow.isNegative);
+ 
+   Future<OutfitRecommendationResult> recommend(
+     OutfitRecommendationRequest request,
+   ) async {
+-    final now = _clock();
+-    final candidates =
+-        (await _candidateSource())
+-            .where((candidate) => candidate.isAvailable)
+-            .where((candidate) => _matchesCategory(candidate, request))
+-            .where((candidate) => _matchesSeason(candidate, request.season))
+-            .where((candidate) => !_wasWornRecently(candidate, now))
+-            .toList();
+-
+-    candidates.sort(
+-      (left, right) =>
+-          _score(right, request, now).compareTo(_score(left, request, now)),
++    final candidates = (await _candidateSource())
++        .where((candidate) => candidate.isAvailable)
++        .where(
++          (candidate) => request.requestedCategory == null ||
++              _normalize(candidate.category).contains(
++                _normalize(request.requestedCategory!),
++              ),
++        )
++        .where(
++          (candidate) => request.season == null ||
++              candidate.season == null ||
++              _normalize(candidate.season!).contains('toute') ||
++              _normalize(candidate.season!).contains(_normalize(request.season!)),
++        )
++        .toList();
++    final byId = {for (final candidate in candidates) candidate.id: candidate};
++    final result = _engine.recommend(
++      wardrobe: candidates.map((candidate) => candidate.garment),
++      context: RecommendationContext(
++        season: request.season,
++        occasion: request.occasion,
++        desiredStyle: request.desiredStyle,
++        weather: request.weather == null
++            ? null
++            : RecommendationWeather(
++                temperature: request.weather!.temperature,
++                condition: request.weather!.condition,
++                isRaining: _isRain(request.weather!.condition),
++              ),
++        isTravel: _normalize(request.userIntent).contains('voyage'),
++        metadata: request.metadata,
++      ),
++      alternativeCount: maximumCandidates == 0 ? 0 : maximumCandidates - 1,
+     );
+     return OutfitRecommendationResult(
+       request: request,
+-      candidates: candidates.take(maximumCandidates),
++      candidates: result.choices
++          .map((choice) => byId[choice.garment.id])
++          .whereType<OutfitCandidate>(),
++      recommendation: result,
+     );
+   }
+ 
+-  bool _matchesCategory(
+-    OutfitCandidate candidate,
+-    OutfitRecommendationRequest request,
+-  ) {
+-    final requested = request.requestedCategory;
+-    return requested == null ||
+-        _normalize(candidate.category).contains(_normalize(requested));
+-  }
+-
+-  bool _matchesSeason(OutfitCandidate candidate, String? requestedSeason) {
+-    final season = _normalize(candidate.season ?? '');
+-    if (season.isEmpty || season.contains('toute')) return true;
+-    return requestedSeason == null ||
+-        season.contains(_normalize(requestedSeason));
+-  }
+-
+-  bool _wasWornRecently(OutfitCandidate candidate, DateTime now) {
+-    final lastWorn = candidate.lastWorn;
+-    return lastWorn != null && now.difference(lastWorn) < recentWearWindow;
+-  }
+-
+-  int _score(
+-    OutfitCandidate candidate,
+-    OutfitRecommendationRequest request,
+-    DateTime now,
+-  ) {
+-    var score = 100 - candidate.wearCount.clamp(0, 100).toInt();
+-    if (candidate.lastWorn == null) score += 40;
+-    if (candidate.lastWorn != null) {
+-      score += now.difference(candidate.lastWorn!).inDays.clamp(0, 60).toInt();
+-    }
+-    final category = _normalize(candidate.category);
+-    if (request.weather?.isCold ?? false) {
+-      if (['manteau', 'veste', 'pull', 'pantalon'].any(category.contains)) {
+-        score += 50;
+-      }
+-    }
+-    if (request.weather?.isHot ?? false) {
+-      if (['short', 'robe', 't shirt', 'haut'].any(category.contains)) {
+-        score += 50;
+-      }
+-    }
+-    return score;
++  bool _isRain(String? condition) {
++    final value = _normalize(condition ?? '');
++    return value.contains('pluie') || value.contains('averse');
+   }
+ 
+   String _normalize(String value) => value
+       .toLowerCase()
+       .replaceAll(RegExp(r'[àáâä]'), 'a')
+       .replaceAll(RegExp(r'[éèêë]'), 'e')
+       .replaceAll(RegExp(r'[îï]'), 'i')
+       .replaceAll(RegExp(r'[ôö]'), 'o')
+       .replaceAll(RegExp(r'[ùûü]'), 'u')
+       .replaceAll('ç', 'c');
+ }
+diff --git a/lib/features/assistant/recommendation/outfit_recommendation_result.dart b/lib/features/assistant/recommendation/outfit_recommendation_result.dart
+index cc27e4a361377d287bbdeaf5ee2b472d17ee8dd6..1ee6727d653cffd4b2bd42cf3ecf96f4a497bf0d 100644
+--- a/lib/features/assistant/recommendation/outfit_recommendation_result.dart
++++ b/lib/features/assistant/recommendation/outfit_recommendation_result.dart
+@@ -1,12 +1,15 @@
+ import 'outfit_candidate.dart';
+ import 'outfit_recommendation_request.dart';
++import '../../../core/recommendation/recommendation_result.dart';
+ 
+ class OutfitRecommendationResult {
+   final OutfitRecommendationRequest request;
+   final List<OutfitCandidate> candidates;
++  final RecommendationResult? recommendation;
+ 
+   OutfitRecommendationResult({
+     required this.request,
+     required Iterable<OutfitCandidate> candidates,
++    this.recommendation,
+   }) : candidates = List.unmodifiable(candidates);
+ }

@@ -1,0 +1,72 @@
+class RecommendationWeather {
+  final double? temperature;
+  final bool? isRaining;
+  final String? condition;
+
+  const RecommendationWeather({
+    this.temperature,
+    this.isRaining,
+    this.condition,
+  });
+}
+
+/// Contexte indépendant de toute interface, extensible par [metadata] pour les
+/// futurs agenda, voyage, packing list, achats et notifications.
+class RecommendationContext {
+  final String? season;
+  final String? occasion;
+  final String? desiredStyle;
+  final RecommendationWeather? weather;
+  final bool isTravel;
+  final Map<String, Object?> metadata;
+
+  const RecommendationContext({
+    this.season,
+    this.occasion,
+    this.desiredStyle,
+    this.weather,
+    this.isTravel = false,
+    this.metadata = const {},
+  });
+}
+
+class RecommendationPreferences {
+  final Set<String> preferredStyles;
+  final Set<String> preferredColors;
+  final Set<String> avoidedMaterials;
+
+  const RecommendationPreferences({
+    this.preferredStyles = const {},
+    this.preferredColors = const {},
+    this.avoidedMaterials = const {},
+  });
+}
+
+/// Corrections explicites prioritaires sur les informations issues de l'IA.
+class GarmentRecommendationCorrection {
+  final String garmentId;
+  final String? style;
+  final String? formality;
+  final List<String>? seasons;
+  final List<String>? occasions;
+  final String? color;
+  final String? material;
+  final double? minimumTemperature;
+  final double? maximumTemperature;
+  final bool? rainCompatible;
+  final bool? layerable;
+
+  const GarmentRecommendationCorrection({
+    required this.garmentId,
+    this.style,
+    this.formality,
+    this.seasons,
+    this.occasions,
+    this.color,
+    this.material,
+    this.minimumTemperature,
+    this.maximumTemperature,
+    this.rainCompatible,
+    this.layerable,
+  });
+}

@@ -1,6 +1,7 @@
 import '../../../models/garment.dart';
 
 class OutfitCandidate {
+  final Garment? sourceGarment;
   final String id;
   final String name;
   final String category;
@@ -11,6 +12,7 @@ class OutfitCandidate {
   final bool isAvailable;
 
   const OutfitCandidate({
+    this.sourceGarment,
     required this.id,
     required this.name,
     required this.category,
@@ -21,7 +23,20 @@ class OutfitCandidate {
     this.isAvailable = true,
   });
 
+  Garment get garment => sourceGarment ?? Garment(
+    id: id,
+    name: name,
+    category: category,
+    color: color,
+    season: season,
+    wearCount: wearCount,
+    lastWorn: lastWorn,
+    createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+    updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
+  );
+
   factory OutfitCandidate.fromGarment(Garment garment) => OutfitCandidate(
+    sourceGarment: garment,
     id: garment.id,
     name: garment.name,
     category: garment.category,
