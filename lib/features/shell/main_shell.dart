@@ -31,6 +31,10 @@ import '../backup/backup_controller.dart';
 import '../backup/backup_service.dart';
 import '../backup/restore_service.dart';
 import '../daily_brief/daily_brief_service.dart';
+import '../agenda/agenda_controller.dart';
+import '../agenda/agenda_screen.dart';
+import '../agenda/agenda_service.dart';
+import '../assistant/tools/agenda_tool.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -62,6 +66,12 @@ class _MainShellState extends State<MainShell> {
   late final _memoryService = MemoryService(
     repository: DatabaseMemoryRepository(DatabaseService.instance),
   );
+  late final _agendaCalendar = FakeCalendarService();
+  late final _agendaService = AgendaService(
+    database: DatabaseService.instance,
+    calendarService: _agendaCalendar,
+    weatherService: widget.weatherService,
+  );
   late final _backupController = BackupController(
     backupService: BackupService(repository: _backupRepository),
     restoreService: RestoreService(repository: _backupRepository),
@@ -82,6 +92,7 @@ class _MainShellState extends State<MainShell> {
         WardrobeTool(controller: _assistantWardrobe),
         OutfitTool(controller: _assistantOutfits),
         StatisticsTool(controller: _assistantWardrobe),
+        AgendaTool(service: _agendaService),
       ],
     ),
     llmProvider: _openAiProvider,
@@ -97,6 +108,9 @@ class _MainShellState extends State<MainShell> {
     memoryService: _memoryService,
     assistantService: _assistantService,
   );
+  late final _agendaController = AgendaController(
+    service: _agendaService,
+  );
 
   @override
   void dispose() {
@@ -104,6 +118,7 @@ class _MainShellState extends State<MainShell> {
     _assistantOutfits.dispose();
     _aiSettings.dispose();
     _backupController.dispose();
+    _agendaController.dispose();
     super.dispose();
   }
 
@@ -120,7 +135,7 @@ class _MainShellState extends State<MainShell> {
         dailyBriefService: _dailyBriefService,
         openWardrobe: () => goTo(1),
         openOutfits: () => goTo(2),
-        openAssistant: () => goTo(3),
+        openAssistant: () => goTo(4),
         openScanner: () async {
           final added = await Navigator.push<bool>(
             context,
@@ -133,6 +148,7 @@ class _MainShellState extends State<MainShell> {
       ),
       const WardrobeScreen(),
       const OutfitsScreen(),
+      AgendaScreen(controller: _agendaController, outfitsController: _assistantOutfits),
       AssistantScreen(service: _assistantService),
       const WishlistScreen(),
       ProfileScreen(
@@ -177,6 +193,11 @@ class _MainShellState extends State<MainShell> {
             icon: Icon(Icons.auto_awesome_outlined),
             selectedIcon: Icon(Icons.auto_awesome),
             label: 'Tenues',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_today_outlined),
+            selectedIcon: Icon(Icons.calendar_today),
+            label: 'Agenda',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),

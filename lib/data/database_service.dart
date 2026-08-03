@@ -4,6 +4,8 @@ import '../models/garment.dart';
 import '../models/outfit.dart';
 import '../models/outfit_item.dart';
 import '../models/wear_history.dart';
+import '../features/agenda/agenda_models.dart';
+import '../core/outfit/outfit_engine.dart';
 
 class DatabaseService {
   DatabaseService._();
@@ -16,7 +18,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 9,
+      version: 10,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -101,6 +103,7 @@ class DatabaseService {
         await _createWearHistoryTable(db);
         await _createOutfitTables(db);
         await _createPersonalizationTables(db);
+        await _createAgendaTables(db);
         await _createIndexes(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -201,6 +204,7 @@ class DatabaseService {
           ''');
         }
         if (oldVersion < 9) await _createPersonalizationTables(db);
+        if (oldVersion < 10) await _createAgendaTables(db);
         await _createIndexes(db);
       },
     );
@@ -296,6 +300,28 @@ class DatabaseService {
     ''');
   }
 
+  Future<void> _createAgendaTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS planned_outfits(
+        id TEXT PRIMARY KEY,
+        planned_date TEXT NOT NULL UNIQUE,
+        outfit_id TEXT NOT NULL,
+        origin TEXT,
+        strategy TEXT,
+        status TEXT,
+        justification TEXT,
+        weather_summary TEXT,
+        event_id TEXT,
+        event_title TEXT,
+        reuse_kind TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        wear_recorded_at TEXT,
+        FOREIGN KEY (outfit_id) REFERENCES outfits(id) ON DELETE CASCADE
+      )
+    ''');
+  }
+
   Future<void> _addColumn(
     Database db,
     String table,
@@ -334,7 +360,42 @@ class DatabaseService {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_memory_revisions_memory ON user_memory_revisions(memory_id)',
     );
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_planned_outfits_date ON planned_outfits(planned_date)');
   }
+
+  Future<List<PlannedOutfit>> getPlannedOutfits(DateTime from, DateTime to) async {
+    final db = await database;
+    final rows = await db.query('planned_outfits', where: 'planned_date >= ? AND planned_date < ?',
+      whereArgs: [_dateOnly(from), _dateOnly(to)], orderBy: 'planned_date');
+    final result = <PlannedOutfit>[];
+    for (final row in rows) {
+      var outfit = await getOutfitById(row['outfit_id'] as String);
+      if (outfit != null) {
+        final garments = await getGarmentsInOutfit(outfit.id);
+        final grouped = <OutfitCategory, List<Garment>>{};
+        for (final garment in garments) {
+          final category = OutfitEngine.categoryFor(garment);
+          grouped.putIfAbsent(category, () => []).add(garment);
+        }
+        outfit = outfit.copyWith(garments: grouped);
+      }
+      result.add(PlannedOutfit.fromMap(row, outfit: outfit));
+    }
+    return result;
+  }
+
+  Future<void> savePlannedOutfit(PlannedOutfit value) async {
+    final db = await database;
+    await db.insert('planned_outfits', value.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> deletePlannedOutfit(String id) async {
+    final db = await database;
+    await db.delete('planned_outfits', where: 'id = ?', whereArgs: [id]);
+  }
+
+  static String _dateOnly(DateTime value) =>
+      DateTime(value.year, value.month, value.day).toIso8601String();
 
   Future<List<Garment>> getGarments({
     String search = '',
