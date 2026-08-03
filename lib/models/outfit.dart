@@ -47,18 +47,24 @@ class Outfit {
   };
 
   factory Outfit.fromMap(Map<String, Object?> map) => Outfit(
-    id: map['id'] as String,
-    name: map['name'] as String,
-    season: map['season'] as String?,
-    favorite: (map['favorite'] as int? ?? 0) == 1,
-    createdAt: DateTime.parse(map['created_at'] as String),
-    updatedAt: DateTime.parse(map['updated_at'] as String),
-    timesWorn: map['times_worn'] as int? ?? 0,
+    id: _text(map['id']) ?? '',
+    name: _text(map['name']) ?? '',
+    season: _text(map['season']),
+    favorite: map['favorite'] == 1 || map['favorite'] == true,
+    createdAt:
+        _parseDate(map['created_at']) ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+    updatedAt:
+        _parseDate(map['updated_at']) ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+    timesWorn: _integer(map['times_worn']) ?? 0,
     lastWorn: _parseDate(map['last_worn']),
   );
 
   static DateTime? _parseDate(Object? value) {
-    final text = value as String?;
-    return text == null || text.isEmpty ? null : DateTime.tryParse(text);
+    return value is String && value.isNotEmpty ? DateTime.tryParse(value) : null;
   }
+
+  static String? _text(Object? value) => value is String ? value : null;
+  static int? _integer(Object? value) => value is num ? value.toInt() : null;
 }

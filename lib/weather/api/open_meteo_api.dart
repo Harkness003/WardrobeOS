@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -5,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'weather_api.dart';
 
 class OpenMeteoApi implements WeatherApi {
+  static const timeout = Duration(seconds: 15);
   final http.Client _client;
   OpenMeteoApi({http.Client? client}) : _client = client ?? http.Client();
 
@@ -26,11 +28,13 @@ class OpenMeteoApi implements WeatherApi {
       ].join(','),
       'timezone': 'auto',
     });
-    final response = await _client.get(uri);
+    final response = await _client.get(uri).timeout(timeout);
     if (response.statusCode != 200) {
       throw WeatherApiException(response.statusCode);
     }
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    final decoded = jsonDecode(response.body);
+    if (decoded is Map<String, dynamic>) return decoded;
+    throw const FormatException('Réponse météo invalide');
   }
 }
 

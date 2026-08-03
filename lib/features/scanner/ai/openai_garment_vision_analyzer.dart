@@ -66,62 +66,51 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
     final body = _requestBody(preparedRequest);
     var attempt = 0;
     while (true) {
-    try {
-      final response = await client.post(
-        endpoint,
-        headers: {
-          HttpHeaders.authorizationHeader: 'Bearer ${apiKey.trim()}',
-          HttpHeaders.contentTypeHeader: 'application/json',
-        },
-        body: jsonEncode(body),
-      ).timeout(timeout);
-      print('HTTP ${response.statusCode}');
-      print(response.body);
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        final exception = _httpException(response.statusCode);
-        if (attempt++ < maxRetries && _isTransient(response.statusCode)) {
-          await Future<void>.delayed(Duration(milliseconds: 100 * attempt));
-          continue;
+      try {
+        final response = await client.post(
+          endpoint,
+          headers: {
+            HttpHeaders.authorizationHeader: 'Bearer ${apiKey.trim()}',
+            HttpHeaders.contentTypeHeader: 'application/json',
+          },
+          body: jsonEncode(body),
+        ).timeout(timeout);
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          final exception = _httpException(response.statusCode);
+          if (attempt++ < maxRetries && _isTransient(response.statusCode)) {
+            await Future<void>.delayed(Duration(milliseconds: 100 * attempt));
+            continue;
+          }
+          throw exception;
         }
-        throw exception;
-      }
-      final responseBody = _decodeObject(response.body);
-      final output = _outputText(responseBody);
-      if (output == null || output.trim().isEmpty) {
+        final responseBody = _decodeObject(response.body);
+        final output = _outputText(responseBody);
+        if (output == null || output.trim().isEmpty) {
+          throw const GarmentAnalysisException(
+            GarmentAnalysisError.emptyResponse,
+            'OpenAI a renvoyé une réponse vide.',
+          );
+        }
+        return GarmentAnalysisResult.fromJsonString(output);
+      } on GarmentAnalysisException {
+        rethrow;
+      } on TimeoutException {
+        if (attempt++ < maxRetries) continue;
         throw const GarmentAnalysisException(
-          GarmentAnalysisError.emptyResponse,
-          'OpenAI a renvoyé une réponse vide.',
+          GarmentAnalysisError.timeout,
+          'L’analyse prend trop de temps. Réessayez.',
+        );
+      } on SocketException {
+        throw const GarmentAnalysisException(
+          GarmentAnalysisError.network,
+          'Impossible de joindre OpenAI. Vérifiez votre connexion.',
+        );
+      } on http.ClientException {
+        throw const GarmentAnalysisException(
+          GarmentAnalysisError.network,
+          'Impossible de joindre OpenAI. Vérifiez votre connexion.',
         );
       }
-      print('================ IA JSON ================');
-      print(output);
-      print('=========================================');
-      final result = GarmentAnalysisResult.fromJsonString(output);
-
-print('PARSE OK');
-print('usable=${result.isUsableImage}');
-print('reason=${result.rejectionReason}');
-
-return result;
-    } on GarmentAnalysisException {
-      rethrow;
-    } on TimeoutException {
-      if (attempt++ < maxRetries) continue;
-      throw const GarmentAnalysisException(
-        GarmentAnalysisError.timeout,
-        'L’analyse prend trop de temps. Réessayez.',
-      );
-    } on SocketException {
-      throw const GarmentAnalysisException(
-        GarmentAnalysisError.network,
-        'Impossible de joindre OpenAI. Vérifiez votre connexion.',
-      );
-    } on http.ClientException {
-      throw const GarmentAnalysisException(
-        GarmentAnalysisError.network,
-        'Impossible de joindre OpenAI. Vérifiez votre connexion.',
-      );
-    }
     }
   }
 

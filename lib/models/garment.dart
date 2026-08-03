@@ -411,15 +411,28 @@ class Garment {
   };
 
   factory Garment.fromMap(Map<String, Object?> map) {
-    String? text(String key) => GarmentNormalizer.value(map[key] as String?);
+    String? text(String key) {
+      final value = map[key];
+      return value is String ? GarmentNormalizer.value(value) : null;
+    }
     List<String>? list(String key) {
       final value = map[key];
       if (value == null) return null;
-      final decoded = value is String ? jsonDecode(value) : value;
+      Object? decoded = value;
+      if (value is String) {
+        try {
+          decoded = jsonDecode(value);
+        } on FormatException {
+          return null;
+        }
+      }
       if (decoded is! List) return null;
       return GarmentNormalizer.values(decoded.map((e) => e.toString()));
     }
-    double? number(String key) => (map[key] as num?)?.toDouble();
+    double? number(String key) {
+      final value = map[key];
+      return value is num ? value.toDouble() : null;
+    }
     bool? boolean(String key) {
       final value = map[key];
       if (value == null) return null;
@@ -437,9 +450,9 @@ class Garment {
                 : [legacySeason];
 
     return Garment(
-      id: map['id'] as String,
-      name: map['name'] as String,
-      category: map['category'] as String,
+      id: text('id') ?? '',
+      name: text('name') ?? '',
+      category: text('category') ?? '',
       brand: text('brand'),
       color: text('color'),
       material: text('material'),
@@ -506,10 +519,14 @@ class Garment {
       boulochage: text('boulochage'),
       taches: text('taches'),
       limitesAnalyse: list('limites_analyse'),
-      wearCount: (map['wear_count'] as num?)?.toInt() ?? 0,
+      wearCount: number('wear_count')?.toInt() ?? 0,
       isFavorite: map['is_favorite'] == 1 || map['is_favorite'] == true,
-      createdAt: DateTime.parse(map['created_at'] as String),
-      updatedAt: DateTime.parse(map['updated_at'] as String),
+      createdAt:
+          _parseDate(map['created_at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+      updatedAt:
+          _parseDate(map['updated_at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
 

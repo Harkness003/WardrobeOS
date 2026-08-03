@@ -9,8 +9,12 @@ class OutfitItem {
     'garment_id': garmentId,
   };
 
-  factory OutfitItem.fromMap(Map<String, Object?> map) => OutfitItem(
-    outfitId: map['outfit_id'] as String,
-    garmentId: map['garment_id'] as String,
-  );
+  factory OutfitItem.fromMap(Map<String, Object?> map) {
+    final outfitId = map['outfit_id'];
+    final garmentId = map['garment_id'];
+    return OutfitItem(
+      outfitId: outfitId is String ? outfitId : '',
+      garmentId: garmentId is String ? garmentId : '',
+    );
+  }
 }

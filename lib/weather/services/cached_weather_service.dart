@@ -20,10 +20,13 @@ class CachedWeatherService implements WeatherService {
 
   @override
   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async {
+    final cached = _cached;
+    final cachedAt = _cachedAt;
     if (!forceRefresh &&
-        _cached != null &&
-        _now().difference(_cachedAt!) < cacheDuration) {
-      return _cached!;
+        cached != null &&
+        cachedAt != null &&
+        _now().difference(cachedAt) < cacheDuration) {
+      return cached;
     }
     final location = await locationService.getCurrentLocation();
     final json = await weatherApi.fetchCurrent(
@@ -31,11 +34,12 @@ class CachedWeatherService implements WeatherService {
       longitude: location.longitude,
     );
     final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city);
-    _cached = parsed.copyWith(
+    final result = parsed.copyWith(
       description: WeatherCodeMapper.description(parsed.weatherCode),
     );
+    _cached = result;
     _cachedAt = _now();
-    return _cached!;
+    return result;
   }
 
   @override
