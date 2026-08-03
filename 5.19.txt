@@ -1,0 +1,398 @@
+diff --git a/docs/SPRINT_5_19_AI_ORCHESTRATOR.md b/docs/SPRINT_5_19_AI_ORCHESTRATOR.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..1b3120f14426e9a7a5e63fad0f92e0275050e514
+--- /dev/null
++++ b/docs/SPRINT_5_19_AI_ORCHESTRATOR.md
+@@ -0,0 +1,34 @@
++# Sprint 5.19 — IA Orchestrator
++
++## Composants livrés
++
++- `AiOrchestrator` planifie, ordonne et agrège les exécutions sans logique métier.
++- `AiEngine` est le contrat indépendant des moteurs. `CallbackAiEngine` adapte les services existants sans les coupler.
++- `AiOrchestrationCache` abstrait le cache ; `MemoryAiOrchestrationCache` fournit l'implémentation initiale remplaçable.
++- `AiOrchestrationLogger` réutilise `dart:developer` et journalise chaque décision, son état et sa raison.
++- `createWardrobeAiOrchestrator` constitue le pipeline standard à partir de callbacks injectés.
++
++## Pipeline et dépendances
++
++Le graphe déclaré est :
++
++`Scanner → Fusion → Analyse stylistique → Wardrobe Intelligence → Recommendation Engine → WardrobeGPT`.
++
++Les dépendances imposent l'ordre, mais ne forcent pas le recalcul d'un prédécesseur lors d'une mise à jour incrémentale. Une demande explicite d'un résultat inclut en revanche ses dépendances. Chaque moteur reçoit uniquement les résultats de ses prédécesseurs via `AiEngineContext` et ne connaît aucun autre service.
++
++## Planification et optimisations
++
++Les champs `changedFields` sont comparés aux invalidations déclaratives de chaque moteur. Ainsi, `comment` n'invalide aucun moteur, `photo` déroule tout le pipeline et `material` évite le scanner et la fusion. `requestedEngines` permet de demander explicitement une sortie. Un `cacheFingerprint` stable réutilise les résultats par moteur et retourne l'état `upToDate` au lieu de recalculer.
++
++Le résultat agrégé conserve, pour chaque moteur, les états `success`, `error`, `skipped`, `upToDate` ou `pending`, la raison, la durée, la valeur éventuelle et l'erreur. Une erreur est isolée : les branches indépendantes poursuivent leur exécution ; seules les étapes sélectionnées dépendant du résultat en échec restent en attente.
++
++## Extensibilité
++
++Agenda, voyage, achat, notifications, calendrier et garde-robe capsule peuvent être enregistrés comme nouveaux `AiEngine`, avec leurs dépendances et champs invalidants, sans modifier l'orchestrateur. Le cache et le logger sont eux aussi injectables.
++
++## Limitations restantes
++
++- Le cache fourni est en mémoire : une implémentation persistante devra être injectée pour survivre au redémarrage.
++- La composition est prête à recevoir les services actuels, mais son branchement aux flux UI est volontairement laissé au composition root afin de ne pas ajouter de logique métier aux widgets.
++- La politique de fingerprint et l'expiration relèvent de l'appelant ou d'une future implémentation de cache persistante.
++- Le pipeline est séquentiel ; des branches indépendantes pourront être parallélisées ultérieurement sans changer les contrats.
+diff --git a/lib/core/ai_orchestration/ai_engine.dart b/lib/core/ai_orchestration/ai_engine.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..68abd104f1a65e7fa2c11a60a1ad28ef9d6ddca2
+--- /dev/null
++++ b/lib/core/ai_orchestration/ai_engine.dart
+@@ -0,0 +1,91 @@
++enum AiEngineState { success, error, skipped, upToDate, pending }
++
++class AiEngineRequest {
++  final String operationId;
++  final Object? input;
++  final Set<String> changedFields;
++  final Set<String> requestedEngines;
++  final String? cacheFingerprint;
++  final Map<String, Object?> metadata;
++
++  AiEngineRequest({
++    required this.operationId,
++    this.input,
++    Iterable<String> changedFields = const [],
++    Iterable<String> requestedEngines = const [],
++    this.cacheFingerprint,
++    Map<String, Object?> metadata = const {},
++  }) : changedFields = Set.unmodifiable(changedFields),
++       requestedEngines = Set.unmodifiable(requestedEngines),
++       metadata = Map.unmodifiable(metadata);
++}
++
++class AiEngineContext {
++  final AiEngineRequest request;
++  final Map<String, AiEngineResult> dependencies;
++
++  AiEngineContext({required this.request, required Map<String, AiEngineResult> dependencies})
++    : dependencies = Map.unmodifiable(dependencies);
++
++  T? resultOf<T>(String engineId) {
++    final value = dependencies[engineId]?.value;
++    return value is T ? value : null;
++  }
++}
++
++class AiEngineResult {
++  final String engineId;
++  final AiEngineState state;
++  final Object? value;
++  final String reason;
++  final Object? error;
++  final Duration duration;
++
++  const AiEngineResult({
++    required this.engineId,
++    required this.state,
++    required this.reason,
++    this.value,
++    this.error,
++    this.duration = Duration.zero,
++  });
++
++  bool get hasUsableValue =>
++      (state == AiEngineState.success || state == AiEngineState.upToDate) && value != null;
++}
++
++abstract interface class AiEngine {
++  String get id;
++  Set<String> get dependencies;
++
++  /// Input fields that invalidate this engine. An empty set means that the
++  /// engine only runs when explicitly requested or pulled in as a dependency.
++  Set<String> get invalidatedBy;
++  Future<Object?> execute(AiEngineContext context);
++}
++
++typedef AiEngineCallback = Future<Object?> Function(AiEngineContext context);
++
++/// Small adapter used to register existing services without coupling them to
++/// the orchestrator or to one another.
++class CallbackAiEngine implements AiEngine {
++  @override
++  final String id;
++  @override
++  final Set<String> dependencies;
++  @override
++  final Set<String> invalidatedBy;
++  final AiEngineCallback _callback;
++
++  CallbackAiEngine({
++    required this.id,
++    required AiEngineCallback execute,
++    Iterable<String> dependencies = const [],
++    Iterable<String> invalidatedBy = const [],
++  }) : _callback = execute,
++       dependencies = Set.unmodifiable(dependencies),
++       invalidatedBy = Set.unmodifiable(invalidatedBy);
++
++  @override
++  Future<Object?> execute(AiEngineContext context) => _callback(context);
++}
+diff --git a/lib/core/ai_orchestration/ai_orchestration_cache.dart b/lib/core/ai_orchestration/ai_orchestration_cache.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..9994c629638e05d8bd9f1651f05c42a20f3717b9
+--- /dev/null
++++ b/lib/core/ai_orchestration/ai_orchestration_cache.dart
+@@ -0,0 +1,31 @@
++class AiOrchestrationCacheEntry {
++  final Object? value;
++  final DateTime storedAt;
++
++  const AiOrchestrationCacheEntry({required this.value, required this.storedAt});
++}
++
++abstract interface class AiOrchestrationCache {
++  Future<AiOrchestrationCacheEntry?> read(String key);
++  Future<void> write(String key, AiOrchestrationCacheEntry entry);
++  Future<void> remove(String key);
++  Future<void> clear();
++}
++
++class MemoryAiOrchestrationCache implements AiOrchestrationCache {
++  final Map<String, AiOrchestrationCacheEntry> _entries = {};
++
++  @override
++  Future<AiOrchestrationCacheEntry?> read(String key) async => _entries[key];
++
++  @override
++  Future<void> write(String key, AiOrchestrationCacheEntry entry) async {
++    _entries[key] = entry;
++  }
++
++  @override
++  Future<void> remove(String key) async => _entries.remove(key);
++
++  @override
++  Future<void> clear() async => _entries.clear();
++}
+diff --git a/lib/core/ai_orchestration/ai_orchestration_logger.dart b/lib/core/ai_orchestration/ai_orchestration_logger.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..b1b2adf745ff34f4f7a63af9e9ec74dc96e2130a
+--- /dev/null
++++ b/lib/core/ai_orchestration/ai_orchestration_logger.dart
+@@ -0,0 +1,18 @@
++import 'dart:developer' as developer;
++
++abstract interface class AiOrchestrationLogger {
++  void engineDecision({required String operationId, required String engineId, required String decision, required String reason, Object? error});
++}
++
++class DeveloperAiOrchestrationLogger implements AiOrchestrationLogger {
++  const DeveloperAiOrchestrationLogger();
++
++  @override
++  void engineDecision({required String operationId, required String engineId, required String decision, required String reason, Object? error}) {
++    developer.log(
++      'operation=$operationId engine=$engineId decision=$decision reason=$reason',
++      name: 'wardrobeos.ai_orchestrator',
++      error: error,
++    );
++  }
++}
+diff --git a/lib/core/ai_orchestration/ai_orchestrator.dart b/lib/core/ai_orchestration/ai_orchestrator.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ba6f95a3c06aa8eeb872b5daa22b3fe61bfb7909
+--- /dev/null
++++ b/lib/core/ai_orchestration/ai_orchestrator.dart
+@@ -0,0 +1,144 @@
++import 'ai_engine.dart';
++import 'ai_orchestration_cache.dart';
++import 'ai_orchestration_logger.dart';
++
++class AiOrchestrationResult {
++  final String operationId;
++  final Map<String, AiEngineResult> engines;
++
++  AiOrchestrationResult({required this.operationId, required Map<String, AiEngineResult> engines})
++    : engines = Map.unmodifiable(engines);
++
++  bool get hasErrors => engines.values.any((result) => result.state == AiEngineState.error);
++  Iterable<Object?> get usableValues => engines.values.where((result) => result.hasUsableValue).map((result) => result.value);
++  AiEngineResult? operator [](String engineId) => engines[engineId];
++}
++
++class AiOrchestrator {
++  final Map<String, AiEngine> _engines;
++  final AiOrchestrationCache _cache;
++  final AiOrchestrationLogger _logger;
++  final DateTime Function() _clock;
++
++  AiOrchestrator({
++    required Iterable<AiEngine> engines,
++    AiOrchestrationCache? cache,
++    AiOrchestrationLogger logger = const DeveloperAiOrchestrationLogger(),
++    DateTime Function()? clock,
++  }) : _engines = _indexAndValidate(engines),
++       _cache = cache ?? MemoryAiOrchestrationCache(),
++       _logger = logger,
++       _clock = clock ?? DateTime.now;
++
++  Future<AiOrchestrationResult> execute(AiEngineRequest request) async {
++    final selected = _selectEngines(request);
++    final ordered = _topologicalOrder();
++    final results = <String, AiEngineResult>{};
++
++    for (final engine in ordered) {
++      if (!selected.contains(engine.id)) {
++        results[engine.id] = _decision(request, engine.id, AiEngineState.skipped, 'Aucun champ modifié ni résultat demandé ne nécessite ce moteur.');
++        continue;
++      }
++
++      final unavailable = engine.dependencies
++          .map((id) => results[id])
++          .whereType<AiEngineResult>()
++          .where((result) => selected.contains(result.engineId) && !result.hasUsableValue)
++          .map((result) => result.engineId)
++          .toList(growable: false);
++      if (unavailable.isNotEmpty) {
++        results[engine.id] = _decision(request, engine.id, AiEngineState.pending, 'Dépendances sans résultat exploitable : ${unavailable.join(', ')}.');
++        continue;
++      }
++
++      final cacheKey = _cacheKey(request, engine.id);
++      final cached = cacheKey == null ? null : await _cache.read(cacheKey);
++      if (cached != null) {
++        results[engine.id] = _decision(request, engine.id, AiEngineState.upToDate, 'Résultat réutilisé depuis le cache.', value: cached.value);
++        continue;
++      }
++
++      final stopwatch = Stopwatch()..start();
++      try {
++        final value = await engine.execute(AiEngineContext(request: request, dependencies: {for (final id in engine.dependencies) id: results[id]!}));
++        stopwatch.stop();
++        final result = AiEngineResult(engineId: engine.id, state: AiEngineState.success, value: value, reason: 'Moteur exécuté.', duration: stopwatch.elapsed);
++        results[engine.id] = result;
++        _log(request, result);
++        if (cacheKey != null) await _cache.write(cacheKey, AiOrchestrationCacheEntry(value: value, storedAt: _clock()));
++      } catch (error) {
++        stopwatch.stop();
++        results[engine.id] = _decision(request, engine.id, AiEngineState.error, 'Échec isolé du moteur ; le pipeline poursuit les étapes indépendantes.', error: error, duration: stopwatch.elapsed);
++      }
++    }
++    return AiOrchestrationResult(operationId: request.operationId, engines: results);
++  }
++
++  Set<String> _selectEngines(AiEngineRequest request) {
++    final selected = <String>{...request.requestedEngines};
++    void includeDependencies(String id) {
++      final engine = _engines[id];
++      if (engine == null) throw ArgumentError.value(id, 'requestedEngines', 'Moteur inconnu');
++      for (final dependency in engine.dependencies) {
++        if (selected.add(dependency)) includeDependencies(dependency);
++      }
++    }
++    for (final id in selected.toList()) { includeDependencies(id); }
++    // Field invalidations select only affected engines. Their predecessors are
++    // ordering constraints, not mandatory re-computations: the request can
++    // carry the already persisted garment data produced by an earlier stage.
++    for (final engine in _engines.values) {
++      if (engine.invalidatedBy.any(request.changedFields.contains)) selected.add(engine.id);
++    }
++    return selected;
++  }
++
++  String? _cacheKey(AiEngineRequest request, String engineId) =>
++      request.cacheFingerprint == null ? null : '$engineId:${request.cacheFingerprint}';
++
++  AiEngineResult _decision(AiEngineRequest request, String id, AiEngineState state, String reason, {Object? value, Object? error, Duration duration = Duration.zero}) {
++    final result = AiEngineResult(engineId: id, state: state, reason: reason, value: value, error: error, duration: duration);
++    _log(request, result);
++    return result;
++  }
++
++  void _log(AiEngineRequest request, AiEngineResult result) => _logger.engineDecision(operationId: request.operationId, engineId: result.engineId, decision: result.state.name, reason: result.reason, error: result.error);
++
++  List<AiEngine> _topologicalOrder() {
++    final ordered = <AiEngine>[];
++    final visited = <String>{};
++    void visit(String id) {
++      if (!visited.add(id)) return;
++      final engine = _engines[id]!;
++      for (final dependency in engine.dependencies) { visit(dependency); }
++      ordered.add(engine);
++    }
++    for (final id in _engines.keys) { visit(id); }
++    return ordered;
++  }
++
++  static Map<String, AiEngine> _indexAndValidate(Iterable<AiEngine> source) {
++    final engines = <String, AiEngine>{};
++    for (final engine in source) {
++      if (engine.id.trim().isEmpty || engines.containsKey(engine.id)) throw ArgumentError('Chaque moteur doit avoir un identifiant unique et non vide.');
++      engines[engine.id] = engine;
++    }
++    for (final engine in engines.values) {
++      for (final dependency in engine.dependencies) {
++        if (!engines.containsKey(dependency)) throw ArgumentError('Dépendance inconnue "$dependency" pour "${engine.id}".');
++      }
++    }
++    final visiting = <String>{};
++    final visited = <String>{};
++    void visit(String id) {
++      if (visited.contains(id)) return;
++      if (!visiting.add(id)) throw ArgumentError('Cycle détecté dans le pipeline autour de "$id".');
++      for (final dependency in engines[id]!.dependencies) { visit(dependency); }
++      visiting.remove(id);
++      visited.add(id);
++    }
++    for (final id in engines.keys) { visit(id); }
++    return Map.unmodifiable(engines);
++  }
++}
+diff --git a/lib/core/ai_orchestration/wardrobe_ai_pipeline.dart b/lib/core/ai_orchestration/wardrobe_ai_pipeline.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..50fab613647a31f6be720062bb205901a8cb31ae
+--- /dev/null
++++ b/lib/core/ai_orchestration/wardrobe_ai_pipeline.dart
+@@ -0,0 +1,44 @@
++import 'ai_engine.dart';
++import 'ai_orchestrator.dart';
++import 'ai_orchestration_cache.dart';
++import 'ai_orchestration_logger.dart';
++
++abstract final class WardrobeAiEngineIds {
++  static const scanner = 'scanner';
++  static const fusion = 'fusion';
++  static const styleAnalysis = 'style_analysis';
++  static const wardrobeIntelligence = 'wardrobe_intelligence';
++  static const recommendation = 'recommendation';
++  static const wardrobeGpt = 'wardrobe_gpt';
++}
++
++/// Composition root for the standard pipeline. Callbacks adapt the existing
++/// services; this class deliberately owns neither their implementations nor
++/// their business rules.
++AiOrchestrator createWardrobeAiOrchestrator({
++  required Map<String, AiEngineCallback> callbacks,
++  AiOrchestrationCache? cache,
++  AiOrchestrationLogger logger = const DeveloperAiOrchestrationLogger(),
++}) {
++  AiEngineCallback callback(String id) {
++    final value = callbacks[id];
++    if (value == null) throw ArgumentError('Callback manquant pour le moteur "$id".');
++    return value;
++  }
++
++  CallbackAiEngine engine(String id, {Iterable<String> dependencies = const [], Iterable<String> fields = const []}) =>
++      CallbackAiEngine(id: id, execute: callback(id), dependencies: dependencies, invalidatedBy: fields);
++
++  return AiOrchestrator(
++    cache: cache,
++    logger: logger,
++    engines: [
++      engine(WardrobeAiEngineIds.scanner, fields: const ['photo']),
++      engine(WardrobeAiEngineIds.fusion, dependencies: const [WardrobeAiEngineIds.scanner], fields: const ['photo']),
++      engine(WardrobeAiEngineIds.styleAnalysis, dependencies: const [WardrobeAiEngineIds.fusion], fields: const ['photo', 'category', 'color', 'material', 'style']),
++      engine(WardrobeAiEngineIds.wardrobeIntelligence, dependencies: const [WardrobeAiEngineIds.styleAnalysis], fields: const ['photo', 'category', 'color', 'material', 'style', 'season', 'wear_history']),
++      engine(WardrobeAiEngineIds.recommendation, dependencies: const [WardrobeAiEngineIds.wardrobeIntelligence], fields: const ['photo', 'category', 'color', 'material', 'style', 'season', 'wear_history', 'occasion', 'weather']),
++      engine(WardrobeAiEngineIds.wardrobeGpt, dependencies: const [WardrobeAiEngineIds.recommendation], fields: const ['photo', 'category', 'color', 'material', 'style', 'season', 'wear_history', 'occasion', 'weather']),
++    ],
++  );
++}
