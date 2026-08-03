@@ -1,0 +1,2286 @@
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index 945a91a083b70e1d4e4c11bca05c80990315cf4b..a93e10a108d3952af1d98b6171ed789b17b459e8 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -1,44 +1,44 @@
+ import 'package:path/path.dart' as p;
+ import 'package:sqflite/sqflite.dart';
+ import '../models/garment.dart';
+ import '../models/outfit.dart';
+ import '../models/outfit_item.dart';
+ import '../models/wear_history.dart';
+ 
+ class DatabaseService {
+   DatabaseService._();
+   static final DatabaseService instance = DatabaseService._();
+   Database? _database;
+ 
+   Future<Database> get database async => _database ??= await _open();
+ 
+   Future<Database> _open() async {
+     final dbPath = await getDatabasesPath();
+     return openDatabase(
+       p.join(dbPath, 'wardrobeos.db'),
+-      version: 8,
++      version: 9,
+       onConfigure: (db) async {
+         await db.execute('PRAGMA foreign_keys = ON');
+       },
+       onCreate: (db, version) async {
+         await db.execute('''
+           CREATE TABLE garments(
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             category TEXT NOT NULL,
+             brand TEXT,
+             color TEXT,
+             material TEXT,
+             season TEXT,
+             style TEXT,
+             occasion TEXT,
+             condition TEXT,
+             purchase_price REAL,
+             purchase_date TEXT,
+             wear_count INTEGER NOT NULL DEFAULT 0,
+             last_worn TEXT,
+             size TEXT,
+             fit TEXT,
+             composition TEXT,
+             notes TEXT,
+             image_path TEXT,
+@@ -72,50 +72,52 @@ class DatabaseService {
+             layer_type TEXT,
+             etat_visuel TEXT,
+             usure_visible TEXT,
+             defauts_visibles TEXT,
+             confiance_globale REAL,
+             avertissements_i_a TEXT,
+             resume_stylistique TEXT,
+             points_forts TEXT,
+             points_faibles TEXT,
+             conseils TEXT,
+             verdict TEXT,
+             couleurs_compatibles TEXT,
+             couleurs_moins_adaptees TEXT,
+             bas_compatibles TEXT,
+             chaussures_compatibles TEXT,
+             explication_polyvalence TEXT,
+             occasions_deconseillees TEXT,
+             composition_estimee TEXT,
+             lavage TEXT,
+             sechage TEXT,
+             repassage TEXT,
+             nettoyage TEXT,
+             boulochage TEXT,
+             taches TEXT,
+             limites_analyse TEXT,
++            stylistic_analysis_status TEXT,
++            stylistic_analysis_fingerprint TEXT,
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL
+           )
+         ''');
+         await _createWearHistoryTable(db);
+         await _createOutfitTables(db);
+         await _createIndexes(db);
+       },
+       onUpgrade: (db, oldVersion, newVersion) async {
+         if (oldVersion < 2) {
+           await _addColumn(db, 'garments', 'style', 'TEXT');
+           await _addColumn(db, 'garments', 'occasion', 'TEXT');
+           await _addColumn(db, 'garments', 'condition', 'TEXT');
+           await _addColumn(db, 'garments', 'purchase_price', 'REAL');
+           await _addColumn(db, 'garments', 'purchase_date', 'TEXT');
+           await _addColumn(
+             db,
+             'garments',
+             'wear_count',
+             'INTEGER NOT NULL DEFAULT 0',
+           );
+           await _addColumn(db, 'garments', 'last_worn', 'TEXT');
+           await _addColumn(db, 'garments', 'size', 'TEXT');
+           await _addColumn(db, 'garments', 'fit', 'TEXT');
+           await _addColumn(db, 'garments', 'composition', 'TEXT');
+@@ -177,50 +179,54 @@ class DatabaseService {
+             await _addColumn(db, 'garments', column, 'TEXT');
+           }
+         }
+         if (oldVersion < 7) {
+           for (final column in const [
+             'couleurs_compatibles',
+             'couleurs_moins_adaptees',
+             'bas_compatibles',
+             'chaussures_compatibles',
+             'explication_polyvalence',
+           ]) {
+             await _addColumn(db, 'garments', column, 'TEXT');
+           }
+         }
+         if (oldVersion < 8) {
+           await _addColumn(db, 'garments', 'layer_type', 'TEXT');
+           await db.execute('''
+             UPDATE garments SET layer_type = CASE
+               WHEN category = 'Vestes' THEN 'Couche extérieure'
+               WHEN category IN ('Hauts', 'Chemises') THEN 'Couche de base'
+               WHEN superposable = 1 THEN 'Couche intermédiaire'
+             END
+             WHERE layer_type IS NULL
+           ''');
+         }
++        if (oldVersion < 9) {
++          await _addColumn(db, 'garments', 'stylistic_analysis_status', 'TEXT');
++          await _addColumn(db, 'garments', 'stylistic_analysis_fingerprint', 'TEXT');
++        }
+         await _createIndexes(db);
+       },
+     );
+   }
+ 
+   Future<void> _createWearHistoryTable(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS wear_history(
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         garment_id TEXT NOT NULL,
+         worn_at TEXT NOT NULL,
+         created_at TEXT NOT NULL,
+         FOREIGN KEY (garment_id) REFERENCES garments(id) ON DELETE CASCADE
+       )
+     ''');
+   }
+ 
+   Future<void> _createOutfitTables(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS outfits(
+         id TEXT PRIMARY KEY,
+         name TEXT NOT NULL,
+         season TEXT,
+         favorite INTEGER NOT NULL DEFAULT 0,
+         created_at TEXT NOT NULL,
+diff --git a/lib/features/scanner/ai/garment_analysis_merge_engine.dart b/lib/features/scanner/ai/garment_analysis_merge_engine.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..035bd6cd7065bb2aeff041a4593e69731d4cae89
+--- /dev/null
++++ b/lib/features/scanner/ai/garment_analysis_merge_engine.dart
+@@ -0,0 +1,88 @@
++import 'garment_analysis_result.dart';
++
++/// Centralizes incremental evidence precedence; widgets only render its result.
++class GarmentAnalysisMergeEngine {
++  static const sourcePriority = <String, int>{
++    'default': 0, 'ai_estimate': 1, 'main_photo': 2,
++    'targeted_photo': 3, 'label': 4, 'user': 5,
++  };
++
++  const GarmentAnalysisMergeEngine();
++
++  GarmentAnalysisResult merge({
++    GarmentAnalysisResult? previous,
++    required GarmentAnalysisResult incoming,
++    Map<String, String> userCorrections = const {},
++  }) {
++    if (previous == null && userCorrections.isEmpty) return incoming;
++    final oldSources = previous?.fieldSources ?? const <String, String>{};
++    final newSources = incoming.fieldSources ?? const <String, String>{};
++    final sources = <String, String>{...oldSources};
++    final statuses = <String, String>{...?previous?.fieldStatuses};
++    final explanations = <String, String>{...?previous?.fieldExplanations};
++    final confidences = <String, double>{...?previous?.fieldConfidences};
++    final divergences = <String, Object?>{};
++
++    String? select(String field, String? oldValue, String? newValue) {
++      final correction = userCorrections[field]?.trim();
++      if (correction != null && correction.isNotEmpty) {
++        if (newValue != null && newValue != correction) divergences[field] = newValue;
++        sources[field] = 'user'; statuses[field] = 'corrected'; confidences[field] = 1;
++        return correction;
++      }
++      if (newValue == null || newValue.trim().isEmpty) return oldValue;
++      if (oldValue == null || oldValue.trim().isEmpty ||
++          _rank(newSources[field]) >= _rank(oldSources[field])) {
++        sources[field] = newSources[field] ?? 'ai_estimate';
++        statuses[field] = incoming.fieldStatuses?[field] ?? statuses[field] ?? 'estimated';
++        explanations[field] = incoming.fieldExplanations?[field] ?? explanations[field] ?? '';
++        confidences[field] = incoming.fieldConfidences[field] ?? confidences[field] ?? incoming.globalConfidence;
++        return newValue;
++      }
++      return oldValue;
++    }
++
++    final metadata = <String, Object?>{...?previous?.analysisMetadata, ...?incoming.analysisMetadata};
++    if (divergences.isNotEmpty) metadata['userCorrectionDivergences'] = divergences;
++    final old = previous;
++    return GarmentAnalysisResult(
++      isUsableImage: incoming.isUsableImage,
++      rejectionReason: incoming.rejectionReason,
++      suggestedName: select('suggestedName', old?.suggestedName, incoming.suggestedName),
++      category: select('category', old?.category, incoming.category),
++      preciseType: select('preciseType', old?.preciseType, incoming.preciseType),
++      primaryColor: select('primaryColor', old?.primaryColor, incoming.primaryColor),
++      material: select('material', old?.material, incoming.material),
++      season: select('season', old?.season, incoming.season),
++      visibleBrand: select('visibleBrand', old?.visibleBrand, incoming.visibleBrand),
++      globalConfidence: incoming.globalConfidence >= (old?.globalConfidence ?? 0) ? incoming.globalConfidence : old?.globalConfidence ?? 0,
++      imageQualityConfidence: incoming.imageQualityConfidence,
++      isBlurry: incoming.isBlurry, isTooDark: incoming.isTooDark,
++      isOverexposed: incoming.isOverexposed, garmentIsPartiallyHidden: incoming.garmentIsPartiallyHidden,
++      garmentIsTooSmall: incoming.garmentIsTooSmall, multipleMainGarments: incoming.multipleMainGarments,
++      backgroundIsProblematic: incoming.backgroundIsProblematic,
++      imageQualityWarnings: incoming.imageQualityWarnings,
++      fieldConfidences: confidences, fieldStatuses: statuses, fieldSources: sources,
++      fieldMetadata: {...?old?.fieldMetadata, ...?incoming.fieldMetadata},
++      overallConfidence: incoming.overallConfidence ?? old?.overallConfidence,
++      analysisMetadata: metadata, fieldExplanations: explanations,
++      warnings: {...?old?.warnings, ...incoming.warnings}.toList(),
++      styleSummary: incoming.styleSummary ?? old?.styleSummary,
++      styleStrengths: incoming.styleStrengths.isEmpty ? old?.styleStrengths ?? const [] : incoming.styleStrengths,
++      styleWeaknesses: incoming.styleWeaknesses.isEmpty ? old?.styleWeaknesses ?? const [] : incoming.styleWeaknesses,
++      styleAdvice: incoming.styleAdvice.isEmpty ? old?.styleAdvice ?? const [] : incoming.styleAdvice,
++      compatibleColors: incoming.compatibleColors.isEmpty ? old?.compatibleColors ?? const [] : incoming.compatibleColors,
++      lessSuitableColors: incoming.lessSuitableColors.isEmpty ? old?.lessSuitableColors ?? const [] : incoming.lessSuitableColors,
++      compatibleBottoms: incoming.compatibleBottoms.isEmpty ? old?.compatibleBottoms ?? const [] : incoming.compatibleBottoms,
++      compatibleShoes: incoming.compatibleShoes.isEmpty ? old?.compatibleShoes ?? const [] : incoming.compatibleShoes,
++      idealOccasions: incoming.idealOccasions.isEmpty ? old?.idealOccasions ?? const [] : incoming.idealOccasions,
++      discouragedOccasions: incoming.discouragedOccasions.isEmpty ? old?.discouragedOccasions ?? const [] : incoming.discouragedOccasions,
++      versatilityExplanation: incoming.versatilityExplanation ?? old?.versatilityExplanation,
++      styleVerdict: incoming.styleVerdict ?? old?.styleVerdict,
++      analysisLimitations: incoming.analysisLimitations,
++      needsMorePhotos: incoming.needsMorePhotos, requestedPhoto: incoming.requestedPhoto,
++    );
++  }
++
++  int _rank(String? source) => sourcePriority[source] ?? sourcePriority['ai_estimate'] ?? 1;
++}
+diff --git a/lib/features/scanner/ai/garment_analysis_request.dart b/lib/features/scanner/ai/garment_analysis_request.dart
+index 1667205d2846d1fa9c9494b13820308f5222bd46..bcf0654482ace25b32fade025c1bb1d1f4af1a23 100644
+--- a/lib/features/scanner/ai/garment_analysis_request.dart
++++ b/lib/features/scanner/ai/garment_analysis_request.dart
+@@ -1,32 +1,54 @@
+ import 'dart:typed_data';
+ 
++enum GarmentPhotoRole { main, back, fabricCloseUp, compositionLabel, sizeLabel, collar, sleeves, lining, closure, logo, other }
++
++class GarmentAnalysisPhoto {
++  final Uint8List bytes;
++  final String mimeType;
++  final GarmentPhotoRole role;
++  final String? requestReason;
++  const GarmentAnalysisPhoto({required this.bytes, required this.mimeType, required this.role, this.requestReason});
++  GarmentAnalysisPhoto copyWith({Uint8List? bytes, String? mimeType}) => GarmentAnalysisPhoto(bytes: bytes ?? this.bytes, mimeType: mimeType ?? this.mimeType, role: role, requestReason: requestReason);
++}
++
+ class GarmentAnalysisRequest {
+   final Uint8List imageBytes;
+   final String mimeType;
+   final String? fileName;
+   final String language;
+   final List<String> allowedCategories;
+   final List<String> allowedColors;
+   final List<String> allowedMaterials;
+   final List<String> allowedSeasons;
+   final Map<String, String> existingValues;
++  final Map<String, String> userCorrections;
++  final List<String> uncertainFields;
++  final List<GarmentAnalysisPhoto> photos;
+   final List<Uint8List> previousImageBytes;
+   final Map<String, Object?>? previousAnalysis;
+ 
+   const GarmentAnalysisRequest({
+     required this.imageBytes,
+     required this.mimeType,
+     this.fileName,
+     this.language = 'français',
+     required this.allowedCategories,
+     required this.allowedColors,
+     required this.allowedMaterials,
+     required this.allowedSeasons,
+     this.existingValues = const {},
++    this.userCorrections = const {},
++    this.uncertainFields = const [],
++    this.photos = const [],
+     this.previousImageBytes = const [],
+     this.previousAnalysis,
+   });
+ 
+-  GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType}) =>
+-      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes, previousAnalysis: previousAnalysis);
++  List<GarmentAnalysisPhoto> get effectivePhotos => photos.isNotEmpty ? photos : [
++    ...previousImageBytes.map((bytes) => GarmentAnalysisPhoto(bytes: bytes, mimeType: 'image/jpeg', role: GarmentPhotoRole.other)),
++    GarmentAnalysisPhoto(bytes: imageBytes, mimeType: mimeType, role: previousImageBytes.isEmpty ? GarmentPhotoRole.main : GarmentPhotoRole.other),
++  ];
++
++  GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType, List<GarmentAnalysisPhoto>? photos}) =>
++      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, userCorrections: userCorrections, uncertainFields: uncertainFields, photos: photos ?? this.photos, previousImageBytes: previousImageBytes, previousAnalysis: previousAnalysis);
+ }
+diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+index c97942197d93f8421a365acff8652a0b7890ff57..b3f36b74583e12d25eafa8c194a0bda918941016 100644
+--- a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+@@ -39,193 +39,201 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
+     if (_ownsClient) client.close();
+   }
+ 
+   @override
+   Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
+     if (request.imageBytes.isEmpty) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.missingImage,
+         'Aucune image à analyser.',
+       );
+     }
+     if (!supportedMimeTypes.contains(request.mimeType)) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.unsupportedFormat,
+         'Ce format d’image n’est pas pris en charge.',
+       );
+     }
+     final apiKey = await apiKeyStorage.read();
+     if (apiKey == null) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.missingApiKey,
+         'Configurez votre clé OpenAI pour utiliser l’analyse IA.',
+       );
+     }
+ 
+-    final prepared = preprocessor.prepareBytes(request.imageBytes, mimeType: request.mimeType);
+-    final preparedRequest = request.copyWith(imageBytes: prepared.bytes, mimeType: prepared.mimeType);
+-    final body = _requestBody(preparedRequest);
++    final preparedPhotos = request.effectivePhotos.map((photo) {
++      final prepared = preprocessor.prepareBytes(photo.bytes, mimeType: photo.mimeType);
++      return photo.copyWith(bytes: prepared.bytes, mimeType: prepared.mimeType);
++    }).toList(growable: false);
++    final current = preparedPhotos.last;
++    final preparedRequest = request.copyWith(imageBytes: current.bytes, mimeType: current.mimeType, photos: preparedPhotos);
++    final body = buildRequestBody(preparedRequest);
+     var attempt = 0;
+     while (true) {
+     try {
+       final response = await client.post(
+         endpoint,
+         headers: {
+           HttpHeaders.authorizationHeader: 'Bearer ${apiKey.trim()}',
+           HttpHeaders.contentTypeHeader: 'application/json',
+         },
+         body: jsonEncode(body),
+       ).timeout(timeout);
+-      print('HTTP ${response.statusCode}');
+-      print(response.body);
+       if (response.statusCode < 200 || response.statusCode >= 300) {
+         final exception = _httpException(response.statusCode);
+         if (attempt++ < maxRetries && _isTransient(response.statusCode)) {
+           await Future<void>.delayed(Duration(milliseconds: 100 * attempt));
+           continue;
+         }
+         throw exception;
+       }
+       final responseBody = _decodeObject(response.body);
+       final output = _outputText(responseBody);
+       if (output == null || output.trim().isEmpty) {
+         throw const GarmentAnalysisException(
+           GarmentAnalysisError.emptyResponse,
+           'OpenAI a renvoyé une réponse vide.',
+         );
+       }
+-      print('================ IA JSON ================');
+-      print(output);
+-      print('=========================================');
+       final result = GarmentAnalysisResult.fromJsonString(output);
+-
+-print('PARSE OK');
+-print('usable=${result.isUsableImage}');
+-print('reason=${result.rejectionReason}');
+-
+-return result;
++      return result;
+     } on GarmentAnalysisException {
+       rethrow;
+     } on TimeoutException {
+       if (attempt++ < maxRetries) continue;
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.timeout,
+         'L’analyse prend trop de temps. Réessayez.',
+       );
+     } on SocketException {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.network,
+         'Impossible de joindre OpenAI. Vérifiez votre connexion.',
+       );
+     } on http.ClientException {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.network,
+         'Impossible de joindre OpenAI. Vérifiez votre connexion.',
+       );
+     }
+     }
+   }
+ 
+   bool _isTransient(int status) => status == 429 || status >= 500;
+ 
+-  Map<String, dynamic> _requestBody(GarmentAnalysisRequest request) => {
++  /// Exposed for deterministic transport-contract tests; performs no request.
++  Map<String, dynamic> buildRequestBody(GarmentAnalysisRequest request) => {
+     'model': model,
+     'instructions': _prompt(request),
+     'input': [
+       {
+         'role': 'user',
+         'content': [
+           {
+             'type': 'input_text',
+-            'text': request.previousImageBytes.isEmpty
++            'text': request.effectivePhotos.length == 1
+                 ? 'Analyse cette première photo selon les instructions.'
+                 : 'Mets à jour l’analyse en combinant toutes les photos. La dernière image répond à la demande précédente.',
+           },
+-          ...request.previousImageBytes.map((bytes) => {
+-            'type': 'input_image',
+-            'image_url':
+-                'data:${GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg'};base64,${base64Encode(bytes)}',
+-          }),
+-          {
+-            'type': 'input_image',
+-            'image_url':
+-                'data:${request.mimeType};base64,${base64Encode(request.imageBytes)}',
+-          },
++          ...request.effectivePhotos.expand((photo) => [
++            {'type': 'input_text', 'text': _photoLabel(photo)},
++            {'type': 'input_image', 'image_url': 'data:${photo.mimeType};base64,${base64Encode(photo.bytes)}'},
++          ]),
+         ],
+       },
+     ],
+     'text': {
+       'format': {
+         'type': 'json_schema',
+         'name': 'garment_analysis',
+         'strict': true,
+         'schema': _schema,
+       },
+     },
+   };
+ 
++  String _photoLabel(GarmentAnalysisPhoto photo) {
++    final label = switch (photo.role) {
++      GarmentPhotoRole.main => 'Photo principale du vêtement', GarmentPhotoRole.back => 'Photo du dos du vêtement',
++      GarmentPhotoRole.fabricCloseUp => 'Gros plan du tissu', GarmentPhotoRole.compositionLabel => 'Photo de l’étiquette de composition',
++      GarmentPhotoRole.sizeLabel => 'Photo de l’étiquette de taille', GarmentPhotoRole.collar => 'Photo du col',
++      GarmentPhotoRole.sleeves => 'Photo des manches', GarmentPhotoRole.lining => 'Photo de la doublure',
++      GarmentPhotoRole.closure => 'Photo de la fermeture', GarmentPhotoRole.logo => 'Photo du logo',
++      GarmentPhotoRole.other => 'Photo complémentaire',
++    };
++    final reason = photo.requestReason?.trim();
++    return reason == null || reason.isEmpty ? label : '$label. Demande motivante : $reason';
++  }
++
+   String _prompt(GarmentAnalysisRequest request) => '''
+ Tu analyses uniquement le vêtement principal visible. Ignore la personne, le
+ visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne.
+ Réponds en ${request.language} et uniquement selon le schéma JSON. N'invente
+ jamais une marque ou une matière : utilise null lorsque ce n'est pas clairement
+ observable. Distingue une photo utilisable, imparfaite et inutilisable. Un léger
+ défaut produit un avertissement ; un vêtement minuscule ou plusieurs vêtements
+ principaux indissociables produisent un rejet. N'identifie personne, ne déduis
+ ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
+ l'étiquette reste prioritaire. Baisse la confiance si texture, couleur ou logo
+ sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
+ Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
+ Combine toutes les images : une nouvelle photo complète l'analyse précédente et
+ ne la remplace jamais. Réévalue chaque champ et sa confiance. La plupart des
+ pièces doivent être finalisées avec une seule photo. Mets needsMorePhotos à true
+ uniquement si une photo ciblée peut améliorer de façon importante un champ
+ encore incertain. Ne demande qu'une seule photo à la fois, explique précisément
+ pourquoi elle est utile et indique les champs visés. Ne redemande jamais une vue
+ déjà fournie. Sinon mets needsMorePhotos à false et requestedPhoto à null.
+ « category » est la catégorie générale, choisie uniquement parmi les catégories
+ autorisées ci-dessous. « preciseType » est le type concret et précis observé
+ (par exemple chemise Oxford, blazer croisé, jean droit, pantalon cargo,
+ cardigan, trench ou baskets basses). Utilise null si l'image ne permet pas de
+ conclure et ne répète jamais exactement « category » dans « preciseType ».
+ Agis comme un styliste professionnel : observe, explique, argumente et nuance.
+ Produis un résumé, des points forts et faibles, des conseils concrets, les
+ couleurs, bas et chaussures compatibles, les couleurs moins adaptées, les
+ occasions idéales et déconseillées, une polyvalence expliquée et un verdict
+ franc. Ne flatte pas systématiquement et ne qualifie jamais une pièce
+ d'élégante, polyvalente ou belle sans justification. Tu peux dire qu'une coupe
+ est datée, une couleur difficile, un motif chargé ou la pièce peu polyvalente.
+ Chaque critique doit indiquer pourquoi et tout défaut doit mener à une solution
+ concrète. Mentionne dans analysisLimitations ce que l'image ne permet pas de
+ conclure (intérieur invisible, matière estimée, vêtement masqué, par exemple).
+ category=${jsonEncode(request.allowedCategories)}
+ primaryColor=${jsonEncode(request.allowedColors)}
+ material=${jsonEncode(request.allowedMaterials)}
+ season=${jsonEncode(request.allowedSeasons)}
+ Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
+ ${jsonEncode(request.existingValues)}
+ Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}
++Corrections utilisateur prioritaires, à considérer comme vraies et à ne jamais
++écraser : ${jsonEncode(request.userCorrections)}
++Champs encore incertains : ${jsonEncode(request.uncertainFields)}
++Priorité obligatoire : correction utilisateur, étiquette lisible, photo ciblée,
++photo principale, estimation IA, valeur par défaut. Conserve les champs non
++concernés et consigne une divergence sans remplacer une correction utilisateur.
+ ''';
+ 
+   static const _nullableString = {'type': ['string', 'null']};
+   static const _schema = {
+     'type': 'object',
+     'additionalProperties': false,
+     'required': [
+       'isUsableImage',
+       'rejectionReason',
+       'suggestedName',
+       'category',
+       'preciseType',
+       'primaryColor',
+       'material',
+       'season',
+       'visibleBrand',
+       'globalConfidence',
+       'fieldConfidences',
+       'warnings',
+       'imageQualityConfidence', 'isBlurry', 'isTooDark', 'isOverexposed',
+       'garmentIsPartiallyHidden', 'garmentIsTooSmall',
+       'multipleMainGarments', 'backgroundIsProblematic',
+       'imageQualityWarnings',
+       'styleSummary', 'styleStrengths', 'styleWeaknesses', 'styleAdvice',
+       'compatibleColors', 'lessSuitableColors', 'compatibleBottoms',
+diff --git a/lib/features/scanner/conversation/requested_photo.dart b/lib/features/scanner/conversation/requested_photo.dart
+index ac653593805c4b288f0311f88ec27dd6ba9eb345..9023263d4ed2d8f551d32d7c1d73f52d0cb39a59 100644
+--- a/lib/features/scanner/conversation/requested_photo.dart
++++ b/lib/features/scanner/conversation/requested_photo.dart
+@@ -2,38 +2,48 @@ enum RequestedPhotoType {
+   compositionLabel,
+   back,
+   fabricCloseUp,
+   collar,
+   cuffs,
+   lining,
+   buttons,
+   zipper,
+   logo,
+   other;
+ 
+   static RequestedPhotoType fromWireValue(String? value) => switch (value) {
+     'composition_label' => compositionLabel,
+     'back' => back,
+     'fabric_close_up' => fabricCloseUp,
+     'collar' => collar,
+     'cuffs' => cuffs,
+     'lining' => lining,
+     'buttons' => buttons,
+     'zipper' => zipper,
+     'logo' => logo,
+     _ => other,
+   };
+ }
+ 
++extension RequestedPhotoTypeWire on RequestedPhotoType {
++  String get wireValue => switch (this) {
++    RequestedPhotoType.compositionLabel => 'composition_label', RequestedPhotoType.back => 'back',
++    RequestedPhotoType.fabricCloseUp => 'fabric_close_up', RequestedPhotoType.collar => 'collar',
++    RequestedPhotoType.cuffs => 'cuffs', RequestedPhotoType.lining => 'lining',
++    RequestedPhotoType.buttons => 'buttons', RequestedPhotoType.zipper => 'zipper',
++    RequestedPhotoType.logo => 'logo', RequestedPhotoType.other => 'other',
++  };
++}
++
+ class RequestedPhoto {
+   final RequestedPhotoType type;
+   final String instruction;
+   final String reason;
+   final List<String> targetFields;
+ 
+   const RequestedPhoto({
+     required this.type,
+     required this.instruction,
+     required this.reason,
+     this.targetFields = const [],
+   });
+ }
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index b59c7e46e9cb6c33e98df03cc22e4835e700e78c..737bdd7bbe500ec1028b9db94d924ea391d2db5d 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -1,70 +1,73 @@
+ import 'dart:async';
+ import 'dart:io';
+ import 'dart:typed_data';
+ 
+ import 'package:flutter/material.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../widgets/garment_image.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wardrobe/garment_form_screen.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import 'ai/garment_analysis_exception.dart';
+ import 'ai/garment_analysis_mapper.dart';
++import 'ai/garment_analysis_merge_engine.dart';
+ import 'ai/garment_analysis_request.dart';
+ import 'ai/garment_analysis_result.dart';
+ import 'ai/garment_analysis_validator.dart';
+ import 'ai/garment_image_processing.dart';
+ import 'ai/normalization/garment_value_normalizer.dart';
+ import 'ai/openai_garment_vision_analyzer.dart';
+ import 'conversation/scan_conversation.dart';
++import 'conversation/requested_photo.dart';
+ 
+ class ScannerScreen extends StatefulWidget {
+   const ScannerScreen({super.key});
+ 
+   @override
+   State<ScannerScreen> createState() => _ScannerScreenState();
+ }
+ 
+ class _ScannerScreenState extends State<ScannerScreen> {
+   final picker = ImagePicker();
+   late final OpenAiGarmentVisionAnalyzer scanner;
+   final wardrobe = WardrobeController();
+ 
+   final name = TextEditingController();
+   final brand = TextEditingController();
+   final color = TextEditingController();
+   final material = TextEditingController();
+ 
+   String category = 'Hauts';
+   String season = 'Toute saison';
+   String? imagePath;
+   final List<String> sessionImagePaths = [];
++  final Map<String, ({GarmentPhotoRole role, String? reason})> sessionPhotoMetadata = {};
+   GarmentAnalysisResult? result;
+   ScanConversationDecision? conversation;
+   bool importing = false;
+   bool analyzing = false;
+   bool saving = false;
+   bool imageOwnedByGarment = false;
+ 
+   bool get busy => importing || analyzing || saving;
+ 
+   static const categories = [
+     'Hauts',
+     'Chemises',
+     'Vestes',
+     'Bas',
+     'Chaussures',
+     'Accessoires',
+     'Autre',
+   ];
+ 
+   static const seasons = [
+     'Toute saison',
+     'Printemps',
+     'Été',
+     'Automne',
+     'Hiver',
+@@ -101,62 +104,68 @@ class _ScannerScreenState extends State<ScannerScreen> {
+     material.dispose();
+     scanner.close();
+     wardrobe.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> pick(ImageSource source) async {
+     if (busy) return;
+     setState(() => importing = true);
+     String? persisted;
+     try {
+       final selected = await picker.pickImage(
+         source: source,
+         imageQuality: 90,
+         maxWidth: 1800,
+       );
+       if (!mounted || selected == null) return;
+ 
+       persisted = await ImageStorageService.persist(selected.path);
+       if (!mounted) {
+         _removeBestEffort(persisted);
+         return;
+       }
+ 
+       final isAdditional = result != null && conversation?.requestedPhoto != null;
++      final requested = conversation?.requestedPhoto;
+       final previousPath = imagePath;
+       setState(() {
+         imagePath = persisted;
+         sessionImagePaths.add(persisted!);
++        sessionPhotoMetadata[persisted!] = (
++          role: isAdditional ? _roleFor(requested?.type) : GarmentPhotoRole.main,
++          reason: requested == null ? null : '${requested.instruction} — ${requested.reason}',
++        );
+         if (!isAdditional) {
+           result = null;
+           conversation = null;
+         }
+       });
+       persisted = null; // The screen now owns this copy.
+       if (!isAdditional && previousPath != null) {
+         sessionImagePaths.remove(previousPath);
++        sessionPhotoMetadata.remove(previousPath);
+         _removeBestEffort(previousPath);
+       }
+     } catch (_) {
+       _removeBestEffort(persisted);
+       if (!mounted) return;
+       _toast('Impossible d’importer cette photo. Réessaie avec une autre.');
+     } finally {
+       if (mounted) setState(() => importing = false);
+     }
+ 
+     // L'analyse reste une action explicite afin d'éviter tout appel coûteux
+     // involontaire après un simple changement de photo.
+   }
+ 
+   Future<void> chooseSource() async {
+     if (busy) return;
+     if (imagePath != null && conversation?.requestedPhoto == null) {
+       final replace = await showDialog<bool>(
+         context: context,
+         builder:
+             (context) => AlertDialog(
+               title: const Text('Remplacer la photo ?'),
+               content: const Text(
+                 'La photo actuelle sera conservée si le nouvel import échoue.',
+               ),
+@@ -194,124 +203,145 @@ class _ScannerScreenState extends State<ScannerScreen> {
+                   onTap: () => Navigator.pop(context, ImageSource.gallery),
+                 ),
+               ],
+             ),
+           ),
+     );
+     if (!mounted || source == null) return;
+     await pick(source);
+   }
+ 
+   Future<void> analyze() async {
+     if (busy || imagePath == null) return;
+     setState(() => analyzing = true);
+ 
+     try {
+       final validation = await const GarmentImageValidator().validateFile(
+         imagePath!,
+       );
+       if (!validation.isValid) {
+         throw GarmentAnalysisException(
+           GarmentAnalysisError.rejectedImage,
+           validation.rejectionReason ?? 'Cette photo ne peut pas être analysée.',
+         );
+       }
+       final bytes = await File(imagePath!).readAsBytes();
+-      final previousBytes = <Uint8List>[];
+-      for (final path in sessionImagePaths.where((path) => path != imagePath)) {
+-        previousBytes.add(await File(path).readAsBytes());
++      final photos = <GarmentAnalysisPhoto>[];
++      for (final path in sessionImagePaths) {
++        final photoBytes = await File(path).readAsBytes();
++        final metadata = sessionPhotoMetadata[path];
++        photos.add(GarmentAnalysisPhoto(
++          bytes: photoBytes,
++          mimeType: GarmentImageValidator.detectMimeType(photoBytes) ?? 'image/jpeg',
++          role: metadata?.role ?? (photos.isEmpty ? GarmentPhotoRole.main : GarmentPhotoRole.other),
++          requestReason: metadata?.reason,
++        ));
+       }
+       final raw = await scanner.analyze(
+         GarmentAnalysisRequest(
+           imageBytes: bytes,
+           mimeType:
+               GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
+           allowedCategories: categories,
+           allowedColors: colors,
+           allowedMaterials: materials,
+           allowedSeasons: seasons,
+           existingValues: {
+             if (name.text.trim().isNotEmpty) 'name': name.text.trim(),
+             if (brand.text.trim().isNotEmpty) 'brand': brand.text.trim(),
+           },
+-          previousImageBytes: previousBytes,
++          photos: photos,
++          uncertainFields: result?.fieldConfidences.entries.where((entry) => entry.value < .72).map((entry) => entry.key).toList() ?? const [],
+           previousAnalysis: result?.toJson(),
+         ),
+       );
+-      final validated = GarmentAnalysisValidator(
++      final validatedIncoming = GarmentAnalysisValidator(
+         categoryNormalizer: const GarmentValueNormalizer(categories),
+         colorNormalizer: const GarmentValueNormalizer(colors),
+         materialNormalizer: const GarmentValueNormalizer(materials),
+         seasonNormalizer: const GarmentValueNormalizer(seasons),
+       ).validate(raw).analysis;
++      final validated = const GarmentAnalysisMergeEngine().merge(previous: result, incoming: validatedIncoming);
+       if (!validated.isUsableImage) {
+         throw GarmentAnalysisException(
+           GarmentAnalysisError.rejectedImage,
+           validated.rejectionReason ??
+               'La photo ne permet pas d’identifier clairement un vêtement.',
+         );
+       }
+       final mapped = const GarmentAnalysisMapper(
+         categories: categories,
+         colors: colors,
+         materials: materials,
+         seasons: seasons,
+       ).map(
+         validated,
+         current: GarmentFormValues(
+           name: name.text,
+           category: '',
+           color: color.text,
+           material: material.text,
+           season: '',
+           brand: brand.text,
+         ),
+       );
+       if (!mounted) return;
+       final decision = const ScanConversationPolicy().evaluate(validated);
+       setState(() {
+         result = validated;
+         conversation = decision;
+         name.text = mapped.name;
+         brand.text = mapped.brand;
+         color.text = mapped.color;
+         material.text = mapped.material;
+         if (mapped.category.isNotEmpty) category = mapped.category;
+         if (mapped.season.isNotEmpty) season = mapped.season;
+       });
+       setState(() => analyzing = false);
+       if (decision.canFinishAutomatically) await _openFullForm();
+     } on GarmentAnalysisException catch (error) {
+       if (!mounted) return;
+       _toast(_friendlyAnalysisError(error));
+     } catch (_) {
+       if (mounted) _toast('Analyse impossible pour le moment. Réessaie.');
+     } finally {
+       if (mounted) setState(() => analyzing = false);
+     }
+   }
+ 
++  GarmentPhotoRole _roleFor(RequestedPhotoType? type) => switch (type) {
++    RequestedPhotoType.compositionLabel => GarmentPhotoRole.compositionLabel,
++    RequestedPhotoType.back => GarmentPhotoRole.back,
++    RequestedPhotoType.fabricCloseUp => GarmentPhotoRole.fabricCloseUp,
++    RequestedPhotoType.collar => GarmentPhotoRole.collar,
++    RequestedPhotoType.cuffs => GarmentPhotoRole.sleeves,
++    RequestedPhotoType.lining => GarmentPhotoRole.lining,
++    RequestedPhotoType.buttons || RequestedPhotoType.zipper => GarmentPhotoRole.closure,
++    RequestedPhotoType.logo => GarmentPhotoRole.logo,
++    _ => GarmentPhotoRole.other,
++  };
++
+   String _friendlyAnalysisError(GarmentAnalysisException exception) => switch (
+     exception.error
+   ) {
+     GarmentAnalysisError.missingApiKey =>
+       'Configure ta clé OpenAI dans le profil avant de lancer l’analyse.',
+     GarmentAnalysisError.invalidApiKey =>
+       'La clé configurée n’est pas valide. Vérifie-la dans le profil.',
+     GarmentAnalysisError.quotaExceeded =>
+       'Le service d’analyse est momentanément indisponible. Réessaie plus tard.',
+     GarmentAnalysisError.network =>
+       'Aucune connexion disponible. Vérifie ton réseau puis réessaie.',
+     GarmentAnalysisError.timeout =>
+       'L’analyse prend trop de temps. Réessaie dans quelques instants.',
+     GarmentAnalysisError.rejectedImage ||
+     GarmentAnalysisError.missingImage ||
+     GarmentAnalysisError.unsupportedFormat => exception.message,
+     _ => 'Analyse impossible pour le moment. Réessaie.',
+   };
+ 
+   Future<void> _openFullForm() async {
+     if (busy) return;
+     if (imagePath == null) {
+       _toast('Ajoute d’abord une photo.');
+       return;
+     }
+diff --git a/lib/features/wardrobe/garment_form_screen.dart b/lib/features/wardrobe/garment_form_screen.dart
+index 63536fcbbead594a6abd109f9f5c97469cc3b43a..d2fefcbdf7f75eb70eae1948999e43946d31465a 100644
+--- a/lib/features/wardrobe/garment_form_screen.dart
++++ b/lib/features/wardrobe/garment_form_screen.dart
+@@ -1,100 +1,109 @@
+ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ 
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../widgets/garment_image.dart';
+ import 'wardrobe_controller.dart';
++import 'stylistic_analysis_state.dart';
+ 
+ /// Complete review sheet used both after AI analysis and when editing a garment.
+ class GarmentFormScreen extends StatefulWidget {
+   final WardrobeController controller;
+   final Garment? garment;
+   /// A populated, not-yet-persisted garment produced by the scanner.
+   final bool isDraft;
+   const GarmentFormScreen({super.key, required this.controller, this.garment, this.isDraft = false});
+ 
+   @override
+   State<GarmentFormScreen> createState() => _GarmentFormScreenState();
+ }
+ 
+ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+   final _formKey = GlobalKey<FormState>();
+   final _picker = ImagePicker();
+   late final TextEditingController _name, _brand, _color, _size, _otherMaterial,
+       _otherUse, _minTemp, _maxTemp, _notes;
+   late String _category;
+   String? _subCategory, _material;
+   late Set<String> _styles, _seasons, _uses;
+   bool? _rain, _heat;
+   String? _imagePath;
+   bool _saving = false;
++  bool _stylisticStale = false;
+ 
+   static const categories = ['Hauts', 'Chemises', 'Vestes', 'Bas', 'Chaussures', 'Accessoires', 'Autre'];
+   static const subCategories = <String, List<String>>{
+     'Hauts': ['T-shirt', 'Polo', 'Pull', 'Sweat', 'Cardigan', 'Débardeur'],
+     'Chemises': ['Chemise habillée', 'Chemise casual', 'Surchemise', 'Blouse'],
+     'Vestes': ['Blazer', 'Manteau', 'Parka', 'Imperméable', 'Doudoune', 'Veste légère'],
+     'Bas': ['Jean', 'Pantalon', 'Short', 'Jupe', 'Legging'],
+     'Chaussures': ['Baskets', 'Boots', 'Chaussures habillées', 'Sandales', 'Randonnée'],
+     'Accessoires': ['Sac', 'Ceinture', 'Écharpe', 'Bonnet', 'Chapeau', 'Gants'],
+     'Autre': ['Autre'],
+   };
+   static const materials = ['Coton', 'Laine', 'Mérinos', 'Cachemire', 'Lin', 'Polyester', 'Viscose', 'Denim', 'Cuir', 'Daim', 'Nylon', 'Soie', 'Mélange', 'Autre...'];
+   static const styles = ['Casual', 'Smart Casual', 'Business', 'Business Casual', 'Chic', 'Streetwear', 'Workwear', 'Sport', 'Outdoor', 'Vintage', 'Minimaliste', 'Preppy', 'Classique', 'Élégant'];
+   static const uses = ['Quotidien', 'Travail', 'Soirée', 'Sport', 'Voyage', 'Randonnée', 'Maison', 'Vacances', 'Autre...'];
+   static const seasons = Garment.availableSeasons;
+ 
+   @override
+   void initState() {
+     super.initState();
+     final g = widget.garment;
+     _name = TextEditingController(text: g?.name ?? '');
+     _brand = TextEditingController(text: g?.brand ?? '');
+     _color = TextEditingController(text: g?.couleurPrincipale ?? g?.color ?? '');
+     _size = TextEditingController(text: g?.size ?? '');
+     _notes = TextEditingController(text: g?.notes ?? '');
+     _minTemp = TextEditingController(text: g?.temperatureMinimum?.toString() ?? '');
+     _maxTemp = TextEditingController(text: g?.temperatureMaximum?.toString() ?? '');
+     _category = categories.contains(g?.category) ? g!.category : categories.first;
+     _subCategory = _choice(g?.sousCategorie, subCategories[_category]!);
+     final existingMaterial = g?.matierePrincipale ?? g?.material;
+     _material = _choice(existingMaterial, materials);
+     _otherMaterial = TextEditingController(text: _material == null ? existingMaterial ?? '' : '');
+     final existingUses = g?.effectiveOccasions ?? const <String>[];
+     _uses = existingUses.where(uses.contains).toSet();
+     final customUses = existingUses.where((value) => !uses.contains(value)).toList();
+     if (customUses.isNotEmpty) _uses.add('Autre...');
+     _otherUse = TextEditingController(text: customUses.join(', '));
+     _styles = {...?g?.stylesSecondaires, if (g?.stylePrincipal != null) g!.stylePrincipal!, if (g?.style != null) g!.style!}.where(styles.contains).toSet();
+     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
+     _rain = g?.compatiblePluie;
+     _heat = g?.compatibleChaleur;
+     _imagePath = g?.imagePath;
++    for (final controller in [_color, _otherMaterial, _otherUse, _minTemp, _maxTemp]) {
++      controller.addListener(_markStylisticAnalysisStale);
++    }
++  }
++
++  void _markStylisticAnalysisStale() {
++    if (!_stylisticStale && mounted) setState(() => _stylisticStale = true);
+   }
+ 
+   static String? _choice(String? value, List<String> values) => values.contains(value) ? value : null;
+   String? _text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
+   double? _number(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '.'));
+ 
+   @override
+   void dispose() {
+     for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _minTemp, _maxTemp, _notes]) { c.dispose(); }
+     super.dispose();
+   }
+ 
+   Future<void> _chooseImage(ImageSource source) async {
+     final picked = await _picker.pickImage(source: source, imageQuality: 88, maxWidth: 1800);
+     if (picked == null) return;
+     final path = await ImageStorageService.persist(picked.path);
+     if (_imagePath != null && _imagePath != widget.garment?.imagePath) await ImageStorageService.remove(_imagePath);
+     if (mounted) setState(() => _imagePath = path);
+   }
+ 
+   Future<void> _imageActions() => showModalBottomSheet<void>(
+     context: context, showDragHandle: true,
+     builder: (context) => SafeArea(child: Wrap(children: [
+       ListTile(leading: const Icon(Icons.camera_alt_outlined), title: const Text('Prendre une photo'), onTap: () { Navigator.pop(context); _chooseImage(ImageSource.camera); }),
+       ListTile(leading: const Icon(Icons.photo_library_outlined), title: const Text('Changer la photo'), onTap: () { Navigator.pop(context); _chooseImage(ImageSource.gallery); }),
+@@ -104,97 +113,109 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+ 
+   String _calculatedLayer() {
+     if (_category == 'Vestes') return _subCategory == 'Imperméable' ? 'Couche de protection' : 'Couche extérieure';
+     if (_category == 'Hauts' || _category == 'Chemises') return _material == 'Laine' || _material == 'Mérinos' || _material == 'Cachemire' ? 'Couche chaude' : 'Couche de base';
+     return 'Couche intermédiaire';
+   }
+ 
+   Future<void> _save() async {
+     if (!_formKey.currentState!.validate()) return;
+     final min = _number(_minTemp), max = _number(_maxTemp);
+     if (min != null && max != null && min > max) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La température minimale doit être inférieure au maximum.'))); return; }
+     setState(() => _saving = true);
+     final old = widget.garment;
+     final now = DateTime.now();
+     final material = _material == 'Autre...' ? _text(_otherMaterial) : _material;
+     final selectedUses = _uses.where((value) => value != 'Autre...').toList();
+     if (_uses.contains('Autre...')) {
+       selectedUses.addAll(
+         _otherUse.text
+             .split(',')
+             .map((value) => value.trim())
+             .where((value) => value.isNotEmpty),
+       );
+     }
+     final uniqueUses = selectedUses.toSet().toList();
+-    final garment = Garment(
++    final draft = Garment(
+       id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: _category,
+       brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes), imagePath: _imagePath,
+       sousCategorie: _subCategory, couleurPrincipale: _text(_color), matierePrincipale: material,
+       // Legacy-only values remain persisted although they are no longer shown.
+       typePrecis: old?.typePrecis, superposable: old?.superposable,
+       style: _styles.isEmpty ? null : _styles.first, stylePrincipal: _styles.isEmpty ? null : _styles.first, stylesSecondaires: _styles.toList(),
+       season: _seasons.length == 1 ? _seasons.single : null, saisons: _seasons.toList(),
+       // Keep the first value in the legacy scalar while persisting every use.
+       occasion: uniqueUses.isEmpty ? null : uniqueUses.first,
+       occasions: uniqueUses.isEmpty ? null : uniqueUses,
+       temperatureMinimum: min, temperatureMaximum: max,
+       compatiblePluie: _rain, compatibleChaleur: _heat, layerType: _calculatedLayer(),
+       descriptionIA: old?.descriptionIA, couleursSecondaires: old?.couleursSecondaires, motif: old?.motif, texture: old?.texture,
+       logoVisible: old?.logoVisible, niveauFormalite: old?.niveauFormalite, coupe: old?.coupe, longueur: old?.longueur,
+       longueurManches: old?.longueurManches, typeCol: old?.typeCol, typeFermeture: old?.typeFermeture,
+       matieresSecondaires: old?.matieresSecondaires, confianceMatiere: old?.confianceMatiere, etatVisuel: old?.etatVisuel,
+       usureVisible: old?.usureVisible, defautsVisibles: old?.defautsVisibles, confianceGlobale: old?.confianceGlobale,
+       avertissementsIA: old?.avertissementsIA, resumeStylistique: old?.resumeStylistique, pointsForts: old?.pointsForts,
+       pointsFaibles: old?.pointsFaibles, conseils: old?.conseils, verdict: old?.verdict, couleursCompatibles: old?.couleursCompatibles,
+       couleursMoinsAdaptees: old?.couleursMoinsAdaptees, basCompatibles: old?.basCompatibles, chaussuresCompatibles: old?.chaussuresCompatibles,
+       explicationPolyvalence: old?.explicationPolyvalence, occasionsDeconseillees: old?.occasionsDeconseillees,
+       compositionEstimee: old?.compositionEstimee, lavage: old?.lavage, sechage: old?.sechage, repassage: old?.repassage,
+       nettoyage: old?.nettoyage, boulochage: old?.boulochage, taches: old?.taches, limitesAnalyse: old?.limitesAnalyse,
+       condition: old?.condition, purchasePrice: old?.purchasePrice, purchaseDate: old?.purchaseDate, lastWorn: old?.lastWorn,
+       fit: old?.fit, composition: old?.composition, wearCount: old?.wearCount ?? 0, isFavorite: old?.isFavorite ?? false,
+       createdAt: old?.createdAt ?? now, updatedAt: now,
+     );
++    const analysisState = StylisticAnalysisState();
++    final stale = _stylisticStale || analysisState.significantValuesChanged(old, draft);
++    final garment = draft.copyWith(
++      stylisticAnalysisStatus: stale
++          ? StylisticAnalysisStatus.stale.name
++          : old?.stylisticAnalysisStatus ?? (draft.resumeStylistique == null ? StylisticAnalysisStatus.unavailable.name : StylisticAnalysisStatus.current.name),
++      stylisticAnalysisFingerprint: stale ? old?.stylisticAnalysisFingerprint : analysisState.fingerprint(draft),
++    );
+     try { await widget.controller.save(garment, isNew: old == null || widget.isDraft); if (mounted) Navigator.pop(context, true); }
+     catch (e) { if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Impossible d'enregistrer : $e"))); } }
+   }
+ 
+   @override
+   Widget build(BuildContext context) => Scaffold(
+     appBar: AppBar(title: Text(widget.garment == null || widget.isDraft ? 'Valider la fiche' : 'Modifier la pièce')),
+     body: Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
+       GestureDetector(onTap: _imageActions, child: Stack(children: [GarmentImage(imagePath: _imagePath, width: double.infinity, height: 270, borderRadius: BorderRadius.circular(26)), Positioned(right: 12, bottom: 12, child: FilledButton.tonalIcon(onPressed: _imageActions, icon: const Icon(Icons.camera_alt_outlined), label: Text(_imagePath == null ? 'Ajouter' : 'Actions photo')))])),
+       const SizedBox(height: 18),
++      if (_stylisticStale) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++        const Text('Les informations de cette pièce ont été modifiées. Mettez à jour l’analyse stylistique pour obtenir des conseils cohérents.'),
++        const SizedBox(height: 8), OutlinedButton.icon(onPressed: null, icon: const Icon(Icons.auto_awesome), label: const Text('Mettre à jour l’analyse après l’enregistrement')),
++      ]))),
+       TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Nom *', helperText: 'Proposé par l’IA · corrigez seulement si nécessaire'), validator: (v) => v == null || v.trim().isEmpty ? 'Le nom est obligatoire' : null),
+       const SizedBox(height: 10), TextFormField(controller: _brand, decoration: const InputDecoration(labelText: 'Marque')),
+-      const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory = null; })),
+-      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _subCategory, decoration: const InputDecoration(labelText: 'Sous-catégorie'), items: subCategories[_category]!.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _subCategory = v)),
++      const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory = null; _stylisticStale = true; })),
++      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _subCategory, decoration: const InputDecoration(labelText: 'Sous-catégorie'), items: subCategories[_category]!.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _subCategory = v; _stylisticStale = true; })),
+       const SizedBox(height: 10), TextFormField(controller: _color, decoration: const InputDecoration(labelText: 'Couleur')),
+-      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _material = v)),
++      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _material = v; _stylisticStale = true; })),
+       if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Autre matière'))],
+-      const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: styles, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
+-      const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() => _seasons = v)),
+-      const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() => _uses = v)),
++      const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: styles, selected: _styles, onChanged: (v) => setState(() { _styles = v; _stylisticStale = true; })),
++      const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() { _seasons = v; _stylisticStale = true; })),
++      const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() { _uses = v; _stylisticStale = true; })),
+       if (_uses.contains('Autre...')) ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Autre utilisation', helperText: 'Séparez plusieurs utilisations par des virgules'))],
+       const SizedBox(height: 10), TextFormField(controller: _size, decoration: const InputDecoration(labelText: 'Taille (facultative)', helperText: 'Jamais estimée par l’IA')),
+       const SizedBox(height: 18), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'Temp. min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'Temp. max'))]),
+-      const SizedBox(height: 10), _TriState(label: 'Compatible pluie', value: _rain, onChanged: (v) => setState(() => _rain = v)),
+-      _TriState(label: 'Compatible chaleur', value: _heat, onChanged: (v) => setState(() => _heat = v)),
++      const SizedBox(height: 10), _TriState(label: 'Compatible pluie', value: _rain, onChanged: (v) => setState(() { _rain = v; _stylisticStale = true; })),
++      _TriState(label: 'Compatible chaleur', value: _heat, onChanged: (v) => setState(() { _heat = v; _stylisticStale = true; })),
+       const SizedBox(height: 10), TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
+       const SizedBox(height: 24), FilledButton.icon(onPressed: _saving ? null : _save, icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check), label: const Text('Enregistrer')),
+     ])),
+   );
+ }
+ 
+ class _MultiChoice extends StatelessWidget {
+   final String label; final List<String> values; final Set<String> selected; final ValueChanged<Set<String>> onChanged;
+   const _MultiChoice({required this.label, required this.values, required this.selected, required this.onChanged});
+   @override Widget build(BuildContext context) => InputDecorator(decoration: InputDecoration(labelText: label, helperText: 'Suggestions IA · sélection modifiable'), child: Wrap(spacing: 7, children: values.map((v) => FilterChip(label: Text(v), selected: selected.contains(v), onSelected: (yes) { final next = {...selected}; yes ? next.add(v) : next.remove(v); onChanged(next); })).toList()));
+ }
+ class _Temperature extends StatelessWidget {
+   final TextEditingController controller; final String label; const _Temperature({required this.controller, required this.label});
+   @override Widget build(BuildContext context) => TextFormField(controller: controller, keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[-0-9,.]'))], decoration: InputDecoration(labelText: label, suffixText: '°C', helperText: 'Calcul IA'));
+ }
+ class _TriState extends StatelessWidget {
+   final String label; final bool? value; final ValueChanged<bool?> onChanged; const _TriState({required this.label, required this.value, required this.onChanged});
+   @override Widget build(BuildContext context) => DropdownButtonFormField<bool?>(value: value, decoration: InputDecoration(labelText: label, helperText: 'Calcul IA · modifiable'), items: const [DropdownMenuItem(value: null, child: Text('À calculer')), DropdownMenuItem(value: true, child: Text('Oui')), DropdownMenuItem(value: false, child: Text('Non'))], onChanged: onChanged);
+ }
+diff --git a/lib/features/wardrobe/stylistic_analysis_state.dart b/lib/features/wardrobe/stylistic_analysis_state.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..145de24c0e3702b207ba8bc8e4be7e02d7049207
+--- /dev/null
++++ b/lib/features/wardrobe/stylistic_analysis_state.dart
+@@ -0,0 +1,24 @@
++import 'dart:convert';
++
++import '../../models/garment.dart';
++
++enum StylisticAnalysisStatus { current, stale, recalculating, unavailable, error }
++
++class StylisticAnalysisState {
++  const StylisticAnalysisState();
++
++  String fingerprint(Garment garment) => jsonEncode({
++    'category': garment.category, 'subCategory': garment.sousCategorie,
++    'color': garment.couleurPrincipale ?? garment.color,
++    'materials': [garment.matierePrincipale ?? garment.material, ...?garment.matieresSecondaires],
++    'styles': garment.stylesSecondaires, 'seasons': garment.effectiveSeasons,
++    'uses': garment.effectiveOccasions, 'fit': garment.coupe ?? garment.fit,
++    'formality': garment.niveauFormalite, 'minTemperature': garment.temperatureMinimum,
++    'maxTemperature': garment.temperatureMaximum, 'rain': garment.compatiblePluie,
++    'heat': garment.compatibleChaleur, 'layer': garment.layerType,
++    'visualCondition': garment.etatVisuel ?? garment.condition,
++  });
++
++  bool significantValuesChanged(Garment? previous, Garment current) =>
++      previous != null && fingerprint(previous) != fingerprint(current);
++}
+diff --git a/lib/models/garment.dart b/lib/models/garment.dart
+index c800fd499b586562d45d963bffaf294a5d5aee48..c2a572e4b7f36d0bfbda67dedde226887e0766a4 100644
+--- a/lib/models/garment.dart
++++ b/lib/models/garment.dart
+@@ -52,50 +52,52 @@ class Garment {
+   final String? layerType;
+   final String? etatVisuel;
+   final String? usureVisible;
+   final List<String>? defautsVisibles;
+   final double? confianceGlobale;
+   final List<String>? avertissementsIA;
+   final String? resumeStylistique;
+   final List<String>? pointsForts;
+   final List<String>? pointsFaibles;
+   final List<String>? conseils;
+   final String? verdict;
+   final List<String>? couleursCompatibles;
+   final List<String>? couleursMoinsAdaptees;
+   final List<String>? basCompatibles;
+   final List<String>? chaussuresCompatibles;
+   final String? explicationPolyvalence;
+   final List<String>? occasionsDeconseillees;
+   final String? compositionEstimee;
+   final String? lavage;
+   final String? sechage;
+   final String? repassage;
+   final String? nettoyage;
+   final String? boulochage;
+   final String? taches;
+   final List<String>? limitesAnalyse;
++  final String? stylisticAnalysisStatus;
++  final String? stylisticAnalysisFingerprint;
+   final int wearCount;
+   final bool isFavorite;
+   final DateTime createdAt;
+   final DateTime updatedAt;
+ 
+   const Garment({
+     required this.id,
+     required this.name,
+     required this.category,
+     this.brand,
+     this.color,
+     this.material,
+     this.season,
+     this.style,
+     this.occasion,
+     this.condition,
+     this.purchasePrice,
+     this.purchaseDate,
+     this.lastWorn,
+     this.size,
+     this.fit,
+     this.composition,
+     this.notes,
+     this.imagePath,
+     this.sousCategorie,
+@@ -127,50 +129,52 @@ class Garment {
+     this.layerType,
+     this.etatVisuel,
+     this.usureVisible,
+     this.defautsVisibles,
+     this.confianceGlobale,
+     this.avertissementsIA,
+     this.resumeStylistique,
+     this.pointsForts,
+     this.pointsFaibles,
+     this.conseils,
+     this.verdict,
+     this.couleursCompatibles,
+     this.couleursMoinsAdaptees,
+     this.basCompatibles,
+     this.chaussuresCompatibles,
+     this.explicationPolyvalence,
+     this.occasionsDeconseillees,
+     this.compositionEstimee,
+     this.lavage,
+     this.sechage,
+     this.repassage,
+     this.nettoyage,
+     this.boulochage,
+     this.taches,
+     this.limitesAnalyse,
++    this.stylisticAnalysisStatus,
++    this.stylisticAnalysisFingerprint,
+     this.wearCount = 0,
+     this.isFavorite = false,
+     required this.createdAt,
+     required this.updatedAt,
+   });
+ 
+   /// Saisons canoniques du vêtement, avec repli sur l'ancien champ unique.
+   List<String> get effectiveSeasons {
+     final source = saisons?.isNotEmpty == true ? saisons! : [if (season != null) season!];
+     final expanded = source.expand(
+       (value) => value.trim().toLowerCase() == 'toute saison'
+           ? availableSeasons
+           : [value],
+     );
+     return expanded
+         .map(GarmentNormalizer.value)
+         .whereType<String>()
+         .where(availableSeasons.contains)
+         .toSet()
+         .toList(growable: false);
+   }
+ 
+   /// Utilisations du vêtement, avec repli sur l'ancien champ unique.
+   List<String> get effectiveOccasions {
+     final source = occasions?.isNotEmpty == true
+@@ -231,50 +235,52 @@ class Garment {
+     String? layerType,
+     String? etatVisuel,
+     String? usureVisible,
+     List<String>? defautsVisibles,
+     double? confianceGlobale,
+     List<String>? avertissementsIA,
+     String? resumeStylistique,
+     List<String>? pointsForts,
+     List<String>? pointsFaibles,
+     List<String>? conseils,
+     String? verdict,
+     List<String>? couleursCompatibles,
+     List<String>? couleursMoinsAdaptees,
+     List<String>? basCompatibles,
+     List<String>? chaussuresCompatibles,
+     String? explicationPolyvalence,
+     List<String>? occasionsDeconseillees,
+     String? compositionEstimee,
+     String? lavage,
+     String? sechage,
+     String? repassage,
+     String? nettoyage,
+     String? boulochage,
+     String? taches,
+     List<String>? limitesAnalyse,
++    String? stylisticAnalysisStatus,
++    String? stylisticAnalysisFingerprint,
+     int? wearCount,
+     bool? isFavorite,
+     DateTime? createdAt,
+     DateTime? updatedAt,
+   }) => Garment(
+     id: id ?? this.id,
+     name: name ?? this.name,
+     category: category ?? this.category,
+     brand: brand ?? this.brand,
+     color: color ?? this.color,
+     material: material ?? this.material,
+     season: season ?? this.season,
+     style: style ?? this.style,
+     occasion: occasion ?? this.occasion,
+     condition: condition ?? this.condition,
+     purchasePrice: purchasePrice ?? this.purchasePrice,
+     purchaseDate: purchaseDate ?? this.purchaseDate,
+     lastWorn: lastWorn ?? this.lastWorn,
+     size: size ?? this.size,
+     fit: fit ?? this.fit,
+     composition: composition ?? this.composition,
+     notes: notes ?? this.notes,
+     imagePath: imagePath ?? this.imagePath,
+     sousCategorie: sousCategorie ?? this.sousCategorie,
+     typePrecis: typePrecis ?? this.typePrecis,
+@@ -305,50 +311,52 @@ class Garment {
+     layerType: layerType ?? this.layerType,
+     etatVisuel: etatVisuel ?? this.etatVisuel,
+     usureVisible: usureVisible ?? this.usureVisible,
+     defautsVisibles: defautsVisibles ?? this.defautsVisibles,
+     confianceGlobale: confianceGlobale ?? this.confianceGlobale,
+     avertissementsIA: avertissementsIA ?? this.avertissementsIA,
+     resumeStylistique: resumeStylistique ?? this.resumeStylistique,
+     pointsForts: pointsForts ?? this.pointsForts,
+     pointsFaibles: pointsFaibles ?? this.pointsFaibles,
+     conseils: conseils ?? this.conseils,
+     verdict: verdict ?? this.verdict,
+     couleursCompatibles: couleursCompatibles ?? this.couleursCompatibles,
+     couleursMoinsAdaptees: couleursMoinsAdaptees ?? this.couleursMoinsAdaptees,
+     basCompatibles: basCompatibles ?? this.basCompatibles,
+     chaussuresCompatibles: chaussuresCompatibles ?? this.chaussuresCompatibles,
+     explicationPolyvalence: explicationPolyvalence ?? this.explicationPolyvalence,
+     occasionsDeconseillees: occasionsDeconseillees ?? this.occasionsDeconseillees,
+     compositionEstimee: compositionEstimee ?? this.compositionEstimee,
+     lavage: lavage ?? this.lavage,
+     sechage: sechage ?? this.sechage,
+     repassage: repassage ?? this.repassage,
+     nettoyage: nettoyage ?? this.nettoyage,
+     boulochage: boulochage ?? this.boulochage,
+     taches: taches ?? this.taches,
+     limitesAnalyse: limitesAnalyse ?? this.limitesAnalyse,
++    stylisticAnalysisStatus: stylisticAnalysisStatus ?? this.stylisticAnalysisStatus,
++    stylisticAnalysisFingerprint: stylisticAnalysisFingerprint ?? this.stylisticAnalysisFingerprint,
+     wearCount: wearCount ?? this.wearCount,
+     isFavorite: isFavorite ?? this.isFavorite,
+     createdAt: createdAt ?? this.createdAt,
+     updatedAt: updatedAt ?? this.updatedAt,
+   );
+ 
+   Map<String, Object?> toMap() => {
+     'id': id,
+     'name': name,
+     'category': category,
+     'brand': brand,
+     'color': color,
+     'material': material,
+     // Le champ historique reste alimenté pour les anciennes versions.
+     'season': effectiveSeasons.length == 1 ? effectiveSeasons.single : season,
+     'style': style,
+     'occasion': occasion,
+     'condition': condition,
+     'purchase_price': purchasePrice,
+     'purchase_date': purchaseDate?.toIso8601String(),
+     'last_worn': lastWorn?.toIso8601String(),
+     'size': size,
+     'fit': fit,
+     'composition': composition,
+     'notes': notes,
+@@ -382,50 +390,52 @@ class Garment {
+     'layer_type': layerType,
+     'etat_visuel': etatVisuel,
+     'usure_visible': usureVisible,
+     'defauts_visibles': defautsVisibles == null ? null : jsonEncode(defautsVisibles),
+     'confiance_globale': confianceGlobale,
+     'avertissements_i_a': avertissementsIA == null ? null : jsonEncode(avertissementsIA),
+     'resume_stylistique': resumeStylistique,
+     'points_forts': pointsForts == null ? null : jsonEncode(pointsForts),
+     'points_faibles': pointsFaibles == null ? null : jsonEncode(pointsFaibles),
+     'conseils': conseils == null ? null : jsonEncode(conseils),
+     'verdict': verdict,
+     'couleurs_compatibles': couleursCompatibles == null ? null : jsonEncode(couleursCompatibles),
+     'couleurs_moins_adaptees': couleursMoinsAdaptees == null ? null : jsonEncode(couleursMoinsAdaptees),
+     'bas_compatibles': basCompatibles == null ? null : jsonEncode(basCompatibles),
+     'chaussures_compatibles': chaussuresCompatibles == null ? null : jsonEncode(chaussuresCompatibles),
+     'explication_polyvalence': explicationPolyvalence,
+     'occasions_deconseillees': occasionsDeconseillees == null ? null : jsonEncode(occasionsDeconseillees),
+     'composition_estimee': compositionEstimee,
+     'lavage': lavage,
+     'sechage': sechage,
+     'repassage': repassage,
+     'nettoyage': nettoyage,
+     'boulochage': boulochage,
+     'taches': taches,
+     'limites_analyse': limitesAnalyse == null ? null : jsonEncode(limitesAnalyse),
++    'stylistic_analysis_status': stylisticAnalysisStatus,
++    'stylistic_analysis_fingerprint': stylisticAnalysisFingerprint,
+     'wear_count': wearCount,
+     'is_favorite': isFavorite ? 1 : 0,
+     'created_at': createdAt.toIso8601String(),
+     'updated_at': updatedAt.toIso8601String(),
+   };
+ 
+   factory Garment.fromMap(Map<String, Object?> map) {
+     String? text(String key) => GarmentNormalizer.value(map[key] as String?);
+     List<String>? list(String key) {
+       final value = map[key];
+       if (value == null) return null;
+       final decoded = value is String ? jsonDecode(value) : value;
+       if (decoded is! List) return null;
+       return GarmentNormalizer.values(decoded.map((e) => e.toString()));
+     }
+     double? number(String key) => (map[key] as num?)?.toDouble();
+     bool? boolean(String key) {
+       final value = map[key];
+       if (value == null) return null;
+       return value == true || value == 1;
+     }
+ 
+     final legacySeason = text('season');
+     final storedSeasons = list('saisons');
+     final canonicalSeasons = storedSeasons?.isNotEmpty == true
+@@ -484,50 +494,52 @@ class Garment {
+       layerType: text('layer_type') ?? _legacyLayer(boolean('superposable'), text('category')),
+       etatVisuel: text('etat_visuel'),
+       usureVisible: text('usure_visible'),
+       defautsVisibles: list('defauts_visibles'),
+       confianceGlobale: number('confiance_globale'),
+       avertissementsIA: list('avertissements_i_a'),
+       resumeStylistique: text('resume_stylistique'),
+       pointsForts: list('points_forts'),
+       pointsFaibles: list('points_faibles'),
+       conseils: list('conseils'),
+       verdict: text('verdict'),
+       couleursCompatibles: list('couleurs_compatibles'),
+       couleursMoinsAdaptees: list('couleurs_moins_adaptees'),
+       basCompatibles: list('bas_compatibles'),
+       chaussuresCompatibles: list('chaussures_compatibles'),
+       explicationPolyvalence: text('explication_polyvalence'),
+       occasionsDeconseillees: list('occasions_deconseillees'),
+       compositionEstimee: text('composition_estimee'),
+       lavage: text('lavage'),
+       sechage: text('sechage'),
+       repassage: text('repassage'),
+       nettoyage: text('nettoyage'),
+       boulochage: text('boulochage'),
+       taches: text('taches'),
+       limitesAnalyse: list('limites_analyse'),
++      stylisticAnalysisStatus: text('stylistic_analysis_status'),
++      stylisticAnalysisFingerprint: text('stylistic_analysis_fingerprint'),
+       wearCount: (map['wear_count'] as num?)?.toInt() ?? 0,
+       isFavorite: map['is_favorite'] == 1 || map['is_favorite'] == true,
+       createdAt: DateTime.parse(map['created_at'] as String),
+       updatedAt: DateTime.parse(map['updated_at'] as String),
+     );
+   }
+ 
+   static DateTime? _parseDate(Object? value) {
+     if (value is! String || value.isEmpty) return null;
+     return DateTime.tryParse(value);
+   }
+ 
+   static String? _legacyLayer(bool? superposable, String? category) {
+     if (superposable == false) return null;
+     if (category == 'Vestes') return 'Couche extérieure';
+     if (category == 'Hauts' || category == 'Chemises') return 'Couche de base';
+     return superposable == true ? 'Couche intermédiaire' : null;
+   }
+ 
+   String? validate() {
+     if (temperatureMinimum != null && temperatureMaximum != null && temperatureMinimum! > temperatureMaximum!) return 'La température minimum doit être inférieure au maximum.';
+     for (final confidence in [confianceMatiere, confianceGlobale]) {
+       if (confidence != null && (confidence < 0 || confidence > 1)) return 'Une confiance doit être comprise entre 0 et 1.';
+     }
+     return null;
+diff --git a/sprint5.15.6-incremental-analysis.patch b/sprint5.15.6-incremental-analysis.patch
+new file mode 100644
+index 0000000000000000000000000000000000000000..1e0cc84575f4c575b5813f2f5db0706c1726d6f2
+--- /dev/null
++++ b/sprint5.15.6-incremental-analysis.patch
+@@ -0,0 +1,704 @@
++diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
++index 945a91a..a93e10a 100644
++--- a/lib/data/database_service.dart
+++++ b/lib/data/database_service.dart
++@@ -16,7 +16,7 @@ class DatabaseService {
++     final dbPath = await getDatabasesPath();
++     return openDatabase(
++       p.join(dbPath, 'wardrobeos.db'),
++-      version: 8,
+++      version: 9,
++       onConfigure: (db) async {
++         await db.execute('PRAGMA foreign_keys = ON');
++       },
++@@ -94,6 +94,8 @@ class DatabaseService {
++             boulochage TEXT,
++             taches TEXT,
++             limites_analyse TEXT,
+++            stylistic_analysis_status TEXT,
+++            stylistic_analysis_fingerprint TEXT,
++             created_at TEXT NOT NULL,
++             updated_at TEXT NOT NULL
++           )
++@@ -199,6 +201,10 @@ class DatabaseService {
++             WHERE layer_type IS NULL
++           ''');
++         }
+++        if (oldVersion < 9) {
+++          await _addColumn(db, 'garments', 'stylistic_analysis_status', 'TEXT');
+++          await _addColumn(db, 'garments', 'stylistic_analysis_fingerprint', 'TEXT');
+++        }
++         await _createIndexes(db);
++       },
++     );
++diff --git a/lib/features/scanner/ai/garment_analysis_merge_engine.dart b/lib/features/scanner/ai/garment_analysis_merge_engine.dart
++new file mode 100644
++index 0000000..035bd6c
++--- /dev/null
+++++ b/lib/features/scanner/ai/garment_analysis_merge_engine.dart
++@@ -0,0 +1,88 @@
+++import 'garment_analysis_result.dart';
+++
+++/// Centralizes incremental evidence precedence; widgets only render its result.
+++class GarmentAnalysisMergeEngine {
+++  static const sourcePriority = <String, int>{
+++    'default': 0, 'ai_estimate': 1, 'main_photo': 2,
+++    'targeted_photo': 3, 'label': 4, 'user': 5,
+++  };
+++
+++  const GarmentAnalysisMergeEngine();
+++
+++  GarmentAnalysisResult merge({
+++    GarmentAnalysisResult? previous,
+++    required GarmentAnalysisResult incoming,
+++    Map<String, String> userCorrections = const {},
+++  }) {
+++    if (previous == null && userCorrections.isEmpty) return incoming;
+++    final oldSources = previous?.fieldSources ?? const <String, String>{};
+++    final newSources = incoming.fieldSources ?? const <String, String>{};
+++    final sources = <String, String>{...oldSources};
+++    final statuses = <String, String>{...?previous?.fieldStatuses};
+++    final explanations = <String, String>{...?previous?.fieldExplanations};
+++    final confidences = <String, double>{...?previous?.fieldConfidences};
+++    final divergences = <String, Object?>{};
+++
+++    String? select(String field, String? oldValue, String? newValue) {
+++      final correction = userCorrections[field]?.trim();
+++      if (correction != null && correction.isNotEmpty) {
+++        if (newValue != null && newValue != correction) divergences[field] = newValue;
+++        sources[field] = 'user'; statuses[field] = 'corrected'; confidences[field] = 1;
+++        return correction;
+++      }
+++      if (newValue == null || newValue.trim().isEmpty) return oldValue;
+++      if (oldValue == null || oldValue.trim().isEmpty ||
+++          _rank(newSources[field]) >= _rank(oldSources[field])) {
+++        sources[field] = newSources[field] ?? 'ai_estimate';
+++        statuses[field] = incoming.fieldStatuses?[field] ?? statuses[field] ?? 'estimated';
+++        explanations[field] = incoming.fieldExplanations?[field] ?? explanations[field] ?? '';
+++        confidences[field] = incoming.fieldConfidences[field] ?? confidences[field] ?? incoming.globalConfidence;
+++        return newValue;
+++      }
+++      return oldValue;
+++    }
+++
+++    final metadata = <String, Object?>{...?previous?.analysisMetadata, ...?incoming.analysisMetadata};
+++    if (divergences.isNotEmpty) metadata['userCorrectionDivergences'] = divergences;
+++    final old = previous;
+++    return GarmentAnalysisResult(
+++      isUsableImage: incoming.isUsableImage,
+++      rejectionReason: incoming.rejectionReason,
+++      suggestedName: select('suggestedName', old?.suggestedName, incoming.suggestedName),
+++      category: select('category', old?.category, incoming.category),
+++      preciseType: select('preciseType', old?.preciseType, incoming.preciseType),
+++      primaryColor: select('primaryColor', old?.primaryColor, incoming.primaryColor),
+++      material: select('material', old?.material, incoming.material),
+++      season: select('season', old?.season, incoming.season),
+++      visibleBrand: select('visibleBrand', old?.visibleBrand, incoming.visibleBrand),
+++      globalConfidence: incoming.globalConfidence >= (old?.globalConfidence ?? 0) ? incoming.globalConfidence : old?.globalConfidence ?? 0,
+++      imageQualityConfidence: incoming.imageQualityConfidence,
+++      isBlurry: incoming.isBlurry, isTooDark: incoming.isTooDark,
+++      isOverexposed: incoming.isOverexposed, garmentIsPartiallyHidden: incoming.garmentIsPartiallyHidden,
+++      garmentIsTooSmall: incoming.garmentIsTooSmall, multipleMainGarments: incoming.multipleMainGarments,
+++      backgroundIsProblematic: incoming.backgroundIsProblematic,
+++      imageQualityWarnings: incoming.imageQualityWarnings,
+++      fieldConfidences: confidences, fieldStatuses: statuses, fieldSources: sources,
+++      fieldMetadata: {...?old?.fieldMetadata, ...?incoming.fieldMetadata},
+++      overallConfidence: incoming.overallConfidence ?? old?.overallConfidence,
+++      analysisMetadata: metadata, fieldExplanations: explanations,
+++      warnings: {...?old?.warnings, ...incoming.warnings}.toList(),
+++      styleSummary: incoming.styleSummary ?? old?.styleSummary,
+++      styleStrengths: incoming.styleStrengths.isEmpty ? old?.styleStrengths ?? const [] : incoming.styleStrengths,
+++      styleWeaknesses: incoming.styleWeaknesses.isEmpty ? old?.styleWeaknesses ?? const [] : incoming.styleWeaknesses,
+++      styleAdvice: incoming.styleAdvice.isEmpty ? old?.styleAdvice ?? const [] : incoming.styleAdvice,
+++      compatibleColors: incoming.compatibleColors.isEmpty ? old?.compatibleColors ?? const [] : incoming.compatibleColors,
+++      lessSuitableColors: incoming.lessSuitableColors.isEmpty ? old?.lessSuitableColors ?? const [] : incoming.lessSuitableColors,
+++      compatibleBottoms: incoming.compatibleBottoms.isEmpty ? old?.compatibleBottoms ?? const [] : incoming.compatibleBottoms,
+++      compatibleShoes: incoming.compatibleShoes.isEmpty ? old?.compatibleShoes ?? const [] : incoming.compatibleShoes,
+++      idealOccasions: incoming.idealOccasions.isEmpty ? old?.idealOccasions ?? const [] : incoming.idealOccasions,
+++      discouragedOccasions: incoming.discouragedOccasions.isEmpty ? old?.discouragedOccasions ?? const [] : incoming.discouragedOccasions,
+++      versatilityExplanation: incoming.versatilityExplanation ?? old?.versatilityExplanation,
+++      styleVerdict: incoming.styleVerdict ?? old?.styleVerdict,
+++      analysisLimitations: incoming.analysisLimitations,
+++      needsMorePhotos: incoming.needsMorePhotos, requestedPhoto: incoming.requestedPhoto,
+++    );
+++  }
+++
+++  int _rank(String? source) => sourcePriority[source] ?? sourcePriority['ai_estimate'] ?? 1;
+++}
++diff --git a/lib/features/scanner/ai/garment_analysis_request.dart b/lib/features/scanner/ai/garment_analysis_request.dart
++index 1667205..bcf0654 100644
++--- a/lib/features/scanner/ai/garment_analysis_request.dart
+++++ b/lib/features/scanner/ai/garment_analysis_request.dart
++@@ -1,5 +1,16 @@
++ import 'dart:typed_data';
++
+++enum GarmentPhotoRole { main, back, fabricCloseUp, compositionLabel, sizeLabel, collar, sleeves, lining, closure, logo, other }
+++
+++class GarmentAnalysisPhoto {
+++  final Uint8List bytes;
+++  final String mimeType;
+++  final GarmentPhotoRole role;
+++  final String? requestReason;
+++  const GarmentAnalysisPhoto({required this.bytes, required this.mimeType, required this.role, this.requestReason});
+++  GarmentAnalysisPhoto copyWith({Uint8List? bytes, String? mimeType}) => GarmentAnalysisPhoto(bytes: bytes ?? this.bytes, mimeType: mimeType ?? this.mimeType, role: role, requestReason: requestReason);
+++}
+++
++ class GarmentAnalysisRequest {
++   final Uint8List imageBytes;
++   final String mimeType;
++@@ -10,6 +21,9 @@ class GarmentAnalysisRequest {
++   final List<String> allowedMaterials;
++   final List<String> allowedSeasons;
++   final Map<String, String> existingValues;
+++  final Map<String, String> userCorrections;
+++  final List<String> uncertainFields;
+++  final List<GarmentAnalysisPhoto> photos;
++   final List<Uint8List> previousImageBytes;
++   final Map<String, Object?>? previousAnalysis;
++
++@@ -23,10 +37,18 @@ class GarmentAnalysisRequest {
++     required this.allowedMaterials,
++     required this.allowedSeasons,
++     this.existingValues = const {},
+++    this.userCorrections = const {},
+++    this.uncertainFields = const [],
+++    this.photos = const [],
++     this.previousImageBytes = const [],
++     this.previousAnalysis,
++   });
++
++-  GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType}) =>
++-      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes, previousAnalysis: previousAnalysis);
+++  List<GarmentAnalysisPhoto> get effectivePhotos => photos.isNotEmpty ? photos : [
+++    ...previousImageBytes.map((bytes) => GarmentAnalysisPhoto(bytes: bytes, mimeType: 'image/jpeg', role: GarmentPhotoRole.other)),
+++    GarmentAnalysisPhoto(bytes: imageBytes, mimeType: mimeType, role: previousImageBytes.isEmpty ? GarmentPhotoRole.main : GarmentPhotoRole.other),
+++  ];
+++
+++  GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType, List<GarmentAnalysisPhoto>? photos}) =>
+++      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, userCorrections: userCorrections, uncertainFields: uncertainFields, photos: photos ?? this.photos, previousImageBytes: previousImageBytes, previousAnalysis: previousAnalysis);
++ }
++diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++index c979421..b3f36b7 100644
++--- a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++@@ -61,9 +61,13 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
++       );
++     }
++
++-    final prepared = preprocessor.prepareBytes(request.imageBytes, mimeType: request.mimeType);
++-    final preparedRequest = request.copyWith(imageBytes: prepared.bytes, mimeType: prepared.mimeType);
++-    final body = _requestBody(preparedRequest);
+++    final preparedPhotos = request.effectivePhotos.map((photo) {
+++      final prepared = preprocessor.prepareBytes(photo.bytes, mimeType: photo.mimeType);
+++      return photo.copyWith(bytes: prepared.bytes, mimeType: prepared.mimeType);
+++    }).toList(growable: false);
+++    final current = preparedPhotos.last;
+++    final preparedRequest = request.copyWith(imageBytes: current.bytes, mimeType: current.mimeType, photos: preparedPhotos);
+++    final body = buildRequestBody(preparedRequest);
++     var attempt = 0;
++     while (true) {
++     try {
++@@ -75,8 +79,6 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
++         },
++         body: jsonEncode(body),
++       ).timeout(timeout);
++-      print('HTTP ${response.statusCode}');
++-      print(response.body);
++       if (response.statusCode < 200 || response.statusCode >= 300) {
++         final exception = _httpException(response.statusCode);
++         if (attempt++ < maxRetries && _isTransient(response.statusCode)) {
++@@ -93,16 +95,8 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
++           'OpenAI a renvoyé une réponse vide.',
++         );
++       }
++-      print('================ IA JSON ================');
++-      print(output);
++-      print('=========================================');
++       final result = GarmentAnalysisResult.fromJsonString(output);
++-
++-print('PARSE OK');
++-print('usable=${result.isUsableImage}');
++-print('reason=${result.rejectionReason}');
++-
++-return result;
+++      return result;
++     } on GarmentAnalysisException {
++       rethrow;
++     } on TimeoutException {
++@@ -127,7 +121,8 @@ return result;
++
++   bool _isTransient(int status) => status == 429 || status >= 500;
++
++-  Map<String, dynamic> _requestBody(GarmentAnalysisRequest request) => {
+++  /// Exposed for deterministic transport-contract tests; performs no request.
+++  Map<String, dynamic> buildRequestBody(GarmentAnalysisRequest request) => {
++     'model': model,
++     'instructions': _prompt(request),
++     'input': [
++@@ -136,20 +131,14 @@ return result;
++         'content': [
++           {
++             'type': 'input_text',
++-            'text': request.previousImageBytes.isEmpty
+++            'text': request.effectivePhotos.length == 1
++                 ? 'Analyse cette première photo selon les instructions.'
++                 : 'Mets à jour l’analyse en combinant toutes les photos. La dernière image répond à la demande précédente.',
++           },
++-          ...request.previousImageBytes.map((bytes) => {
++-            'type': 'input_image',
++-            'image_url':
++-                'data:${GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg'};base64,${base64Encode(bytes)}',
++-          }),
++-          {
++-            'type': 'input_image',
++-            'image_url':
++-                'data:${request.mimeType};base64,${base64Encode(request.imageBytes)}',
++-          },
+++          ...request.effectivePhotos.expand((photo) => [
+++            {'type': 'input_text', 'text': _photoLabel(photo)},
+++            {'type': 'input_image', 'image_url': 'data:${photo.mimeType};base64,${base64Encode(photo.bytes)}'},
+++          ]),
++         ],
++       },
++     ],
++@@ -163,6 +152,19 @@ return result;
++     },
++   };
++
+++  String _photoLabel(GarmentAnalysisPhoto photo) {
+++    final label = switch (photo.role) {
+++      GarmentPhotoRole.main => 'Photo principale du vêtement', GarmentPhotoRole.back => 'Photo du dos du vêtement',
+++      GarmentPhotoRole.fabricCloseUp => 'Gros plan du tissu', GarmentPhotoRole.compositionLabel => 'Photo de l’étiquette de composition',
+++      GarmentPhotoRole.sizeLabel => 'Photo de l’étiquette de taille', GarmentPhotoRole.collar => 'Photo du col',
+++      GarmentPhotoRole.sleeves => 'Photo des manches', GarmentPhotoRole.lining => 'Photo de la doublure',
+++      GarmentPhotoRole.closure => 'Photo de la fermeture', GarmentPhotoRole.logo => 'Photo du logo',
+++      GarmentPhotoRole.other => 'Photo complémentaire',
+++    };
+++    final reason = photo.requestReason?.trim();
+++    return reason == null || reason.isEmpty ? label : '$label. Demande motivante : $reason';
+++  }
+++
++   String _prompt(GarmentAnalysisRequest request) => '''
++ Tu analyses uniquement le vêtement principal visible. Ignore la personne, le
++ visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne.
++@@ -204,6 +206,12 @@ season=${jsonEncode(request.allowedSeasons)}
++ Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
++ ${jsonEncode(request.existingValues)}
++ Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}
+++Corrections utilisateur prioritaires, à considérer comme vraies et à ne jamais
+++écraser : ${jsonEncode(request.userCorrections)}
+++Champs encore incertains : ${jsonEncode(request.uncertainFields)}
+++Priorité obligatoire : correction utilisateur, étiquette lisible, photo ciblée,
+++photo principale, estimation IA, valeur par défaut. Conserve les champs non
+++concernés et consigne une divergence sans remplacer une correction utilisateur.
++ ''';
++
++   static const _nullableString = {'type': ['string', 'null']};
++diff --git a/lib/features/scanner/conversation/requested_photo.dart b/lib/features/scanner/conversation/requested_photo.dart
++index ac65359..9023263 100644
++--- a/lib/features/scanner/conversation/requested_photo.dart
+++++ b/lib/features/scanner/conversation/requested_photo.dart
++@@ -24,6 +24,16 @@ enum RequestedPhotoType {
++   };
++ }
++
+++extension RequestedPhotoTypeWire on RequestedPhotoType {
+++  String get wireValue => switch (this) {
+++    RequestedPhotoType.compositionLabel => 'composition_label', RequestedPhotoType.back => 'back',
+++    RequestedPhotoType.fabricCloseUp => 'fabric_close_up', RequestedPhotoType.collar => 'collar',
+++    RequestedPhotoType.cuffs => 'cuffs', RequestedPhotoType.lining => 'lining',
+++    RequestedPhotoType.buttons => 'buttons', RequestedPhotoType.zipper => 'zipper',
+++    RequestedPhotoType.logo => 'logo', RequestedPhotoType.other => 'other',
+++  };
+++}
+++
++ class RequestedPhoto {
++   final RequestedPhotoType type;
++   final String instruction;
++diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
++index b59c7e4..737bdd7 100644
++--- a/lib/features/scanner/scanner_screen.dart
+++++ b/lib/features/scanner/scanner_screen.dart
++@@ -14,6 +14,7 @@ import '../wardrobe/garment_form_screen.dart';
++ import '../assistant/settings/api_key_storage.dart';
++ import 'ai/garment_analysis_exception.dart';
++ import 'ai/garment_analysis_mapper.dart';
+++import 'ai/garment_analysis_merge_engine.dart';
++ import 'ai/garment_analysis_request.dart';
++ import 'ai/garment_analysis_result.dart';
++ import 'ai/garment_analysis_validator.dart';
++@@ -21,6 +22,7 @@ import 'ai/garment_image_processing.dart';
++ import 'ai/normalization/garment_value_normalizer.dart';
++ import 'ai/openai_garment_vision_analyzer.dart';
++ import 'conversation/scan_conversation.dart';
+++import 'conversation/requested_photo.dart';
++
++ class ScannerScreen extends StatefulWidget {
++   const ScannerScreen({super.key});
++@@ -43,6 +45,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
++   String season = 'Toute saison';
++   String? imagePath;
++   final List<String> sessionImagePaths = [];
+++  final Map<String, ({GarmentPhotoRole role, String? reason})> sessionPhotoMetadata = {};
++   GarmentAnalysisResult? result;
++   ScanConversationDecision? conversation;
++   bool importing = false;
++@@ -123,10 +126,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
++       }
++
++       final isAdditional = result != null && conversation?.requestedPhoto != null;
+++      final requested = conversation?.requestedPhoto;
++       final previousPath = imagePath;
++       setState(() {
++         imagePath = persisted;
++         sessionImagePaths.add(persisted!);
+++        sessionPhotoMetadata[persisted!] = (
+++          role: isAdditional ? _roleFor(requested?.type) : GarmentPhotoRole.main,
+++          reason: requested == null ? null : '${requested.instruction} — ${requested.reason}',
+++        );
++         if (!isAdditional) {
++           result = null;
++           conversation = null;
++@@ -135,6 +143,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
++       persisted = null; // The screen now owns this copy.
++       if (!isAdditional && previousPath != null) {
++         sessionImagePaths.remove(previousPath);
+++        sessionPhotoMetadata.remove(previousPath);
++         _removeBestEffort(previousPath);
++       }
++     } catch (_) {
++@@ -216,9 +225,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
++         );
++       }
++       final bytes = await File(imagePath!).readAsBytes();
++-      final previousBytes = <Uint8List>[];
++-      for (final path in sessionImagePaths.where((path) => path != imagePath)) {
++-        previousBytes.add(await File(path).readAsBytes());
+++      final photos = <GarmentAnalysisPhoto>[];
+++      for (final path in sessionImagePaths) {
+++        final photoBytes = await File(path).readAsBytes();
+++        final metadata = sessionPhotoMetadata[path];
+++        photos.add(GarmentAnalysisPhoto(
+++          bytes: photoBytes,
+++          mimeType: GarmentImageValidator.detectMimeType(photoBytes) ?? 'image/jpeg',
+++          role: metadata?.role ?? (photos.isEmpty ? GarmentPhotoRole.main : GarmentPhotoRole.other),
+++          requestReason: metadata?.reason,
+++        ));
++       }
++       final raw = await scanner.analyze(
++         GarmentAnalysisRequest(
++@@ -233,16 +249,18 @@ class _ScannerScreenState extends State<ScannerScreen> {
++             if (name.text.trim().isNotEmpty) 'name': name.text.trim(),
++             if (brand.text.trim().isNotEmpty) 'brand': brand.text.trim(),
++           },
++-          previousImageBytes: previousBytes,
+++          photos: photos,
+++          uncertainFields: result?.fieldConfidences.entries.where((entry) => entry.value < .72).map((entry) => entry.key).toList() ?? const [],
++           previousAnalysis: result?.toJson(),
++         ),
++       );
++-      final validated = GarmentAnalysisValidator(
+++      final validatedIncoming = GarmentAnalysisValidator(
++         categoryNormalizer: const GarmentValueNormalizer(categories),
++         colorNormalizer: const GarmentValueNormalizer(colors),
++         materialNormalizer: const GarmentValueNormalizer(materials),
++         seasonNormalizer: const GarmentValueNormalizer(seasons),
++       ).validate(raw).analysis;
+++      final validated = const GarmentAnalysisMergeEngine().merge(previous: result, incoming: validatedIncoming);
++       if (!validated.isUsableImage) {
++         throw GarmentAnalysisException(
++           GarmentAnalysisError.rejectedImage,
++@@ -290,6 +308,18 @@ class _ScannerScreenState extends State<ScannerScreen> {
++     }
++   }
++
+++  GarmentPhotoRole _roleFor(RequestedPhotoType? type) => switch (type) {
+++    RequestedPhotoType.compositionLabel => GarmentPhotoRole.compositionLabel,
+++    RequestedPhotoType.back => GarmentPhotoRole.back,
+++    RequestedPhotoType.fabricCloseUp => GarmentPhotoRole.fabricCloseUp,
+++    RequestedPhotoType.collar => GarmentPhotoRole.collar,
+++    RequestedPhotoType.cuffs => GarmentPhotoRole.sleeves,
+++    RequestedPhotoType.lining => GarmentPhotoRole.lining,
+++    RequestedPhotoType.buttons || RequestedPhotoType.zipper => GarmentPhotoRole.closure,
+++    RequestedPhotoType.logo => GarmentPhotoRole.logo,
+++    _ => GarmentPhotoRole.other,
+++  };
+++
++   String _friendlyAnalysisError(GarmentAnalysisException exception) => switch (
++     exception.error
++   ) {
++diff --git a/lib/features/wardrobe/garment_form_screen.dart b/lib/features/wardrobe/garment_form_screen.dart
++index 63536fc..d2fefcb 100644
++--- a/lib/features/wardrobe/garment_form_screen.dart
+++++ b/lib/features/wardrobe/garment_form_screen.dart
++@@ -7,6 +7,7 @@ import '../../data/image_storage_service.dart';
++ import '../../models/garment.dart';
++ import '../../widgets/garment_image.dart';
++ import 'wardrobe_controller.dart';
+++import 'stylistic_analysis_state.dart';
++
++ /// Complete review sheet used both after AI analysis and when editing a garment.
++ class GarmentFormScreen extends StatefulWidget {
++@@ -31,6 +32,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
++   bool? _rain, _heat;
++   String? _imagePath;
++   bool _saving = false;
+++  bool _stylisticStale = false;
++
++   static const categories = ['Hauts', 'Chemises', 'Vestes', 'Bas', 'Chaussures', 'Accessoires', 'Autre'];
++   static const subCategories = <String, List<String>>{
++@@ -73,6 +75,13 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
++     _rain = g?.compatiblePluie;
++     _heat = g?.compatibleChaleur;
++     _imagePath = g?.imagePath;
+++    for (final controller in [_color, _otherMaterial, _otherUse, _minTemp, _maxTemp]) {
+++      controller.addListener(_markStylisticAnalysisStale);
+++    }
+++  }
+++
+++  void _markStylisticAnalysisStale() {
+++    if (!_stylisticStale && mounted) setState(() => _stylisticStale = true);
++   }
++
++   static String? _choice(String? value, List<String> values) => values.contains(value) ? value : null;
++@@ -126,7 +135,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
++       );
++     }
++     final uniqueUses = selectedUses.toSet().toList();
++-    final garment = Garment(
+++    final draft = Garment(
++       id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: _category,
++       brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes), imagePath: _imagePath,
++       sousCategorie: _subCategory, couleurPrincipale: _text(_color), matierePrincipale: material,
++@@ -154,6 +163,14 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
++       fit: old?.fit, composition: old?.composition, wearCount: old?.wearCount ?? 0, isFavorite: old?.isFavorite ?? false,
++       createdAt: old?.createdAt ?? now, updatedAt: now,
++     );
+++    const analysisState = StylisticAnalysisState();
+++    final stale = _stylisticStale || analysisState.significantValuesChanged(old, draft);
+++    final garment = draft.copyWith(
+++      stylisticAnalysisStatus: stale
+++          ? StylisticAnalysisStatus.stale.name
+++          : old?.stylisticAnalysisStatus ?? (draft.resumeStylistique == null ? StylisticAnalysisStatus.unavailable.name : StylisticAnalysisStatus.current.name),
+++      stylisticAnalysisFingerprint: stale ? old?.stylisticAnalysisFingerprint : analysisState.fingerprint(draft),
+++    );
++     try { await widget.controller.save(garment, isNew: old == null || widget.isDraft); if (mounted) Navigator.pop(context, true); }
++     catch (e) { if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Impossible d'enregistrer : $e"))); } }
++   }
++@@ -164,21 +181,25 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
++     body: Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
++       GestureDetector(onTap: _imageActions, child: Stack(children: [GarmentImage(imagePath: _imagePath, width: double.infinity, height: 270, borderRadius: BorderRadius.circular(26)), Positioned(right: 12, bottom: 12, child: FilledButton.tonalIcon(onPressed: _imageActions, icon: const Icon(Icons.camera_alt_outlined), label: Text(_imagePath == null ? 'Ajouter' : 'Actions photo')))])),
++       const SizedBox(height: 18),
+++      if (_stylisticStale) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+++        const Text('Les informations de cette pièce ont été modifiées. Mettez à jour l’analyse stylistique pour obtenir des conseils cohérents.'),
+++        const SizedBox(height: 8), OutlinedButton.icon(onPressed: null, icon: const Icon(Icons.auto_awesome), label: const Text('Mettre à jour l’analyse après l’enregistrement')),
+++      ]))),
++       TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Nom *', helperText: 'Proposé par l’IA · corrigez seulement si nécessaire'), validator: (v) => v == null || v.trim().isEmpty ? 'Le nom est obligatoire' : null),
++       const SizedBox(height: 10), TextFormField(controller: _brand, decoration: const InputDecoration(labelText: 'Marque')),
++-      const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory = null; })),
++-      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _subCategory, decoration: const InputDecoration(labelText: 'Sous-catégorie'), items: subCategories[_category]!.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _subCategory = v)),
+++      const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory = null; _stylisticStale = true; })),
+++      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _subCategory, decoration: const InputDecoration(labelText: 'Sous-catégorie'), items: subCategories[_category]!.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _subCategory = v; _stylisticStale = true; })),
++       const SizedBox(height: 10), TextFormField(controller: _color, decoration: const InputDecoration(labelText: 'Couleur')),
++-      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _material = v)),
+++      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _material = v; _stylisticStale = true; })),
++       if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Autre matière'))],
++-      const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: styles, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
++-      const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() => _seasons = v)),
++-      const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() => _uses = v)),
+++      const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: styles, selected: _styles, onChanged: (v) => setState(() { _styles = v; _stylisticStale = true; })),
+++      const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() { _seasons = v; _stylisticStale = true; })),
+++      const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() { _uses = v; _stylisticStale = true; })),
++       if (_uses.contains('Autre...')) ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Autre utilisation', helperText: 'Séparez plusieurs utilisations par des virgules'))],
++       const SizedBox(height: 10), TextFormField(controller: _size, decoration: const InputDecoration(labelText: 'Taille (facultative)', helperText: 'Jamais estimée par l’IA')),
++       const SizedBox(height: 18), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'Temp. min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'Temp. max'))]),
++-      const SizedBox(height: 10), _TriState(label: 'Compatible pluie', value: _rain, onChanged: (v) => setState(() => _rain = v)),
++-      _TriState(label: 'Compatible chaleur', value: _heat, onChanged: (v) => setState(() => _heat = v)),
+++      const SizedBox(height: 10), _TriState(label: 'Compatible pluie', value: _rain, onChanged: (v) => setState(() { _rain = v; _stylisticStale = true; })),
+++      _TriState(label: 'Compatible chaleur', value: _heat, onChanged: (v) => setState(() { _heat = v; _stylisticStale = true; })),
++       const SizedBox(height: 10), TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
++       const SizedBox(height: 24), FilledButton.icon(onPressed: _saving ? null : _save, icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check), label: const Text('Enregistrer')),
++     ])),
++diff --git a/lib/features/wardrobe/stylistic_analysis_state.dart b/lib/features/wardrobe/stylistic_analysis_state.dart
++new file mode 100644
++index 0000000..145de24
++--- /dev/null
+++++ b/lib/features/wardrobe/stylistic_analysis_state.dart
++@@ -0,0 +1,24 @@
+++import 'dart:convert';
+++
+++import '../../models/garment.dart';
+++
+++enum StylisticAnalysisStatus { current, stale, recalculating, unavailable, error }
+++
+++class StylisticAnalysisState {
+++  const StylisticAnalysisState();
+++
+++  String fingerprint(Garment garment) => jsonEncode({
+++    'category': garment.category, 'subCategory': garment.sousCategorie,
+++    'color': garment.couleurPrincipale ?? garment.color,
+++    'materials': [garment.matierePrincipale ?? garment.material, ...?garment.matieresSecondaires],
+++    'styles': garment.stylesSecondaires, 'seasons': garment.effectiveSeasons,
+++    'uses': garment.effectiveOccasions, 'fit': garment.coupe ?? garment.fit,
+++    'formality': garment.niveauFormalite, 'minTemperature': garment.temperatureMinimum,
+++    'maxTemperature': garment.temperatureMaximum, 'rain': garment.compatiblePluie,
+++    'heat': garment.compatibleChaleur, 'layer': garment.layerType,
+++    'visualCondition': garment.etatVisuel ?? garment.condition,
+++  });
+++
+++  bool significantValuesChanged(Garment? previous, Garment current) =>
+++      previous != null && fingerprint(previous) != fingerprint(current);
+++}
++diff --git a/lib/models/garment.dart b/lib/models/garment.dart
++index c800fd4..c2a572e 100644
++--- a/lib/models/garment.dart
+++++ b/lib/models/garment.dart
++@@ -74,6 +74,8 @@ class Garment {
++   final String? boulochage;
++   final String? taches;
++   final List<String>? limitesAnalyse;
+++  final String? stylisticAnalysisStatus;
+++  final String? stylisticAnalysisFingerprint;
++   final int wearCount;
++   final bool isFavorite;
++   final DateTime createdAt;
++@@ -149,6 +151,8 @@ class Garment {
++     this.boulochage,
++     this.taches,
++     this.limitesAnalyse,
+++    this.stylisticAnalysisStatus,
+++    this.stylisticAnalysisFingerprint,
++     this.wearCount = 0,
++     this.isFavorite = false,
++     required this.createdAt,
++@@ -253,6 +257,8 @@ class Garment {
++     String? boulochage,
++     String? taches,
++     List<String>? limitesAnalyse,
+++    String? stylisticAnalysisStatus,
+++    String? stylisticAnalysisFingerprint,
++     int? wearCount,
++     bool? isFavorite,
++     DateTime? createdAt,
++@@ -327,6 +333,8 @@ class Garment {
++     boulochage: boulochage ?? this.boulochage,
++     taches: taches ?? this.taches,
++     limitesAnalyse: limitesAnalyse ?? this.limitesAnalyse,
+++    stylisticAnalysisStatus: stylisticAnalysisStatus ?? this.stylisticAnalysisStatus,
+++    stylisticAnalysisFingerprint: stylisticAnalysisFingerprint ?? this.stylisticAnalysisFingerprint,
++     wearCount: wearCount ?? this.wearCount,
++     isFavorite: isFavorite ?? this.isFavorite,
++     createdAt: createdAt ?? this.createdAt,
++@@ -404,6 +412,8 @@ class Garment {
++     'boulochage': boulochage,
++     'taches': taches,
++     'limites_analyse': limitesAnalyse == null ? null : jsonEncode(limitesAnalyse),
+++    'stylistic_analysis_status': stylisticAnalysisStatus,
+++    'stylistic_analysis_fingerprint': stylisticAnalysisFingerprint,
++     'wear_count': wearCount,
++     'is_favorite': isFavorite ? 1 : 0,
++     'created_at': createdAt.toIso8601String(),
++@@ -506,6 +516,8 @@ class Garment {
++       boulochage: text('boulochage'),
++       taches: text('taches'),
++       limitesAnalyse: list('limites_analyse'),
+++      stylisticAnalysisStatus: text('stylistic_analysis_status'),
+++      stylisticAnalysisFingerprint: text('stylistic_analysis_fingerprint'),
++       wearCount: (map['wear_count'] as num?)?.toInt() ?? 0,
++       isFavorite: map['is_favorite'] == 1 || map['is_favorite'] == true,
++       createdAt: DateTime.parse(map['created_at'] as String),
++diff --git a/test/features/scanner/incremental_garment_analysis_test.dart b/test/features/scanner/incremental_garment_analysis_test.dart
++new file mode 100644
++index 0000000..737f655
++--- /dev/null
+++++ b/test/features/scanner/incremental_garment_analysis_test.dart
++@@ -0,0 +1,59 @@
+++import 'dart:convert';
+++import 'dart:typed_data';
+++
+++import 'package:flutter_test/flutter_test.dart';
+++import 'package:http/http.dart' as http;
+++import 'package:wardrobeos/features/assistant/settings/api_key_storage.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_merge_engine.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_request.dart';
+++import 'package:wardrobeos/features/scanner/ai/garment_analysis_result.dart';
+++import 'package:wardrobeos/features/scanner/ai/openai_garment_vision_analyzer.dart';
+++
+++void main() {
+++  test('envoie toutes les images avec leur rôle et leur demande', () {
+++    final analyzer = OpenAiGarmentVisionAnalyzer(apiKeyStorage: const ApiKeyStorage(), client: http.Client());
+++    final request = GarmentAnalysisRequest(
+++      imageBytes: Uint8List.fromList([1]), mimeType: 'image/jpeg',
+++      allowedCategories: const [], allowedColors: const [], allowedMaterials: const [], allowedSeasons: const [],
+++      photos: [
+++        GarmentAnalysisPhoto(bytes: Uint8List.fromList([1]), mimeType: 'image/jpeg', role: GarmentPhotoRole.main),
+++        GarmentAnalysisPhoto(bytes: Uint8List.fromList([2]), mimeType: 'image/png', role: GarmentPhotoRole.compositionLabel, requestReason: 'Lire la matière'),
+++      ],
+++    );
+++    final body = analyzer.buildRequestBody(request);
+++    final encoded = jsonEncode(body);
+++    expect('input_image'.allMatches(encoded), hasLength(2));
+++    expect(encoded, contains('Photo principale'));
+++    expect(encoded, contains('étiquette de composition'));
+++    expect(encoded, contains('Lire la matière'));
+++    analyzer.close();
+++  });
+++
+++  test('une étiquette remplace une estimation et conserve les autres champs', () {
+++    final merged = const GarmentAnalysisMergeEngine().merge(
+++      previous: _result(material: 'Laine', category: 'Vestes', sources: const {'material': 'main_photo', 'category': 'main_photo'}),
+++      incoming: _result(material: 'Mélange laine-polyamide', sources: const {'material': 'label'}),
+++    );
+++    expect(merged.material, 'Mélange laine-polyamide');
+++    expect(merged.category, 'Vestes');
+++    expect(merged.fieldSources?['material'], 'label');
+++  });
+++
+++  test('une correction utilisateur reste prioritaire et la divergence est conservée', () {
+++    final merged = const GarmentAnalysisMergeEngine().merge(
+++      previous: _result(material: 'Laine'), incoming: _result(material: 'Coton'),
+++      userCorrections: const {'material': 'Lin'},
+++    );
+++    expect(merged.material, 'Lin');
+++    expect(merged.fieldStatuses?['material'], 'corrected');
+++    expect(merged.analysisMetadata?['userCorrectionDivergences'], isNotNull);
+++  });
+++
+++  test('accepte une ancienne analyse sans métadonnées', () {
+++    expect(() => const GarmentAnalysisMergeEngine().merge(previous: _result(category: 'Hauts'), incoming: _result()), returnsNormally);
+++  });
+++}
+++
+++GarmentAnalysisResult _result({String? material, String? category, Map<String, String>? sources}) => GarmentAnalysisResult(
+++  isUsableImage: true, globalConfidence: .8, material: material, category: category, fieldSources: sources,
+++);
++diff --git a/test/features/wardrobe/stylistic_analysis_state_test.dart b/test/features/wardrobe/stylistic_analysis_state_test.dart
++new file mode 100644
++index 0000000..c8ded55
++--- /dev/null
+++++ b/test/features/wardrobe/stylistic_analysis_state_test.dart
++@@ -0,0 +1,24 @@
+++import 'package:flutter_test/flutter_test.dart';
+++import 'package:wardrobeos/features/wardrobe/stylistic_analysis_state.dart';
+++import 'package:wardrobeos/models/garment.dart';
+++
+++void main() {
+++  test('ne demande rien quand aucune valeur significative ne change', () {
+++    const state = StylisticAnalysisState();
+++    final garment = _garment();
+++    expect(state.significantValuesChanged(garment, garment.copyWith(notes: 'sans impact')), isFalse);
+++  });
+++
+++  test('rend analyse stylistique obsolète après correction significative', () {
+++    const state = StylisticAnalysisState();
+++    expect(state.significantValuesChanged(_garment(), _garment().copyWith(stylesSecondaires: const ['Casual', 'Workwear'])), isTrue);
+++  });
+++
+++  test('empreinte stylistique utilise les valeurs utilisateur finales', () {
+++    final fingerprint = const StylisticAnalysisState().fingerprint(_garment().copyWith(stylesSecondaires: const ['Casual', 'Workwear']));
+++    expect(fingerprint, contains('Workwear'));
+++    expect(fingerprint, isNot(contains('Business')));
+++  });
+++}
+++
+++Garment _garment() => Garment(id: 'g', name: 'Veste', category: 'Vestes', stylesSecondaires: const ['Casual'], createdAt: DateTime(2024), updatedAt: DateTime(2024));
+diff --git a/test/features/scanner/incremental_garment_analysis_test.dart b/test/features/scanner/incremental_garment_analysis_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..737f65567336c2d92e37a982f57da33f2ac8620d
+--- /dev/null
++++ b/test/features/scanner/incremental_garment_analysis_test.dart
+@@ -0,0 +1,59 @@
++import 'dart:convert';
++import 'dart:typed_data';
++
++import 'package:flutter_test/flutter_test.dart';
++import 'package:http/http.dart' as http;
++import 'package:wardrobeos/features/assistant/settings/api_key_storage.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_merge_engine.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_request.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_result.dart';
++import 'package:wardrobeos/features/scanner/ai/openai_garment_vision_analyzer.dart';
++
++void main() {
++  test('envoie toutes les images avec leur rôle et leur demande', () {
++    final analyzer = OpenAiGarmentVisionAnalyzer(apiKeyStorage: const ApiKeyStorage(), client: http.Client());
++    final request = GarmentAnalysisRequest(
++      imageBytes: Uint8List.fromList([1]), mimeType: 'image/jpeg',
++      allowedCategories: const [], allowedColors: const [], allowedMaterials: const [], allowedSeasons: const [],
++      photos: [
++        GarmentAnalysisPhoto(bytes: Uint8List.fromList([1]), mimeType: 'image/jpeg', role: GarmentPhotoRole.main),
++        GarmentAnalysisPhoto(bytes: Uint8List.fromList([2]), mimeType: 'image/png', role: GarmentPhotoRole.compositionLabel, requestReason: 'Lire la matière'),
++      ],
++    );
++    final body = analyzer.buildRequestBody(request);
++    final encoded = jsonEncode(body);
++    expect('input_image'.allMatches(encoded), hasLength(2));
++    expect(encoded, contains('Photo principale'));
++    expect(encoded, contains('étiquette de composition'));
++    expect(encoded, contains('Lire la matière'));
++    analyzer.close();
++  });
++
++  test('une étiquette remplace une estimation et conserve les autres champs', () {
++    final merged = const GarmentAnalysisMergeEngine().merge(
++      previous: _result(material: 'Laine', category: 'Vestes', sources: const {'material': 'main_photo', 'category': 'main_photo'}),
++      incoming: _result(material: 'Mélange laine-polyamide', sources: const {'material': 'label'}),
++    );
++    expect(merged.material, 'Mélange laine-polyamide');
++    expect(merged.category, 'Vestes');
++    expect(merged.fieldSources?['material'], 'label');
++  });
++
++  test('une correction utilisateur reste prioritaire et la divergence est conservée', () {
++    final merged = const GarmentAnalysisMergeEngine().merge(
++      previous: _result(material: 'Laine'), incoming: _result(material: 'Coton'),
++      userCorrections: const {'material': 'Lin'},
++    );
++    expect(merged.material, 'Lin');
++    expect(merged.fieldStatuses?['material'], 'corrected');
++    expect(merged.analysisMetadata?['userCorrectionDivergences'], isNotNull);
++  });
++
++  test('accepte une ancienne analyse sans métadonnées', () {
++    expect(() => const GarmentAnalysisMergeEngine().merge(previous: _result(category: 'Hauts'), incoming: _result()), returnsNormally);
++  });
++}
++
++GarmentAnalysisResult _result({String? material, String? category, Map<String, String>? sources}) => GarmentAnalysisResult(
++  isUsableImage: true, globalConfidence: .8, material: material, category: category, fieldSources: sources,
++);
+diff --git a/test/features/wardrobe/stylistic_analysis_state_test.dart b/test/features/wardrobe/stylistic_analysis_state_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..c8ded55c780d8312877b7c20bbdd8d521c50d288
+--- /dev/null
++++ b/test/features/wardrobe/stylistic_analysis_state_test.dart
+@@ -0,0 +1,24 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/wardrobe/stylistic_analysis_state.dart';
++import 'package:wardrobeos/models/garment.dart';
++
++void main() {
++  test('ne demande rien quand aucune valeur significative ne change', () {
++    const state = StylisticAnalysisState();
++    final garment = _garment();
++    expect(state.significantValuesChanged(garment, garment.copyWith(notes: 'sans impact')), isFalse);
++  });
++
++  test('rend analyse stylistique obsolète après correction significative', () {
++    const state = StylisticAnalysisState();
++    expect(state.significantValuesChanged(_garment(), _garment().copyWith(stylesSecondaires: const ['Casual', 'Workwear'])), isTrue);
++  });
++
++  test('empreinte stylistique utilise les valeurs utilisateur finales', () {
++    final fingerprint = const StylisticAnalysisState().fingerprint(_garment().copyWith(stylesSecondaires: const ['Casual', 'Workwear']));
++    expect(fingerprint, contains('Workwear'));
++    expect(fingerprint, isNot(contains('Business')));
++  });
++}
++
++Garment _garment() => Garment(id: 'g', name: 'Veste', category: 'Vestes', stylesSecondaires: const ['Casual'], createdAt: DateTime(2024), updatedAt: DateTime(2024));
