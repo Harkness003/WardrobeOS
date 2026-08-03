@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
+
 import '../../core/theme/app_theme.dart';
-import '../../models/garment.dart';
-import '../../widgets/garment_image.dart';
-import '../../widgets/section_title.dart';
-import '../wardrobe/garment_detail_screen.dart';
-import '../wardrobe/wardrobe_controller.dart';
-import '../../weather/models/weather_data.dart';
 import '../../weather/services/weather_service.dart';
+import '../daily_brief/daily_brief_models.dart';
+import '../daily_brief/daily_brief_service.dart';
+import '../wardrobe/wardrobe_controller.dart';
 
 class DashboardScreen extends StatefulWidget {
   final VoidCallback openWardrobe;
@@ -14,6 +12,7 @@ class DashboardScreen extends StatefulWidget {
   final VoidCallback openOutfits;
   final VoidCallback openScanner;
   final WeatherService weatherService;
+  final DailyBriefService dailyBriefService;
 
   const DashboardScreen({
     super.key,
@@ -22,6 +21,7 @@ class DashboardScreen extends StatefulWidget {
     required this.openOutfits,
     required this.openScanner,
     required this.weatherService,
+    required this.dailyBriefService,
   });
 
   @override
@@ -29,742 +29,163 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  late final WardrobeController _wardrobeController;
-  late Future<WeatherData> _weather;
+  late final WardrobeController _wardrobe = WardrobeController();
+  Future<DailyBrief>? _brief;
+  int _proposal = 0;
 
   @override
   void initState() {
     super.initState();
-    _wardrobeController = WardrobeController()..load();
-    _weather = widget.weatherService.getCurrentWeather();
+    _load();
+  }
+
+  Future<void> _load() async {
+    await _wardrobe.load();
+    if (!mounted) return;
+    setState(() {
+      _proposal = 0;
+      _brief = widget.dailyBriefService.build(_wardrobe.garments);
+    });
   }
 
   @override
   void dispose() {
-    _wardrobeController.dispose();
+    _wardrobe.dispose();
     super.dispose();
-  }
-
-  Future<void> _openGarment(Garment garment) async {
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(
-        builder:
-            (_) => GarmentDetailScreen(
-              controller: _wardrobeController,
-              garment: garment,
-            ),
-      ),
-    );
-
-    if (!mounted) return;
-    await _wardrobeController.load();
   }
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 16, 18, 30),
-        children: [
-          _Header(
-            onNotification:
-                () => _toast(context, 'Aucune notification pour le moment'),
-          ),
-          const SizedBox(height: 22),
-          _DailyAssistantCard(onTap: widget.openAssistant),
-          const SizedBox(height: 14),
-          _WeatherDebug(
-            weather: _weather,
-            onRefresh:
-                () => setState(() {
-                  _weather = widget.weatherService.getCurrentWeather(
-                    forceRefresh: true,
-                  );
-                }),
-          ),
-          const SizedBox(height: 14),
-          const Row(
-            children: [
-              Expanded(
-                child: _MiniMetric(
-                  icon: Icons.wb_sunny_outlined,
-                  value: '18°',
-                  label: 'Clair',
-                  detail: 'Météo locale',
-                ),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: _MiniMetric(
-                  icon: Icons.calendar_today_outlined,
-                  value: '20h',
-                  label: 'Dîner',
-                  detail: 'Prochain événement',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-          SectionTitle(
-            title: 'Tenue suggérée',
-            action: 'Générer',
-            onAction: widget.openOutfits,
-          ),
-          const SizedBox(height: 12),
-          _SuggestedLook(onTap: widget.openOutfits),
-          const SizedBox(height: 28),
-          SectionTitle(
-            title: 'Pièces à remettre',
-            action: 'Voir dressing',
-            onAction: widget.openWardrobe,
-          ),
-          const SizedBox(height: 12),
-          _ForgottenGarmentsSection(
-            controller: _wardrobeController,
-            onOpenGarment: _openGarment,
-          ),
-          const SizedBox(height: 28),
-          const SectionTitle(title: 'Accès rapides'),
-          const SizedBox(height: 12),
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            childAspectRatio: 1.42,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            children: [
-              _ActionCard(
-                icon: Icons.checkroom,
-                title: 'Mon dressing',
-                subtitle: 'Gérer mes pièces',
-                onTap: widget.openWardrobe,
-              ),
-              _ActionCard(
-                icon: Icons.auto_awesome,
-                title: 'Tenues',
-                subtitle: 'Créer un look',
-                onTap: widget.openOutfits,
-              ),
-              _ActionCard(
-                icon: Icons.camera_alt_outlined,
-                title: 'Scanner',
-                subtitle: 'Ajouter une pièce',
-                onTap: widget.openScanner,
-              ),
-              _ActionCard(
-                icon: Icons.chat_bubble_outline,
-                title: 'WardrobeGPT',
-                subtitle: 'Poser une question',
-                onTap: widget.openAssistant,
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-          const SectionTitle(title: 'Insight du dressing'),
-          const SizedBox(height: 12),
-          const _InsightCard(),
-        ],
-      ),
-    );
-  }
-
-  static void _toast(BuildContext context, String text) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
-  }
-}
-
-class _WeatherDebug extends StatelessWidget {
-  final Future<WeatherData> weather;
-  final VoidCallback onRefresh;
-
-  const _WeatherDebug({required this.weather, required this.onRefresh});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: FutureBuilder<WeatherData>(
-          future: weather,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const LinearProgressIndicator();
-            }
-            if (snapshot.hasError) {
-              return Row(
-                children: [
-                  const Expanded(child: Text('Météo indisponible')),
-                  IconButton(
-                    onPressed: onRefresh,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                ],
-              );
-            }
-            final data = snapshot.requireData;
-            final updated = TimeOfDay.fromDateTime(
-              data.measuredAt.toLocal(),
-            ).format(context);
-            return Row(
-              children: [
-                const Icon(Icons.cloud_outlined),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    '${data.city} · ${data.temperature.round()}°C · ${data.description}\nMis à jour à $updated',
-                  ),
-                ),
-                IconButton(
-                  onPressed: onRefresh,
-                  icon: const Icon(Icons.refresh),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  final VoidCallback onNotification;
-  const _Header({required this.onNotification});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Bonjour',
-                style: TextStyle(
-                  fontSize: 31,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -1,
-                ),
-              ),
-              SizedBox(height: 3),
-              Text('Ton style, simplifié chaque jour'),
-            ],
-          ),
-        ),
-        IconButton.filledTonal(
-          onPressed: onNotification,
-          icon: const Icon(Icons.notifications_none_rounded),
-        ),
-      ],
-    );
-  }
-}
-
-class _DailyAssistantCard extends StatelessWidget {
-  final VoidCallback onTap;
-  const _DailyAssistantCard({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF151513), Color(0xFF3A3022)],
-        ),
-        borderRadius: BorderRadius.circular(32),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: .16),
-            blurRadius: 28,
-            offset: const Offset(0, 14),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              _PremiumIcon(icon: Icons.auto_awesome),
-              Spacer(),
-              Text(
-                'WARDROBE AI',
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 11,
-                  letterSpacing: 1.5,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 26),
-          const Text(
-            'Que veux-tu porter\naujourd’hui ?',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 29,
-              height: 1.04,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -.8,
-            ),
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'Une réponse adaptée à ton dressing, ton agenda et la météo.',
-            style: TextStyle(color: Colors.white70, height: 1.4),
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: 205,
-            child: FilledButton.icon(
-              onPressed: onTap,
-              icon: const Icon(Icons.chat_bubble_outline, size: 19),
-              label: const Text('Demander à l’IA'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PremiumIcon extends StatelessWidget {
-  final IconData icon;
-  const _PremiumIcon({required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        color: AppTheme.gold.withValues(alpha: .16),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.gold.withValues(alpha: .3)),
-      ),
-      child: Icon(icon, color: AppTheme.gold),
-    );
-  }
-}
-
-class _MiniMetric extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  final String detail;
-
-  const _MiniMetric({
-    required this.icon,
-    required this.value,
-    required this.label,
-    required this.detail,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(17),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      child: RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 32),
           children: [
-            Icon(icon, color: AppTheme.gold),
-            const SizedBox(height: 15),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 27,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(label),
-                ),
-              ],
-            ),
-            const SizedBox(height: 3),
-            Text(detail, style: Theme.of(context).textTheme.bodySmall),
+            const Text('Bonjour', style: TextStyle(fontSize: 31, fontWeight: FontWeight.w900, letterSpacing: -1)),
+            const SizedBox(height: 4),
+            Text('Voici ton Daily Brief', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 22),
+            if (_brief == null)
+              const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+            else
+              FutureBuilder<DailyBrief>(
+                future: _brief,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    if (snapshot.hasError) return _EmptyBrief(onRetry: _load);
+                    return const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()));
+                  }
+                  final brief = snapshot.requireData;
+                  if (brief.cards.isEmpty) return _EmptyBrief(onRetry: widget.openScanner);
+                  return Column(
+                    children: [
+                      for (final card in brief.cards) ...[
+                        _BriefCard(
+                          card: card,
+                          outfit: card.type == DailyBriefCardType.outfit && brief.outfitProposals.isNotEmpty
+                              ? brief.outfitProposals[_proposal.clamp(0, brief.outfitProposals.length - 1)]
+                              : null,
+                          onWhy: () => _showWhy(context, (card.data as DailyOutfitBrief).explanation),
+                          onAlternative: brief.outfitProposals.length < 2 ? null : () => setState(() => _proposal = (_proposal + 1) % brief.outfitProposals.length),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                    ],
+                  );
+                },
+              ),
           ],
         ),
       ),
     );
   }
+
+  static void _showWhy(BuildContext context, String explanation) {
+    showModalBottomSheet<void>(context: context, builder: (context) => Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Pourquoi cette tenue ?', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 12), Text(explanation), const SizedBox(height: 12),
+      ]),
+    ));
+  }
 }
 
-class _SuggestedLook extends StatelessWidget {
-  final VoidCallback onTap;
-  const _SuggestedLook({required this.onTap});
+class _BriefCard extends StatelessWidget {
+  final DailyBriefCard<Object> card;
+  final DailyOutfitBrief? outfit;
+  final VoidCallback onWhy;
+  final VoidCallback? onAlternative;
+
+  const _BriefCard({required this.card, required this.outfit, required this.onWhy, required this.onAlternative});
 
   @override
   Widget build(BuildContext context) {
+    final (icon, title) = switch (card.type) {
+      DailyBriefCardType.outfit => (Icons.auto_awesome, 'Tenue du jour'),
+      DailyBriefCardType.weather => (Icons.cloud_outlined, 'Météo'),
+      DailyBriefCardType.observation => (Icons.insights_outlined, 'Observation'),
+      DailyBriefCardType.stylist => (Icons.format_quote_rounded, 'Conseil du styliste'),
+      DailyBriefCardType.care => (Icons.cleaning_services_outlined, 'Entretien'),
+      DailyBriefCardType.goal => (Icons.flag_outlined, 'Objectif'),
+    };
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          children: [
-            Container(
-              height: 190,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFFD3C5B3), Color(0xFFF0EBE3)],
-                ),
-              ),
-              child: Stack(
-                children: [
-                  const Center(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _LookPiece(icon: Icons.checkroom, label: 'Surchemise'),
-                        SizedBox(width: 12),
-                        _LookPiece(icon: Icons.straighten, label: 'Pantalon'),
-                        SizedBox(width: 12),
-                        _LookPiece(
-                          icon: Icons.directions_walk,
-                          label: 'Sneakers',
-                        ),
-                      ],
-                    ),
-                  ),
-                  Positioned(
-                    top: 14,
-                    right: 14,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 11,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: .9),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Text(
-                        '92 %',
-                        style: TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.all(18),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Élégant décontracté',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text('Dîner entre amis · 20h'),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.chevron_right),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LookPiece extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  const _LookPiece({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 72,
-          height: 88,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: .78),
-            borderRadius: BorderRadius.circular(21),
-          ),
-          child: Icon(icon, size: 38, color: const Color(0xFF705C43)),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
-        ),
-      ],
-    );
-  }
-}
-
-class _ForgottenGarmentsSection extends StatelessWidget {
-  static const int _forgottenAfterDays = 60;
-  static const int _maxGarments = 5;
-
-  final WardrobeController controller;
-  final ValueChanged<Garment> onOpenGarment;
-
-  const _ForgottenGarmentsSection({
-    required this.controller,
-    required this.onOpenGarment,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) {
-        if (controller.loading) {
-          return const Card(
-            child: Padding(
-              padding: EdgeInsets.all(22),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          );
-        }
-
-        final forgottenGarments = _forgottenGarments(controller.garments);
-
-        if (forgottenGarments.isEmpty) {
-          return Card(
-            child: Padding(
-              padding: const EdgeInsets.all(19),
-              child: Row(
-                children: [
-                  const _PremiumIcon(icon: Icons.check_circle_outline_rounded),
-                  const SizedBox(width: 15),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Tout tourne bien',
-                          style: TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Aucune pièce oubliée pour le moment.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        return Card(
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              for (
-                var index = 0;
-                index < forgottenGarments.length;
-                index++
-              ) ...[
-                _ForgottenGarmentTile(
-                  garment: forgottenGarments[index],
-                  daysSinceLastWear:
-                      forgottenGarments[index].lastWorn == null
-                          ? null
-                          : _daysSinceLastWear(
-                            forgottenGarments[index].lastWorn!,
-                          ),
-                  onTap: () => onOpenGarment(forgottenGarments[index]),
-                ),
-                if (index < forgottenGarments.length - 1)
-                  const Divider(height: 1, indent: 96),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  static List<Garment> _forgottenGarments(List<Garment> garments) {
-    final forgotten =
-        garments.where((garment) {
-          final lastWorn = garment.lastWorn;
-          return lastWorn == null ||
-              _daysSinceLastWear(lastWorn) > _forgottenAfterDays;
-        }).toList();
-
-    forgotten.sort((a, b) {
-      if (a.lastWorn == null && b.lastWorn != null) return -1;
-      if (a.lastWorn != null && b.lastWorn == null) return 1;
-      if (a.lastWorn == null && b.lastWorn == null) {
-        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-      }
-
-      return _daysSinceLastWear(
-        b.lastWorn!,
-      ).compareTo(_daysSinceLastWear(a.lastWorn!));
-    });
-
-    return forgotten.take(_maxGarments).toList();
-  }
-
-  static int _daysSinceLastWear(DateTime lastWorn) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final wornDay = DateTime(lastWorn.year, lastWorn.month, lastWorn.day);
-    return today.difference(wornDay).inDays;
-  }
-}
-
-class _ForgottenGarmentTile extends StatelessWidget {
-  final Garment garment;
-  final int? daysSinceLastWear;
-  final VoidCallback onTap;
-
-  const _ForgottenGarmentTile({
-    required this.garment,
-    required this.daysSinceLastWear,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final days = daysSinceLastWear;
-
-    return InkWell(
-      onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Hero(
-              tag: 'garment-${garment.id}',
-              child: GarmentImage(
-                imagePath: garment.imagePath,
-                width: 66,
-                height: 76,
-                borderRadius: BorderRadius.circular(18),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    garment.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    days == null
-                        ? 'Jamais portée'
-                        : 'Dernier port il y a $days jours',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right),
-          ],
-        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [Icon(icon, color: AppTheme.gold), const SizedBox(width: 10), Text(title.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.1))]),
+          const SizedBox(height: 16),
+          _content(context),
+        ]),
       ),
     );
+  }
+
+  Widget _content(BuildContext context) {
+    if (card.type == DailyBriefCardType.outfit && outfit != null) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [Expanded(child: Text(outfit!.garments.map((item) => item.name).join(' · '), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))), _Confidence(value: outfit!.confidence)]),
+        const SizedBox(height: 8), Text(outfit!.explanation, maxLines: 2, overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8, children: outfit!.garments.map((item) => Chip(label: Text(item.name))).toList()),
+        const SizedBox(height: 12), Row(children: [TextButton(onPressed: onWhy, child: const Text('Pourquoi ?')), const Spacer(), TextButton(onPressed: onAlternative, child: const Text('Autre proposition'))]),
+      ]);
+    }
+    if (card.data is DailyWeatherBrief) {
+      final value = card.data as DailyWeatherBrief;
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('${value.weather.temperature.round()} °C  ·  Pluie ${value.isRaining ? 'prévue' : 'non prévue'}  ·  Vent ${value.weather.windSpeed.round()} km/h', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8), Text(value.impact),
+      ]);
+    }
+    if (card.data is DailyGoalBrief) {
+      final value = card.data as DailyGoalBrief;
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(value.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)), const SizedBox(height: 7), Text(value.contribution)]);
+    }
+    return Text(card.data.toString(), style: const TextStyle(fontSize: 16, height: 1.45));
   }
 }
 
-class _ActionCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _ActionCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
+class _Confidence extends StatelessWidget {
+  final int value;
+  const _Confidence({required this.value});
   @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(26),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(17),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, color: AppTheme.gold),
-              const Spacer(),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
-              const SizedBox(height: 3),
-              Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(color: AppTheme.gold.withValues(alpha: .16), borderRadius: BorderRadius.circular(20)),
+    child: Text('$value %', style: const TextStyle(fontWeight: FontWeight.w900)),
+  );
 }
 
-class _InsightCard extends StatelessWidget {
-  const _InsightCard();
-
+class _EmptyBrief extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _EmptyBrief({required this.onRetry});
   @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(19),
-        child: Row(
-          children: [
-            const _PremiumIcon(icon: Icons.lightbulb_outline_rounded),
-            const SizedBox(width: 15),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Ton dressing commence ici',
-                    style: TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Ajoute régulièrement tes pièces pour obtenir des conseils plus précis.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
+    const Icon(Icons.checkroom_outlined, size: 42), const SizedBox(height: 12),
+    const Text('Ton brief se prépare', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+    const SizedBox(height: 7), const Text('Ajoute quelques pièces pour recevoir des recommandations personnalisées.', textAlign: TextAlign.center),
+    const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Continuer')),
+  ])));
 }

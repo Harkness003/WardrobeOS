@@ -30,6 +30,7 @@ import '../../data/database_service.dart';
 import '../backup/backup_controller.dart';
 import '../backup/backup_service.dart';
 import '../backup/restore_service.dart';
+import '../daily_brief/daily_brief_service.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -91,6 +92,11 @@ class _MainShellState extends State<MainShell> {
               .toList(growable: false),
     ),
   );
+  late final _dailyBriefService = DailyBriefService(
+    weatherService: widget.weatherService,
+    memoryService: _memoryService,
+    assistantService: _assistantService,
+  );
 
   @override
   void dispose() {
@@ -111,6 +117,7 @@ class _MainShellState extends State<MainShell> {
     final pages = [
       DashboardScreen(
         weatherService: widget.weatherService,
+        dailyBriefService: _dailyBriefService,
         openWardrobe: () => goTo(1),
         openOutfits: () => goTo(2),
         openAssistant: () => goTo(3),
