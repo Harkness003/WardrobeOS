@@ -1,0 +1,529 @@
+diff --git a/docs/SPRINT_5_18_WARDROBE_INTELLIGENCE.md b/docs/SPRINT_5_18_WARDROBE_INTELLIGENCE.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..063efb48aa5b694558283d9ad8846407199d5538
+--- /dev/null
++++ b/docs/SPRINT_5_18_WARDROBE_INTELLIGENCE.md
+@@ -0,0 +1,48 @@
++# Sprint 5.18 — Wardrobe Intelligence Engine
++
++## Architecture
++
++Le moteur est un composant Dart pur situé dans `lib/core/wardrobe_intelligence`.
++Il ne dépend ni de Flutter, ni d’un widget, ni de la base de données. Ses appelants
++lui transmettent simplement une collection de `Garment`. Le résultat immuable peut
++ainsi être consommé par WardrobeGPT, les recommandations, l’agenda, le voyage, les
++achats, les notifications, les statistiques ou de futurs objectifs.
++
++## API publique
++
++- `WardrobeIntelligenceEngine.analyze(Iterable<Garment>)` produit un rapport complet.
++- `WardrobeIntelligenceEngine(rules:, clock:)` permet d’ajouter/remplacer les règles
++  et d’injecter une horloge déterministe.
++- `WardrobeIntelligenceReport` expose distributions, pièces peu portées, groupes de
++  doublons, manques, score explicable et insights structurés.
++- `WardrobeGapRule.evaluate(WardrobeRuleContext)` est le point d’extension des règles.
++- `wardrobe_intelligence.dart` constitue le barrel d’import public.
++
++## Indicateurs
++
++Les distributions des catégories, couleurs, styles, saisons et matières contiennent
++les effectifs connus, inconnus et la part de chaque valeur. L’analyse détecte aussi
++les pièces sous-utilisées quand des données de port existent, les rôles similaires,
++les besoins non couverts et la faible couverture des fortes chaleurs.
++
++Le score sur 100 détaille cinq composantes pondérées : diversité des catégories,
++diversité des couleurs, couverture saisonnière, couverture des besoins et redondance
++des rôles. Chaque composante fournit sa valeur, son poids et une explication.
++
++## Règles livrées
++
++Les règles par défaut détectent l’absence de vêtement de pluie, une couverture hiver
++insuffisante, l’absence de chaussures habillées, le manque de couleurs neutres et
++les groupes trop similaires. Elles sont centralisées dans
++`wardrobe_intelligence_rules.dart` et implémentent toutes le même contrat.
++
++## Limitations
++
++- La qualité dépend de la complétude et de la normalisation des métadonnées existantes.
++- Les seuils sont des valeurs par défaut génériques, sans profil utilisateur, climat
++  local, profession ou fréquence réelle des occasions.
++- Un doublon est une similarité de rôle fondée sur les métadonnées, pas une identité
++  visuelle calculée à partir des images.
++- Les pièces peu portées ne sont produites que si le dressing contient au moins une
++  donnée de port ; l’âge de possession n’est pas encore pris en compte.
++- Le moteur ne persiste pas les rapports et ne déclenche aucune fonctionnalité future.
+diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e7d8a236c32e9e829a2e4452cb79ca6aa2a7e558
+--- /dev/null
++++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence.dart
+@@ -0,0 +1,3 @@
++export 'wardrobe_intelligence_engine.dart';
++export 'wardrobe_intelligence_models.dart';
++export 'wardrobe_intelligence_rules.dart';
+diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..c1b5df07f6cc477542c52aaf95db4bc7a0e29b2a
+--- /dev/null
++++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart
+@@ -0,0 +1,177 @@
++import '../../models/garment.dart';
++import '../../models/garment_normalizer.dart';
++import 'wardrobe_intelligence_models.dart';
++import 'wardrobe_intelligence_rules.dart';
++
++class WardrobeIntelligenceEngine {
++  final List<WardrobeGapRule> rules;
++  final DateTime Function() _clock;
++
++  WardrobeIntelligenceEngine({
++    List<WardrobeGapRule> rules = defaultWardrobeGapRules,
++    DateTime Function()? clock,
++  }) : rules = List.unmodifiable(rules), _clock = clock ?? DateTime.now;
++
++  WardrobeIntelligenceReport analyze(Iterable<Garment> source) {
++    final garments = List<Garment>.unmodifiable(source);
++    final categories = _distribution(garments.map((item) => item.category));
++    final colors = _distribution(garments.map(
++      (item) => item.couleurPrincipale ?? item.color,
++    ));
++    final styles = _distribution(garments.expand(_styles));
++    final seasons = _distribution(garments.expand((item) => item.effectiveSeasons));
++    final materials = _distribution(garments.expand(_materials));
++    final duplicates = _duplicates(garments);
++    final context = WardrobeRuleContext(
++      garments: garments,
++      categories: categories,
++      colors: colors,
++      seasons: seasons,
++      duplicates: duplicates,
++    );
++    final gaps = rules.map((rule) => rule.evaluate(context)).whereType<WardrobeGap>().toList(growable: false);
++    final underused = _underused(garments);
++    final balance = _balance(garments, categories, colors, seasons, gaps, duplicates);
++    return WardrobeIntelligenceReport(
++      generatedAt: _clock(),
++      garmentCount: garments.length,
++      categories: categories,
++      colors: colors,
++      styles: styles,
++      seasons: seasons,
++      materials: materials,
++      underusedGarments: underused,
++      duplicateGroups: duplicates,
++      gaps: gaps,
++      balance: balance,
++      insights: _insights(garments, styles, seasons, underused, gaps, duplicates),
++    );
++  }
++
++  static Iterable<String?> _styles(Garment item) => [
++    item.stylePrincipal ?? item.style,
++    ...?item.stylesSecondaires,
++  ];
++
++  static Iterable<String?> _materials(Garment item) => [
++    item.matierePrincipale ?? item.material,
++    ...?item.matieresSecondaires,
++  ];
++
++  static WardrobeDistribution _distribution(Iterable<String?> values) {
++    final counts = <String, int>{};
++    var unknown = 0;
++    for (final raw in values) {
++      final value = GarmentNormalizer.value(raw);
++      if (value == null) {
++        unknown++;
++      } else {
++        counts.update(value, (count) => count + 1, ifAbsent: () => 1);
++      }
++    }
++    final sorted = counts.entries.toList()
++      ..sort((a, b) => b.value.compareTo(a.value) != 0
++          ? b.value.compareTo(a.value) : a.key.compareTo(b.key));
++    return WardrobeDistribution(
++      knownCount: counts.values.fold(0, (sum, count) => sum + count),
++      unknownCount: unknown,
++      counts: Map.unmodifiable(Map.fromEntries(sorted)),
++    );
++  }
++
++  static List<Garment> _underused(List<Garment> garments) {
++    if (!garments.any((item) => item.wearCount > 0 || item.lastWorn != null)) return const [];
++    final used = garments.where((item) => item.wearCount > 0).map((item) => item.wearCount).toList()..sort();
++    final threshold = used.isEmpty ? 0 : used[(used.length - 1) ~/ 4];
++    return List.unmodifiable(garments.where((item) => item.wearCount <= threshold));
++  }
++
++  static List<WardrobeDuplicateGroup> _duplicates(List<Garment> garments) {
++    final groups = <String, List<Garment>>{};
++    for (final item in garments) {
++      final parts = [item.category, item.sousCategorie, item.typePrecis,
++        item.couleurPrincipale ?? item.color, item.stylePrincipal ?? item.style]
++          .map(_key).where((value) => value.isNotEmpty).toList();
++      if (parts.length < 3) continue;
++      groups.putIfAbsent(parts.join('|'), () => []).add(item);
++    }
++    return List.unmodifiable(groups.entries
++        .where((entry) => entry.value.length >= 2)
++        .map((entry) => WardrobeDuplicateGroup(
++          role: entry.key.replaceAll('|', ' · '),
++          garments: List.unmodifiable(entry.value),
++        )));
++  }
++
++  static WardrobeBalanceScore _balance(
++    List<Garment> garments,
++    WardrobeDistribution categories,
++    WardrobeDistribution colors,
++    WardrobeDistribution seasons,
++    List<WardrobeGap> gaps,
++    List<WardrobeDuplicateGroup> duplicates,
++  ) {
++    if (garments.isEmpty) return const WardrobeBalanceScore(value: 0, components: []);
++    double diversity(WardrobeDistribution value, int target) =>
++        (value.counts.length / target).clamp(0, 1);
++    final components = <WardrobeBalanceComponent>[
++      WardrobeBalanceComponent(code: 'category_diversity', label: 'Diversité des catégories', score: diversity(categories, 6) * 100, weight: .25, explanation: '${categories.counts.length} catégories représentées.'),
++      WardrobeBalanceComponent(code: 'color_diversity', label: 'Diversité des couleurs', score: diversity(colors, 5) * 100, weight: .15, explanation: '${colors.counts.length} couleurs représentées.'),
++      WardrobeBalanceComponent(code: 'season_coverage', label: 'Couverture saisonnière', score: diversity(seasons, 4) * 100, weight: .25, explanation: '${seasons.counts.length} saisons couvertes sur 4.'),
++      WardrobeBalanceComponent(code: 'needs_coverage', label: 'Couverture des besoins', score: (1 - gaps.fold<double>(0, (sum, gap) => sum + gap.impact) / 4).clamp(0, 1) * 100, weight: .25, explanation: '${gaps.length} manque(s) détecté(s).'),
++      WardrobeBalanceComponent(code: 'role_redundancy', label: 'Redondance des rôles', score: (1 - duplicates.fold<int>(0, (sum, group) => sum + group.garments.length - 1) / garments.length).clamp(0, 1) * 100, weight: .10, explanation: '${duplicates.length} groupe(s) similaire(s).'),
++    ];
++    final score = components.fold<double>(0, (sum, item) => sum + item.score * item.weight) /
++        components.fold<double>(0, (sum, item) => sum + item.weight);
++    return WardrobeBalanceScore(value: double.parse(score.toStringAsFixed(1)), components: List.unmodifiable(components));
++  }
++
++  static List<WardrobeInsight> _insights(
++    List<Garment> garments,
++    WardrobeDistribution styles,
++    WardrobeDistribution seasons,
++    List<Garment> underused,
++    List<WardrobeGap> gaps,
++    List<WardrobeDuplicateGroup> duplicates,
++  ) {
++    final result = <WardrobeInsight>[];
++    if (styles.counts.isNotEmpty) {
++      final dominant = styles.counts.entries.first;
++      if (styles.shareOf(dominant.key) >= .4) result.add(WardrobeInsight(
++        code: 'dominant_style', type: WardrobeInsightType.dominant,
++        severity: WardrobeInsightSeverity.info, title: 'Style dominant',
++        message: 'Votre dressing est principalement ${dominant.key}.',
++        evidence: {'style': dominant.key, 'count': dominant.value, 'share': styles.shareOf(dominant.key)},
++      ));
++    }
++    for (final gap in gaps) {
++      result.add(WardrobeInsight(code: gap.code, type: WardrobeInsightType.gap,
++        severity: gap.impact >= .75 ? WardrobeInsightSeverity.warning : WardrobeInsightSeverity.recommendation,
++        title: gap.label, message: gap.explanation, evidence: gap.evidence));
++    }
++    for (final group in duplicates) {
++      result.add(WardrobeInsight(code: 'duplicate_role', type: WardrobeInsightType.duplicate,
++        severity: WardrobeInsightSeverity.recommendation, title: 'Rôle en double',
++        message: '${group.garments.length} pièces remplissent un rôle très similaire.',
++        evidence: {'role': group.role, 'count': group.garments.length},
++        garmentIds: group.garments.map((item) => item.id).toList(growable: false)));
++    }
++    if (underused.isNotEmpty) result.add(WardrobeInsight(
++      code: 'underused_items', type: WardrobeInsightType.usage,
++      severity: WardrobeInsightSeverity.info, title: 'Pièces peu portées',
++      message: '${underused.length} pièce(s) sont peu portées par rapport au dressing.',
++      evidence: {'count': underused.length},
++      garmentIds: underused.map((item) => item.id).toList(growable: false),
++    ));
++    final hotWeather = garments.where((item) => item.compatibleChaleur == true).length;
++    if (garments.length >= 5 && hotWeather / garments.length < .15) result.add(WardrobeInsight(
++      code: 'low_hot_weather_coverage', type: WardrobeInsightType.gap,
++      severity: WardrobeInsightSeverity.recommendation, title: 'Fortes chaleurs',
++      message: 'Vous disposez de peu de vêtements explicitement adaptés aux fortes chaleurs.',
++      evidence: {'count': hotWeather, 'total': garments.length},
++    ));
++    return List.unmodifiable(result);
++  }
++
++  static String _key(String? value) => (value ?? '').trim().toLowerCase();
++}
+diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence_models.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence_models.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..fdfcdd88e2250bad50352b3c740b97d5b148237f
+--- /dev/null
++++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence_models.dart
+@@ -0,0 +1,119 @@
++import '../../models/garment.dart';
++
++enum WardrobeInsightType { dominant, gap, duplicate, imbalance, usage }
++
++enum WardrobeInsightSeverity { info, recommendation, warning }
++
++/// A machine-readable observation that consumers may render in their own way.
++class WardrobeInsight {
++  final String code;
++  final WardrobeInsightType type;
++  final WardrobeInsightSeverity severity;
++  final String title;
++  final String message;
++  final Map<String, Object?> evidence;
++  final List<String> garmentIds;
++
++  const WardrobeInsight({
++    required this.code,
++    required this.type,
++    required this.severity,
++    required this.title,
++    required this.message,
++    this.evidence = const {},
++    this.garmentIds = const [],
++  });
++}
++
++class WardrobeDistribution {
++  final int knownCount;
++  final int unknownCount;
++  final Map<String, int> counts;
++
++  const WardrobeDistribution({
++    required this.knownCount,
++    required this.unknownCount,
++    required this.counts,
++  });
++
++  double shareOf(String value) => knownCount == 0
++      ? 0
++      : (counts[value] ?? 0) / knownCount;
++}
++
++class WardrobeDuplicateGroup {
++  final String role;
++  final List<Garment> garments;
++
++  const WardrobeDuplicateGroup({required this.role, required this.garments});
++}
++
++class WardrobeGap {
++  final String code;
++  final String label;
++  final String explanation;
++  final double impact;
++  final Map<String, Object?> evidence;
++
++  const WardrobeGap({
++    required this.code,
++    required this.label,
++    required this.explanation,
++    required this.impact,
++    this.evidence = const {},
++  });
++}
++
++class WardrobeBalanceComponent {
++  final String code;
++  final String label;
++  final double score;
++  final double weight;
++  final String explanation;
++
++  const WardrobeBalanceComponent({
++    required this.code,
++    required this.label,
++    required this.score,
++    required this.weight,
++    required this.explanation,
++  });
++}
++
++class WardrobeBalanceScore {
++  final double value;
++  final List<WardrobeBalanceComponent> components;
++
++  const WardrobeBalanceScore({required this.value, required this.components});
++}
++
++/// Immutable result shared by assistants, recommendations and future features.
++class WardrobeIntelligenceReport {
++  final DateTime generatedAt;
++  final int garmentCount;
++  final WardrobeDistribution categories;
++  final WardrobeDistribution colors;
++  final WardrobeDistribution styles;
++  final WardrobeDistribution seasons;
++  final WardrobeDistribution materials;
++  final List<Garment> underusedGarments;
++  final List<WardrobeDuplicateGroup> duplicateGroups;
++  final List<WardrobeGap> gaps;
++  final WardrobeBalanceScore balance;
++  final List<WardrobeInsight> insights;
++
++  const WardrobeIntelligenceReport({
++    required this.generatedAt,
++    required this.garmentCount,
++    required this.categories,
++    required this.colors,
++    required this.styles,
++    required this.seasons,
++    required this.materials,
++    required this.underusedGarments,
++    required this.duplicateGroups,
++    required this.gaps,
++    required this.balance,
++    required this.insights,
++  });
++}
+diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence_rules.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence_rules.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..dd35f7b181d7f523e4b1ffb5b7dfcf5e1c42af75
+--- /dev/null
++++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence_rules.dart
+@@ -0,0 +1,152 @@
++import '../../models/garment.dart';
++import 'wardrobe_intelligence_models.dart';
++
++class WardrobeRuleContext {
++  final List<Garment> garments;
++  final WardrobeDistribution categories;
++  final WardrobeDistribution colors;
++  final WardrobeDistribution seasons;
++  final List<WardrobeDuplicateGroup> duplicates;
++
++  const WardrobeRuleContext({
++    required this.garments,
++    required this.categories,
++    required this.colors,
++    required this.seasons,
++    required this.duplicates,
++  });
++}
++
++abstract interface class WardrobeGapRule {
++  String get code;
++  WardrobeGap? evaluate(WardrobeRuleContext context);
++}
++
++class MissingRainwearRule implements WardrobeGapRule {
++  const MissingRainwearRule();
++  @override
++  String get code => 'missing_rainwear';
++
++  @override
++  WardrobeGap? evaluate(WardrobeRuleContext context) {
++    if (context.garments.isEmpty ||
++        context.garments.any((item) => item.compatiblePluie == true)) {
++      return null;
++    }
++    return const WardrobeGap(
++      code: 'missing_rainwear',
++      label: 'Pièce imperméable',
++      explanation: 'Aucun vêtement n’est identifié comme compatible avec la pluie.',
++      impact: .9,
++    );
++  }
++}
++
++class InsufficientWinterRule implements WardrobeGapRule {
++  final double minimumShare;
++  const InsufficientWinterRule({this.minimumShare = .2});
++  @override
++  String get code => 'insufficient_winter';
++
++  @override
++  WardrobeGap? evaluate(WardrobeRuleContext context) {
++    if (context.garments.length < 5 ||
++        context.seasons.shareOf('Hiver') >= minimumShare) return null;
++    return WardrobeGap(
++      code: code,
++      label: 'Vêtements d’hiver',
++      explanation: 'La part de vêtements adaptés à l’hiver est inférieure au seuil attendu.',
++      impact: .75,
++      evidence: {'share': context.seasons.shareOf('Hiver'), 'minimumShare': minimumShare},
++    );
++  }
++}
++
++class MissingFormalShoesRule implements WardrobeGapRule {
++  const MissingFormalShoesRule();
++  @override
++  String get code => 'missing_formal_shoes';
++
++  @override
++  WardrobeGap? evaluate(WardrobeRuleContext context) {
++    if (context.garments.isEmpty) return null;
++    final hasFormalShoes = context.garments.any((item) {
++      final category = _text(item.category);
++      final type = _text('${item.sousCategorie ?? ''} ${item.typePrecis ?? ''}');
++      final formality = _text(item.niveauFormalite);
++      return category.contains('chauss') &&
++          (formality.contains('formel') || formality.contains('habill') ||
++              type.contains('richelieu') || type.contains('derby') ||
++              type.contains('mocassin') || type.contains('escarpin'));
++    });
++    return hasFormalShoes ? null : const WardrobeGap(
++      code: 'missing_formal_shoes',
++      label: 'Chaussures habillées',
++      explanation: 'Aucune chaussure habillée n’a été identifiée.',
++      impact: .65,
++    );
++  }
++}
++
++class InsufficientNeutralColorsRule implements WardrobeGapRule {
++  final double minimumShare;
++  const InsufficientNeutralColorsRule({this.minimumShare = .3});
++  @override
++  String get code => 'insufficient_neutrals';
++
++  @override
++  WardrobeGap? evaluate(WardrobeRuleContext context) {
++    if (context.colors.knownCount < 5) return null;
++    const neutrals = {'noir', 'blanc', 'gris', 'beige', 'ecru', 'bleu marine', 'marine', 'marron'};
++    final count = context.colors.counts.entries
++        .where((entry) => neutrals.contains(_text(entry.key)))
++        .fold<int>(0, (sum, entry) => sum + entry.value);
++    final share = count / context.colors.knownCount;
++    return share >= minimumShare ? null : WardrobeGap(
++      code: code,
++      label: 'Couleurs neutres',
++      explanation: 'La base de couleurs neutres est limitée pour composer des tenues.',
++      impact: .55,
++      evidence: {'share': share, 'minimumShare': minimumShare},
++    );
++  }
++}
++
++class ExcessSimilarItemsRule implements WardrobeGapRule {
++  final int minimumGroupSize;
++  const ExcessSimilarItemsRule({this.minimumGroupSize = 3});
++  @override
++  String get code => 'excess_similar_items';
++
++  @override
++  WardrobeGap? evaluate(WardrobeRuleContext context) {
++    final groups = context.duplicates
++        .where((group) => group.garments.length >= minimumGroupSize)
++        .toList(growable: false);
++    if (groups.isEmpty) return null;
++    return WardrobeGap(
++      code: code,
++      label: 'Pièces très similaires',
++      explanation: 'Plusieurs vêtements remplissent le même rôle stylistique.',
++      impact: .45,
++      evidence: {'groupCount': groups.length, 'roles': groups.map((group) => group.role).toList()},
++    );
++  }
++}
++
++String _text(String? value) => (value ?? '')
++    .trim()
++    .toLowerCase()
++    .replaceAll(RegExp(r'[éèêë]'), 'e')
++    .replaceAll(RegExp(r'[àâä]'), 'a')
++    .replaceAll(RegExp(r'[îï]'), 'i')
++    .replaceAll(RegExp(r'[ôö]'), 'o')
++    .replaceAll(RegExp(r'[ùûü]'), 'u');
++
++const defaultWardrobeGapRules = <WardrobeGapRule>[
++  MissingRainwearRule(),
++  InsufficientWinterRule(),
++  MissingFormalShoesRule(),
++  InsufficientNeutralColorsRule(),
++  ExcessSimilarItemsRule(),
++];
