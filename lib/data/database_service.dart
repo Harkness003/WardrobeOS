@@ -18,7 +18,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 12,
+      version: 13,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -79,6 +79,7 @@ class DatabaseService {
             superposable INTEGER,
             layer_type TEXT,
             thermal_profile TEXT,
+            style_analysis TEXT,
             etat_visuel TEXT,
             usure_visible TEXT,
             defauts_visibles TEXT,
@@ -222,6 +223,9 @@ class DatabaseService {
         }
         if (oldVersion < 12) {
           await _addColumn(db, 'garments', 'thermal_profile', 'TEXT');
+        }
+        if (oldVersion < 13) {
+          await _addColumn(db, 'garments', 'style_analysis', 'TEXT');
         }
         await _createIndexes(db);
       },
@@ -470,16 +474,30 @@ class DatabaseService {
     final db = await database;
     await db.insert(
       'garments',
-      garment.toMap(),
+      garment.withCurrentStyleAnalysis().toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
   Future<void> updateGarment(Garment garment) async {
     final db = await database;
+    final rows = await db.query('garments', where: 'id = ?',
+        whereArgs: [garment.id], limit: 1);
+    final previous = rows.isEmpty ? null : Garment.fromMap(rows.first);
+    // A caller may send a partial/legacy object. Preserve explicit corrections
+    // already stored before recalculating changed stylistic inputs.
+    final storedStyle = previous?.styleAnalysis;
+    final incomingStyle = garment.styleAnalysis;
+    final mustKeepStoredCorrections = storedStyle?.hasUserCorrections == true &&
+        incomingStyle?.hasUserCorrections != true;
+    final protected = (incomingStyle == null || mustKeepStoredCorrections) &&
+            storedStyle != null
+        ? garment.copyWith(styleAnalysis: storedStyle)
+        : garment;
+    final current = protected.withCurrentStyleAnalysis();
     await db.update(
       'garments',
-      garment.toMap(),
+      current.toMap(),
       where: 'id = ?',
       whereArgs: [garment.id],
     );

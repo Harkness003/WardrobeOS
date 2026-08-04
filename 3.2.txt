@@ -1,0 +1,959 @@
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index e138f13eb50ff9af1eb5f204f3a6d542b0aed501..ad550bf0ee211d71167a40e203f99fcb642e6ad3 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -1,46 +1,46 @@
+ import 'package:path/path.dart' as p;
+ import 'package:sqflite/sqflite.dart';
+ import '../models/garment.dart';
+ import '../models/outfit.dart';
+ import '../models/outfit_item.dart';
+ import '../models/wear_history.dart';
+ import '../features/agenda/agenda_models.dart';
+ import '../core/outfit/outfit_engine.dart';
+ 
+ class DatabaseService {
+   DatabaseService._();
+   static final DatabaseService instance = DatabaseService._();
+   Database? _database;
+ 
+   Future<Database> get database async => _database ??= await _open();
+ 
+   Future<Database> _open() async {
+     final dbPath = await getDatabasesPath();
+     return openDatabase(
+       p.join(dbPath, 'wardrobeos.db'),
+-      version: 12,
++      version: 13,
+       onConfigure: (db) async {
+         await db.execute('PRAGMA foreign_keys = ON');
+       },
+       onCreate: (db, version) async {
+         await db.execute('''
+           CREATE TABLE garments(
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             category TEXT NOT NULL,
+             brand TEXT,
+             color TEXT,
+             material TEXT,
+             season TEXT,
+             style TEXT,
+             occasion TEXT,
+             condition TEXT,
+             purchase_price REAL,
+             purchase_date TEXT,
+             wear_count INTEGER NOT NULL DEFAULT 0,
+             last_worn TEXT,
+             size TEXT,
+             fit TEXT,
+             composition TEXT,
+             notes TEXT,
+             image_path TEXT,
+@@ -57,50 +57,51 @@ class DatabaseService {
+             couleur_principale TEXT,
+             couleurs_secondaires TEXT,
+             motif TEXT,
+             texture TEXT,
+             logo_visible INTEGER,
+             style_principal TEXT,
+             styles_secondaires TEXT,
+             niveau_formalite TEXT,
+             coupe TEXT,
+             longueur TEXT,
+             longueur_manches TEXT,
+             type_col TEXT,
+             type_fermeture TEXT,
+             matiere_principale TEXT,
+             matieres_secondaires TEXT,
+             confiance_matiere REAL,
+             saisons TEXT,
+             occasions TEXT,
+             temperature_minimum REAL,
+             temperature_maximum REAL,
+             compatible_pluie INTEGER,
+             compatible_chaleur INTEGER,
+             superposable INTEGER,
+             layer_type TEXT,
+             thermal_profile TEXT,
++            style_analysis TEXT,
+             etat_visuel TEXT,
+             usure_visible TEXT,
+             defauts_visibles TEXT,
+             confiance_globale REAL,
+             avertissements_i_a TEXT,
+             resume_stylistique TEXT,
+             points_forts TEXT,
+             points_faibles TEXT,
+             conseils TEXT,
+             verdict TEXT,
+             couleurs_compatibles TEXT,
+             couleurs_moins_adaptees TEXT,
+             bas_compatibles TEXT,
+             chaussures_compatibles TEXT,
+             explication_polyvalence TEXT,
+             occasions_deconseillees TEXT,
+             composition_estimee TEXT,
+             lavage TEXT,
+             sechage TEXT,
+             repassage TEXT,
+             nettoyage TEXT,
+             boulochage TEXT,
+             taches TEXT,
+             limites_analyse TEXT,
+             created_at TEXT NOT NULL,
+@@ -201,50 +202,53 @@ class DatabaseService {
+         }
+         if (oldVersion < 8) {
+           await _addColumn(db, 'garments', 'layer_type', 'TEXT');
+           await db.execute('''
+             UPDATE garments SET layer_type = CASE
+               WHEN category = 'Vestes' THEN 'Couche extérieure'
+               WHEN category IN ('Hauts', 'Chemises') THEN 'Couche de base'
+               WHEN superposable = 1 THEN 'Couche intermédiaire'
+             END
+             WHERE layer_type IS NULL
+           ''');
+         }
+         if (oldVersion < 9) await _createPersonalizationTables(db);
+         if (oldVersion < 10) await _createAgendaTables(db);
+         if (oldVersion < 11) {
+           await _addColumn(db, 'garments', 'photos', "TEXT NOT NULL DEFAULT '[]'");
+           await _addColumn(db, 'garments', 'last_analyzed_at', 'TEXT');
+           await _addColumn(db, 'garments', 'ai_analysis_version', 'TEXT');
+           await _addColumn(db, 'garments', 'previous_analysis', 'TEXT');
+           await _addColumn(db, 'garments', 'current_analysis', 'TEXT');
+           await _addColumn(db, 'garments', 'user_modified_fields', "TEXT NOT NULL DEFAULT '[]'");
+         }
+         if (oldVersion < 12) {
+           await _addColumn(db, 'garments', 'thermal_profile', 'TEXT');
+         }
++        if (oldVersion < 13) {
++          await _addColumn(db, 'garments', 'style_analysis', 'TEXT');
++        }
+         await _createIndexes(db);
+       },
+     );
+   }
+ 
+   Future<void> _createWearHistoryTable(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS wear_history(
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         garment_id TEXT NOT NULL,
+         worn_at TEXT NOT NULL,
+         created_at TEXT NOT NULL,
+         FOREIGN KEY (garment_id) REFERENCES garments(id) ON DELETE CASCADE
+       )
+     ''');
+   }
+ 
+   Future<void> _createOutfitTables(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS outfits(
+         id TEXT PRIMARY KEY,
+         name TEXT NOT NULL,
+         season TEXT,
+         favorite INTEGER NOT NULL DEFAULT 0,
+         created_at TEXT NOT NULL,
+@@ -448,60 +452,74 @@ class DatabaseService {
+     for (final filter in <(String, String)>[
+       ('brand', brand),
+       ('color', color),
+       ('material', material),
+       ('style', style),
+       ('occasion', occasion),
+     ]) {
+       if (filter.$2.trim().isNotEmpty) {
+         where.add('${filter.$1} LIKE ?');
+         args.add('%${filter.$2.trim()}%');
+       }
+     }
+     final rows = await db.query(
+       'garments',
+       where: where.isEmpty ? null : where.join(' AND '),
+       whereArgs: args,
+       orderBy: 'is_favorite DESC, updated_at DESC',
+     );
+     return rows.map(Garment.fromMap).toList();
+   }
+ 
+   Future<void> insertGarment(Garment garment) async {
+     final db = await database;
+     await db.insert(
+       'garments',
+-      garment.toMap(),
++      garment.withCurrentStyleAnalysis().toMap(),
+       conflictAlgorithm: ConflictAlgorithm.replace,
+     );
+   }
+ 
+   Future<void> updateGarment(Garment garment) async {
+     final db = await database;
++    final rows = await db.query('garments', where: 'id = ?',
++        whereArgs: [garment.id], limit: 1);
++    final previous = rows.isEmpty ? null : Garment.fromMap(rows.first);
++    // A caller may send a partial/legacy object. Preserve explicit corrections
++    // already stored before recalculating changed stylistic inputs.
++    final storedStyle = previous?.styleAnalysis;
++    final incomingStyle = garment.styleAnalysis;
++    final mustKeepStoredCorrections = storedStyle?.hasUserCorrections == true &&
++        incomingStyle?.hasUserCorrections != true;
++    final protected = (incomingStyle == null || mustKeepStoredCorrections) &&
++            storedStyle != null
++        ? garment.copyWith(styleAnalysis: storedStyle)
++        : garment;
++    final current = protected.withCurrentStyleAnalysis();
+     await db.update(
+       'garments',
+-      garment.toMap(),
++      current.toMap(),
+       where: 'id = ?',
+       whereArgs: [garment.id],
+     );
+   }
+ 
+   Future<List<WearHistory>> getWearHistory(
+     String garmentId, {
+     int? limit,
+   }) async {
+     final db = await database;
+     final rows = await db.query(
+       'wear_history',
+       where: 'garment_id = ?',
+       whereArgs: [garmentId],
+       orderBy: 'worn_at DESC, id DESC',
+       limit: limit,
+     );
+     return rows.map(WearHistory.fromMap).toList();
+   }
+ 
+   Future<WearHistory?> getFirstWear(String garmentId) async {
+     final db = await database;
+     final rows = await db.query(
+       'wear_history',
+       where: 'garment_id = ?',
+diff --git a/lib/models/garment.dart b/lib/models/garment.dart
+index 5d49de6d295df82f23293ab4a9d9d8e6a3cb0a08..3391dea66fbf623352559373fd5683f9917aa3fa 100644
+--- a/lib/models/garment.dart
++++ b/lib/models/garment.dart
+@@ -1,30 +1,32 @@
+ import 'dart:convert';
+ 
+ import 'garment_normalizer.dart';
+ import 'garment_photo.dart';
+ import 'thermal_profile.dart';
++import 'style_analysis.dart';
++import 'style_classifier.dart';
+ import '../features/scanner/ai/analysis_foundations.dart';
+ 
+ class Garment {
+   static const availableSeasons = ['Printemps', 'Été', 'Automne', 'Hiver'];
+   final String id;
+   final String name;
+   final String category;
+   final String? brand;
+   final String? color;
+   final String? material;
+   final String? season;
+   final String? style;
+   final String? occasion;
+   final String? condition;
+   final double? purchasePrice;
+   final DateTime? purchaseDate;
+   final DateTime? lastWorn;
+   final String? size;
+   final String? fit;
+   final String? composition;
+   final String? notes;
+   final String? imagePath;
+   final List<GarmentPhoto> photos;
+   final DateTime? lastAnalyzedAt;
+   final String? aiAnalysisVersion;
+@@ -38,50 +40,51 @@ class Garment {
+   final List<String>? couleursSecondaires;
+   final String? motif;
+   final String? texture;
+   final bool? logoVisible;
+   final String? stylePrincipal;
+   final List<String>? stylesSecondaires;
+   final String? niveauFormalite;
+   final String? coupe;
+   final String? longueur;
+   final String? longueurManches;
+   final String? typeCol;
+   final String? typeFermeture;
+   final String? matierePrincipale;
+   final List<String>? matieresSecondaires;
+   final double? confianceMatiere;
+   final List<String>? saisons;
+   final List<String>? occasions;
+   final double? temperatureMinimum;
+   final double? temperatureMaximum;
+   final bool? compatiblePluie;
+   final bool? compatibleChaleur;
+   final bool? superposable;
+   /// Couche calculée par l'analyse (jamais demandée à l'utilisateur).
+   final String? layerType;
+   final ThermalProfile? thermalProfile;
++  final StyleAnalysis? styleAnalysis;
+   final String? etatVisuel;
+   final String? usureVisible;
+   final List<String>? defautsVisibles;
+   final double? confianceGlobale;
+   final List<String>? avertissementsIA;
+   final String? resumeStylistique;
+   final List<String>? pointsForts;
+   final List<String>? pointsFaibles;
+   final List<String>? conseils;
+   final String? verdict;
+   final List<String>? couleursCompatibles;
+   final List<String>? couleursMoinsAdaptees;
+   final List<String>? basCompatibles;
+   final List<String>? chaussuresCompatibles;
+   final String? explicationPolyvalence;
+   final List<String>? occasionsDeconseillees;
+   final String? compositionEstimee;
+   final String? lavage;
+   final String? sechage;
+   final String? repassage;
+   final String? nettoyage;
+   final String? boulochage;
+   final String? taches;
+   final List<String>? limitesAnalyse;
+   final int wearCount;
+@@ -120,50 +123,51 @@ class Garment {
+     this.couleurPrincipale,
+     this.couleursSecondaires,
+     this.motif,
+     this.texture,
+     this.logoVisible,
+     this.stylePrincipal,
+     this.stylesSecondaires,
+     this.niveauFormalite,
+     this.coupe,
+     this.longueur,
+     this.longueurManches,
+     this.typeCol,
+     this.typeFermeture,
+     this.matierePrincipale,
+     this.matieresSecondaires,
+     this.confianceMatiere,
+     this.saisons,
+     this.occasions,
+     this.temperatureMinimum,
+     this.temperatureMaximum,
+     this.compatiblePluie,
+     this.compatibleChaleur,
+     this.superposable,
+     this.layerType,
+     this.thermalProfile,
++    this.styleAnalysis,
+     this.etatVisuel,
+     this.usureVisible,
+     this.defautsVisibles,
+     this.confianceGlobale,
+     this.avertissementsIA,
+     this.resumeStylistique,
+     this.pointsForts,
+     this.pointsFaibles,
+     this.conseils,
+     this.verdict,
+     this.couleursCompatibles,
+     this.couleursMoinsAdaptees,
+     this.basCompatibles,
+     this.chaussuresCompatibles,
+     this.explicationPolyvalence,
+     this.occasionsDeconseillees,
+     this.compositionEstimee,
+     this.lavage,
+     this.sechage,
+     this.repassage,
+     this.nettoyage,
+     this.boulochage,
+     this.taches,
+     this.limitesAnalyse,
+     this.wearCount = 0,
+@@ -192,50 +196,74 @@ class Garment {
+         .toSet()
+         .toList(growable: false);
+   }
+ 
+   /// Utilisations du vêtement, avec repli sur l'ancien champ unique.
+   List<String> get effectiveOccasions {
+     final source = occasions?.isNotEmpty == true
+         ? occasions!
+         : [if (occasion != null) occasion!];
+     return source
+         .map((value) => value.trim())
+         .where((value) => value.isNotEmpty)
+         .toSet()
+         .toList(growable: false);
+   }
+ 
+   /// New records persist this value; legacy records receive a conservative
+   /// adapter without rewriting their historical fields.
+   ThermalProfile get effectiveThermalProfile => thermalProfile ?? ThermalProfile.fromLegacy(
+     minimum: temperatureMinimum,
+     maximum: temperatureMaximum,
+     rain: compatiblePluie,
+     layerType: layerType,
+   );
+ 
++  /// Progressive adapter for rows created before the style-v1 column existed.
++  /// Reading old rows remains side-effect free; the result is persisted on the
++  /// next normal insert/update.
++  StyleAnalysis get effectiveStyleAnalysis => styleAnalysis ??
++      const StyleClassifier().classify(styleInput);
++
++  StyleInput get styleInput => StyleInput(
++    category: category,
++    subcategory: sousCategorie ?? typePrecis,
++    material: matierePrincipale ?? material ?? composition,
++    fit: coupe ?? fit,
++    color: couleurPrincipale ?? color,
++    pattern: motif,
++    construction: [texture, typeCol, typeFermeture].whereType<String>().join(' '),
++    formality: niveauFormalite,
++    details: [descriptionIA, typePrecis, stylePrincipal, ...?stylesSecondaires]
++        .whereType<String>().join(' '),
++  );
++
++  /// Recomputes only the style layer; no image scan is involved.
++  Garment withCurrentStyleAnalysis({StyleClassifier classifier = const StyleClassifier(),
++      DateTime? calculatedAt}) => copyWith(styleAnalysis: classifier.ensureCurrent(
++        styleInput, styleAnalysis, calculatedAt: calculatedAt));
++
+   Garment copyWith({
+     String? id,
+     String? name,
+     String? category,
+     String? brand,
+     String? color,
+     String? material,
+     String? season,
+     String? style,
+     String? occasion,
+     String? condition,
+     double? purchasePrice,
+     DateTime? purchaseDate,
+     DateTime? lastWorn,
+     String? size,
+     String? fit,
+     String? composition,
+     String? notes,
+     String? imagePath,
+     List<GarmentPhoto>? photos,
+     DateTime? lastAnalyzedAt,
+     String? aiAnalysisVersion,
+     GarmentAnalysisSnapshot? previousAnalysis,
+     GarmentAnalysisSnapshot? currentAnalysis,
+     Set<String>? userModifiedFields,
+@@ -245,50 +273,51 @@ class Garment {
+     String? couleurPrincipale,
+     List<String>? couleursSecondaires,
+     String? motif,
+     String? texture,
+     bool? logoVisible,
+     String? stylePrincipal,
+     List<String>? stylesSecondaires,
+     String? niveauFormalite,
+     String? coupe,
+     String? longueur,
+     String? longueurManches,
+     String? typeCol,
+     String? typeFermeture,
+     String? matierePrincipale,
+     List<String>? matieresSecondaires,
+     double? confianceMatiere,
+     List<String>? saisons,
+     List<String>? occasions,
+     double? temperatureMinimum,
+     double? temperatureMaximum,
+     bool? compatiblePluie,
+     bool? compatibleChaleur,
+     bool? superposable,
+     String? layerType,
+     ThermalProfile? thermalProfile,
++    StyleAnalysis? styleAnalysis,
+     String? etatVisuel,
+     String? usureVisible,
+     List<String>? defautsVisibles,
+     double? confianceGlobale,
+     List<String>? avertissementsIA,
+     String? resumeStylistique,
+     List<String>? pointsForts,
+     List<String>? pointsFaibles,
+     List<String>? conseils,
+     String? verdict,
+     List<String>? couleursCompatibles,
+     List<String>? couleursMoinsAdaptees,
+     List<String>? basCompatibles,
+     List<String>? chaussuresCompatibles,
+     String? explicationPolyvalence,
+     List<String>? occasionsDeconseillees,
+     String? compositionEstimee,
+     String? lavage,
+     String? sechage,
+     String? repassage,
+     String? nettoyage,
+     String? boulochage,
+     String? taches,
+     List<String>? limitesAnalyse,
+     int? wearCount,
+@@ -326,50 +355,51 @@ class Garment {
+     couleurPrincipale: couleurPrincipale ?? this.couleurPrincipale,
+     couleursSecondaires: couleursSecondaires ?? this.couleursSecondaires,
+     motif: motif ?? this.motif,
+     texture: texture ?? this.texture,
+     logoVisible: logoVisible ?? this.logoVisible,
+     stylePrincipal: stylePrincipal ?? this.stylePrincipal,
+     stylesSecondaires: stylesSecondaires ?? this.stylesSecondaires,
+     niveauFormalite: niveauFormalite ?? this.niveauFormalite,
+     coupe: coupe ?? this.coupe,
+     longueur: longueur ?? this.longueur,
+     longueurManches: longueurManches ?? this.longueurManches,
+     typeCol: typeCol ?? this.typeCol,
+     typeFermeture: typeFermeture ?? this.typeFermeture,
+     matierePrincipale: matierePrincipale ?? this.matierePrincipale,
+     matieresSecondaires: matieresSecondaires ?? this.matieresSecondaires,
+     confianceMatiere: confianceMatiere ?? this.confianceMatiere,
+     saisons: saisons ?? this.saisons,
+     occasions: occasions ?? this.occasions,
+     temperatureMinimum: temperatureMinimum ?? this.temperatureMinimum,
+     temperatureMaximum: temperatureMaximum ?? this.temperatureMaximum,
+     compatiblePluie: compatiblePluie ?? this.compatiblePluie,
+     compatibleChaleur: compatibleChaleur ?? this.compatibleChaleur,
+     superposable: superposable ?? this.superposable,
+     layerType: layerType ?? this.layerType,
+     thermalProfile: thermalProfile ?? this.thermalProfile,
++    styleAnalysis: styleAnalysis ?? this.styleAnalysis,
+     etatVisuel: etatVisuel ?? this.etatVisuel,
+     usureVisible: usureVisible ?? this.usureVisible,
+     defautsVisibles: defautsVisibles ?? this.defautsVisibles,
+     confianceGlobale: confianceGlobale ?? this.confianceGlobale,
+     avertissementsIA: avertissementsIA ?? this.avertissementsIA,
+     resumeStylistique: resumeStylistique ?? this.resumeStylistique,
+     pointsForts: pointsForts ?? this.pointsForts,
+     pointsFaibles: pointsFaibles ?? this.pointsFaibles,
+     conseils: conseils ?? this.conseils,
+     verdict: verdict ?? this.verdict,
+     couleursCompatibles: couleursCompatibles ?? this.couleursCompatibles,
+     couleursMoinsAdaptees: couleursMoinsAdaptees ?? this.couleursMoinsAdaptees,
+     basCompatibles: basCompatibles ?? this.basCompatibles,
+     chaussuresCompatibles: chaussuresCompatibles ?? this.chaussuresCompatibles,
+     explicationPolyvalence: explicationPolyvalence ?? this.explicationPolyvalence,
+     occasionsDeconseillees: occasionsDeconseillees ?? this.occasionsDeconseillees,
+     compositionEstimee: compositionEstimee ?? this.compositionEstimee,
+     lavage: lavage ?? this.lavage,
+     sechage: sechage ?? this.sechage,
+     repassage: repassage ?? this.repassage,
+     nettoyage: nettoyage ?? this.nettoyage,
+     boulochage: boulochage ?? this.boulochage,
+     taches: taches ?? this.taches,
+     limitesAnalyse: limitesAnalyse ?? this.limitesAnalyse,
+     wearCount: wearCount ?? this.wearCount,
+@@ -410,50 +440,51 @@ class Garment {
+     'couleur_principale': couleurPrincipale,
+     'couleurs_secondaires': couleursSecondaires == null ? null : jsonEncode(couleursSecondaires),
+     'motif': motif,
+     'texture': texture,
+     'logo_visible': logoVisible == null ? null : (logoVisible! ? 1 : 0),
+     'style_principal': stylePrincipal,
+     'styles_secondaires': stylesSecondaires == null ? null : jsonEncode(stylesSecondaires),
+     'niveau_formalite': niveauFormalite,
+     'coupe': coupe,
+     'longueur': longueur,
+     'longueur_manches': longueurManches,
+     'type_col': typeCol,
+     'type_fermeture': typeFermeture,
+     'matiere_principale': matierePrincipale,
+     'matieres_secondaires': matieresSecondaires == null ? null : jsonEncode(matieresSecondaires),
+     'confiance_matiere': confianceMatiere,
+     'saisons': jsonEncode(effectiveSeasons),
+     'occasions': occasions == null ? null : jsonEncode(occasions),
+     'temperature_minimum': temperatureMinimum,
+     'temperature_maximum': temperatureMaximum,
+     'compatible_pluie': compatiblePluie == null ? null : (compatiblePluie! ? 1 : 0),
+     'compatible_chaleur': compatibleChaleur == null ? null : (compatibleChaleur! ? 1 : 0),
+     'superposable': superposable == null ? null : (superposable! ? 1 : 0),
+     'layer_type': layerType,
+     'thermal_profile': thermalProfile?.encode(),
++    'style_analysis': styleAnalysis?.encode(),
+     'etat_visuel': etatVisuel,
+     'usure_visible': usureVisible,
+     'defauts_visibles': defautsVisibles == null ? null : jsonEncode(defautsVisibles),
+     'confiance_globale': confianceGlobale,
+     'avertissements_i_a': avertissementsIA == null ? null : jsonEncode(avertissementsIA),
+     'resume_stylistique': resumeStylistique,
+     'points_forts': pointsForts == null ? null : jsonEncode(pointsForts),
+     'points_faibles': pointsFaibles == null ? null : jsonEncode(pointsFaibles),
+     'conseils': conseils == null ? null : jsonEncode(conseils),
+     'verdict': verdict,
+     'couleurs_compatibles': couleursCompatibles == null ? null : jsonEncode(couleursCompatibles),
+     'couleurs_moins_adaptees': couleursMoinsAdaptees == null ? null : jsonEncode(couleursMoinsAdaptees),
+     'bas_compatibles': basCompatibles == null ? null : jsonEncode(basCompatibles),
+     'chaussures_compatibles': chaussuresCompatibles == null ? null : jsonEncode(chaussuresCompatibles),
+     'explication_polyvalence': explicationPolyvalence,
+     'occasions_deconseillees': occasionsDeconseillees == null ? null : jsonEncode(occasionsDeconseillees),
+     'composition_estimee': compositionEstimee,
+     'lavage': lavage,
+     'sechage': sechage,
+     'repassage': repassage,
+     'nettoyage': nettoyage,
+     'boulochage': boulochage,
+     'taches': taches,
+     'limites_analyse': limitesAnalyse == null ? null : jsonEncode(limitesAnalyse),
+     'wear_count': wearCount,
+@@ -532,50 +563,51 @@ class Garment {
+       couleurPrincipale: text('couleur_principale'),
+       couleursSecondaires: list('couleurs_secondaires'),
+       motif: text('motif'),
+       texture: text('texture'),
+       logoVisible: boolean('logo_visible'),
+       stylePrincipal: text('style_principal'),
+       stylesSecondaires: list('styles_secondaires'),
+       niveauFormalite: text('niveau_formalite'),
+       coupe: text('coupe'),
+       longueur: text('longueur'),
+       longueurManches: text('longueur_manches'),
+       typeCol: text('type_col'),
+       typeFermeture: text('type_fermeture'),
+       matierePrincipale: text('matiere_principale'),
+       matieresSecondaires: list('matieres_secondaires'),
+       confianceMatiere: number('confiance_matiere'),
+       saisons: canonicalSeasons,
+       occasions: list('occasions'),
+       temperatureMinimum: number('temperature_minimum'),
+       temperatureMaximum: number('temperature_maximum'),
+       compatiblePluie: boolean('compatible_pluie'),
+       compatibleChaleur: boolean('compatible_chaleur'),
+       superposable: boolean('superposable'),
+       layerType: text('layer_type') ?? _legacyLayer(boolean('superposable'), text('category')),
+       thermalProfile: ThermalProfile.decode(map['thermal_profile']),
++      styleAnalysis: StyleAnalysis.decode(map['style_analysis']),
+       etatVisuel: text('etat_visuel'),
+       usureVisible: text('usure_visible'),
+       defautsVisibles: list('defauts_visibles'),
+       confianceGlobale: number('confiance_globale'),
+       avertissementsIA: list('avertissements_i_a'),
+       resumeStylistique: text('resume_stylistique'),
+       pointsForts: list('points_forts'),
+       pointsFaibles: list('points_faibles'),
+       conseils: list('conseils'),
+       verdict: text('verdict'),
+       couleursCompatibles: list('couleurs_compatibles'),
+       couleursMoinsAdaptees: list('couleurs_moins_adaptees'),
+       basCompatibles: list('bas_compatibles'),
+       chaussuresCompatibles: list('chaussures_compatibles'),
+       explicationPolyvalence: text('explication_polyvalence'),
+       occasionsDeconseillees: list('occasions_deconseillees'),
+       compositionEstimee: text('composition_estimee'),
+       lavage: text('lavage'),
+       sechage: text('sechage'),
+       repassage: text('repassage'),
+       nettoyage: text('nettoyage'),
+       boulochage: text('boulochage'),
+       taches: text('taches'),
+       limitesAnalyse: list('limites_analyse'),
+       wearCount: number('wear_count')?.toInt() ?? 0,
+diff --git a/lib/models/style_analysis.dart b/lib/models/style_analysis.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..44d536f18dee2a54363b7ba080acddcadc6de923
+--- /dev/null
++++ b/lib/models/style_analysis.dart
+@@ -0,0 +1,126 @@
++import 'dart:convert';
++
++/// Stable identifiers used by persistence and future style-library screens.
++abstract final class StyleTaxonomy {
++  static const version = 1;
++  static const registers = <String>{
++    'casual', 'smart_casual', 'dressy', 'sport', 'technical',
++  };
++  static const secondaryStyles = <String>{
++    'minimalist', 'workwear', 'streetwear', 'preppy', 'vintage', 'rock',
++    'outdoor',
++  };
++  static const characteristics = <String>{
++    'understated', 'structured', 'modern', 'retro', 'elegant', 'utility',
++  };
++}
++
++/// Versioned, explainable stylistic result. AI values and user decisions are
++/// deliberately separate: recomputation only replaces the suggestion layer.
++class StyleAnalysis {
++  static const currentModelVersion = 'style-v1';
++
++  final int taxonomyVersion;
++  final String modelVersion;
++  final String inputFingerprint;
++  final String suggestedRegister;
++  final List<String> suggestedSecondaryStyles;
++  final List<String> suggestedCharacteristics;
++  final String? userRegister;
++  final List<String>? userSecondaryStyles;
++  final List<String>? userCharacteristics;
++  final List<String> evidence;
++  final DateTime calculatedAt;
++  final bool migratedFromLegacy;
++
++  const StyleAnalysis({
++    this.taxonomyVersion = StyleTaxonomy.version,
++    this.modelVersion = currentModelVersion,
++    required this.inputFingerprint,
++    required this.suggestedRegister,
++    this.suggestedSecondaryStyles = const [],
++    this.suggestedCharacteristics = const [],
++    this.userRegister,
++    this.userSecondaryStyles,
++    this.userCharacteristics,
++    this.evidence = const [],
++    required this.calculatedAt,
++    this.migratedFromLegacy = false,
++  });
++
++  String get register => userRegister ?? suggestedRegister;
++  List<String> get secondaryStyles =>
++      userSecondaryStyles ?? suggestedSecondaryStyles;
++  List<String> get characteristics =>
++      userCharacteristics ?? suggestedCharacteristics;
++  bool get hasUserCorrections => userRegister != null ||
++      userSecondaryStyles != null || userCharacteristics != null;
++
++  StyleAnalysis withUserCorrections({String? register,
++    List<String>? secondaryStyles, List<String>? characteristics}) =>
++      StyleAnalysis(
++        taxonomyVersion: taxonomyVersion, modelVersion: modelVersion,
++        inputFingerprint: inputFingerprint,
++        suggestedRegister: suggestedRegister,
++        suggestedSecondaryStyles: suggestedSecondaryStyles,
++        suggestedCharacteristics: suggestedCharacteristics,
++        userRegister: register ?? userRegister,
++        userSecondaryStyles: secondaryStyles ?? userSecondaryStyles,
++        userCharacteristics: characteristics ?? userCharacteristics,
++        evidence: evidence, calculatedAt: calculatedAt,
++        migratedFromLegacy: migratedFromLegacy,
++      );
++
++  StyleAnalysis retainCorrectionsFrom(StyleAnalysis? previous) => StyleAnalysis(
++    taxonomyVersion: taxonomyVersion, modelVersion: modelVersion,
++    inputFingerprint: inputFingerprint, suggestedRegister: suggestedRegister,
++    suggestedSecondaryStyles: suggestedSecondaryStyles,
++    suggestedCharacteristics: suggestedCharacteristics,
++    userRegister: previous?.userRegister,
++    userSecondaryStyles: previous?.userSecondaryStyles,
++    userCharacteristics: previous?.userCharacteristics,
++    evidence: evidence, calculatedAt: calculatedAt,
++    migratedFromLegacy: migratedFromLegacy,
++  );
++
++  String encode() => jsonEncode({
++    'taxonomyVersion': taxonomyVersion, 'modelVersion': modelVersion,
++    'inputFingerprint': inputFingerprint,
++    'suggestedRegister': suggestedRegister,
++    'suggestedSecondaryStyles': suggestedSecondaryStyles,
++    'suggestedCharacteristics': suggestedCharacteristics,
++    'userRegister': userRegister,
++    'userSecondaryStyles': userSecondaryStyles,
++    'userCharacteristics': userCharacteristics,
++    'evidence': evidence, 'calculatedAt': calculatedAt.toIso8601String(),
++    'migratedFromLegacy': migratedFromLegacy,
++  });
++
++  static StyleAnalysis? decode(Object? source) {
++    if (source is! String || source.isEmpty) return null;
++    try {
++      final map = jsonDecode(source);
++      if (map is! Map) return null;
++      List<String> strings(Object? value) => value is List
++          ? value.map((e) => e.toString()).toList(growable: false) : const [];
++      return StyleAnalysis(
++        taxonomyVersion: map['taxonomyVersion'] is int
++            ? map['taxonomyVersion'] as int : StyleTaxonomy.version,
++        modelVersion: map['modelVersion']?.toString() ?? currentModelVersion,
++        inputFingerprint: map['inputFingerprint']?.toString() ?? '',
++        suggestedRegister: map['suggestedRegister']?.toString() ?? 'casual',
++        suggestedSecondaryStyles: strings(map['suggestedSecondaryStyles']),
++        suggestedCharacteristics: strings(map['suggestedCharacteristics']),
++        userRegister: map['userRegister']?.toString(),
++        userSecondaryStyles: map['userSecondaryStyles'] == null
++            ? null : strings(map['userSecondaryStyles']),
++        userCharacteristics: map['userCharacteristics'] == null
++            ? null : strings(map['userCharacteristics']),
++        evidence: strings(map['evidence']),
++        calculatedAt: DateTime.tryParse(map['calculatedAt']?.toString() ?? '') ??
++            DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
++        migratedFromLegacy: map['migratedFromLegacy'] == true,
++      );
++    } on FormatException { return null; }
++  }
++}
+diff --git a/lib/models/style_classifier.dart b/lib/models/style_classifier.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..77eba5e3a2b9921b5ffb88dfa600a898a14ed43a
+--- /dev/null
++++ b/lib/models/style_classifier.dart
+@@ -0,0 +1,79 @@
++import 'dart:convert';
++
++import 'style_analysis.dart';
++
++class StyleInput {
++  final String category;
++  final String? subcategory, material, fit, color, pattern, construction,
++      formality, details;
++  const StyleInput({required this.category, this.subcategory, this.material,
++    this.fit, this.color, this.pattern, this.construction, this.formality,
++    this.details});
++
++  String get normalized => [category, subcategory, material, fit, color,
++    pattern, construction, formality, details]
++      .map((v) => (v ?? '').trim().toLowerCase()).join('|');
++  String get fingerprint => base64Url.encode(utf8.encode(normalized));
++}
++
++/// Deterministic baseline classifier. Its evidence makes every decision
++/// inspectable and it can later be replaced by an AI provider without changing
++/// the persisted contract.
++class StyleClassifier {
++  const StyleClassifier();
++  StyleAnalysis classify(StyleInput input, {StyleAnalysis? previous,
++    DateTime? calculatedAt}) {
++    final text = input.normalized;
++    bool has(String expression) => RegExp(expression).hasMatch(text);
++    final evidence = <String>[];
++    String register;
++    if (has(r'parka|softshell|imperm[eé]able|gore.?tex|technique')) {
++      register = 'technical'; evidence.add('Construction ou matière technique');
++    } else if (has(r'jogging|surv[eê]tement|legging|maillot|sport')) {
++      register = 'sport'; evidence.add('Construction destinée au sport');
++    } else if (has(r'costume|smoking|tailleur|formel|habill[eé]')) {
++      register = 'dressy'; evidence.add('Construction ou formalité habillée');
++    } else if (has(r'oxford|chino|blazer|polo|smart.?casual|semi.?formel')) {
++      register = 'smart_casual'; evidence.add('Détails intermédiaires casual/habillés');
++    } else {
++      register = 'casual'; evidence.add('Construction principalement décontractée');
++    }
++    // Hard coherence constraints beat generic formality hints.
++    if (has(r'sweat|hoodie|capuche')) {
++      register = 'casual'; evidence.add('Contrainte: un sweat reste décontracté');
++    }
++
++    final secondary = <String>[];
++    void add(String id, String reason) { secondary.add(id); evidence.add(reason); }
++    if (has(r'oxford|chino|polo|mocassin|preppy')) add('preppy', 'Codes preppy visibles');
++    if (has(r'cargo|toile|denim|poche.*plaqu[eé]e|workwear')) add('workwear', 'Détails utilitaires/workwear');
++    if (has(r'oversize|graphique|streetwear') && !has(r'costume|smoking')) add('streetwear', 'Volume ou graphisme streetwear');
++    if (has(r'outdoor|randonn[eé]e|parka|polaire')) add('outdoor', 'Usage outdoor identifiable');
++    if (has(r'vintage|ann[eé]es? [0-9]|r[eé]tro')) add('vintage', 'Référence rétro explicite');
++    if (has(r'cuir|clou|rock')) add('rock', 'Codes rock visibles');
++    if (has(r'uni|neutre|minimal')) add('minimalist', 'Palette ou motif minimaliste');
++
++    final characteristics = <String>[];
++    if (has(r'uni|marine|noir|gris|beige|sobre')) characteristics.add('understated');
++    if (has(r'blazer|costume|tailleur|structur[eé]|revers')) characteristics.add('structured');
++    if (has(r'moderne|contemporain|technique')) characteristics.add('modern');
++    if (has(r'vintage|r[eé]tro')) characteristics.add('retro');
++    if (register == 'dressy' || has(r'[eé]l[eé]gant')) characteristics.add('elegant');
++    if (has(r'cargo|poche|utilitaire|workwear')) characteristics.add('utility');
++
++    return StyleAnalysis(inputFingerprint: input.fingerprint,
++      suggestedRegister: register,
++      suggestedSecondaryStyles: secondary.toSet().toList(),
++      suggestedCharacteristics: characteristics.toSet().toList(),
++      evidence: evidence, calculatedAt: calculatedAt ?? DateTime.now().toUtc(),
++    ).retainCorrectionsFrom(previous);
++  }
++
++  StyleAnalysis ensureCurrent(StyleInput input, StyleAnalysis? current,
++      {DateTime? calculatedAt}) {
++    if (current != null && current.modelVersion == StyleAnalysis.currentModelVersion &&
++        current.taxonomyVersion == StyleTaxonomy.version &&
++        current.inputFingerprint == input.fingerprint) return current;
++    return classify(input, previous: current, calculatedAt: calculatedAt);
++  }
++}
+diff --git a/test/models/style_classifier_test.dart b/test/models/style_classifier_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..fd0640b1e431f693deb1f9564b5182c17031ac17
+--- /dev/null
++++ b/test/models/style_classifier_test.dart
+@@ -0,0 +1,77 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/models/style_analysis.dart';
++import 'package:wardrobeos/models/style_classifier.dart';
++
++void main() {
++  const classifier = StyleClassifier();
++
++  test('applique les contraintes de cohérence avant la formalité', () {
++    final hoodie = classifier.classify(const StyleInput(
++      category: 'Hauts', subcategory: 'Sweat à capuche',
++      formality: 'Business formel', material: 'Coton'));
++    final suitTrousers = classifier.classify(const StyleInput(
++      category: 'Bas', subcategory: 'Pantalon de costume',
++      construction: 'structuré à pinces'));
++
++    expect(hoodie.register, 'casual');
++    expect(hoodie.evidence, contains(contains('Contrainte')));
++    expect(suitTrousers.register, 'dressy');
++    expect(suitTrousers.secondaryStyles, isNot(contains('streetwear')));
++  });
++
++  test('Oxford utilise sous-catégorie, coupe, motif et détails', () {
++    final result = classifier.classify(const StyleInput(
++      category: 'Chemises', subcategory: 'Chemise Oxford', fit: 'ajustée',
++      color: 'Bleu ciel', pattern: 'uni', construction: 'col boutonné'));
++    expect(result.register, 'smart_casual');
++    expect(result.secondaryStyles, containsAll(['preppy', 'minimalist']));
++    expect(result.characteristics, contains('understated'));
++  });
++
++  test('recalcule après une entrée pertinente sans rescannage', () {
++    final first = classifier.ensureCurrent(const StyleInput(
++      category: 'Vestes', subcategory: 'Blazer'), null,
++      calculatedAt: DateTime.utc(2026));
++    final changed = classifier.ensureCurrent(const StyleInput(
++      category: 'Vestes', subcategory: 'Parka', material: 'Gore-Tex'), first,
++      calculatedAt: DateTime.utc(2026, 1, 2));
++    expect(changed.inputFingerprint, isNot(first.inputFingerprint));
++    expect(changed.register, 'technical');
++    expect(changed.calculatedAt, DateTime.utc(2026, 1, 2));
++  });
++
++  test('une correction utilisateur survit au recalcul des suggestions', () {
++    final corrected = classifier.classify(const StyleInput(
++      category: 'Chemises', subcategory: 'Oxford')).withUserCorrections(
++        register: 'casual', secondaryStyles: const ['preppy']);
++    final recomputed = classifier.classify(const StyleInput(
++      category: 'Chemises', subcategory: 'Oxford', color: 'Rose'),
++      previous: corrected);
++    expect(recomputed.register, 'casual');
++    expect(recomputed.userSecondaryStyles, ['preppy']);
++    expect(recomputed.hasUserCorrections, isTrue);
++  });
++
++  test('lit une ancienne fiche et la migre progressivement', () {
++    final legacy = Garment.fromMap({
++      'id': 'old', 'name': 'Oxford', 'category': 'Chemises',
++      'style_principal': 'Smart Casual', 'styles_secondaires': '["Preppy"]',
++      'created_at': '2020-01-01T00:00:00Z',
++      'updated_at': '2020-01-01T00:00:00Z',
++    });
++    expect(legacy.styleAnalysis, isNull);
++    expect(legacy.effectiveStyleAnalysis.register, 'smart_casual');
++    final migrated = legacy.withCurrentStyleAnalysis(
++      calculatedAt: DateTime.utc(2026));
++    expect(StyleAnalysis.decode(migrated.toMap()['style_analysis']), isNotNull);
++  });
++
++  test('sérialise séparément suggestions et choix utilisateur', () {
++    final source = classifier.classify(const StyleInput(category: 'Bas'))
++        .withUserCorrections(characteristics: const ['retro']);
++    final restored = StyleAnalysis.decode(source.encode())!;
++    expect(restored.suggestedRegister, source.suggestedRegister);
++    expect(restored.characteristics, ['retro']);
++  });
++}

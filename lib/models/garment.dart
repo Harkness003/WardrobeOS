@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'garment_normalizer.dart';
 import 'garment_photo.dart';
 import 'thermal_profile.dart';
+import 'style_analysis.dart';
+import 'style_classifier.dart';
 import '../features/scanner/ai/analysis_foundations.dart';
 
 class Garment {
@@ -60,6 +62,7 @@ class Garment {
   /// Couche calculée par l'analyse (jamais demandée à l'utilisateur).
   final String? layerType;
   final ThermalProfile? thermalProfile;
+  final StyleAnalysis? styleAnalysis;
   final String? etatVisuel;
   final String? usureVisible;
   final List<String>? defautsVisibles;
@@ -142,6 +145,7 @@ class Garment {
     this.superposable,
     this.layerType,
     this.thermalProfile,
+    this.styleAnalysis,
     this.etatVisuel,
     this.usureVisible,
     this.defautsVisibles,
@@ -214,6 +218,30 @@ class Garment {
     layerType: layerType,
   );
 
+  /// Progressive adapter for rows created before the style-v1 column existed.
+  /// Reading old rows remains side-effect free; the result is persisted on the
+  /// next normal insert/update.
+  StyleAnalysis get effectiveStyleAnalysis => styleAnalysis ??
+      const StyleClassifier().classify(styleInput);
+
+  StyleInput get styleInput => StyleInput(
+    category: category,
+    subcategory: sousCategorie ?? typePrecis,
+    material: matierePrincipale ?? material ?? composition,
+    fit: coupe ?? fit,
+    color: couleurPrincipale ?? color,
+    pattern: motif,
+    construction: [texture, typeCol, typeFermeture].whereType<String>().join(' '),
+    formality: niveauFormalite,
+    details: [descriptionIA, typePrecis, stylePrincipal, ...?stylesSecondaires]
+        .whereType<String>().join(' '),
+  );
+
+  /// Recomputes only the style layer; no image scan is involved.
+  Garment withCurrentStyleAnalysis({StyleClassifier classifier = const StyleClassifier(),
+      DateTime? calculatedAt}) => copyWith(styleAnalysis: classifier.ensureCurrent(
+        styleInput, styleAnalysis, calculatedAt: calculatedAt));
+
   Garment copyWith({
     String? id,
     String? name,
@@ -267,6 +295,7 @@ class Garment {
     bool? superposable,
     String? layerType,
     ThermalProfile? thermalProfile,
+    StyleAnalysis? styleAnalysis,
     String? etatVisuel,
     String? usureVisible,
     List<String>? defautsVisibles,
@@ -348,6 +377,7 @@ class Garment {
     superposable: superposable ?? this.superposable,
     layerType: layerType ?? this.layerType,
     thermalProfile: thermalProfile ?? this.thermalProfile,
+    styleAnalysis: styleAnalysis ?? this.styleAnalysis,
     etatVisuel: etatVisuel ?? this.etatVisuel,
     usureVisible: usureVisible ?? this.usureVisible,
     defautsVisibles: defautsVisibles ?? this.defautsVisibles,
@@ -432,6 +462,7 @@ class Garment {
     'superposable': superposable == null ? null : (superposable! ? 1 : 0),
     'layer_type': layerType,
     'thermal_profile': thermalProfile?.encode(),
+    'style_analysis': styleAnalysis?.encode(),
     'etat_visuel': etatVisuel,
     'usure_visible': usureVisible,
     'defauts_visibles': defautsVisibles == null ? null : jsonEncode(defautsVisibles),
@@ -554,6 +585,7 @@ class Garment {
       superposable: boolean('superposable'),
       layerType: text('layer_type') ?? _legacyLayer(boolean('superposable'), text('category')),
       thermalProfile: ThermalProfile.decode(map['thermal_profile']),
+      styleAnalysis: StyleAnalysis.decode(map['style_analysis']),
       etatVisuel: text('etat_visuel'),
       usureVisible: text('usure_visible'),
       defautsVisibles: list('defauts_visibles'),
