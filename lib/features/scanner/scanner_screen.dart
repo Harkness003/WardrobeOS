@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/image_storage_service.dart';
 import '../../models/garment.dart';
+import '../../models/garment_photo.dart';
 import '../../widgets/garment_image.dart';
 import '../wardrobe/wardrobe_controller.dart';
 import '../wardrobe/garment_form_screen.dart';
@@ -21,6 +22,7 @@ import 'ai/garment_analysis_validator.dart';
 import 'ai/garment_image_processing.dart';
 import 'ai/normalization/garment_value_normalizer.dart';
 import 'ai/openai_garment_vision_analyzer.dart';
+import 'ai/analysis_foundations.dart';
 import 'conversation/scan_conversation.dart';
 
 class ScannerScreen extends StatefulWidget {
@@ -92,7 +94,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   @override
   void dispose() {
     for (final path in sessionImagePaths) {
-      if (!imageOwnedByGarment || path != sessionImagePaths.first) {
+      if (!imageOwnedByGarment) {
         _removeBestEffort(path);
       }
     }
@@ -286,7 +288,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
       mergeWatch.stop();
       assert(() {
         final timings = scanner.lastTimings;
-        debugPrint('scanner timings: images=${timings?.imagePreparation.inMilliseconds ?? 0}ms, ai=${timings?.aiCall.inMilliseconds ?? 0}ms, parsing=${(timings?.parsing ?? Duration.zero).inMilliseconds + parsingWatch.elapsedMilliseconds}ms, fusion=${mergeWatch.elapsedMilliseconds}ms');
+        debugPrint('scanner.performance images=${timings?.imagePreparation.inMilliseconds ?? 0}ms, compression=${timings?.compression.inMilliseconds ?? 0}ms, ai=${timings?.aiCall.inMilliseconds ?? 0}ms, parsing=${(timings?.parsing ?? Duration.zero).inMilliseconds + parsingWatch.elapsedMilliseconds}ms, fusion=${mergeWatch.elapsedMilliseconds}ms, total=${(timings?.total ?? Duration.zero).inMilliseconds + parsingWatch.elapsedMilliseconds + mergeWatch.elapsedMilliseconds}ms');
         return true;
       }());
       setState(() => analyzing = false);
@@ -381,6 +383,26 @@ class _ScannerScreenState extends State<ScannerScreen> {
         null => 'Ajout manuel depuis le scanner.',
       },
       imagePath: sessionImagePaths.isEmpty ? imagePath : sessionImagePaths.first,
+      photos: [
+        for (var index = 0; index < sessionImagePaths.length; index++)
+          GarmentPhoto(
+            id: const Uuid().v4(),
+            path: sessionImagePaths[index],
+            type: index == 0 ? GarmentPhotoType.primary : GarmentPhotoType.other,
+            createdAt: now,
+          ),
+      ],
+      lastAnalyzedAt: result == null ? null : now,
+      aiAnalysisVersion: result == null
+          ? null
+          : 'scanner-v1:${OpenAiGarmentVisionAnalyzer.defaultModel}',
+      currentAnalysis: result == null
+          ? null
+          : GarmentAnalysisSnapshot(
+              version: 'scanner-v1:${OpenAiGarmentVisionAnalyzer.defaultModel}',
+              analyzedAt: now,
+              values: result!.toJson().cast<String, Object?>(),
+            ),
       createdAt: now,
       updatedAt: now,
     );

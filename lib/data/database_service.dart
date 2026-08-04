@@ -18,7 +18,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 10,
+      version: 11,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -44,6 +44,12 @@ class DatabaseService {
             composition TEXT,
             notes TEXT,
             image_path TEXT,
+            photos TEXT NOT NULL DEFAULT '[]',
+            last_analyzed_at TEXT,
+            ai_analysis_version TEXT,
+            previous_analysis TEXT,
+            current_analysis TEXT,
+            user_modified_fields TEXT NOT NULL DEFAULT '[]',
             is_favorite INTEGER NOT NULL DEFAULT 0,
             sous_categorie TEXT,
             type_precis TEXT,
@@ -205,6 +211,14 @@ class DatabaseService {
         }
         if (oldVersion < 9) await _createPersonalizationTables(db);
         if (oldVersion < 10) await _createAgendaTables(db);
+        if (oldVersion < 11) {
+          await _addColumn(db, 'garments', 'photos', "TEXT NOT NULL DEFAULT '[]'");
+          await _addColumn(db, 'garments', 'last_analyzed_at', 'TEXT');
+          await _addColumn(db, 'garments', 'ai_analysis_version', 'TEXT');
+          await _addColumn(db, 'garments', 'previous_analysis', 'TEXT');
+          await _addColumn(db, 'garments', 'current_analysis', 'TEXT');
+          await _addColumn(db, 'garments', 'user_modified_fields', "TEXT NOT NULL DEFAULT '[]'");
+        }
         await _createIndexes(db);
       },
     );

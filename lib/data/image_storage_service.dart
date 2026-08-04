@@ -22,4 +22,12 @@ class ImageStorageService {
     final file = File(imagePath);
     if (await file.exists()) await file.delete();
   }
+
+  /// Removes every path independently: a missing complementary image never
+  /// prevents cleanup of the remaining persisted images.
+  static Future<void> removeAll(Iterable<String> imagePaths) async {
+    for (final path in imagePaths.toSet()) {
+      await remove(path);
+    }
+  }
 }

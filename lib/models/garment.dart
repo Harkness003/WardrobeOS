@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'garment_normalizer.dart';
+import 'garment_photo.dart';
+import '../features/scanner/ai/analysis_foundations.dart';
 
 class Garment {
   static const availableSeasons = ['Printemps', 'Été', 'Automne', 'Hiver'];
@@ -22,6 +24,12 @@ class Garment {
   final String? composition;
   final String? notes;
   final String? imagePath;
+  final List<GarmentPhoto> photos;
+  final DateTime? lastAnalyzedAt;
+  final String? aiAnalysisVersion;
+  final GarmentAnalysisSnapshot? previousAnalysis;
+  final GarmentAnalysisSnapshot? currentAnalysis;
+  final Set<String> userModifiedFields;
   final String? sousCategorie;
   final String? typePrecis;
   final String? descriptionIA;
@@ -98,6 +106,12 @@ class Garment {
     this.composition,
     this.notes,
     this.imagePath,
+    this.photos = const [],
+    this.lastAnalyzedAt,
+    this.aiAnalysisVersion,
+    this.previousAnalysis,
+    this.currentAnalysis,
+    this.userModifiedFields = const {},
     this.sousCategorie,
     this.typePrecis,
     this.descriptionIA,
@@ -155,6 +169,11 @@ class Garment {
     required this.updatedAt,
   });
 
+  List<GarmentPhoto> get effectivePhotos => photos.isNotEmpty
+      ? photos
+      : [if (imagePath?.isNotEmpty == true) GarmentPhoto(id: 'legacy-$id', path: imagePath!, type: GarmentPhotoType.primary, createdAt: createdAt)];
+  bool needsAiReanalysis(String currentVersion) => aiAnalysisVersion == null || aiAnalysisVersion != currentVersion;
+
   /// Saisons canoniques du vêtement, avec repli sur l'ancien champ unique.
   List<String> get effectiveSeasons {
     final source = saisons?.isNotEmpty == true ? saisons! : [if (season != null) season!];
@@ -202,6 +221,12 @@ class Garment {
     String? composition,
     String? notes,
     String? imagePath,
+    List<GarmentPhoto>? photos,
+    DateTime? lastAnalyzedAt,
+    String? aiAnalysisVersion,
+    GarmentAnalysisSnapshot? previousAnalysis,
+    GarmentAnalysisSnapshot? currentAnalysis,
+    Set<String>? userModifiedFields,
     String? sousCategorie,
     String? typePrecis,
     String? descriptionIA,
@@ -276,6 +301,12 @@ class Garment {
     composition: composition ?? this.composition,
     notes: notes ?? this.notes,
     imagePath: imagePath ?? this.imagePath,
+    photos: photos ?? this.photos,
+    lastAnalyzedAt: lastAnalyzedAt ?? this.lastAnalyzedAt,
+    aiAnalysisVersion: aiAnalysisVersion ?? this.aiAnalysisVersion,
+    previousAnalysis: previousAnalysis ?? this.previousAnalysis,
+    currentAnalysis: currentAnalysis ?? this.currentAnalysis,
+    userModifiedFields: userModifiedFields ?? this.userModifiedFields,
     sousCategorie: sousCategorie ?? this.sousCategorie,
     typePrecis: typePrecis ?? this.typePrecis,
     descriptionIA: descriptionIA ?? this.descriptionIA,
@@ -353,6 +384,12 @@ class Garment {
     'composition': composition,
     'notes': notes,
     'image_path': imagePath,
+    'photos': GarmentPhoto.encode(effectivePhotos),
+    'last_analyzed_at': lastAnalyzedAt?.toIso8601String(),
+    'ai_analysis_version': aiAnalysisVersion,
+    'previous_analysis': GarmentAnalysisSnapshot.encode(previousAnalysis),
+    'current_analysis': GarmentAnalysisSnapshot.encode(currentAnalysis),
+    'user_modified_fields': jsonEncode(userModifiedFields.toList()..sort()),
     'sous_categorie': sousCategorie,
     'type_precis': typePrecis,
     'description_i_a': descriptionIA,
@@ -468,6 +505,12 @@ class Garment {
       composition: text('composition'),
       notes: text('notes'),
       imagePath: text('image_path'),
+      photos: GarmentPhoto.decode(map['photos']),
+      lastAnalyzedAt: _parseDate(map['last_analyzed_at']),
+      aiAnalysisVersion: text('ai_analysis_version'),
+      previousAnalysis: GarmentAnalysisSnapshot.decode(map['previous_analysis']),
+      currentAnalysis: GarmentAnalysisSnapshot.decode(map['current_analysis']),
+      userModifiedFields: (list('user_modified_fields') ?? const []).toSet(),
       sousCategorie: text('sous_categorie'),
       typePrecis: text('type_precis'),
       descriptionIA: text('description_i_a'),

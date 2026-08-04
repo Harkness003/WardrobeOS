@@ -32,9 +32,11 @@ class GarmentValueNormalizer {
 }
 
 class WardrobeNormalizers {
-  static GarmentValueNormalizer categories(List<String> values) => GarmentValueNormalizer(values, synonyms: const {'shirt': 'Chemises', 'chemise': 'Chemises', 'top': 'Hauts', 'shoe': 'Chaussures', 'shoes': 'Chaussures', 'pants': 'Bas', 'trousers': 'Bas'});
+  /// Language-neutral keys make this catalogue incrementally extensible without
+  /// changing the canonical values stored by existing French installations.
+  static GarmentValueNormalizer categories(List<String> values) => GarmentValueNormalizer(values, synonyms: const {'shirt': 'Chemises', 'camisa': 'Chemises', 'hemd': 'Chemises', 'chemise': 'Chemises', 'top': 'Hauts', 'oberteil': 'Hauts', 'shoe': 'Chaussures', 'shoes': 'Chaussures', 'zapatos': 'Chaussures', 'schuhe': 'Chaussures', 'pants': 'Bas', 'trousers': 'Bas', 'pantalones': 'Bas', 'hose': 'Bas', 'jacket': 'Vestes', 'coat': 'Vestes', 'chaqueta': 'Vestes', 'jacke': 'Vestes'});
   static GarmentValueNormalizer colors(List<String> values) => GarmentValueNormalizer(values, synonyms: const {'navy': 'Bleu marine', 'navy blue': 'Bleu marine', 'dark blue': 'Bleu marine', 'bleu nuit': 'Bleu marine', 'bleu fonce': 'Bleu marine', 'off white': 'Écru', 'cream': 'Écru', 'ecru': 'Écru'});
-  static GarmentValueNormalizer materials(List<String> values) => GarmentValueNormalizer(values, synonyms: const {'cotton': 'Coton', 'wool': 'Laine', 'leather': 'Cuir', 'linen': 'Lin', 'silk': 'Soie'});
+  static GarmentValueNormalizer materials(List<String> values) => GarmentValueNormalizer(values, synonyms: const {'cotton': 'Coton', 'algodon': 'Coton', 'baumwolle': 'Coton', 'wool': 'Laine', 'lana': 'Laine', 'wolle': 'Laine', 'leather': 'Cuir', 'cuero': 'Cuir', 'leder': 'Cuir', 'linen': 'Lin', 'lino': 'Lin', 'leinen': 'Lin', 'silk': 'Soie', 'seda': 'Soie', 'seide': 'Soie'});
   static GarmentValueNormalizer fits(List<String> values) => GarmentValueNormalizer(values, synonyms: const {'slim fit': 'Slim', 'fitted': 'Slim', 'ajuste': 'Slim', 'regular fit': 'Regular', 'loose fit': 'Relaxed'});
   static GarmentValueNormalizer styles(List<String> values) => GarmentValueNormalizer(values, synonyms: const {'business casual': 'Smart casual', 'business-casual': 'Smart casual', 'casual chic': 'Smart casual'});
 }

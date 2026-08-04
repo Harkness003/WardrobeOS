@@ -13,9 +13,11 @@ import 'garment_image_processing.dart';
 
 class GarmentAnalysisTimings {
   final Duration imagePreparation;
+  final Duration compression;
   final Duration aiCall;
   final Duration parsing;
-  const GarmentAnalysisTimings({required this.imagePreparation, required this.aiCall, required this.parsing});
+  final Duration total;
+  const GarmentAnalysisTimings({required this.imagePreparation, required this.compression, required this.aiCall, required this.parsing, required this.total});
 }
 
 class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
@@ -49,6 +51,7 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
 
   @override
   Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
+    final totalWatch = Stopwatch()..start();
     if (request.imageBytes.isEmpty) {
       throw const GarmentAnalysisException(
         GarmentAnalysisError.missingImage,
@@ -70,10 +73,12 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
     }
 
     final preparationWatch = Stopwatch()..start();
+    final compressionWatch = Stopwatch()..start();
     final prepared = preprocessor.prepareBytes(request.imageBytes, mimeType: request.mimeType);
     final previous = request.previousImageBytes.map((bytes) => preprocessor.prepareBytes(
       bytes, mimeType: GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
     ).bytes).toList(growable: false);
+    compressionWatch.stop();
     final preparedRequest = request.copyWith(imageBytes: prepared.bytes, mimeType: prepared.mimeType, previousImageBytes: previous);
     preparationWatch.stop();
     final body = _requestBody(preparedRequest);
@@ -109,7 +114,8 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
         }
         final result = GarmentAnalysisResult.fromJsonString(output);
         parsingWatch.stop();
-        lastTimings = GarmentAnalysisTimings(imagePreparation: preparationWatch.elapsed, aiCall: aiWatch.elapsed, parsing: parsingWatch.elapsed);
+        totalWatch.stop();
+        lastTimings = GarmentAnalysisTimings(imagePreparation: preparationWatch.elapsed, compression: compressionWatch.elapsed, aiCall: aiWatch.elapsed, parsing: parsingWatch.elapsed, total: totalWatch.elapsed);
         return result;
       } on GarmentAnalysisException {
         rethrow;
