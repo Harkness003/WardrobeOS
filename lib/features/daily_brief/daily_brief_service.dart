@@ -1,3 +1,4 @@
+import '../../core/outfit_generation/outfit_generation_engine.dart';
 import '../../core/recommendation/recommendation_context.dart';
 import '../../core/recommendation/recommendation_engine.dart';
 import '../../core/wardrobe_intelligence/wardrobe_intelligence_engine.dart';
@@ -40,31 +41,28 @@ class DailyBriefService {
     final weather = await _optionalWeather();
     final memory = liveContext?.personalization ?? await memoryService.loadSnapshot();
     final report = intelligenceEngine.analyze(garments);
-    final recommendation = recommendationEngine.recommend(
-      wardrobe: garments,
-      context: RecommendationContext(
-        season: _season(_clock()),
-        weather: weather == null
-            ? null
-            : RecommendationWeather(
-                temperature: weather.temperature,
-                isRaining: _isRaining(weather),
-                condition: weather.description,
-                windSpeed: weather.windSpeed,
-              ),
+    final generation = OutfitGenerationEngine(recommendationEngine: recommendationEngine).generate(
+      OutfitGenerationRequest(
+        wardrobe: garments,
+        proposalCount: 3,
+        context: RecommendationContext(
+          season: _season(_clock()),
+          weather: weather == null
+              ? null
+              : RecommendationWeather(
+                  temperature: weather.temperature,
+                  isRaining: _isRaining(weather),
+                  condition: weather.description,
+                  windSpeed: weather.windSpeed,
+                ),
+        ),
       ),
-      alternativeCount: 8,
     );
-    final proposals = <DailyOutfitBrief>[];
-    for (var start = 0; start < recommendation.choices.length; start += 3) {
-      final choices = recommendation.choices.skip(start).take(3).toList();
-      if (choices.isEmpty) continue;
-      proposals.add(DailyOutfitBrief(
-        garments: choices.map((choice) => choice.garment).toList(growable: false),
-        explanation: choices.first.explanation,
-        confidence: (choices.fold<int>(0, (sum, item) => sum + item.score) / choices.length).round(),
-      ));
-    }
+    final proposals = generation.proposals.map((proposal) => DailyOutfitBrief(
+      garments: proposal.outfit.allGarments,
+      explanation: proposal.reasons.join(' '),
+      confidence: (proposal.score * 100).round(),
+    )).toList(growable: false);
 
     final cards = <DailyBriefCard<Object>>[];
     if (proposals.isNotEmpty) {

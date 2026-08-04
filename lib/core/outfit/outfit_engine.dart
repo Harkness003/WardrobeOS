@@ -1,5 +1,6 @@
 import '../../models/garment.dart';
 import '../../models/outfit.dart';
+import '../outfit_generation/outfit_generation_engine.dart';
 import '../recommendation/recommendation_context.dart';
 import '../recommendation/recommendation_engine.dart';
 
@@ -23,6 +24,10 @@ class OutfitEngine {
     required Iterable<Garment> wardrobe,
     RecommendationContext context = const RecommendationContext(),
   }) {
+    final central = OutfitGenerationEngine(recommendationEngine: recommendationEngine).generate(
+      OutfitGenerationRequest(wardrobe: wardrobe, context: context, proposalCount: 1),
+    );
+    if (central.proposals.isNotEmpty) return central.proposals.first.outfit;
     final available = wardrobe.toList(growable: false);
     if (available.isEmpty) return null;
     final selected = <OutfitCategory, List<Garment>>{};
