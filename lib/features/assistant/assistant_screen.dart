@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'services/assistant_service.dart';
+import '../../widgets/outfit_proposal_card.dart';
 
 class AssistantScreen extends StatefulWidget {
   final AssistantService service;
@@ -84,6 +85,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
             Expanded(
               child: ListView(
                 children: [
+                  for (final proposal in widget.service.lastOutfitProposals)
+                    OutfitProposalCard(proposal: proposal),
                   SizedBox(
                     height: 220,
                     child: Center(

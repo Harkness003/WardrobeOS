@@ -18,8 +18,6 @@ import '../assistant/settings/ai_settings_controller.dart';
 import '../assistant/settings/api_key_storage.dart';
 import '../assistant/tools/assistant_tool_context_builder.dart';
 import '../assistant/tools/weather_tool.dart';
-import '../assistant/recommendation/outfit_candidate.dart';
-import '../assistant/recommendation/outfit_recommendation_engine.dart';
 import '../assistant/memory/database_memory_repository.dart';
 import '../assistant/memory/memory_service.dart';
 import '../calendar/calendar_context_builder.dart';
@@ -118,12 +116,6 @@ class _MainShellState extends State<MainShell> {
       ],
     ),
     llmProvider: _openAiProvider,
-    recommendationEngine: OutfitRecommendationEngine(
-      candidateSource:
-          () async => (await _aiContextService.build()).garments
-              .map(OutfitCandidate.fromGarment)
-              .toList(growable: false),
-    ),
   );
   late final _dailyBriefService = DailyBriefService(
     weatherService: widget.weatherService,

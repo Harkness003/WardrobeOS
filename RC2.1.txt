@@ -1,0 +1,198 @@
+diff --git a/lib/features/assistant/tools/outfit_tool.dart b/lib/features/assistant/tools/outfit_tool.dart
+index f92ede254a688f0ba8a62a1cb986d4c6c41fbcd3..2d27957f05efa779005671e3ddd1cda6a8a4572b 100644
+--- a/lib/features/assistant/tools/outfit_tool.dart
++++ b/lib/features/assistant/tools/outfit_tool.dart
+@@ -1,42 +1,46 @@
+ import '../../outfits/outfits_controller.dart';
+ import 'assistant_tool.dart';
+ 
+ class OutfitTool implements AssistantTool {
+   final OutfitsController _controller;
+ 
+   const OutfitTool({required OutfitsController controller})
+     : _controller = controller;
+ 
+   @override
+   String get id => 'outfits';
+ 
+   @override
+   String get description => 'Tenues, suggestions et fréquence de port.';
+ 
+   @override
+   Future<AssistantToolData> getData() async {
+     if (_controller.loading) await _controller.load();
++    await _controller.generate();
+     final worn =
+         _controller.outfits.where((outfit) => outfit.lastWorn != null).toList()
+           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
+     final last = worn.isEmpty ? null : worn.first;
+ 
+     return {
+       'totalOutfits': _controller.outfits.length,
+-      'suggestions': _controller.suggestions
+-          .map((outfit) => {'id': outfit.id, 'name': outfit.name})
++      'suggestions': _controller.proposals
++          .map((proposal) => {
++                'id': proposal.outfit.id,
++                'name': proposal.outfit.name,
++              })
+           .toList(growable: false),
+       'lastWorn':
+           last == null
+               ? null
+               : {
+                 'id': last.id,
+                 'name': last.name,
+                 'wornAt': last.lastWorn!.toIso8601String(),
+               },
+       'wearFrequency': {
+         for (final outfit in _controller.outfits) outfit.id: outfit.timesWorn,
+       },
+     };
+   }
+ }
+diff --git a/lib/features/outfits/outfits_screen.dart b/lib/features/outfits/outfits_screen.dart
+index aaf660333b3db96bbbb3877e1dece5b040add382..40cf17109263dd24d39530d1b658b8f40a68a50d 100644
+--- a/lib/features/outfits/outfits_screen.dart
++++ b/lib/features/outfits/outfits_screen.dart
+@@ -1,101 +1,72 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../core/theme/app_theme.dart';
+ import '../../models/outfit.dart';
+ import '../../widgets/garment_image.dart';
+ import '../../widgets/outfit_proposal_card.dart';
+ import 'outfit_form_screen.dart';
+ import 'outfits_controller.dart';
+ 
+ class OutfitsScreen extends StatefulWidget {
+   const OutfitsScreen({super.key});
+ 
+   @override
+   State<OutfitsScreen> createState() => _OutfitsScreenState();
+ }
+ 
+ class _OutfitsScreenState extends State<OutfitsScreen> {
+   final controller = OutfitsController();
+-  final Set<String> _recordingOutfitIds = {};
+ 
+   @override
+   void initState() {
+     super.initState();
+     controller.addListener(_refresh);
+     controller.load();
+   }
+ 
+   void _refresh() {
+     if (mounted) setState(() {});
+   }
+ 
+   @override
+   void dispose() {
+     controller.removeListener(_refresh);
+     controller.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> _open([Outfit? outfit]) async {
+     await Navigator.push<bool>(
+       context,
+       MaterialPageRoute(
+         builder:
+             (_) => OutfitFormScreen(controller: controller, outfit: outfit),
+       ),
+     );
+   }
+ 
+-  Future<void> _recordWear(Outfit outfit) async {
+-    if (_recordingOutfitIds.contains(outfit.id)) return;
+-    setState(() => _recordingOutfitIds.add(outfit.id));
+-    try {
+-      final recorded = await controller.recordWear(outfit);
+-      if (!mounted) return;
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        SnackBar(
+-          content: Text(
+-            recorded
+-                ? 'Tenue enregistrée avec succès.'
+-                : "Impossible d'enregistrer cette tenue.",
+-          ),
+-        ),
+-      );
+-    } catch (_) {
+-      if (mounted) {
+-        ScaffoldMessenger.of(context).showSnackBar(
+-          const SnackBar(
+-            content: Text("Impossible d'enregistrer cette tenue."),
+-          ),
+-        );
+-      }
+-    } finally {
+-      if (mounted) setState(() => _recordingOutfitIds.remove(outfit.id));
+-    }
+-  }
+-
+   @override
+   Widget build(BuildContext context) {
+     return Scaffold(
+       backgroundColor: Colors.transparent,
+       floatingActionButton: FloatingActionButton.extended(
+         onPressed: _open,
+         icon: const Icon(Icons.add),
+         label: const Text('Créer'),
+       ),
+       body: SafeArea(
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.start,
+           children: [
+             Padding(
+               padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+               child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                   const Text(
+                     'Mes tenues',
+                     style: TextStyle(
+                       fontSize: 30,
+                       fontWeight: FontWeight.w900,
+                       letterSpacing: -1,
+                     ),
+diff --git a/lib/widgets/outfit_proposal_card.dart b/lib/widgets/outfit_proposal_card.dart
+index 658270efcf4abf60f605ce7850c3ac23901e2063..dfd3b723a42285f6a8f0e3c34d36ef57d194b77b 100644
+--- a/lib/widgets/outfit_proposal_card.dart
++++ b/lib/widgets/outfit_proposal_card.dart
+@@ -20,33 +20,33 @@ class OutfitProposalCard extends StatelessWidget {
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+           SizedBox(height: 88, child: ListView.separated(
+             scrollDirection: Axis.horizontal,
+             itemCount: garments.length,
+             separatorBuilder: (_, __) => const SizedBox(width: 8),
+             itemBuilder: (_, index) => SizedBox(width: 88, child: GarmentImage(
+               imagePath: garments[index].effectivePhotos.firstOrNull?.path,
+               borderRadius: BorderRadius.circular(8),
+             )),
+           )),
+           const SizedBox(height: 10),
+           Row(children: [
+             Expanded(child: Text(proposal.outfit.name,
+               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
+             Text('${(proposal.score * 100).round()} %'),
+           ]),
+           const SizedBox(height: 6),
+           Text(garments.map((item) => item.name).join(' • ')),
+           const SizedBox(height: 6),
+           ...proposal.reasons.take(3).map((reason) => Text('• $reason')),
+           if (onSave != null || onSelect != null) ...[
+             const SizedBox(height: 10),
+             Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+               if (onSelect != null) TextButton(onPressed: onSelect, child: const Text('Choisir')),
+               if (onSave != null) FilledButton.icon(onPressed: onSave,
+-                icon: const Icon(Icons.bookmark_add_outlined), child: const Text('Enregistrer')),
++                icon: const Icon(Icons.bookmark_add_outlined), label: const Text('Enregistrer')),
+             ]),
+           ],
+         ]),
+       ),
+     );
+   }
+ }

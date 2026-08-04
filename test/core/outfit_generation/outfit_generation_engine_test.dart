@@ -49,6 +49,21 @@ void main() {
     ));
     expect(result.proposals.single.reasons, isNotEmpty);
     expect(result.proposals.single.score, inInclusiveRange(0, 1));
+    expect(result.proposals.single.garmentIds, ['top', 'bottom']);
+    expect(result.proposals.single.garmentIds.toSet(), hasLength(2));
+  });
+
+  test('expose les contraintes respectées dans le contrat canonique', () {
+    final proposal = engine().generate(OutfitGenerationRequest(
+      wardrobe: [garment('top', 'Hauts')],
+      context: const RecommendationContext(
+        season: 'Été',
+        desiredStyle: 'casual',
+        weather: RecommendationWeather(temperature: 22),
+      ),
+    )).proposals.single;
+
+    expect(proposal.respectedConstraints, containsAll(['Météo', 'Style souhaité', 'Saison']));
   });
 
   test('retourne plusieurs propositions à la demande', () {

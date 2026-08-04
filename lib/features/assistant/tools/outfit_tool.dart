@@ -16,6 +16,7 @@ class OutfitTool implements AssistantTool {
   @override
   Future<AssistantToolData> getData() async {
     if (_controller.loading) await _controller.load();
+    await _controller.generate();
     final worn =
         _controller.outfits.where((outfit) => outfit.lastWorn != null).toList()
           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
@@ -23,8 +24,11 @@ class OutfitTool implements AssistantTool {
 
     return {
       'totalOutfits': _controller.outfits.length,
-      'suggestions': _controller.suggestions
-          .map((outfit) => {'id': outfit.id, 'name': outfit.name})
+      'suggestions': _controller.proposals
+          .map((proposal) => {
+                'id': proposal.outfit.id,
+                'name': proposal.outfit.name,
+              })
           .toList(growable: false),
       'lastWorn':
           last == null

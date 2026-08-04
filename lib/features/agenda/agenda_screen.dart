@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../core/outfit_generation/outfit_generation_engine.dart';
+import '../../widgets/outfit_proposal_card.dart';
 import '../outfits/outfits_controller.dart';
 import 'agenda_controller.dart';
 import 'agenda_models.dart';
@@ -45,14 +47,16 @@ class _AgendaScreenState extends State<AgendaScreen> {
     await showModalBottomSheet<void>(context: context, isScrollControlled: true,
       builder: (context) => SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Text(plan.outfit?.name ?? 'Tenue indisponible', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          Text(plan.justification),
+          if (plan.outfit case final outfit?)
+            OutfitProposalCard(proposal: OutfitGenerationProposal(
+              outfit: outfit,
+              score: outfit.score?.overallConfidence.value ?? 0,
+              reasons: plan.justification.isEmpty ? outfit.justification : [plan.justification],
+            )),
+          if (plan.outfit == null)
+            Text('Tenue indisponible', style: Theme.of(context).textTheme.titleLarge),
           if (plan.event != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.event_outlined), title: Text(plan.event!.title)),
           if (plan.weather != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.cloud_outlined), title: Text('${plan.weather!.temperature.round()}° · ${plan.weather!.description}')),
-          const Divider(),
-          for (final garment in plan.outfit?.allGarments ?? const [])
-            ListTile(contentPadding: EdgeInsets.zero, title: Text(garment.name), subtitle: Text(garment.category)),
         ]))));
   }
 

@@ -11,8 +11,7 @@ import 'package:wardrobeos/models/garment.dart';
 import 'package:wardrobeos/models/outfit.dart';
 import 'package:wardrobeos/weather/models/weather_data.dart';
 import 'package:wardrobeos/weather/services/weather_service.dart';
-import 'package:wardrobeos/features/assistant/recommendation/outfit_candidate.dart';
-import 'package:wardrobeos/features/assistant/recommendation/outfit_recommendation_engine.dart';
+import 'package:wardrobeos/core/outfit_generation/outfit_generation_engine.dart';
 import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
 
 class _WeatherService implements WeatherService {
@@ -135,7 +134,9 @@ void main() {
   });
 
   test('génère une recommandation avec FakeLlmProvider', () async {
-    final wardrobe = WardrobeController()..loading = false;
+    final wardrobe = WardrobeController()
+      ..loading = false
+      ..garments = [Garment(id: 'shirt', name: 'Chemise bleue', category: 'Hauts', createdAt: DateTime(2026), updatedAt: DateTime(2026))];
     final outfits = OutfitsController()..loading = false;
     final service = AssistantService(
       contextBuilder: AssistantContextBuilder(
@@ -144,18 +145,7 @@ void main() {
         outfitsController: outfits,
         clock: () => DateTime(2026, 7, 18),
       ),
-      recommendationEngine: OutfitRecommendationEngine(
-        candidateSource:
-            () async => const [
-              OutfitCandidate(
-                id: 'shirt',
-                name: 'Chemise bleue',
-                category: 'Hauts',
-                season: 'été',
-              ),
-            ],
-        clock: () => DateTime(2026, 7, 18),
-      ),
+      outfitEngine: OutfitGenerationEngine(clock: () => DateTime(2026, 7, 18)),
       llmProvider: const FakeLlmProvider(response: 'Portez la chemise bleue.'),
     );
 
@@ -164,7 +154,7 @@ void main() {
     );
 
     expect(response, 'Portez la chemise bleue.');
-    expect(service.lastRecommendationCandidates.single.id, 'shirt');
+    expect(service.lastOutfitProposals.single.garmentIds, ['shirt']);
     expect(
       await service.generatePrompt(userMessage: "Que mettre aujourd'hui ?"),
       contains('### RECOMMANDATION TENUE'),
@@ -191,9 +181,6 @@ void main() {
         outfitsController: OutfitsController()..loading = false,
         aiContextService: aiContext,
       ),
-      recommendationEngine: OutfitRecommendationEngine(
-        candidateSource: () => fail('ne doit pas relire une autre copie'),
-      ),
       llmProvider: const FakeLlmProvider(response: 'ok'),
     );
 
@@ -204,6 +191,6 @@ void main() {
     expect(before, contains('Chemise avant modification'));
     expect(after, contains('Chemise corrigée maintenant'));
     expect(after, isNot(contains('Chemise avant modification')));
-    expect(service.lastRecommendationCandidates.single.name, 'Chemise corrigée maintenant');
+    expect(service.lastOutfitProposals.single.garments.single.name, 'Chemise corrigée maintenant');
   });
 }

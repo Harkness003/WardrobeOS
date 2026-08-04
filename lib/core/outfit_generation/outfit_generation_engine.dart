@@ -26,8 +26,18 @@ class OutfitGenerationProposal {
   final Outfit outfit;
   final double score;
   final List<String> reasons;
+  final List<String> respectedConstraints;
 
-  const OutfitGenerationProposal({required this.outfit, required this.score, required this.reasons});
+  const OutfitGenerationProposal({
+    required this.outfit,
+    required this.score,
+    required this.reasons,
+    this.respectedConstraints = const [],
+  });
+
+  List<Garment> get garments => outfit.allGarments;
+  List<String> get garmentIds =>
+      List.unmodifiable(garments.map((garment) => garment.id));
 }
 
 class OutfitGenerationResult {
@@ -151,6 +161,15 @@ class OutfitGenerationEngine {
       outfit: outfit.copyWith(score: criterion, justification: List.unmodifiable(reasons)),
       score: score,
       reasons: List.unmodifiable(reasons),
+      respectedConstraints: List.unmodifiable([
+        if (request.context.weather != null) 'Météo',
+        if (request.context.occasion != null) 'Occasion',
+        if (request.context.desiredStyle != null) 'Style souhaité',
+        if (request.context.season != null) 'Saison',
+        if (request.preferences.preferredColors.isNotEmpty) 'Couleurs préférées',
+        if (request.preferences.preferredStyles.isNotEmpty) 'Styles préférés',
+        if (request.preferences.avoidedMaterials.isNotEmpty) 'Matières évitées',
+      ]),
     );
   }
 

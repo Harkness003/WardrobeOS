@@ -97,11 +97,7 @@ class DailyBriefService {
               ),
       ),
     ));
-    final proposals = generation.proposals.map((proposal) => DailyOutfitBrief(
-      garments: proposal.outfit.allGarments,
-      explanation: proposal.reasons.join(' '),
-      confidence: (proposal.score * 100).round(),
-    )).toList(growable: false);
+    final proposals = generation.proposals;
 
     final cards = <DailyBriefCard<Object>>[];
     if (proposals.isNotEmpty) {
@@ -161,7 +157,7 @@ class DailyBriefService {
     try { return await weatherService.getCurrentWeather(); } catch (_) { return null; }
   }
 
-  static String? _localAdvice(List<DailyOutfitBrief> proposals, WeatherData? weather) {
+  static String? _localAdvice(List<OutfitGenerationProposal> proposals, WeatherData? weather) {
     if (proposals.isEmpty) return null;
     if (weather == null) return 'La tenue reste modulable : ajoute ou retire une couche selon ton ressenti.';
     return _weatherImpact(weather);

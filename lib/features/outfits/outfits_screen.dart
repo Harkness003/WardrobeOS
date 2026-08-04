@@ -16,7 +16,6 @@ class OutfitsScreen extends StatefulWidget {
 
 class _OutfitsScreenState extends State<OutfitsScreen> {
   final controller = OutfitsController();
-  final Set<String> _recordingOutfitIds = {};
 
   @override
   void initState() {
@@ -44,34 +43,6 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
             (_) => OutfitFormScreen(controller: controller, outfit: outfit),
       ),
     );
-  }
-
-  Future<void> _recordWear(Outfit outfit) async {
-    if (_recordingOutfitIds.contains(outfit.id)) return;
-    setState(() => _recordingOutfitIds.add(outfit.id));
-    try {
-      final recorded = await controller.recordWear(outfit);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            recorded
-                ? 'Tenue enregistrée avec succès.'
-                : "Impossible d'enregistrer cette tenue.",
-          ),
-        ),
-      );
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Impossible d'enregistrer cette tenue."),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _recordingOutfitIds.remove(outfit.id));
-    }
   }
 
   @override

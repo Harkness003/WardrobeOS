@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/outfit_generation/outfit_generation_engine.dart';
+import '../../widgets/outfit_proposal_card.dart';
 import '../../weather/services/weather_service.dart';
 import '../daily_brief/daily_brief_models.dart';
 import '../daily_brief/daily_brief_service.dart';
@@ -75,9 +77,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           outfit: card.type == DailyBriefCardType.outfit && brief.outfitProposals.isNotEmpty
                               ? brief.outfitProposals[_proposal.clamp(0, brief.outfitProposals.length - 1)]
                               : null,
-                          onWhy: card.type == DailyBriefCardType.outfit
-                              ? () => _showWhy(context, (card.data as DailyOutfitBrief).explanation)
-                              : null,
                           onAlternative: brief.outfitProposals.length < 2 ? null : () => setState(() => _proposal = (_proposal + 1) % brief.outfitProposals.length),
                         ),
                         const SizedBox(height: 14),
@@ -92,24 +91,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  static void _showWhy(BuildContext context, String explanation) {
-    showModalBottomSheet<void>(context: context, builder: (context) => Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Pourquoi cette tenue ?', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-        const SizedBox(height: 12), Text(explanation), const SizedBox(height: 12),
-      ]),
-    ));
-  }
 }
 
 class _BriefCard extends StatelessWidget {
   final DailyBriefCard<Object> card;
-  final DailyOutfitBrief? outfit;
-  final VoidCallback? onWhy;
+  final OutfitGenerationProposal? outfit;
   final VoidCallback? onAlternative;
 
-  const _BriefCard({required this.card, required this.outfit, required this.onWhy, required this.onAlternative});
+  const _BriefCard({required this.card, required this.outfit, required this.onAlternative});
 
   @override
   Widget build(BuildContext context) {
@@ -136,19 +125,10 @@ class _BriefCard extends StatelessWidget {
 
   Widget _content(BuildContext context) {
     if (card.type == DailyBriefCardType.outfit && outfit != null) {
-      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(child: Text(outfit!.garments.map((item) => item.name).take(3).join(' · '),
-            maxLines: 2, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
-          const SizedBox(width: 8), _Confidence(value: outfit!.confidence),
-        ]),
-        const SizedBox(height: 8), Text(outfit!.explanation, maxLines: 2, overflow: TextOverflow.ellipsis),
-        const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8,
-          children: outfit!.garments.take(3).map((item) => Chip(
-            label: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 150),
-              child: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis)))).toList()),
-        const SizedBox(height: 12), Row(children: [TextButton(onPressed: onWhy, child: const Text('Pourquoi ?')), const Spacer(), TextButton(onPressed: onAlternative, child: const Text('Autre proposition'))]),
+      return Column(children: [
+        OutfitProposalCard(proposal: outfit!),
+        if (onAlternative != null) Align(alignment: Alignment.centerRight,
+          child: TextButton(onPressed: onAlternative, child: const Text('Autre proposition'))),
       ]);
     }
     if (card.data is DailyWeatherBrief) {
@@ -164,17 +144,6 @@ class _BriefCard extends StatelessWidget {
     }
     return Text(card.data.toString(), style: const TextStyle(fontSize: 16, height: 1.45));
   }
-}
-
-class _Confidence extends StatelessWidget {
-  final int value;
-  const _Confidence({required this.value});
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    decoration: BoxDecoration(color: AppTheme.gold.withValues(alpha: .16), borderRadius: BorderRadius.circular(20)),
-    child: Text('$value %', style: const TextStyle(fontWeight: FontWeight.w900)),
-  );
 }
 
 class _EmptyBrief extends StatelessWidget {

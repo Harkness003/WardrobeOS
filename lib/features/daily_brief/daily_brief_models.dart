@@ -1,4 +1,4 @@
-import '../../models/garment.dart';
+import '../../core/outfit_generation/outfit_generation_engine.dart';
 import '../../weather/models/weather_data.dart';
 
 enum DailyBriefCardType { outfit, weather, observation, stylist, care, goal }
@@ -9,18 +9,6 @@ class DailyBriefCard<T> {
   final T data;
 
   const DailyBriefCard({required this.type, required this.priority, required this.data});
-}
-
-class DailyOutfitBrief {
-  final List<Garment> garments;
-  final String explanation;
-  final int confidence;
-
-  const DailyOutfitBrief({
-    required this.garments,
-    required this.explanation,
-    required this.confidence,
-  });
 }
 
 class DailyWeatherBrief {
@@ -45,7 +33,7 @@ class DailyGoalBrief {
 class DailyBrief {
   final DateTime generatedAt;
   final List<DailyBriefCard<Object>> cards;
-  final List<DailyOutfitBrief> outfitProposals;
+  final List<OutfitGenerationProposal> outfitProposals;
 
   const DailyBrief({
     required this.generatedAt,

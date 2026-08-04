@@ -42,7 +42,7 @@ class OutfitProposalCard extends StatelessWidget {
             Row(mainAxisAlignment: MainAxisAlignment.end, children: [
               if (onSelect != null) TextButton(onPressed: onSelect, child: const Text('Choisir')),
               if (onSave != null) FilledButton.icon(onPressed: onSave,
-                icon: const Icon(Icons.bookmark_add_outlined), child: const Text('Enregistrer')),
+                icon: const Icon(Icons.bookmark_add_outlined), label: const Text('Enregistrer')),
             ]),
           ],
         ]),
