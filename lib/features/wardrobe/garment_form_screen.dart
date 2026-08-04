@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../data/image_storage_service.dart';
 import '../../models/garment.dart';
 import '../../models/garment_photo.dart';
+import '../../models/garment_normalizer.dart';
 import '../../models/thermal_profile_calculator.dart';
 import '../../widgets/garment_image.dart';
 import 'wardrobe_controller.dart';
@@ -31,6 +32,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
   late String _category;
   String? _subCategory, _material;
   late Set<String> _styles, _seasons, _uses;
+  late List<String> _styleOptions;
   bool? _rain, _heat;
   String? _imagePath;
   bool _saving = false;
@@ -39,7 +41,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
   static const subCategories = <String, List<String>>{
     'Hauts': ['T-shirt', 'Polo', 'Pull', 'Sweat', 'Cardigan', 'Débardeur'],
     'Chemises': ['Chemise habillée', 'Chemise casual', 'Surchemise', 'Blouse'],
-    'Vestes': ['Blazer', 'Manteau', 'Parka', 'Imperméable', 'Doudoune', 'Veste légère'],
+    'Vestes': ['Blazer', 'Manteau', 'Trench', 'Parka', 'Imperméable', 'Doudoune', 'Veste légère'],
     'Bas': ['Jean', 'Pantalon', 'Short', 'Jupe', 'Legging'],
     'Chaussures': ['Baskets', 'Boots', 'Chaussures habillées', 'Sandales', 'Randonnée'],
     'Accessoires': ['Sac', 'Ceinture', 'Écharpe', 'Bonnet', 'Chapeau', 'Gants'],
@@ -62,20 +64,25 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     _composition = TextEditingController(text: g?.composition ?? '');
     final hasCustomCategory = g != null && !categories.contains(g.category);
     _otherCategory = TextEditingController(text: hasCustomCategory ? g.category : '');
-    _otherSubCategory = TextEditingController(text: hasCustomCategory ? g.sousCategorie ?? '' : '');
+    final knownSubcategory = g != null && subCategories[g.category]?.contains(g.sousCategorie) == true;
+    _otherSubCategory = TextEditingController(text: !knownSubcategory ? g?.sousCategorie ?? '' : '');
     _minTemp = TextEditingController(text: g?.thermalProfile?.standaloneMinC.toString() ?? '');
     _maxTemp = TextEditingController(text: g?.thermalProfile?.standaloneMaxC.toString() ?? '');
     _category = hasCustomCategory ? 'Autre' : (categories.contains(g?.category) ? g!.category : categories.first);
-    _subCategory = _choice(g?.sousCategorie, subCategories[_category]!);
+    _subCategory = knownSubcategory ? g.sousCategorie : (g?.sousCategorie == null ? null : 'Autre');
     final existingMaterial = g?.matierePrincipale ?? g?.material;
-    _material = _choice(existingMaterial, materials);
-    _otherMaterial = TextEditingController(text: _material == null ? existingMaterial ?? '' : '');
+    _material = _choice(existingMaterial, materials) ?? (existingMaterial == null ? null : 'Autre...');
+    _otherMaterial = TextEditingController(text: _material == 'Autre...' ? existingMaterial ?? '' : '');
     final existingUses = g?.effectiveOccasions ?? const <String>[];
     _uses = existingUses.where(uses.contains).toSet();
     final customUses = existingUses.where((value) => !uses.contains(value)).toList();
     if (customUses.isNotEmpty) _uses.add('Autre...');
     _otherUse = TextEditingController(text: customUses.join(', '));
-    _styles = g == null ? <String>{} : {g.effectiveStyleAnalysis.register, ...g.effectiveStyleAnalysis.secondaryStyles}.where(styles.contains).toSet();
+    _styles = g == null ? <String>{} : {
+      g.effectiveStyleAnalysis.register,
+      ...g.effectiveStyleAnalysis.secondaryStyles,
+    };
+    _styleOptions = {...styles, ..._styles}.toList(growable: false);
     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
     _rain = g?.compatiblePluie;
     _heat = g?.compatibleChaleur;
@@ -156,9 +163,15 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     }
     final uniqueUses = selectedUses.toSet().toList();
     final composition = _text(_composition);
-    final thermalInput = ThermalProfileInput(
-      category: _category == 'Autre' ? (_text(_otherCategory) ?? 'Autre') : _category,
+    final normalizedType = GarmentNormalizer.normalizeType(
+      name: _text(_name),
+      category: _category == 'Autre' ? _text(_otherCategory) : _category,
       subcategory: _subCategory == 'Autre' ? _text(_otherSubCategory) : _subCategory,
+      preciseType: old?.typePrecis,
+    );
+    final thermalInput = ThermalProfileInput(
+      category: normalizedType.category ?? 'Autre',
+      subcategory: normalizedType.subcategory,
       material: material,
       composition: composition,
       lining: composition?.toLowerCase().contains('doublure') == true ? 'doublure' : null,
@@ -176,11 +189,14 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       calculatedAt: now,
     );
     final garment = Garment(
-      id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: _category == 'Autre' ? (_text(_otherCategory) ?? 'Autre') : _category,
+      id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: normalizedType.category ?? 'Autre',
       brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes),
-      photos: _imagePath == null ? const [] : [GarmentPhoto(id: old?.effectivePhotos.firstOrNull?.id ?? const Uuid().v4(), path: _imagePath!, type: GarmentPhotoType.primary, createdAt: old?.effectivePhotos.firstOrNull?.createdAt ?? now)],
-      sousCategorie: _subCategory == 'Autre' ? _text(_otherSubCategory) : _subCategory, couleurPrincipale: _text(_color), matierePrincipale: material,
-      typePrecis: old?.typePrecis, superposable: old?.superposable,
+      photos: [
+        if (_imagePath != null) GarmentPhoto(id: old?.effectivePhotos.firstOrNull?.id ?? const Uuid().v4(), path: _imagePath!, type: GarmentPhotoType.primary, createdAt: old?.effectivePhotos.firstOrNull?.createdAt ?? now),
+        ...?old?.effectivePhotos.skip(1),
+      ],
+      sousCategorie: normalizedType.subcategory, couleurPrincipale: _text(_color), matierePrincipale: material,
+      typePrecis: normalizedType.preciseType, superposable: old?.superposable,
       saisons: _seasons.toList(),
       occasions: uniqueUses.isEmpty ? null : uniqueUses,
       compatiblePluie: thermalProfile.rainCompatibility.name != 'none',
@@ -191,6 +207,10 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
         _ => 'Couche intermédiaire',
       },
       thermalProfile: thermalProfile,
+      styleAnalysis: old?.styleAnalysis?.withUserCorrections(
+        register: _styles.isEmpty ? null : _styles.first,
+        secondaryStyles: _styles.skip(1).toList(growable: false),
+      ),
       descriptionIA: old?.descriptionIA, couleursSecondaires: old?.couleursSecondaires, motif: old?.motif, texture: old?.texture,
       logoVisible: old?.logoVisible, niveauFormalite: old?.niveauFormalite, coupe: old?.coupe, longueur: old?.longueur,
       longueurManches: old?.longueurManches, typeCol: old?.typeCol, typeFermeture: old?.typeFermeture,
@@ -204,6 +224,9 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       nettoyage: old?.nettoyage, boulochage: old?.boulochage, taches: old?.taches, limitesAnalyse: old?.limitesAnalyse,
       condition: old?.condition, purchasePrice: old?.purchasePrice, purchaseDate: old?.purchaseDate, lastWorn: old?.lastWorn,
       fit: old?.fit, composition: composition, wearCount: old?.wearCount ?? 0, isFavorite: old?.isFavorite ?? false,
+      lastAnalyzedAt: old?.lastAnalyzedAt, aiAnalysisVersion: old?.aiAnalysisVersion,
+      previousAnalysis: old?.previousAnalysis, currentAnalysis: old?.currentAnalysis,
+      userModifiedFields: old?.userModifiedFields ?? const {},
       createdAt: old?.createdAt ?? now, updatedAt: now,
     );
     try { await widget.controller.save(garment, isNew: old == null || widget.isDraft); if (mounted) Navigator.pop(context, true); }
@@ -229,7 +252,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _material = v)),
       if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Votre matière *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la matière' : null)],
       const SizedBox(height: 10), TextFormField(controller: _composition, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Composition textile', helperText: 'Tissu principal, doublure et rembourrage · pourcentages modifiables')),
-      const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: styles, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
+      const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: _styleOptions, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
       const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() => _seasons = v)),
       const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() => _uses = v)),
       if (_uses.contains('Autre...')) ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Vos occasions *', helperText: 'Séparez plusieurs occasions par des virgules'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez au moins une occasion' : null)],

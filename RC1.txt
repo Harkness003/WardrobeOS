@@ -1,0 +1,704 @@
+diff --git a/lib/features/scanner/ai/garment_analysis_mapper.dart b/lib/features/scanner/ai/garment_analysis_mapper.dart
+index bd2492c06542123351024bf7d661be6b12ec3a2f..268486583f2178feb96c4172b0b6b8742ad2b00f 100644
+--- a/lib/features/scanner/ai/garment_analysis_mapper.dart
++++ b/lib/features/scanner/ai/garment_analysis_mapper.dart
+@@ -47,37 +47,38 @@ class GarmentAnalysisMapper {
+         current.material,
+         _canonical(_allowed(result, 'material', result.material), materials),
+       ),
+       season:
+           current.season.trim().isNotEmpty
+               ? current.season
+               : _canonical(_allowed(result, 'season', result.season), seasons) ?? '',
+       brand: _prefer(current.brand, _allowed(result, 'visibleBrand', result.visibleBrand)),
+     );
+   }
+ 
+   String? _allowed(GarmentAnalysisResult result, String field, String? value) {
+     final confidence = result.fieldConfidences[field] ?? result.globalConfidence;
+     return GarmentConfidence.canApply(field, confidence) ? value : null;
+   }
+ 
+   String _prefer(String current, String? suggestion) =>
+       current.trim().isNotEmpty ? current : (suggestion?.trim() ?? '');
+ 
+   String? _canonical(String? value, List<String> allowed) {
+     if (value == null) return null;
+     final normalized = _normalize(value);
+     for (final candidate in allowed) {
+       if (_normalize(candidate) == normalized) return candidate;
+     }
+-    return null;
++    // Catalogues suggest spellings; they never discard a valid AI value.
++    return value.trim().isEmpty ? null : value.trim();
+   }
+ 
+   String _normalize(String value) => value
+       .trim()
+       .toLowerCase()
+       .replaceAll(RegExp('[éèêë]'), 'e')
+       .replaceAll(RegExp('[àâä]'), 'a')
+       .replaceAll(RegExp('[îï]'), 'i')
+       .replaceAll(RegExp('[ôö]'), 'o')
+       .replaceAll(RegExp('[ùûü]'), 'u');
+ }
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index 22fc1ad62582658f674c6975ece949fc82a515f1..9e27404b54aa9b273573a82f4bb62bb475439c90 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -1,36 +1,37 @@
+ import 'dart:async';
+ import 'dart:io';
+ import 'dart:typed_data';
+ 
+ import 'package:flutter/material.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/garment_photo.dart';
++import '../../models/garment_normalizer.dart';
+ import '../../models/thermal_profile_calculator.dart';
+ import '../../widgets/garment_image.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wardrobe/garment_form_screen.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import 'ai/garment_analysis_exception.dart';
+ import 'ai/garment_analysis_mapper.dart';
+ import 'ai/garment_analysis_normalizer.dart';
+ import 'ai/garment_analysis_request.dart';
+ import 'ai/garment_analysis_result.dart';
+ import 'ai/garment_analysis_validator.dart';
+ import 'ai/garment_image_processing.dart';
+ import 'ai/normalization/garment_value_normalizer.dart';
+ import 'ai/openai_garment_vision_analyzer.dart';
+ import 'ai/analysis_foundations.dart';
+ import 'conversation/scan_conversation.dart';
+ 
+ class ScannerScreen extends StatefulWidget {
+   const ScannerScreen({super.key});
+ 
+   @override
+   State<ScannerScreen> createState() => _ScannerScreenState();
+ }
+ 
+ class _ScannerScreenState extends State<ScannerScreen> {
+@@ -311,72 +312,79 @@ class _ScannerScreenState extends State<ScannerScreen> {
+       'Configure ta clé OpenAI dans le profil avant de lancer l’analyse.',
+     GarmentAnalysisError.invalidApiKey =>
+       'La clé configurée n’est pas valide. Vérifie-la dans le profil.',
+     GarmentAnalysisError.quotaExceeded =>
+       'Le service d’analyse est momentanément indisponible. Réessaie plus tard.',
+     GarmentAnalysisError.network =>
+       'Aucune connexion disponible. Vérifie ton réseau puis réessaie.',
+     GarmentAnalysisError.timeout =>
+       'L’analyse prend trop de temps. Réessaie dans quelques instants.',
+     GarmentAnalysisError.rejectedImage ||
+     GarmentAnalysisError.missingImage ||
+     GarmentAnalysisError.unsupportedFormat => exception.message,
+     _ => 'Analyse impossible pour le moment. Réessaie.',
+   };
+ 
+   Future<void> _openFullForm() async {
+     if (busy) return;
+     if (imagePath == null) {
+       _toast('Ajoute d’abord une photo.');
+       return;
+     }
+ 
+     setState(() => saving = true);
+     final now = DateTime.now();
+     final composition = _formattedComposition(result?.compositions ?? const []);
++    final normalizedType = GarmentNormalizer.normalizeType(
++      name: name.text,
++      category: category,
++      subcategory: result?.preciseType,
++      preciseType: result?.preciseType,
++    );
+     final thermalProfile = const ThermalProfileCalculator().calculate(
+       ThermalProfileInput(
+-        category: category,
+-        subcategory: result?.preciseType,
++        category: normalizedType.category ?? category,
++        subcategory: normalizedType.subcategory,
+         material: material.text,
+         composition: composition,
+         lining: result?.compositions.any((value) => value.section == 'lining') == true ? 'doublure détectée' : null,
+         detectedFeatures: [
+           if (result?.styleSummary != null) result!.styleSummary!,
+           ...?result?.fieldMetadata?.keys,
+         ],
+       ),
+       calculatedAt: now,
+     );
+     final garment = Garment(
+       id: const Uuid().v4(),
+       name: name.text.trim().isEmpty ? 'Vêtement à identifier' : name.text.trim(),
+-      category: category,
++      category: normalizedType.category ?? category,
+       brand: brand.text.trim().isEmpty ? null : brand.text.trim(),
+       color: color.text.trim().isEmpty ? null : color.text.trim(),
+       material: material.text.trim().isEmpty ? null : material.text.trim(),
+-      sousCategorie: result?.preciseType,
++      sousCategorie: normalizedType.subcategory,
++      typePrecis: normalizedType.preciseType,
+       descriptionIA: result?.suggestedName,
+       couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
+       matierePrincipale:
+           material.text.trim().isEmpty ? null : material.text.trim(),
+       matieresSecondaires: result?.compositions
+           .where((value) => value.section == 'main')
+           .map((value) => value.material)
+           .skip(1)
+           .toList(growable: false),
+       composition: composition,
+       saisons: switch (result?.season) {
+         final value? => [value],
+         null => null,
+       },
+       compatiblePluie: thermalProfile.rainCompatibility.name != 'none',
+       compatibleChaleur: thermalProfile.breathability.name == 'high',
+       layerType: switch (thermalProfile.primaryRole.name) {
+         'base' => 'Couche de base',
+         'outer' => 'Couche extérieure',
+         _ => 'Couche intermédiaire',
+       },
+       thermalProfile: thermalProfile,
+       confianceGlobale: result?.globalConfidence,
+       avertissementsIA: result?.warnings,
+       pointsForts: result?.styleStrengths,
+@@ -512,50 +520,54 @@ class _ScannerScreenState extends State<ScannerScreen> {
+           padding: const EdgeInsets.fromLTRB(18, 4, 18, 32),
+           children: [
+             _PhotoArea(
+               imagePath: imagePath,
+               analyzing: analyzing,
+               importing: importing,
+               onTap: busy ? null : chooseSource,
+             ),
+             const SizedBox(height: 18),
+             if (imagePath == null) ...[
+               const _IntroCard(),
+               const SizedBox(height: 16),
+               FilledButton.icon(
+                 onPressed: busy ? null : chooseSource,
+                 icon: const Icon(Icons.camera_alt_outlined),
+                 label: const Text('Prendre ou choisir une photo'),
+               ),
+             ] else ...[
+               if (conversation case final decision?) ...[
+                 _ConversationCard(
+                   decision: decision,
+                   photoCount: sessionImagePaths.length,
+                 ),
+                 const SizedBox(height: 14),
+               ],
++              if (result case final analysis?) ...[
++                _DetectedDataCard(analysis: analysis),
++                const SizedBox(height: 14),
++              ],
+               if (result?.reliabilitySummary.hasDetails == true) ...[
+                 _ExpertReliabilityCard(
+                   summary: result?.reliabilitySummary,
+                 ),
+                 const SizedBox(height: 14),
+               ],
+               Row(
+                 children: [
+                   Expanded(
+                     child: OutlinedButton.icon(
+                       onPressed: busy ? null : analyze,
+                       icon: const Icon(Icons.auto_awesome),
+                       label: Text(result == null ? 'Analyser et compléter' : 'Mettre à jour l’analyse'),
+                       style: OutlinedButton.styleFrom(
+                         minimumSize: const Size.fromHeight(52),
+                         shape: RoundedRectangleBorder(
+                           borderRadius: BorderRadius.circular(18),
+                         ),
+                       ),
+                     ),
+                   ),
+                   const SizedBox(width: 10),
+                   Expanded(
+                     child: OutlinedButton.icon(
+                       onPressed: busy ? null : chooseSource,
+@@ -567,50 +579,98 @@ class _ScannerScreenState extends State<ScannerScreen> {
+                           borderRadius: BorderRadius.circular(18),
+                         ),
+                       ),
+                     ),
+                   ),
+                 ],
+               ),
+               if (result != null &&
+                   conversation?.canFinishAutomatically == false) ...[
+                 const SizedBox(height: 8),
+                 FilledButton.icon(
+                   onPressed: busy ? null : _openFullForm,
+                   icon: const Icon(Icons.edit_outlined),
+                   label: const Text('Ouvrir et compléter la fiche'),
+                   style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
+                 ),
+               ],
+             ],
+           ],
+         ),
+       ),
+     );
+   }
+ }
+ 
++class _DetectedDataCard extends StatelessWidget {
++  final GarmentAnalysisResult analysis;
++  const _DetectedDataCard({required this.analysis});
++
++  @override
++  Widget build(BuildContext context) {
++    final type = GarmentNormalizer.normalizeType(
++      name: analysis.suggestedName,
++      category: analysis.category,
++      subcategory: analysis.preciseType,
++      preciseType: analysis.preciseType,
++    );
++    final composition = analysis.compositions.map((item) {
++      final percentage = item.percentage == null ? '' : ' ${item.percentage!.toStringAsFixed(item.percentage! % 1 == 0 ? 0 : 1)} %';
++      return '${item.material}$percentage';
++    }).join(', ');
++    final rows = <(String, String?)>[
++      ('Nom', analysis.suggestedName),
++      ('Marque', analysis.visibleBrand),
++      ('Catégorie', type.category),
++      ('Sous-catégorie', type.subcategory),
++      ('Couleur', analysis.primaryColor),
++      ('Matière', analysis.material),
++      ('Composition', composition.isEmpty ? null : composition),
++      ('Style', analysis.styleSummary),
++      ('Occasions', analysis.idealOccasions.join(', ')),
++      ('Saison / thermique', analysis.season),
++    ].where((row) => row.$2?.trim().isNotEmpty == true);
++    return Card(
++      child: Padding(
++        padding: const EdgeInsets.all(18),
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.start,
++          children: [
++            const Text('Fiche détectée', style: TextStyle(fontWeight: FontWeight.w900)),
++            const SizedBox(height: 10),
++            for (final row in rows)
++              Padding(
++                padding: const EdgeInsets.only(bottom: 5),
++                child: Text('${row.$1} · ${row.$2}'),
++              ),
++          ],
++        ),
++      ),
++    );
++  }
++}
++
+ class _ExpertReliabilityCard extends StatelessWidget {
+   final ReliabilitySummary? summary;
+ 
+   const _ExpertReliabilityCard({this.summary});
+ 
+   @override
+   Widget build(BuildContext context) {
+     final details = summary;
+     if (details == null || !details.hasDetails) return const SizedBox.shrink();
+     final overall = details.overallConfidence;
+     final fields = <String>{
+       ...details.fieldConfidences.keys,
+       ...details.fieldStatuses.keys,
+       ...details.fieldSources.keys,
+       ...details.fieldExplanations.keys,
+     }.toList(growable: false)..sort();
+     return Card(
+       child: ExpansionTile(
+         leading: const Icon(Icons.fact_check_outlined, color: AppTheme.gold),
+         title: const Text('Fiabilité · mode Expert'),
+         subtitle: overall == null
+             ? null
+             : Text(
+                 'Confiance globale ${(overall * 100).round()} %',
+               ),
+diff --git a/lib/features/wardrobe/garment_form_screen.dart b/lib/features/wardrobe/garment_form_screen.dart
+index d24acfc429a316f886427f714536443bc057c3ce..460d700b1d6143d4564985512b6b0cbd1ccee896 100644
+--- a/lib/features/wardrobe/garment_form_screen.dart
++++ b/lib/features/wardrobe/garment_form_screen.dart
+@@ -1,103 +1,110 @@
+ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ 
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/garment_photo.dart';
++import '../../models/garment_normalizer.dart';
+ import '../../models/thermal_profile_calculator.dart';
+ import '../../widgets/garment_image.dart';
+ import 'wardrobe_controller.dart';
+ 
+ /// Complete review sheet used both after AI analysis and when editing a garment.
+ class GarmentFormScreen extends StatefulWidget {
+   final WardrobeController controller;
+   final Garment? garment;
+   /// A populated, not-yet-persisted garment produced by the scanner.
+   final bool isDraft;
+   const GarmentFormScreen({super.key, required this.controller, this.garment, this.isDraft = false});
+ 
+   @override
+   State<GarmentFormScreen> createState() => _GarmentFormScreenState();
+ }
+ 
+ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+   final _formKey = GlobalKey<FormState>();
+   final _picker = ImagePicker();
+   late final TextEditingController _name, _brand, _color, _size, _otherMaterial,
+       _otherUse, _otherCategory, _otherSubCategory, _composition,
+       _minTemp, _maxTemp, _notes;
+   late String _category;
+   String? _subCategory, _material;
+   late Set<String> _styles, _seasons, _uses;
++  late List<String> _styleOptions;
+   bool? _rain, _heat;
+   String? _imagePath;
+   bool _saving = false;
+ 
+   static const categories = ['Hauts', 'Chemises', 'Vestes', 'Bas', 'Chaussures', 'Accessoires', 'Autre'];
+   static const subCategories = <String, List<String>>{
+     'Hauts': ['T-shirt', 'Polo', 'Pull', 'Sweat', 'Cardigan', 'Débardeur'],
+     'Chemises': ['Chemise habillée', 'Chemise casual', 'Surchemise', 'Blouse'],
+-    'Vestes': ['Blazer', 'Manteau', 'Parka', 'Imperméable', 'Doudoune', 'Veste légère'],
++    'Vestes': ['Blazer', 'Manteau', 'Trench', 'Parka', 'Imperméable', 'Doudoune', 'Veste légère'],
+     'Bas': ['Jean', 'Pantalon', 'Short', 'Jupe', 'Legging'],
+     'Chaussures': ['Baskets', 'Boots', 'Chaussures habillées', 'Sandales', 'Randonnée'],
+     'Accessoires': ['Sac', 'Ceinture', 'Écharpe', 'Bonnet', 'Chapeau', 'Gants'],
+     'Autre': ['Autre'],
+   };
+   static const materials = ['Coton', 'Laine', 'Mérinos', 'Cachemire', 'Lin', 'Polyester', 'Viscose', 'Denim', 'Cuir', 'Daim', 'Nylon', 'Soie', 'Mélange', 'Autre...'];
+   static const styles = ['Casual', 'Smart Casual', 'Business', 'Business Casual', 'Chic', 'Streetwear', 'Workwear', 'Sport', 'Outdoor', 'Vintage', 'Minimaliste', 'Preppy', 'Classique', 'Élégant'];
+   static const uses = ['Quotidien', 'Travail', 'Soirée', 'Sport', 'Voyage', 'Randonnée', 'Maison', 'Vacances', 'Autre...'];
+   static const seasons = Garment.availableSeasons;
+ 
+   @override
+   void initState() {
+     super.initState();
+     final g = widget.garment;
+     _name = TextEditingController(text: g?.name ?? '');
+     _brand = TextEditingController(text: g?.brand ?? '');
+     _color = TextEditingController(text: g?.couleurPrincipale ?? g?.color ?? '');
+     _size = TextEditingController(text: g?.size ?? '');
+     _notes = TextEditingController(text: g?.notes ?? '');
+     _composition = TextEditingController(text: g?.composition ?? '');
+     final hasCustomCategory = g != null && !categories.contains(g.category);
+     _otherCategory = TextEditingController(text: hasCustomCategory ? g.category : '');
+-    _otherSubCategory = TextEditingController(text: hasCustomCategory ? g.sousCategorie ?? '' : '');
++    final knownSubcategory = g != null && subCategories[g.category]?.contains(g.sousCategorie) == true;
++    _otherSubCategory = TextEditingController(text: !knownSubcategory ? g?.sousCategorie ?? '' : '');
+     _minTemp = TextEditingController(text: g?.thermalProfile?.standaloneMinC.toString() ?? '');
+     _maxTemp = TextEditingController(text: g?.thermalProfile?.standaloneMaxC.toString() ?? '');
+     _category = hasCustomCategory ? 'Autre' : (categories.contains(g?.category) ? g!.category : categories.first);
+-    _subCategory = _choice(g?.sousCategorie, subCategories[_category]!);
++    _subCategory = knownSubcategory ? g!.sousCategorie : (g?.sousCategorie == null ? null : 'Autre');
+     final existingMaterial = g?.matierePrincipale ?? g?.material;
+-    _material = _choice(existingMaterial, materials);
+-    _otherMaterial = TextEditingController(text: _material == null ? existingMaterial ?? '' : '');
++    _material = _choice(existingMaterial, materials) ?? (existingMaterial == null ? null : 'Autre...');
++    _otherMaterial = TextEditingController(text: _material == 'Autre...' ? existingMaterial ?? '' : '');
+     final existingUses = g?.effectiveOccasions ?? const <String>[];
+     _uses = existingUses.where(uses.contains).toSet();
+     final customUses = existingUses.where((value) => !uses.contains(value)).toList();
+     if (customUses.isNotEmpty) _uses.add('Autre...');
+     _otherUse = TextEditingController(text: customUses.join(', '));
+-    _styles = g == null ? <String>{} : {g.effectiveStyleAnalysis.register, ...g.effectiveStyleAnalysis.secondaryStyles}.where(styles.contains).toSet();
++    _styles = g == null ? <String>{} : {
++      g.effectiveStyleAnalysis.register,
++      ...g.effectiveStyleAnalysis.secondaryStyles,
++    };
++    _styleOptions = {...styles, ..._styles}.toList(growable: false);
+     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
+     _rain = g?.compatiblePluie;
+     _heat = g?.compatibleChaleur;
+     _imagePath = g == null || g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path;
+   }
+ 
+   static String? _choice(String? value, List<String> values) => values.contains(value) ? value : null;
+   String? _text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
+   double? _number(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '.'));
+ 
+   @override
+   void dispose() {
+     for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _otherCategory, _otherSubCategory, _composition, _minTemp, _maxTemp, _notes]) { c.dispose(); }
+     super.dispose();
+   }
+ 
+   Future<void> _chooseImage(ImageSource source) async {
+     final picked = await _picker.pickImage(source: source, imageQuality: 88, maxWidth: 1800);
+     if (picked == null) return;
+     final path = await ImageStorageService.persist(picked.path);
+     if (_imagePath != null && _imagePath != (widget.garment == null || widget.garment!.effectivePhotos.isEmpty ? null : widget.garment!.effectivePhotos.first.path)) await ImageStorageService.remove(_imagePath);
+     if (mounted) setState(() => _imagePath = path);
+   }
+ 
+   Future<void> _imageActions() => showModalBottomSheet<void>(
+@@ -134,124 +141,140 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+       ),
+     ),
+   );
+ 
+ 
+ 
+   Future<void> _save() async {
+     if (!_formKey.currentState!.validate()) return;
+     final min = _number(_minTemp), max = _number(_maxTemp);
+     if (min != null && max != null && min > max) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La température minimale doit être inférieure au maximum.'))); return; }
+     setState(() => _saving = true);
+     final old = widget.garment;
+     final now = DateTime.now();
+     final material = _material == 'Autre...' ? _text(_otherMaterial) : _material;
+     final selectedUses = _uses.where((value) => value != 'Autre...').toList();
+     if (_uses.contains('Autre...')) {
+       selectedUses.addAll(
+         _otherUse.text
+             .split(',')
+             .map((value) => value.trim())
+             .where((value) => value.isNotEmpty),
+       );
+     }
+     final uniqueUses = selectedUses.toSet().toList();
+     final composition = _text(_composition);
+-    final thermalInput = ThermalProfileInput(
+-      category: _category == 'Autre' ? (_text(_otherCategory) ?? 'Autre') : _category,
++    final normalizedType = GarmentNormalizer.normalizeType(
++      name: _text(_name),
++      category: _category == 'Autre' ? _text(_otherCategory) : _category,
+       subcategory: _subCategory == 'Autre' ? _text(_otherSubCategory) : _subCategory,
++      preciseType: old?.typePrecis,
++    );
++    final thermalInput = ThermalProfileInput(
++      category: normalizedType.category ?? 'Autre',
++      subcategory: normalizedType.subcategory,
+       material: material,
+       composition: composition,
+       lining: composition?.toLowerCase().contains('doublure') == true ? 'doublure' : null,
+       fit: old?.coupe ?? old?.fit,
+       thickness: old?.texture,
+       detectedFeatures: [
+         if (old?.typePrecis != null) old!.typePrecis!,
+         if (old?.motif != null) old!.motif!,
+         if (old?.typeFermeture != null) old!.typeFermeture!,
+       ],
+     );
+     final thermalProfile = const ThermalProfileCalculator().ensureCurrent(
+       thermalInput,
+       old?.thermalProfile,
+       calculatedAt: now,
+     );
+     final garment = Garment(
+-      id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: _category == 'Autre' ? (_text(_otherCategory) ?? 'Autre') : _category,
++      id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: normalizedType.category ?? 'Autre',
+       brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes),
+-      photos: _imagePath == null ? const [] : [GarmentPhoto(id: old?.effectivePhotos.firstOrNull?.id ?? const Uuid().v4(), path: _imagePath!, type: GarmentPhotoType.primary, createdAt: old?.effectivePhotos.firstOrNull?.createdAt ?? now)],
+-      sousCategorie: _subCategory == 'Autre' ? _text(_otherSubCategory) : _subCategory, couleurPrincipale: _text(_color), matierePrincipale: material,
+-      typePrecis: old?.typePrecis, superposable: old?.superposable,
++      photos: [
++        if (_imagePath != null) GarmentPhoto(id: old?.effectivePhotos.firstOrNull?.id ?? const Uuid().v4(), path: _imagePath!, type: GarmentPhotoType.primary, createdAt: old?.effectivePhotos.firstOrNull?.createdAt ?? now),
++        ...?old?.effectivePhotos.skip(1),
++      ],
++      sousCategorie: normalizedType.subcategory, couleurPrincipale: _text(_color), matierePrincipale: material,
++      typePrecis: normalizedType.preciseType, superposable: old?.superposable,
+       saisons: _seasons.toList(),
+       occasions: uniqueUses.isEmpty ? null : uniqueUses,
+       compatiblePluie: thermalProfile.rainCompatibility.name != 'none',
+       compatibleChaleur: thermalProfile.breathability.name == 'high',
+       layerType: switch (thermalProfile.primaryRole.name) {
+         'base' => 'Couche de base',
+         'outer' => 'Couche extérieure',
+         _ => 'Couche intermédiaire',
+       },
+       thermalProfile: thermalProfile,
++      styleAnalysis: old?.styleAnalysis?.withUserCorrections(
++        register: _styles.isEmpty ? null : _styles.first,
++        secondaryStyles: _styles.skip(1).toList(growable: false),
++      ),
+       descriptionIA: old?.descriptionIA, couleursSecondaires: old?.couleursSecondaires, motif: old?.motif, texture: old?.texture,
+       logoVisible: old?.logoVisible, niveauFormalite: old?.niveauFormalite, coupe: old?.coupe, longueur: old?.longueur,
+       longueurManches: old?.longueurManches, typeCol: old?.typeCol, typeFermeture: old?.typeFermeture,
+       matieresSecondaires: old?.matieresSecondaires, confianceMatiere: old?.confianceMatiere, etatVisuel: old?.etatVisuel,
+       usureVisible: old?.usureVisible, defautsVisibles: old?.defautsVisibles, confianceGlobale: old?.confianceGlobale,
+       avertissementsIA: old?.avertissementsIA, pointsForts: old?.pointsForts,
+       pointsFaibles: old?.pointsFaibles, conseils: old?.conseils, verdict: old?.verdict, couleursCompatibles: old?.couleursCompatibles,
+       couleursMoinsAdaptees: old?.couleursMoinsAdaptees, basCompatibles: old?.basCompatibles, chaussuresCompatibles: old?.chaussuresCompatibles,
+       explicationPolyvalence: old?.explicationPolyvalence, occasionsDeconseillees: old?.occasionsDeconseillees,
+       compositionEstimee: old?.compositionEstimee, lavage: old?.lavage, sechage: old?.sechage, repassage: old?.repassage,
+       nettoyage: old?.nettoyage, boulochage: old?.boulochage, taches: old?.taches, limitesAnalyse: old?.limitesAnalyse,
+       condition: old?.condition, purchasePrice: old?.purchasePrice, purchaseDate: old?.purchaseDate, lastWorn: old?.lastWorn,
+       fit: old?.fit, composition: composition, wearCount: old?.wearCount ?? 0, isFavorite: old?.isFavorite ?? false,
++      lastAnalyzedAt: old?.lastAnalyzedAt, aiAnalysisVersion: old?.aiAnalysisVersion,
++      previousAnalysis: old?.previousAnalysis, currentAnalysis: old?.currentAnalysis,
++      userModifiedFields: old?.userModifiedFields ?? const {},
+       createdAt: old?.createdAt ?? now, updatedAt: now,
+     );
+     try { await widget.controller.save(garment, isNew: old == null || widget.isDraft); if (mounted) Navigator.pop(context, true); }
+     catch (e) { if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Impossible d'enregistrer : $e"))); } }
+   }
+ 
+   @override
+   Widget build(BuildContext context) => Scaffold(
+     appBar: AppBar(
+       title: Text(widget.garment == null || widget.isDraft ? 'Valider la fiche' : 'Modifier la pièce'),
+       actions: [IconButton(onPressed: _showHelp, tooltip: 'Aide sur les champs', icon: const Icon(Icons.help_outline))],
+     ),
+     body: Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
+       GestureDetector(onTap: _imageActions, child: Stack(children: [GarmentImage(imagePath: _imagePath, width: double.infinity, height: 270, borderRadius: BorderRadius.circular(26)), Positioned(right: 12, bottom: 12, child: FilledButton.tonalIcon(onPressed: _imageActions, icon: const Icon(Icons.camera_alt_outlined), label: Text(_imagePath == null ? 'Ajouter' : 'Actions photo')))])),
+       const SizedBox(height: 18),
+       TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Nom *', helperText: 'Proposé par l’IA · corrigez seulement si nécessaire'), validator: (v) => v == null || v.trim().isEmpty ? 'Le nom est obligatoire' : null),
+       const SizedBox(height: 10), TextFormField(controller: _brand, decoration: const InputDecoration(labelText: 'Marque')),
+       const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory = null; })),
+       if (_category == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherCategory, decoration: const InputDecoration(labelText: 'Votre catégorie *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la catégorie' : null)],
+       const SizedBox(height: 10), DropdownButtonFormField<String>(value: _subCategory, decoration: const InputDecoration(labelText: 'Sous-catégorie'), items: subCategories[_category]!.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _subCategory = v)),
+       if (_subCategory == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherSubCategory, decoration: const InputDecoration(labelText: 'Votre sous-catégorie *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la sous-catégorie' : null)],
+       const SizedBox(height: 10), TextFormField(controller: _color, decoration: const InputDecoration(labelText: 'Couleur')),
+       const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _material = v)),
+       if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Votre matière *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la matière' : null)],
+       const SizedBox(height: 10), TextFormField(controller: _composition, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Composition textile', helperText: 'Tissu principal, doublure et rembourrage · pourcentages modifiables')),
+-      const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: styles, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
++      const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: _styleOptions, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
+       const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() => _seasons = v)),
+       const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() => _uses = v)),
+       if (_uses.contains('Autre...')) ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Vos occasions *', helperText: 'Séparez plusieurs occasions par des virgules'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez au moins une occasion' : null)],
+       const SizedBox(height: 10), TextFormField(controller: _size, decoration: const InputDecoration(labelText: 'Taille (facultative)', helperText: 'Jamais estimée par l’IA')),
+       const SizedBox(height: 18), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'Temp. min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'Temp. max'))]),
+       const SizedBox(height: 10), _TriState(label: 'Compatible pluie', value: _rain, onChanged: (v) => setState(() => _rain = v)),
+       _TriState(label: 'Compatible chaleur', value: _heat, onChanged: (v) => setState(() => _heat = v)),
+       const SizedBox(height: 10), TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
+       const SizedBox(height: 24), FilledButton.icon(style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(58)), onPressed: _saving ? null : _save, icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check), label: const Text('Enregistrer la fiche')),
+     ])),
+   );
+ }
+ 
+ class _HelpSection extends StatelessWidget {
+   final String title, description;
+   final IconData icon;
+   final List<String> values;
+   const _HelpSection({required this.title, required this.icon, required this.values, required this.description});
+ 
+   @override
+   Widget build(BuildContext context) => ExpansionTile(
+     leading: Icon(icon),
+     title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+     subtitle: Text(description),
+     children: [Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), child: Wrap(spacing: 8, runSpacing: 8, children: values.map((value) => Chip(label: Text(value))).toList()))],
+diff --git a/lib/models/garment_normalizer.dart b/lib/models/garment_normalizer.dart
+index 3136daa363aecef01b5fde374a4ac4cfb28c1c3b..51b27e2fcd56c63bee452bef11ca21647671258a 100644
+--- a/lib/models/garment_normalizer.dart
++++ b/lib/models/garment_normalizer.dart
+@@ -7,26 +7,64 @@ class GarmentNormalizer {
+     'navy blue': 'Bleu marine',
+     'slim fit': 'Slim',
+     'business casual': 'Business casual',
+   };
+ 
+   static String? value(String? input) {
+     final trimmed = input?.trim();
+     if (trimmed == null || trimmed.isEmpty) return null;
+     return _canonical[trimmed.toLowerCase()] ?? trimmed;
+   }
+ 
+   static List<String> values(Iterable<String>? input) {
+     final result = <String>[];
+     final seen = <String>{};
+     for (final item in input ?? const <String>[]) {
+       final normalized = value(item);
+       if (normalized != null && seen.add(normalized.toLowerCase())) {
+         result.add(normalized);
+       }
+     }
+     return List.unmodifiable(result);
+   }
+ 
+   static double? confidence(double? input) =>
+       input == null ? null : input.clamp(0.0, 1.0);
++
++  /// Reconciles all type signals without restricting AI values to a catalogue.
++  /// An explicit subcategory always wins over inferred text.
++  static GarmentTypeNormalization normalizeType({String? name, String? category,
++    String? subcategory, String? preciseType}) {
++    final explicit = value(subcategory) ?? value(preciseType);
++    final evidence = [explicit, preciseType, name, category]
++        .whereType<String>().join(' ').toLowerCase();
++    String? inferredSubcategory, inferredCategory;
++    for (final rule in _typeRules) {
++      if (rule.tokens.any(evidence.contains)) {
++        inferredSubcategory = rule.subcategory;
++        inferredCategory = rule.category;
++        break;
++      }
++    }
++    return GarmentTypeNormalization(
++      category: inferredCategory ?? value(category),
++      subcategory: explicit ?? inferredSubcategory,
++      preciseType: value(preciseType) ?? explicit ?? inferredSubcategory,
++    );
++  }
++
++  static const _typeRules = <_GarmentTypeRule>[
++    _GarmentTypeRule(['trench'], 'Vestes', 'Trench'),
++    _GarmentTypeRule(['polo'], 'Hauts', 'Polo'),
++  ];
++}
++
++class GarmentTypeNormalization {
++  final String? category, subcategory, preciseType;
++  const GarmentTypeNormalization({this.category, this.subcategory, this.preciseType});
++}
++
++class _GarmentTypeRule {
++  final List<String> tokens;
++  final String category, subcategory;
++  const _GarmentTypeRule(this.tokens, this.category, this.subcategory);
+ }
+diff --git a/test/features/scanner/scanner_canonical_flow_test.dart b/test/features/scanner/scanner_canonical_flow_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..df2e815d8bed45dcaf3451c9a103996653925abd
+--- /dev/null
++++ b/test/features/scanner/scanner_canonical_flow_test.dart
+@@ -0,0 +1,36 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_mapper.dart';
++import 'package:wardrobeos/features/scanner/ai/garment_analysis_result.dart';
++import 'package:wardrobeos/models/garment_normalizer.dart';
++
++void main() {
++  test('normalise Trench et Polo depuis le nom sans écraser un type explicite', () {
++    final trench = GarmentNormalizer.normalizeType(name: 'Trench noir');
++    expect((trench.category, trench.subcategory), ('Vestes', 'Trench'));
++
++    final polo = GarmentNormalizer.normalizeType(name: 'Polo bleu');
++    expect((polo.category, polo.subcategory), ('Hauts', 'Polo'));
++
++    final explicit = GarmentNormalizer.normalizeType(
++      name: 'Trench noir', subcategory: 'Manteau croisé');
++    expect(explicit.subcategory, 'Manteau croisé');
++  });
++
++  test('les catalogues ouverts conservent couleur et matière inconnues', () {
++    const mapper = GarmentAnalysisMapper(
++      categories: ['Hauts'], colors: ['Bleu'], materials: ['Coton'],
++      seasons: ['Été']);
++    final analysis = GarmentAnalysisResult(
++      isUsableImage: true,
++      suggestedName: 'Polo chiné', category: 'Maille',
++      primaryColor: 'Bleu pétrole chiné', material: 'Coton Pima',
++      season: 'Mi-saison', globalConfidence: 1,
++    );
++    final mapped = mapper.map(analysis, current: const GarmentFormValues(
++      name: '', category: '', color: '', material: '', season: '', brand: ''));
++    expect(mapped.category, 'Maille');
++    expect(mapped.color, 'Bleu pétrole chiné');
++    expect(mapped.material, 'Coton Pima');
++    expect(mapped.season, 'Mi-saison');
++  });
++}

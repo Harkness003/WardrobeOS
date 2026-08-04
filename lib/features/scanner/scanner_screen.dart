@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/image_storage_service.dart';
 import '../../models/garment.dart';
 import '../../models/garment_photo.dart';
+import '../../models/garment_normalizer.dart';
 import '../../models/thermal_profile_calculator.dart';
 import '../../widgets/garment_image.dart';
 import '../wardrobe/wardrobe_controller.dart';
@@ -333,10 +334,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
     setState(() => saving = true);
     final now = DateTime.now();
     final composition = _formattedComposition(result?.compositions ?? const []);
+    final normalizedType = GarmentNormalizer.normalizeType(
+      name: name.text,
+      category: category,
+      subcategory: result?.preciseType,
+      preciseType: result?.preciseType,
+    );
     final thermalProfile = const ThermalProfileCalculator().calculate(
       ThermalProfileInput(
-        category: category,
-        subcategory: result?.preciseType,
+        category: normalizedType.category ?? category,
+        subcategory: normalizedType.subcategory,
         material: material.text,
         composition: composition,
         lining: result?.compositions.any((value) => value.section == 'lining') == true ? 'doublure détectée' : null,
@@ -350,11 +357,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
     final garment = Garment(
       id: const Uuid().v4(),
       name: name.text.trim().isEmpty ? 'Vêtement à identifier' : name.text.trim(),
-      category: category,
+      category: normalizedType.category ?? category,
       brand: brand.text.trim().isEmpty ? null : brand.text.trim(),
       color: color.text.trim().isEmpty ? null : color.text.trim(),
       material: material.text.trim().isEmpty ? null : material.text.trim(),
-      sousCategorie: result?.preciseType,
+      sousCategorie: normalizedType.subcategory,
+      typePrecis: normalizedType.preciseType,
       descriptionIA: result?.suggestedName,
       couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
       matierePrincipale:
@@ -534,6 +542,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 ),
                 const SizedBox(height: 14),
               ],
+              if (result case final analysis?) ...[
+                _DetectedDataCard(analysis: analysis),
+                const SizedBox(height: 14),
+              ],
               if (result?.reliabilitySummary.hasDetails == true) ...[
                 _ExpertReliabilityCard(
                   summary: result?.reliabilitySummary,
@@ -582,6 +594,54 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 ),
               ],
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DetectedDataCard extends StatelessWidget {
+  final GarmentAnalysisResult analysis;
+  const _DetectedDataCard({required this.analysis});
+
+  @override
+  Widget build(BuildContext context) {
+    final type = GarmentNormalizer.normalizeType(
+      name: analysis.suggestedName,
+      category: analysis.category,
+      subcategory: analysis.preciseType,
+      preciseType: analysis.preciseType,
+    );
+    final composition = analysis.compositions.map((item) {
+      final percentage = item.percentage == null ? '' : ' ${item.percentage!.toStringAsFixed(item.percentage! % 1 == 0 ? 0 : 1)} %';
+      return '${item.material}$percentage';
+    }).join(', ');
+    final rows = <(String, String?)>[
+      ('Nom', analysis.suggestedName),
+      ('Marque', analysis.visibleBrand),
+      ('Catégorie', type.category),
+      ('Sous-catégorie', type.subcategory),
+      ('Couleur', analysis.primaryColor),
+      ('Matière', analysis.material),
+      ('Composition', composition.isEmpty ? null : composition),
+      ('Style', analysis.styleSummary),
+      ('Occasions', analysis.idealOccasions.join(', ')),
+      ('Saison / thermique', analysis.season),
+    ].where((row) => row.$2?.trim().isNotEmpty == true);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Fiche détectée', style: TextStyle(fontWeight: FontWeight.w900)),
+            const SizedBox(height: 10),
+            for (final row in rows)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Text('${row.$1} · ${row.$2}'),
+              ),
           ],
         ),
       ),

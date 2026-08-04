@@ -69,7 +69,8 @@ class GarmentAnalysisMapper {
     for (final candidate in allowed) {
       if (_normalize(candidate) == normalized) return candidate;
     }
-    return null;
+    // Catalogues suggest spellings; they never discard a valid AI value.
+    return value.trim().isEmpty ? null : value.trim();
   }
 
   String _normalize(String value) => value
