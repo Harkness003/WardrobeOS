@@ -215,12 +215,23 @@ class _BackupSettings extends StatelessWidget {
   const _BackupSettings({required this.controller});
 
   Future<void> _confirmRestore(BuildContext context) async {
+    final selected = await controller.selectRestore();
+    if (!selected || !context.mounted) return;
+    final manifest = controller.pendingRestore!.manifest;
+    final content = manifest.content.entries
+        .where((entry) => entry.value > 0)
+        .map((entry) => '${entry.key} : ${entry.value}')
+        .join('\n');
     final confirmed = await showDialog<bool>(
       context: context,
       builder:
           (context) => AlertDialog(
-            title: const Text('Restaurer la sauvegarde ?'),
-            content: const Text(
+            title: const Text('Confirmer la restauration'),
+            content: Text(
+              'Date : ${manifest.createdAt.toLocal()}\n'
+              'Version : ${manifest.appVersion}\n'
+              'Schéma : ${manifest.schemaVersion}\n\n'
+              'Contenu :\n${content.isEmpty ? 'Aucune donnée' : content}\n\n'
               'Cette opération remplacera les données actuelles.',
             ),
             actions: [
@@ -235,7 +246,7 @@ class _BackupSettings extends StatelessWidget {
             ],
           ),
     );
-    if (confirmed == true) await controller.restoreBackup();
+    if (confirmed == true) await controller.confirmRestore();
   }
 
   @override
@@ -255,9 +266,14 @@ class _BackupSettings extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  controller.lastBackupAt == null
+                  controller.lastBackup == null
                       ? 'Dernière sauvegarde : aucune'
-                      : 'Dernière sauvegarde : ${controller.lastBackupAt!.toLocal()}',
+                      : 'Dernière sauvegarde\n'
+                        'Date : ${controller.lastBackup!.createdAt.toLocal()}\n'
+                        'Version : ${controller.lastBackup!.appVersion}\n'
+                        'Vêtements : ${controller.lastBackup!.garmentCount}\n'
+                        'Photos : ${controller.lastBackup!.photoCount}\n'
+                        'Emplacement : ${controller.lastLocation}',
                 ),
                 const SizedBox(height: 12),
                 FilledButton.icon(

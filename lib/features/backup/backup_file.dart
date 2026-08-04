@@ -3,114 +3,70 @@ import 'dart:convert';
 class BackupFormatException implements Exception {
   final String message;
   const BackupFormatException(this.message);
-
   @override
   String toString() => message;
 }
 
-class BackupFile {
-  static const currentVersion = 1;
-
-  final int version;
+/// Public metadata stored in `manifest.json`, so an archive can be inspected
+/// and confirmed without modifying application data.
+class BackupManifest {
+  static const currentSchemaVersion = 2;
+  final String appVersion;
+  final int schemaVersion;
   final DateTime createdAt;
-  final List<Map<String, Object?>> garments;
-  final List<Map<String, Object?>> images;
-  final List<Map<String, Object?>> outfits;
-  final List<Map<String, Object?>> outfitItems;
-  final List<Map<String, Object?>> wishlist;
-  final List<Map<String, Object?>> wearHistory;
-  final List<Map<String, Object?>> userMemories;
-  final List<Map<String, Object?>> userMemoryRevisions;
-  final List<Map<String, Object?>> personalGoals;
-  final List<Map<String, Object?>> styleProfiles;
+  final int garmentCount;
+  final int photoCount;
+  final Map<String, int> content;
+  final Map<String, String> checksums;
 
-  const BackupFile({
-    required this.version,
-    required this.createdAt,
-    required this.garments,
-    required this.images,
-    required this.outfits,
-    required this.outfitItems,
-    required this.wishlist,
-    required this.wearHistory,
-    this.userMemories = const [],
-    this.userMemoryRevisions = const [],
-    this.personalGoals = const [],
-    this.styleProfiles = const [],
-  });
+  const BackupManifest({required this.appVersion, required this.schemaVersion,
+    required this.createdAt, required this.garmentCount, required this.photoCount,
+    required this.content, this.checksums = const {}});
 
   Map<String, Object?> toJson() => {
-    'version': version,
-    'createdAt': createdAt.toUtc().toIso8601String(),
-    'garments': garments,
-    'images': images,
-    'outfits': outfits,
-    'outfitItems': outfitItems,
-    'wishlist': wishlist,
-    'wearHistory': wearHistory,
-    'userMemories': userMemories,
-    'userMemoryRevisions': userMemoryRevisions,
-    'personalGoals': personalGoals,
-    'styleProfiles': styleProfiles,
+    'format': 'WardrobeOS Backup', 'appVersion': appVersion,
+    'schemaVersion': schemaVersion, 'createdAt': createdAt.toUtc().toIso8601String(),
+    'garmentCount': garmentCount, 'photoCount': photoCount,
+    'content': content, 'checksums': checksums,
   };
 
-  String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
+  factory BackupManifest.fromJson(Map<String, Object?> json) {
+    final schema = json['schemaVersion'];
+    final date = DateTime.tryParse(json['createdAt']?.toString() ?? '');
+    if (json['format'] != 'WardrobeOS Backup' || schema is! int || date == null) {
+      throw const BackupFormatException('Le manifeste WardrobeOS est invalide.');
+    }
+    if (schema > currentSchemaVersion) {
+      throw BackupFormatException('Schéma $schema trop récent (maximum ${BackupManifest.currentSchemaVersion}).');
+    }
+    Map<String, int> counts(Object? value) => value is Map
+        ? value.map((k, v) => MapEntry(k.toString(), v is int ? v : 0)) : {};
+    Map<String, String> hashes(Object? value) => value is Map
+        ? value.map((k, v) => MapEntry(k.toString(), v.toString())) : {};
+    return BackupManifest(appVersion: json['appVersion']?.toString() ?? 'inconnue',
+      schemaVersion: schema, createdAt: date,
+      garmentCount: json['garmentCount'] as int? ?? 0,
+      photoCount: json['photoCount'] as int? ?? 0,
+      content: counts(json['content']), checksums: hashes(json['checksums']));
+  }
+}
 
-  factory BackupFile.decode(String source) {
-    final Object? decoded;
-    try {
-      decoded = jsonDecode(source);
-    } on FormatException {
-      throw const BackupFormatException('Le fichier JSON est invalide.');
-    }
-    if (decoded is! Map<String, Object?>) {
-      throw const BackupFormatException(
-        'Le contenu de la sauvegarde est invalide.',
-      );
-    }
-    final document = decoded;
-    final version = document['version'];
-    if (version != currentVersion) {
-      throw BackupFormatException(
-        'Version de sauvegarde non prise en charge : $version.',
-      );
-    }
-    final createdAt = DateTime.tryParse(document['createdAt'] as String? ?? '');
-    if (createdAt == null) {
-      throw const BackupFormatException('La date de sauvegarde est invalide.');
-    }
+class BackupArchive {
+  final BackupManifest manifest;
+  final Map<String, List<Map<String, Object?>>> sections;
+  final Map<String, List<int>> photos;
+  const BackupArchive({required this.manifest, required this.sections, required this.photos});
+}
 
-    List<Map<String, Object?>> rows(String key) {
-      final value = document[key];
-      if (value is! List) {
-        throw BackupFormatException('Section « $key » invalide.');
-      }
-      return value
-          .map((row) {
-            if (row is! Map) {
-              throw BackupFormatException('Entrée « $key » invalide.');
-            }
-            return row.map((key, value) => MapEntry(key.toString(), value));
-          })
-          .toList(growable: false);
-    }
-
-    List<Map<String, Object?>> optionalRows(String key) =>
-        document.containsKey(key) ? rows(key) : const [];
-
-    return BackupFile(
-      version: version as int,
-      createdAt: createdAt,
-      garments: rows('garments'),
-      images: rows('images'),
-      outfits: rows('outfits'),
-      outfitItems: rows('outfitItems'),
-      wishlist: rows('wishlist'),
-      wearHistory: rows('wearHistory'),
-      userMemories: optionalRows('userMemories'),
-      userMemoryRevisions: optionalRows('userMemoryRevisions'),
-      personalGoals: optionalRows('personalGoals'),
-      styleProfiles: optionalRows('styleProfiles'),
-    );
+List<Map<String, Object?>> decodeRows(List<int> bytes, String section) {
+  try {
+    final value = jsonDecode(utf8.decode(bytes));
+    if (value is! List) throw const FormatException();
+    return value.map((row) {
+      if (row is! Map) throw const FormatException();
+      return row.map<String, Object?>((k, v) => MapEntry(k.toString(), v));
+    }).toList(growable: false);
+  } catch (_) {
+    throw BackupFormatException('La section « $section » est corrompue.');
   }
 }

@@ -802,6 +802,7 @@ class DatabaseService {
         'userMemoryRevisions': await txn.query('user_memory_revisions'),
         'personalGoals': await txn.query('personal_goals'),
         'styleProfiles': await txn.query('style_profiles'),
+        'plannedOutfits': await txn.query('planned_outfits'),
       },
     );
   }
@@ -812,6 +813,7 @@ class DatabaseService {
   ) async {
     final db = await database;
     await db.transaction((txn) async {
+      await txn.delete('planned_outfits');
       await txn.delete('outfit_items');
       await txn.delete('wear_history');
       await txn.delete('outfits');
@@ -844,6 +846,9 @@ class DatabaseService {
       }
       for (final row in data['styleProfiles'] ?? const []) {
         await txn.insert('style_profiles', row);
+      }
+      for (final row in data['plannedOutfits'] ?? const []) {
+        await txn.insert('planned_outfits', row);
       }
     });
   }

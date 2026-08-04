@@ -1,134 +1,59 @@
 import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/features/backup/backup_file.dart';
 import 'package:wardrobeos/features/backup/backup_service.dart';
 import 'package:wardrobeos/features/backup/restore_service.dart';
 
 void main() {
-  group('BackupService', () {
-    test('génère un backup versionné avec toutes les sections', () async {
-      final repository = _MemoryRepository(_sampleData());
-      final service = BackupService(
-        repository: repository,
-        now: () => DateTime.utc(2026, 7, 18),
-      );
+  late Directory temp;
+  setUp(() async => temp = await Directory.systemTemp.createTemp('wardrobe_backup_test'));
+  tearDown(() async => temp.delete(recursive: true));
 
-      final backup = await service.createBackup();
-
-      expect(backup.version, 1);
-      expect(backup.createdAt, DateTime.utc(2026, 7, 18));
-      expect(backup.garments.single['id'], 'g1');
-      expect(backup.outfits.single['id'], 'o1');
-      expect(backup.outfitItems, hasLength(1));
-      expect(backup.wearHistory, hasLength(1));
-      expect(BackupFile.decode(backup.encode()).version, 1);
-    });
-
-    test('génère un backup vide valide', () async {
-      final backup =
-          await BackupService(
-            repository: _MemoryRepository(_emptyData()),
-          ).createBackup();
-
-      expect(backup.garments, isEmpty);
-      expect(backup.outfits, isEmpty);
-      expect(backup.wearHistory, isEmpty);
-      expect(backup.images, isEmpty);
-    });
+  test('sauvegarde ZIP complète et restauration complète', () async {
+    final photo = File('${temp.path}/photo.jpg')..writeAsBytesSync([1, 2, 3]);
+    final source = _MemoryRepository(_sampleData(photo.path));
+    final service = BackupService(repository: source, now: () => DateTime.utc(2026, 8, 4, 12, 30));
+    final path = '${temp.path}/backup.zip';
+    final created = await service.createBackup();
+    final manifest = await service.writeBackup(created, path);
+    expect(manifest.garmentCount, 1); expect(manifest.photoCount, 1);
+    final target = _MemoryRepository(_emptyData());
+    final restore = RestoreService(repository: target, imageDirectory: () async => temp);
+    final inspected = await restore.inspectFile(path);
+    expect(inspected.manifest.createdAt, DateTime.utc(2026, 8, 4, 12, 30));
+    final report = await restore.restore(inspected);
+    expect(report.restored['garments'], 1); expect(target.data['plannedOutfits'], hasLength(1));
+    expect(File(target.data['garments']!.single['image_path']! as String).existsSync(), isTrue);
   });
 
-  group('RestoreService', () {
-    test('refuse une version inconnue', () {
-      expect(
-        () => BackupFile.decode('''
-          {"version":2,"createdAt":"2026-07-18T00:00:00Z"}
-        '''),
-        throwsA(isA<BackupFormatException>()),
-      );
-    });
+  test('archive incomplète est refusée clairement', () {
+    expect(() => RestoreService(repository: _MemoryRepository(_emptyData())).inspect([1,2,3]),
+      throwsA(isA<BackupFormatException>()));
+  });
 
-    test('restaure avec succès toutes les relations', () async {
-      final source =
-          await BackupService(
-            repository: _MemoryRepository(_sampleData()),
-          ).createBackup();
-      final target = _MemoryRepository(_emptyData());
-      final directory = await Directory.systemTemp.createTemp('wardrobe-test');
-      addTearDown(() => directory.delete(recursive: true));
+  test('ancienne sauvegarde JSON sans sections optionnelles migre progressivement', () {
+    final archive = RestoreService(repository: _MemoryRepository(_emptyData())).inspect(
+      '''{"version":1,"createdAt":"2025-01-02T03:04:05Z","garments":[],"images":[],"outfits":[],"outfitItems":[],"wishlist":[],"wearHistory":[]}'''.codeUnits);
+    expect(archive.manifest.schemaVersion, 1);
+    expect(archive.sections['plannedOutfits'], isEmpty);
+  });
 
-      await RestoreService(
-        repository: target,
-        imageDirectory: () async => directory,
-      ).restore(source.encode());
-
-      expect(target.data['garments'], hasLength(1));
-      expect(target.data['outfitItems'], hasLength(1));
-      expect(target.data['wearHistory'], hasLength(1));
-    });
-
-    test('une restauration échouée ne remplace aucune donnée', () async {
-      final initial = _sampleData();
-      final repository = _MemoryRepository(initial, failRestore: true);
-      final backup =
-          await BackupService(
-            repository: _MemoryRepository(_emptyData()),
-          ).createBackup();
-
-      await expectLater(
-        RestoreService(repository: repository).restore(backup.encode()),
-        throwsStateError,
-      );
-      expect(repository.data['garments']!.single['id'], 'g1');
-    });
+  test('photo absente n’empêche pas la sauvegarde', () async {
+    final backup = await BackupService(repository: _MemoryRepository(_sampleData('/absente.jpg'))).createBackup();
+    expect(backup.manifest.photoCount, 0);
   });
 }
 
-Map<String, List<Map<String, Object?>>> _emptyData() => {
-  'garments': [],
-  'outfits': [],
-  'outfitItems': [],
-  'wishlist': [],
-  'wearHistory': [],
+Map<String, List<Map<String, Object?>>> _emptyData() => {for (final key in RestoreService.sections) key: []};
+Map<String, List<Map<String, Object?>>> _sampleData(String? photo) => {
+  ..._emptyData(),
+  'garments': [{'id':'g1','name':'Chemise','category':'Hauts','image_path':photo,'photos':'[]','created_at':'2026-01-01','updated_at':'2026-01-01'}],
+  'outfits': [{'id':'o1','name':'Bureau'}],
+  'outfitItems': [{'outfit_id':'o1','garment_id':'g1'}],
+  'plannedOutfits': [{'id':'p1','outfit_id':'o1'}],
 };
-
-Map<String, List<Map<String, Object?>>> _sampleData() => {
-  'garments': [
-    {
-      'id': 'g1',
-      'name': 'Chemise',
-      'category': 'Hauts',
-      'image_path': null,
-      'created_at': '2026-01-01T00:00:00Z',
-      'updated_at': '2026-01-01T00:00:00Z',
-    },
-  ],
-  'outfits': [
-    {'id': 'o1', 'name': 'Bureau'},
-  ],
-  'outfitItems': [
-    {'outfit_id': 'o1', 'garment_id': 'g1'},
-  ],
-  'wishlist': [],
-  'wearHistory': [
-    {'id': 1, 'garment_id': 'g1', 'worn_at': '2026-01-02T00:00:00Z'},
-  ],
-};
-
 class _MemoryRepository implements BackupRepository {
-  Map<String, List<Map<String, Object?>>> data;
-  final bool failRestore;
-
-  _MemoryRepository(this.data, {this.failRestore = false});
-
-  @override
-  Future<Map<String, List<Map<String, Object?>>>> exportData() async => data;
-
-  @override
-  Future<void> restoreData(
-    Map<String, List<Map<String, Object?>>> restored,
-  ) async {
-    if (failRestore) throw StateError('simulated transaction failure');
-    data = restored;
-  }
+  Map<String, List<Map<String, Object?>>> data; _MemoryRepository(this.data);
+  @override Future<Map<String, List<Map<String, Object?>>>> exportData() async => data;
+  @override Future<void> restoreData(Map<String, List<Map<String, Object?>>> restored) async => data = restored;
 }

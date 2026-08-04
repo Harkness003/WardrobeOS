@@ -7,6 +7,8 @@
       "name": "wardrobeos",
       "version": "0.8.0+9",
       "dependencies": [
+        "archive",
+        "crypto",
         "cupertino_icons",
         "file_picker",
         "flutter",
@@ -49,6 +51,21 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "crypto",
+      "version": "3.0.7",
+      "dependencies": [
+        "typed_data"
+      ]
+    },
+    {
+      "name": "archive",
+      "version": "4.0.9",
+      "dependencies": [
+        "path",
+        "posix"
       ]
     },
     {
@@ -274,6 +291,22 @@
       ]
     },
     {
+      "name": "typed_data",
+      "version": "1.4.0",
+      "dependencies": [
+        "collection"
+      ]
+    },
+    {
+      "name": "posix",
+      "version": "6.5.0",
+      "dependencies": [
+        "ffi",
+        "meta",
+        "path"
+      ]
+    },
+    {
       "name": "dbus",
       "version": "0.7.13",
       "dependencies": [
@@ -486,24 +519,9 @@
       ]
     },
     {
-      "name": "archive",
-      "version": "4.0.9",
-      "dependencies": [
-        "path",
-        "posix"
-      ]
-    },
-    {
       "name": "fixnum",
       "version": "1.1.1",
       "dependencies": []
-    },
-    {
-      "name": "crypto",
-      "version": "3.0.7",
-      "dependencies": [
-        "typed_data"
-      ]
     },
     {
       "name": "image_picker_windows",
@@ -744,13 +762,6 @@
       ]
     },
     {
-      "name": "typed_data",
-      "version": "1.4.0",
-      "dependencies": [
-        "collection"
-      ]
-    },
-    {
       "name": "package_info_plus",
       "version": "9.0.1",
       "dependencies": [
@@ -788,15 +799,6 @@
       "dependencies": [
         "collection",
         "meta"
-      ]
-    },
-    {
-      "name": "posix",
-      "version": "6.5.0",
-      "dependencies": [
-        "ffi",
-        "meta",
-        "path"
       ]
     },
     {
