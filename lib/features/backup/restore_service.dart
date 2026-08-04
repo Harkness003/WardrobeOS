@@ -26,11 +26,6 @@ class RestoreService {
 
   Future<BackupArchive> inspectFile(String path) async => inspect(await File(path).readAsBytes());
   BackupArchive inspect(List<int> bytes) {
-    // V1 (pre-ZIP) was a single JSON document. Keep this adapter isolated so
-    // future migrations can be appended without weakening the current format.
-    if (bytes.isNotEmpty && utf8.decode(bytes, allowMalformed: true).trimLeft().startsWith('{')) {
-      return _inspectLegacyJson(bytes);
-    }
     final Archive zip;
     try { zip = ZipDecoder().decodeBytes(bytes, verify: true); }
     catch (_) { throw const BackupFormatException('Archive ZIP corrompue ou illisible.'); }
@@ -50,48 +45,11 @@ class RestoreService {
     final data = <String, List<Map<String, Object?>>>{};
     for (final section in sections) {
       final file = files['data/$section.json'];
-      // Progressive migration: absent sections from older schemas are empty.
-      data[section] = file == null ? [] : decodeRows(file.content as List<int>, section);
+      if (file == null) throw BackupFormatException('Section requise manquante : $section.');
+      data[section] = decodeRows(file.content as List<int>, section);
     }
     final photos = <String, List<int>>{for (final e in files.entries.where((e) => e.key.startsWith('photos/'))) e.key: e.value.content as List<int>};
     return BackupArchive(manifest: manifest, sections: data, photos: photos);
-  }
-
-  BackupArchive _inspectLegacyJson(List<int> bytes) {
-    try {
-      final json = jsonDecode(utf8.decode(bytes)) as Map<String, Object?>;
-      if (json['version'] != 1) {
-        throw BackupFormatException('Ancienne version non prise en charge : ${json['version']}.');
-      }
-      final date = DateTime.tryParse(json['createdAt']?.toString() ?? '');
-      if (date == null) throw const FormatException();
-      final data = <String, List<Map<String, Object?>>>{};
-      for (final section in sections) {
-        final value = json[section];
-        data[section] = value == null ? [] : decodeRows(utf8.encode(jsonEncode(value)), section);
-      }
-      final photos = <String, List<int>>{};
-      for (final item in (json['images'] as List? ?? const [])) {
-        if (item is Map && item['data'] is String && item['reference'] != null) {
-          photos['photos/${item['reference']}.jpg'] = base64Decode(item['data'] as String);
-        }
-      }
-      data['garments'] = data['garments']!.map((source) {
-        final row = Map<String, Object?>.from(source);
-        final reference = row.remove('image_reference');
-        row['backup_photo_references'] = reference == null
-            ? <String>[] : <String>['photos/$reference.jpg'];
-        return row;
-      }).toList();
-      return BackupArchive(
-        manifest: BackupManifest(appVersion: 'ancienne', schemaVersion: 1,
-          createdAt: date, garmentCount: data['garments']!.length,
-          photoCount: photos.length,
-          content: {for (final entry in data.entries) entry.key: entry.value.length}),
-        sections: data, photos: photos,
-      );
-    } on BackupFormatException { rethrow; }
-      catch (_) { throw const BackupFormatException('Ancienne sauvegarde JSON corrompue.'); }
   }
 
   Future<RestoreReport> restoreFile(String path) async => restore(await inspectFile(path));
@@ -108,9 +66,17 @@ class RestoreService {
     final data = Map<String, List<Map<String, Object?>>>.from(backup.sections);
     data['garments'] = (data['garments'] ?? const []).map((source) {
       final row = Map<String, Object?>.from(source);
-      final refs = (row.remove('backup_photo_references') as List?)?.cast<String>() ?? const [];
-      row['image_path'] = refs.isEmpty ? null : imagePaths[refs.first];
-      if (refs.any((ref) => !imagePaths.containsKey(ref))) warnings.add('Photos absentes pour « ${row['name'] ?? row['id']} ».');
+      final descriptors = jsonDecode(row['photos'] as String? ?? '[]') as List;
+      final restored = <Map<String, Object?>>[];
+      for (final descriptor in descriptors.whereType<Map>()) {
+        final reference = descriptor['path']?.toString();
+        if (reference == null || !imagePaths.containsKey(reference)) {
+          warnings.add('Photo absente pour « ${row['name'] ?? row['id']} ».');
+          continue;
+        }
+        restored.add({...descriptor.cast<String, Object?>(), 'path': imagePaths[reference]});
+      }
+      row['photos'] = jsonEncode(restored);
       return row;
     }).toList();
     await repository.restoreData(data);

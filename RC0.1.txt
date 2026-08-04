@@ -1,0 +1,964 @@
+diff --git a/lib/features/assistant/recommendation/outfit_candidate.dart b/lib/features/assistant/recommendation/outfit_candidate.dart
+index 45e39b897dcb0183a865dc4e531c41b5f784cd40..5df13cc9bf6a097f4719866637b1441fa5183409 100644
+--- a/lib/features/assistant/recommendation/outfit_candidate.dart
++++ b/lib/features/assistant/recommendation/outfit_candidate.dart
+@@ -1,68 +1,69 @@
+ import '../../../models/garment.dart';
++import '../../../models/thermal_profile.dart';
+ 
+ class OutfitCandidate {
+   final Garment? sourceGarment;
+   final String id;
+   final String name;
+   final String category;
+   final String? color;
+-  final String? season;
++  final ThermalProfile? thermalProfile;
+   final int wearCount;
+   final DateTime? lastWorn;
+   final bool isAvailable;
+ 
+   const OutfitCandidate({
+     this.sourceGarment,
+     required this.id,
+     required this.name,
+     required this.category,
+     this.color,
+-    this.season,
++    this.thermalProfile,
+     this.wearCount = 0,
+     this.lastWorn,
+     this.isAvailable = true,
+   });
+ 
+   Garment get garment => sourceGarment ?? Garment(
+     id: id,
+     name: name,
+     category: category,
+     color: color,
+-    season: season,
++    thermalProfile: thermalProfile,
+     wearCount: wearCount,
+     lastWorn: lastWorn,
+     createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+     updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
+   );
+ 
+   factory OutfitCandidate.fromGarment(Garment garment) => OutfitCandidate(
+     sourceGarment: garment,
+     id: garment.id,
+     name: garment.name,
+     category: garment.category,
+     color: garment.color,
+-    season: garment.effectiveSeasons.join(', '),
++    thermalProfile: garment.thermalProfile,
+     wearCount: garment.wearCount,
+     lastWorn: garment.lastWorn,
+   );
+ 
+   Map<String, Object?> toMap() => {
+     'id': id,
+     'nom': name,
+     'catégorie': category,
+     'couleur': color,
+     'styleAnalysis': sourceGarment == null ? null : {
+       'registre': sourceGarment!.effectiveStyleAnalysis.register,
+       'stylesSecondaires': sourceGarment!.effectiveStyleAnalysis.secondaryStyles,
+       'caractéristiques': sourceGarment!.effectiveStyleAnalysis.characteristics,
+     },
+     'profilThermiqueEffectif':
+         sourceGarment?.effectiveThermalProfile.toJson(),
+     'niveauFormalité': sourceGarment?.niveauFormalite,
+     'occasions': sourceGarment?.effectiveOccasions,
+     'couleursCompatibles': sourceGarment?.couleursCompatibles,
+     'couleursMoinsAdaptées': sourceGarment?.couleursMoinsAdaptees,
+     'fréquenceDePort': wearCount,
+     'dernièreUtilisation': lastWorn?.toIso8601String(),
+   };
+ }
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index 286d667acea1cd9fd37580ed64c8c4492b58f342..f3ed5ca95dc6a8a7ce113bc8a211d1149b35bcd3 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -1,36 +1,37 @@
+ import 'dart:async';
+ import 'dart:io';
+ import 'dart:typed_data';
+ 
+ import 'package:flutter/material.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/garment_photo.dart';
++import '../../models/style_classifier.dart';
+ import '../../models/thermal_profile_calculator.dart';
+ import '../../widgets/garment_image.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wardrobe/garment_form_screen.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import 'ai/garment_analysis_exception.dart';
+ import 'ai/garment_analysis_mapper.dart';
+ import 'ai/garment_analysis_normalizer.dart';
+ import 'ai/garment_analysis_request.dart';
+ import 'ai/garment_analysis_result.dart';
+ import 'ai/garment_analysis_validator.dart';
+ import 'ai/garment_image_processing.dart';
+ import 'ai/normalization/garment_value_normalizer.dart';
+ import 'ai/openai_garment_vision_analyzer.dart';
+ import 'ai/analysis_foundations.dart';
+ import 'conversation/scan_conversation.dart';
+ 
+ class ScannerScreen extends StatefulWidget {
+   const ScannerScreen({super.key});
+ 
+   @override
+   State<ScannerScreen> createState() => _ScannerScreenState();
+ }
+ 
+ class _ScannerScreenState extends State<ScannerScreen> {
+@@ -325,111 +326,117 @@ class _ScannerScreenState extends State<ScannerScreen> {
+ 
+   Future<void> _openFullForm() async {
+     if (busy) return;
+     if (imagePath == null) {
+       _toast('Ajoute d’abord une photo.');
+       return;
+     }
+ 
+     setState(() => saving = true);
+     final now = DateTime.now();
+     final composition = _formattedComposition(result?.compositions ?? const []);
+     final thermalProfile = const ThermalProfileCalculator().calculate(
+       ThermalProfileInput(
+         category: category,
+         subcategory: result?.preciseType,
+         material: material.text,
+         composition: composition,
+         lining: result?.compositions.any((value) => value.section == 'lining') == true ? 'doublure détectée' : null,
+         detectedFeatures: [
+           if (result?.styleSummary != null) result!.styleSummary!,
+           ...?result?.fieldMetadata?.keys,
+         ],
+       ),
+       calculatedAt: now,
+     );
++    final photoPaths = sessionImagePaths.isEmpty
++        ? [if (imagePath != null) imagePath!]
++        : sessionImagePaths;
+     final garment = Garment(
+       id: const Uuid().v4(),
+       name: name.text.trim().isEmpty ? 'Vêtement à identifier' : name.text.trim(),
+       category: category,
+       brand: brand.text.trim().isEmpty ? null : brand.text.trim(),
+       color: color.text.trim().isEmpty ? null : color.text.trim(),
+       material: material.text.trim().isEmpty ? null : material.text.trim(),
+-      season: season,
+       sousCategorie: result?.preciseType,
+       descriptionIA: result?.suggestedName,
+       couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
+       matierePrincipale:
+           material.text.trim().isEmpty ? null : material.text.trim(),
+       matieresSecondaires: result?.compositions
+           .where((value) => value.section == 'main')
+           .map((value) => value.material)
+           .skip(1)
+           .toList(growable: false),
+       composition: composition,
+       saisons: switch (result?.season) {
+         final value? => [value],
+         null => null,
+       },
+-      stylePrincipal: _suggestStyle(result),
+-      stylesSecondaires: [_suggestStyle(result)],
+-      temperatureMinimum: thermalProfile.standaloneMinC,
+-      temperatureMaximum: thermalProfile.standaloneMaxC,
++      styleAnalysis: const StyleClassifier().classify(
++        StyleInput(
++          category: category,
++          subcategory: result?.preciseType,
++          material: material.text,
++          color: color.text,
++          details: '${result?.styleSummary ?? ''} ${result?.styleVerdict ?? ''}',
++        ),
++        calculatedAt: now,
++      ),
+       compatiblePluie: thermalProfile.rainCompatibility.name != 'none',
+       compatibleChaleur: thermalProfile.breathability.name == 'high',
+       layerType: switch (thermalProfile.primaryRole.name) {
+         'base' => 'Couche de base',
+         'outer' => 'Couche extérieure',
+         _ => 'Couche intermédiaire',
+       },
+       thermalProfile: thermalProfile,
+       confianceGlobale: result?.globalConfidence,
+       avertissementsIA: result?.warnings,
+-      resumeStylistique: result?.styleSummary,
+       pointsForts: result?.styleStrengths,
+       pointsFaibles: result?.styleWeaknesses,
+       conseils: result?.styleAdvice,
+       verdict: result?.styleVerdict,
+       couleursCompatibles: result?.compatibleColors,
+       couleursMoinsAdaptees: result?.lessSuitableColors,
+       basCompatibles: result?.compatibleBottoms,
+       chaussuresCompatibles: result?.compatibleShoes,
+       explicationPolyvalence: result?.versatilityExplanation,
+       occasions: _suggestUses(result?.idealOccasions ?? const []),
+       occasionsDeconseillees: result?.discouragedOccasions,
+       limitesAnalyse: result?.analysisLimitations,
+       notes: switch (result) {
+         final analysis? =>
+           'Suggestions IA vérifiées · confiance ${((analysis.overallConfidence ?? analysis.globalConfidence) * 100).round()} %.',
+         null => 'Ajout manuel depuis le scanner.',
+       },
+-      imagePath: sessionImagePaths.isEmpty ? imagePath : sessionImagePaths.first,
+       photos: [
+-        for (var index = 0; index < sessionImagePaths.length; index++)
++        for (var index = 0; index < photoPaths.length; index++)
+           GarmentPhoto(
+             id: const Uuid().v4(),
+-            path: sessionImagePaths[index],
++            path: photoPaths[index],
+             type: index == 0 ? GarmentPhotoType.primary : GarmentPhotoType.other,
+             createdAt: now,
+           ),
+       ],
+       lastAnalyzedAt: result == null ? null : now,
+       aiAnalysisVersion: result == null
+           ? null
+           : 'scanner-v1:${OpenAiGarmentVisionAnalyzer.defaultModel}',
+       currentAnalysis: result == null
+           ? null
+           : GarmentAnalysisSnapshot(
+               version: 'scanner-v1:${OpenAiGarmentVisionAnalyzer.defaultModel}',
+               analyzedAt: now,
+               values: result!.toJson().cast<String, Object?>(),
+             ),
+       createdAt: now,
+       updatedAt: now,
+     );
+ 
+     try {
+       if (!mounted) return;
+       setState(() => saving = false);
+       final saved = await Navigator.push<bool>(
+         context,
+         MaterialPageRoute(
+@@ -440,58 +447,50 @@ class _ScannerScreenState extends State<ScannerScreen> {
+           ),
+         ),
+       );
+       if (saved == true && mounted) {
+         imageOwnedByGarment = true;
+         Navigator.pop(context, true);
+       }
+     } catch (_) {
+       if (!mounted) return;
+       _toast('Enregistrement impossible. Vérifie la fiche et réessaie.');
+     } finally {
+       if (mounted) setState(() => saving = false);
+     }
+   }
+ 
+   String? _formattedComposition(List<TextileComposition> values) {
+     if (values.isEmpty) return null;
+     const labels = {'main': 'Tissu principal', 'lining': 'Doublure', 'padding': 'Rembourrage'};
+     final sections = <String, List<TextileComposition>>{};
+     for (final value in values) {
+       (sections[value.section] ??= []).add(value);
+     }
+     return sections.entries.map((entry) => '${labels[entry.key] ?? entry.key} : ${entry.value.map((value) => '${value.material}${value.percentage == null ? '' : ' ${value.percentage!.toStringAsFixed(value.percentage! % 1 == 0 ? 0 : 1)} %'}').join(', ')}').join('\n');
+   }
+ 
+-  String _suggestStyle(GarmentAnalysisResult? analysis) {
+-    final source = '${analysis?.styleSummary ?? ''} ${analysis?.styleVerdict ?? ''}'.toLowerCase();
+-    for (final style in const ['Streetwear', 'Business', 'Sport', 'Outdoor', 'Vintage', 'Minimaliste', 'Élégant', 'Casual']) {
+-      if (source.contains(style.toLowerCase())) return style;
+-    }
+-    return 'Casual';
+-  }
+-
+   List<String> _suggestUses(List<String> suggestions) {
+     const available = [
+       'Quotidien', 'Travail', 'Sport', 'Voyage', 'Maison', 'Soirée',
+       'Randonnée', 'Vacances',
+     ];
+     String normalize(String value) => value
+         .toLowerCase()
+         .replaceAll(RegExp('[éèêë]'), 'e')
+         .replaceAll(RegExp('[àâä]'), 'a');
+ 
+     return suggestions.map((suggestion) {
+       final normalized = normalize(suggestion);
+       return available.cast<String?>().firstWhere(
+             (value) => normalized.contains(normalize(value!)),
+             orElse: () => null,
+           ) ??
+           suggestion;
+     }).toSet().toList();
+   }
+ 
+   void _removeBestEffort(String? path) {
+     unawaited(ImageStorageService.remove(path).catchError((_) {}));
+   }
+ 
+   void _toast(String text) {
+diff --git a/lib/features/wardrobe/reanalysis/garment_reanalysis_models.dart b/lib/features/wardrobe/reanalysis/garment_reanalysis_models.dart
+index f1cfc859c0d69a401b614a938de178dc00c5f49b..40b09bb2d80ddfec9704ff430edaa4ea3ff99944 100644
+--- a/lib/features/wardrobe/reanalysis/garment_reanalysis_models.dart
++++ b/lib/features/wardrobe/reanalysis/garment_reanalysis_models.dart
+@@ -9,42 +9,51 @@ class GarmentReanalysisVersions {
+   final String pipeline;
+   final String styleTaxonomy;
+   final String thermalEngine;
+   const GarmentReanalysisVersions({required this.aiModel, required this.pipeline, required this.styleTaxonomy, required this.thermalEngine});
+ }
+ 
+ class GarmentReanalysisChange {
+   final String field;
+   final Object? oldAnalysis;
+   final Object? currentValue;
+   final Object? proposedValue;
+   final bool conflict;
+   const GarmentReanalysisChange({required this.field, this.oldAnalysis, this.currentValue, this.proposedValue, required this.conflict});
+ }
+ 
+ class GarmentReanalysisProposal {
+   final Garment garment;
+   final GarmentReanalysisType type;
+   final List<GarmentPhoto> photos;
+   final GarmentAnalysisSnapshot snapshot;
+   final List<GarmentReanalysisChange> changes;
+   const GarmentReanalysisProposal({required this.garment, required this.type, required this.photos, required this.snapshot, required this.changes});
+   Iterable<GarmentReanalysisChange> get nonConflicting => changes.where((change) => !change.conflict);
+ }
+ 
+-enum ReanalysisStaleReason { legacy, pipeline, model, styleTaxonomy, thermalEngine, photos }
++enum ReanalysisStaleReason {
++  neverAnalyzed,
++  pipelineOutdated,
++  aiModelOutdated,
++  styleTaxonomyOutdated,
++  thermalEngineOutdated,
++  photoAdded,
++}
+ 
+ class ReanalysisCandidatePolicy {
+   const ReanalysisCandidatePolicy();
+   Set<ReanalysisStaleReason> reasons(Garment garment, GarmentReanalysisVersions versions) {
+     final snapshot = garment.currentAnalysis;
+-    if (snapshot == null || garment.aiAnalysisVersion == null) return {ReanalysisStaleReason.legacy};
++    if (snapshot == null || garment.aiAnalysisVersion == null) {
++      return {ReanalysisStaleReason.neverAnalyzed};
++    }
+     final reasons = <ReanalysisStaleReason>{};
+-    if (snapshot.pipelineVersion != versions.pipeline) reasons.add(ReanalysisStaleReason.pipeline);
+-    if (snapshot.version != versions.aiModel) reasons.add(ReanalysisStaleReason.model);
+-    if (snapshot.values['_styleTaxonomyVersion'] != versions.styleTaxonomy) reasons.add(ReanalysisStaleReason.styleTaxonomy);
+-    if (snapshot.values['_thermalEngineVersion'] != versions.thermalEngine) reasons.add(ReanalysisStaleReason.thermalEngine);
++    if (snapshot.pipelineVersion != versions.pipeline) reasons.add(ReanalysisStaleReason.pipelineOutdated);
++    if (snapshot.version != versions.aiModel) reasons.add(ReanalysisStaleReason.aiModelOutdated);
++    if (snapshot.values['_styleTaxonomyVersion'] != versions.styleTaxonomy) reasons.add(ReanalysisStaleReason.styleTaxonomyOutdated);
++    if (snapshot.values['_thermalEngineVersion'] != versions.thermalEngine) reasons.add(ReanalysisStaleReason.thermalEngineOutdated);
+     final recorded = snapshot.photoIds.toSet();
+-    if (garment.effectivePhotos.any((photo) => !recorded.contains(photo.id))) reasons.add(ReanalysisStaleReason.photos);
++    if (garment.effectivePhotos.any((photo) => !recorded.contains(photo.id))) reasons.add(ReanalysisStaleReason.photoAdded);
+     return reasons;
+   }
+ }
+diff --git a/test/core/ai_context/wardrobe_ai_context_service_test.dart b/test/core/ai_context/wardrobe_ai_context_service_test.dart
+index 2a309827b14ad903d2755bb1a631571f560b0de3..a33e3cac095ac7a0a5326c09386e5b1f6b66e0d0 100644
+--- a/test/core/ai_context/wardrobe_ai_context_service_test.dart
++++ b/test/core/ai_context/wardrobe_ai_context_service_test.dart
+@@ -1,40 +1,60 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/core/ai_context/ai_context.dart';
+ import 'package:wardrobeos/core/ai_context/ai_reanalysis_policy.dart';
+ import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
+ import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/models/style_analysis.dart';
++import 'package:wardrobeos/models/thermal_profile.dart';
+ 
+ Garment garment(String name) => Garment(
+   id: 'stable-id',
+   name: name,
+   category: 'Hauts',
+   sousCategorie: 'T-shirt',
+   couleurPrincipale: 'Bleu',
+   matierePrincipale: 'Coton',
+-  stylesSecondaires: const ['Casual'],
+-  temperatureMinimum: 16,
++  styleAnalysis: StyleAnalysis(
++    inputFingerprint: 't-shirt-coton',
++    suggestedRegister: 'casual',
++    suggestedSecondaryStyles: const ['minimalist'],
++    suggestedCharacteristics: const ['understated'],
++    calculatedAt: DateTime(2026),
++  ),
++  thermalProfile: ThermalProfile(
++    standaloneMinC: 16,
++    standaloneMaxC: 25,
++    layeredMinC: 12,
++    layeredMaxC: 22,
++    level: ThermalLevel.light,
++    breathability: BreathabilityLevel.high,
++    windProtection: WeatherProtection.none,
++    rainCompatibility: WeatherProtection.none,
++    primaryRole: LayerRole.base,
++    inputFingerprint: 't-shirt-coton',
++    calculatedAt: DateTime(2026),
++  ),
+   createdAt: DateTime(2026),
+   updatedAt: DateTime(2026),
+ );
+ 
+ void main() {
+   test('relit la source à chaque construction et conserve l’identifiant', () async {
+     var name = 'Avant';
+     var calls = 0;
+     final service = WardrobeAiContextService(
+       loadCurrentGarments: () async {
+         calls++;
+         return [garment(name)];
+       },
+       clock: () => DateTime.utc(2026, 8, 4),
+     );
+ 
+     final before = await service.build();
+     name = 'Après correction';
+     final after = await service.build();
+ 
+     expect(calls, 2);
+     expect(before.garments.single.name, 'Avant');
+     expect(after.garments.single.name, 'Après correction');
+     expect(after.aiGarments.single.id, 'stable-id');
+     expect(after.toMap()['wardrobeSource'], 'live_database');
+diff --git a/test/features/assistant/assistant_service_test.dart b/test/features/assistant/assistant_service_test.dart
+index 094067be767880e62396e7e0636e2341f4f2b93e..cd8018a4b79d9c8ee693ff05fb5131d3b2dc7901 100644
+--- a/test/features/assistant/assistant_service_test.dart
++++ b/test/features/assistant/assistant_service_test.dart
+@@ -129,51 +129,50 @@ void main() {
+ 
+     expect(
+       await service.generateMessageStream().toList(),
+       ['Premier ', 'second'],
+     );
+     expect(await service.generateMessage(), 'Premier second');
+   });
+ 
+   test('génère une recommandation avec FakeLlmProvider', () async {
+     final wardrobe = WardrobeController()..loading = false;
+     final outfits = OutfitsController()..loading = false;
+     final service = AssistantService(
+       contextBuilder: AssistantContextBuilder(
+         weatherService: _WeatherService(),
+         wardrobeController: wardrobe,
+         outfitsController: outfits,
+         clock: () => DateTime(2026, 7, 18),
+       ),
+       recommendationEngine: OutfitRecommendationEngine(
+         candidateSource:
+             () async => const [
+               OutfitCandidate(
+                 id: 'shirt',
+                 name: 'Chemise bleue',
+                 category: 'Hauts',
+-                season: 'été',
+               ),
+             ],
+         clock: () => DateTime(2026, 7, 18),
+       ),
+       llmProvider: const FakeLlmProvider(response: 'Portez la chemise bleue.'),
+     );
+ 
+     final response = await service.generateMessage(
+       userMessage: "Que mettre aujourd'hui ?",
+     );
+ 
+     expect(response, 'Portez la chemise bleue.');
+     expect(service.lastRecommendationCandidates.single.id, 'shirt');
+     expect(
+       await service.generatePrompt(userMessage: "Que mettre aujourd'hui ?"),
+       contains('### RECOMMANDATION TENUE'),
+     );
+   });
+ 
+   test('une modification récente remplace la fiche précédente dans chaque prompt', () async {
+     var currentName = 'Chemise avant modification';
+     final aiContext = WardrobeAiContextService(
+       loadCurrentGarments: () async => [
+         Garment(
+           id: 'stable-id',
+diff --git a/test/features/assistant/outfit_recommendation_engine_test.dart b/test/features/assistant/outfit_recommendation_engine_test.dart
+index 54f8be166b258e03aa10735eaa095d769805d1cf..f9db70ad01dd3c742e923fc6cfba42aa40953e01 100644
+--- a/test/features/assistant/outfit_recommendation_engine_test.dart
++++ b/test/features/assistant/outfit_recommendation_engine_test.dart
+@@ -1,88 +1,100 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/assistant/recommendation/outfit_candidate.dart';
+ import 'package:wardrobeos/features/assistant/recommendation/outfit_recommendation_engine.dart';
+ import 'package:wardrobeos/features/assistant/recommendation/outfit_recommendation_request.dart';
++import 'package:wardrobeos/models/thermal_profile.dart';
+ 
+ void main() {
+   final now = DateTime(2026, 1, 15, 12);
+ 
++  ThermalProfile thermal(double min, double max) => ThermalProfile(
++    standaloneMinC: min, standaloneMaxC: max,
++    layeredMinC: min - 4, layeredMaxC: max - 2,
++    level: min < 10 ? ThermalLevel.warm : ThermalLevel.light,
++    breathability: BreathabilityLevel.medium,
++    windProtection: WeatherProtection.none,
++    rainCompatibility: WeatherProtection.none,
++    primaryRole: LayerRole.mid,
++    inputFingerprint: '$min-$max', calculatedAt: now,
++  );
++
+   OutfitRecommendationEngine engine(List<OutfitCandidate> candidates) =>
+       OutfitRecommendationEngine(
+         candidateSource: () async => candidates,
+         clock: () => now,
+       );
+ 
+   const coldRequest = OutfitRecommendationRequest(
+     userIntent: 'dailyOutfit',
+     originalMessage: "Que mettre aujourd'hui ?",
+     season: 'hiver',
+     weather: OutfitWeatherConstraints(temperature: 5, condition: 'Froid'),
+   );
+ 
+   test('sélectionne en priorité les vêtements adaptés au froid', () async {
+-    final result = await engine(const [
++    final result = await engine([
+       OutfitCandidate(
+         id: 'shirt',
+         name: 'Chemise',
+         category: 'Hauts',
+-        season: 'hiver',
++        thermalProfile: thermal(-2, 12),
+       ),
+       OutfitCandidate(
+         id: 'coat',
+         name: 'Manteau chaud',
+         category: 'Manteaux',
+-        season: 'hiver',
++        thermalProfile: thermal(-2, 12),
+       ),
+       OutfitCandidate(
+         id: 'shorts',
+         name: 'Short',
+         category: 'Shorts',
+-        season: 'été',
++        thermalProfile: thermal(18, 32),
+       ),
+     ]).recommend(coldRequest);
+ 
+     expect(result.candidates.map((item) => item.id), ['coat', 'shirt']);
+   });
+ 
+   test('exclut les vêtements portés très récemment', () async {
+     final result = await engine([
+       OutfitCandidate(
+         id: 'recent',
+         name: 'Pull récent',
+         category: 'Pulls',
+-        season: 'hiver',
++        thermalProfile: thermal(-2, 12),
+         lastWorn: now.subtract(const Duration(hours: 12)),
+       ),
+-      const OutfitCandidate(
++      OutfitCandidate(
+         id: 'available',
+         name: 'Pull disponible',
+         category: 'Pulls',
+-        season: 'hiver',
++        thermalProfile: thermal(-2, 12),
+       ),
+     ]).recommend(coldRequest);
+ 
+     expect(result.candidates.map((item) => item.id), ['available']);
+   });
+ 
+   test('donne la priorité aux vêtements oubliés', () async {
+     final result = await engine([
+       OutfitCandidate(
+         id: 'frequent',
+         name: 'Pull fréquent',
+         category: 'Pulls',
+-        season: 'hiver',
++        thermalProfile: thermal(-2, 12),
+         wearCount: 20,
+         lastWorn: now.subtract(const Duration(days: 10)),
+       ),
+-      const OutfitCandidate(
++      OutfitCandidate(
+         id: 'forgotten',
+         name: 'Pull oublié',
+         category: 'Pulls',
+-        season: 'hiver',
++        thermalProfile: thermal(-2, 12),
+         wearCount: 0,
+       ),
+     ]).recommend(coldRequest);
+ 
+     expect(result.candidates.first.id, 'forgotten');
+   });
+ }
+diff --git a/test/features/daily_brief/daily_brief_service_test.dart b/test/features/daily_brief/daily_brief_service_test.dart
+index be0110514f4cf28922edda5926ccdb2ae22db67d..32a26ec3491e7fe840690e91951ec47e459368aa 100644
+--- a/test/features/daily_brief/daily_brief_service_test.dart
++++ b/test/features/daily_brief/daily_brief_service_test.dart
+@@ -1,48 +1,60 @@
+ import 'dart:async';
+ 
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
+ import 'package:wardrobeos/features/assistant/memory/memory_repository.dart';
+ import 'package:wardrobeos/features/assistant/memory/memory_service.dart';
+ import 'package:wardrobeos/features/assistant/memory/personal_goal.dart';
+ import 'package:wardrobeos/features/assistant/memory/style_profile.dart';
+ import 'package:wardrobeos/features/assistant/memory/user_memory.dart';
+ import 'package:wardrobeos/features/daily_brief/daily_brief_models.dart';
+ import 'package:wardrobeos/features/daily_brief/daily_brief_service.dart';
+ import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/models/thermal_profile.dart';
+ import 'package:wardrobeos/weather/models/weather_data.dart';
+ import 'package:wardrobeos/weather/services/weather_service.dart';
+ 
+ Garment _garment(String id, String name, String category) => Garment(
+   id: id,
+   name: name,
+   category: category,
+   couleurPrincipale: 'Bleu',
+   matierePrincipale: 'Coton',
+-  temperatureMinimum: 10,
+-  temperatureMaximum: 25,
++  thermalProfile: ThermalProfile(
++    standaloneMinC: 10,
++    standaloneMaxC: 25,
++    layeredMinC: 6,
++    layeredMaxC: 22,
++    level: ThermalLevel.moderate,
++    breathability: BreathabilityLevel.medium,
++    windProtection: WeatherProtection.none,
++    rainCompatibility: WeatherProtection.none,
++    primaryRole: LayerRole.mid,
++    inputFingerprint: '$category-coton',
++    calculatedAt: DateTime(2026),
++  ),
+   createdAt: DateTime(2026),
+   updatedAt: DateTime(2026),
+ );
+ 
+ void main() {
+   test('propose une tenue avant la météo puis enrichit le même brief', () async {
+     final weather = Completer<WeatherData>();
+     final service = _service(
+       wardrobe: [_garment('top', 'Chemise', 'Hauts')],
+       weather: _Weather(() => weather.future),
+     );
+     final events = <DailyBrief>[];
+     final done = service.watch().listen(events.add).asFuture<void>();
+ 
+     await Future<void>.delayed(Duration.zero);
+     expect(events, hasLength(1));
+     expect(events.single.outfitProposals, isNotEmpty);
+     expect(events.single.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
+ 
+     weather.complete(_weatherData);
+     await done;
+     expect(events, hasLength(2));
+     expect(events.last.cards.any((card) => card.type == DailyBriefCardType.weather), isTrue);
+   });
+ 
+diff --git a/test/features/scanner/scanner_persistence_foundations_test.dart b/test/features/scanner/scanner_persistence_foundations_test.dart
+index daab86d9dcda58c3c077bdcb37ba40cc57928375..d88cc8a19fdbcd94e05f0441686d913bfe4e4d48 100644
+--- a/test/features/scanner/scanner_persistence_foundations_test.dart
++++ b/test/features/scanner/scanner_persistence_foundations_test.dart
+@@ -1,67 +1,48 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/scanner/ai/analysis_foundations.dart';
+ import 'package:wardrobeos/features/scanner/ai/normalization/garment_value_normalizer.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/garment_photo.dart';
+ 
+ void main() {
+   final now = DateTime.utc(2026, 8, 4);
+ 
+-  test('legacy garment exposes its image as a typed primary photo', () {
+-    final legacy = Garment.fromMap({
+-      'id': 'old', 'name': 'Pull', 'category': 'Hauts',
+-      'image_path': '/images/old.jpg',
+-      'created_at': now.toIso8601String(), 'updated_at': now.toIso8601String(),
+-    });
+-    expect(legacy.effectivePhotos.single.path, '/images/old.jpg');
+-    expect(legacy.effectivePhotos.single.type, GarmentPhotoType.primary);
+-  });
+-
+   test('several typed photos survive a persistence round trip', () {
+     final garment = Garment(
+-      id: 'g', name: 'Basket', category: 'Chaussures', imagePath: '/p/main.jpg',
++      id: 'g', name: 'Basket', category: 'Chaussures',
+       photos: [
+         GarmentPhoto(id: '1', path: '/p/main.jpg', type: GarmentPhotoType.primary, createdAt: now),
+         GarmentPhoto(id: '2', path: '/p/sole.jpg', type: GarmentPhotoType.sole, createdAt: now),
+       ],
+       createdAt: now, updatedAt: now,
+     );
+     final restored = Garment.fromMap(garment.toMap());
+     expect(restored.photos.map((photo) => photo.type), [GarmentPhotoType.primary, GarmentPhotoType.sole]);
+     expect(restored.photos.map((photo) => photo.path), ['/p/main.jpg', '/p/sole.jpg']);
+   });
+ 
+-  test('missing complementary photo data degrades without losing legacy path', () {
+-    final garment = Garment.fromMap({
+-      'id': 'g', 'name': 'Veste', 'category': 'Vestes',
+-      'image_path': '/main.jpg', 'photos': '[broken',
+-      'created_at': now.toIso8601String(), 'updated_at': now.toIso8601String(),
+-    });
+-    expect(garment.effectivePhotos.single.path, '/main.jpg');
+-  });
+-
+   test('analysis version identifies stale records and snapshots round-trip', () {
+     final snapshot = GarmentAnalysisSnapshot(version: 'v1', analyzedAt: now, values: const {'category': 'Hauts'});
+     final garment = Garment(id: 'g', name: 'Pull', category: 'Hauts', lastAnalyzedAt: now, aiAnalysisVersion: 'v1', currentAnalysis: snapshot, createdAt: now, updatedAt: now);
+     final restored = Garment.fromMap(garment.toMap());
+     expect(restored.needsAiReanalysis('v2'), isTrue);
+     expect(restored.needsAiReanalysis('v1'), isFalse);
+     expect(restored.currentAnalysis?.values['category'], 'Hauts');
+   });
+ 
+   test('AI enrichment never overwrites user corrections made while it runs', () {
+     final merged = const AnalysisMergePolicy().merge(
+       current: const {'category': 'Vestes', 'color': 'Rouge'},
+       analysis: const {'category': 'Hauts', 'color': 'Bleu', 'material': 'Coton'},
+       userModifiedFields: const {'category', 'color'},
+     );
+     expect(merged, {'category': 'Vestes', 'color': 'Rouge', 'material': 'Coton'});
+   });
+ 
+   test('a second photo added during a slow analysis remains associated', () async {
+     final session = AnalysisSession()..addPhoto('/main.jpg');
+     final gate = Future<void>.delayed(const Duration(milliseconds: 10));
+     final analysis = session.run((photos) async {
+       expect(photos, ['/main.jpg']);
+       await gate;
+     });
+diff --git a/test/features/wardrobe/garment_reanalysis_test.dart b/test/features/wardrobe/garment_reanalysis_test.dart
+index a64845a7f5c81dc3ef1b29ffcca501b7fb429ab1..0bbe8112e0dce5568c315b7b876b70ba571fff1d 100644
+--- a/test/features/wardrobe/garment_reanalysis_test.dart
++++ b/test/features/wardrobe/garment_reanalysis_test.dart
+@@ -1,33 +1,33 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/scanner/ai/analysis_foundations.dart';
+ import 'package:wardrobeos/features/wardrobe/reanalysis/garment_reanalysis_models.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/garment_photo.dart';
+ 
+ Garment garment({GarmentAnalysisSnapshot? snapshot, String? version, List<GarmentPhoto> photos = const []}) => Garment(
+   id: 'g1', name: 'Pull', category: 'Hauts', photos: photos, aiAnalysisVersion: version,
+   currentAnalysis: snapshot, createdAt: DateTime(2025), updatedAt: DateTime(2025),
+ );
+ 
+ void main() {
+   const versions = GarmentReanalysisVersions(aiModel: 'model-2', pipeline: 'pipeline-2', styleTaxonomy: 'styles-2', thermalEngine: 'thermal-2');
+   const policy = ReanalysisCandidatePolicy();
+ 
+   test('une ancienne fiche sans version est candidate', () {
+-    expect(policy.reasons(garment(), versions), {ReanalysisStaleReason.legacy});
++    expect(policy.reasons(garment(), versions), {ReanalysisStaleReason.neverAnalyzed});
+   });
+ 
+   test('les versions et nouvelles photos invalident uniquement les bons moteurs', () {
+     final photo = GarmentPhoto(id: 'p2', path: '/detail.jpg', type: GarmentPhotoType.detail, createdAt: DateTime(2025));
+     final snapshot = GarmentAnalysisSnapshot(version: 'model-1', pipelineVersion: 'pipeline-1', analyzedAt: DateTime(2025), photoIds: const ['p1'], values: const {'_styleTaxonomyVersion': 'styles-1', '_thermalEngineVersion': 'thermal-1'});
+-    expect(policy.reasons(garment(snapshot: snapshot, version: 'model-1', photos: [photo]), versions), containsAll(ReanalysisStaleReason.values.where((reason) => reason != ReanalysisStaleReason.legacy)));
++    expect(policy.reasons(garment(snapshot: snapshot, version: 'model-1', photos: [photo]), versions), containsAll(ReanalysisStaleReason.values.where((reason) => reason != ReanalysisStaleReason.neverAnalyzed)));
+   });
+ 
+   test('un snapshot versionné conserve type, pipeline et photos', () {
+     final snapshot = GarmentAnalysisSnapshot(version: 'model-2', pipelineVersion: 'pipeline-2', analyzedAt: DateTime(2025), reanalysisType: 'style', photoIds: const ['main', 'other'], values: const {'style': 'minimaliste'});
+     final restored = GarmentAnalysisSnapshot.fromJson(snapshot.toJson());
+     expect(restored.pipelineVersion, 'pipeline-2');
+     expect(restored.reanalysisType, 'style');
+     expect(restored.photoIds, ['main', 'other']);
+   });
+ }
+diff --git a/test/models_garment_test.dart b/test/models_garment_test.dart
+index ec9340ba514591292b2d6bf663728ab188f726d8..ca2f4a9f17214af538bf28a77e0e06753ea7ae36 100644
+--- a/test/models_garment_test.dart
++++ b/test/models_garment_test.dart
+@@ -1,30 +1,32 @@
+ import 'dart:convert';
+ 
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/garment_normalizer.dart';
++import 'package:wardrobeos/models/style_analysis.dart';
++import 'package:wardrobeos/models/thermal_profile.dart';
+ 
+ void main() {
+   test('effectiveOccasions preserves multiple uses and supports legacy data', () {
+     final now = DateTime(2026);
+     final legacy = Garment(
+       id: 'legacy',
+       name: 'Chemise',
+       category: 'Chemises',
+       occasion: 'Travail',
+       createdAt: now,
+       updatedAt: now,
+     );
+     final multiple = Garment(
+       id: 'multiple',
+       name: 'Veste',
+       category: 'Vestes',
+       occasion: 'Quotidien',
+       occasions: const ['Travail', 'Voyage', 'Travail'],
+       createdAt: now,
+       updatedAt: now,
+     );
+ 
+     expect(legacy.effectiveOccasions, ['Travail']);
+     expect(multiple.effectiveOccasions, ['Travail', 'Voyage']);
+   });
+@@ -56,112 +58,130 @@ void main() {
+     expect(legacy.saisons, ['Hiver']);
+ 
+     final garment = legacy.copyWith(
+       saisons: const ['Automne', 'Hiver', 'Hiver'],
+     );
+     expect(garment.effectiveSeasons, ['Automne', 'Hiver']);
+     expect(
+       jsonDecode(garment.toMap()['saisons']! as String),
+       ['Automne', 'Hiver'],
+     );
+   });
+ 
+   test('serializes, copies and compares every rich field', () {
+     final garment = Garment(
+       id: 'g1',
+       name: 'Veste',
+       category: 'Vestes',
+       sousCategorie: 'Blazer',
+       typePrecis: 'Blazer croisé',
+       descriptionIA: 'Veste structurée',
+       couleurPrincipale: 'Bleu marine',
+       couleursSecondaires: const ['Blanc'],
+       motif: 'Rayures',
+       texture: 'Lisse',
+       logoVisible: false,
+-      stylePrincipal: 'Business casual',
+-      stylesSecondaires: const ['Élégant'],
++      styleAnalysis: StyleAnalysis(
++        inputFingerprint: 'blazer-laine',
++        suggestedRegister: 'smart_casual',
++        suggestedSecondaryStyles: const ['preppy'],
++        suggestedCharacteristics: const ['elegant', 'structured'],
++        evidence: const ['Blazer formel et structuré'],
++        calculatedAt: now,
++      ),
+       niveauFormalite: 'Formel',
+       coupe: 'Slim',
+       longueur: 'Standard',
+       longueurManches: 'Longues',
+       typeCol: 'Revers',
+       typeFermeture: 'Boutons',
+       matierePrincipale: 'Laine',
+       matieresSecondaires: const ['Soie'],
+       confianceMatiere: .8,
+       saisons: const ['Automne', 'Hiver'],
+       occasions: const ['Travail'],
+-      temperatureMinimum: 3,
+-      temperatureMaximum: 18,
++      thermalProfile: ThermalProfile(
++        standaloneMinC: 3,
++        standaloneMaxC: 18,
++        layeredMinC: -1,
++        layeredMaxC: 15,
++        level: ThermalLevel.warm,
++        breathability: BreathabilityLevel.medium,
++        windProtection: WeatherProtection.limited,
++        rainCompatibility: WeatherProtection.none,
++        primaryRole: LayerRole.mid,
++        acceptsUnder: const [LayerRole.base],
++        acceptsOver: const [LayerRole.outer],
++        inputFingerprint: 'blazer-laine',
++        calculatedAt: now,
++      ),
+       compatiblePluie: false,
+       compatibleChaleur: false,
+       superposable: true,
+       etatVisuel: 'Excellent',
+       usureVisible: 'Aucune',
+       defautsVisibles: const [],
+       confianceGlobale: .9,
+       avertissementsIA: const ['Matière à confirmer'],
+-      resumeStylistique: 'Un blazer formel et structuré.',
+       pointsForts: const ['Coupe nette'],
+       pointsFaibles: const ['Peu décontracté'],
+       conseils: const ['Associer à une chemise claire'],
+       verdict: 'Une pièce forte pour le bureau.',
+       couleursCompatibles: const ['Écru', 'Marine'],
+       couleursMoinsAdaptees: const ['Orange vif'],
+       basCompatibles: const ['Pantalon droit'],
+       chaussuresCompatibles: const ['Derbies'],
+       explicationPolyvalence: 'Polyvalence moyenne.',
+       occasionsDeconseillees: const ['Sport'],
+       compositionEstimee: 'Laine majoritaire, doublure synthétique',
+       lavage: 'Nettoyage professionnel recommandé',
+       sechage: 'Séchage sur cintre',
+       repassage: 'Fer doux avec pattemouille',
+       nettoyage: 'Nettoyage à sec',
+       boulochage: 'Léger aux poignets',
+       taches: 'Aucune visible',
+       limitesAnalyse: const ['Étiquette non visible'],
+       createdAt: now,
+       updatedAt: now,
+     );
+     final restored = Garment.fromMap(garment.toMap());
+     expect(restored, garment);
+     expect(restored.copyWith(name: 'Nouveau').name, 'Nouveau');
+     expect(restored.validate(), isNull);
+-    expect(restored.resumeStylistique, contains('formel'));
++    expect(restored.styleAnalysis?.register, 'smart_casual');
++    expect(restored.styleAnalysis?.characteristics, contains('structured'));
++    expect(restored.styleAnalysis?.evidence, contains('Blazer formel et structuré'));
+     expect(restored.limitesAnalyse, ['Étiquette non visible']);
+     expect(restored.couleursCompatibles, ['Écru', 'Marine']);
+     expect(restored.explicationPolyvalence, 'Polyvalence moyenne.');
+   });
+ 
+-  test('validates temperatures and confidence', () {
++  test('validates confidence', () {
+     final invalid = Garment(
+       id: 'g',
+       name: 'Test',
+       category: 'Autre',
+-      temperatureMinimum: 20,
+-      temperatureMaximum: 10,
+       confianceGlobale: 2,
+       createdAt: now,
+       updatedAt: now,
+     );
+     expect(invalid.validate(), isNotNull);
+   });
+ 
+   test('preserves null and empty stylistic association values', () {
+     final garment = Garment(
+       id: 'empty',
+       name: 'Pièce',
+       category: 'Autre',
+       couleursCompatibles: const [],
+       couleursMoinsAdaptees: null,
+       basCompatibles: const [],
+       chaussuresCompatibles: null,
+       createdAt: now,
+       updatedAt: now,
+     );
+ 
+     final restored = Garment.fromMap(garment.toMap());
+     expect(restored.couleursCompatibles, isEmpty);
+     expect(restored.couleursMoinsAdaptees, isNull);
+     expect(restored.basCompatibles, isEmpty);
+     expect(restored.chaussuresCompatibles, isNull);

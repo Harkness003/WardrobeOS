@@ -68,8 +68,6 @@ class RecommendationEngine {
     final details = <RecommendationCriterionScore>[
       _detail('style', weights.style, _style(candidate, base, context, preferences)),
       _detail('formalité', weights.formality, _same(candidate.formality, base?.formality)),
-      // Season remains a low-confidence compatibility fallback for legacy
-      // records; thermal data drives weather decisions.
       _detail('saison', weights.season, _season(candidate, context)),
       _detail('température', weights.temperature, _temperature(candidate, context)),
       _detail('couleurs', weights.color, _color(candidate, base, preferences)),

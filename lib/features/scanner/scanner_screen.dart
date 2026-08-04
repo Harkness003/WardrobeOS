@@ -354,7 +354,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
       brand: brand.text.trim().isEmpty ? null : brand.text.trim(),
       color: color.text.trim().isEmpty ? null : color.text.trim(),
       material: material.text.trim().isEmpty ? null : material.text.trim(),
-      season: season,
       sousCategorie: result?.preciseType,
       descriptionIA: result?.suggestedName,
       couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
@@ -370,10 +369,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
         final value? => [value],
         null => null,
       },
-      stylePrincipal: _suggestStyle(result),
-      stylesSecondaires: [_suggestStyle(result)],
-      temperatureMinimum: thermalProfile.standaloneMinC,
-      temperatureMaximum: thermalProfile.standaloneMaxC,
       compatiblePluie: thermalProfile.rainCompatibility.name != 'none',
       compatibleChaleur: thermalProfile.breathability.name == 'high',
       layerType: switch (thermalProfile.primaryRole.name) {
@@ -384,7 +379,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
       thermalProfile: thermalProfile,
       confianceGlobale: result?.globalConfidence,
       avertissementsIA: result?.warnings,
-      resumeStylistique: result?.styleSummary,
       pointsForts: result?.styleStrengths,
       pointsFaibles: result?.styleWeaknesses,
       conseils: result?.styleAdvice,
@@ -402,7 +396,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
           'Suggestions IA vérifiées · confiance ${((analysis.overallConfidence ?? analysis.globalConfidence) * 100).round()} %.',
         null => 'Ajout manuel depuis le scanner.',
       },
-      imagePath: sessionImagePaths.isEmpty ? imagePath : sessionImagePaths.first,
       photos: [
         for (var index = 0; index < sessionImagePaths.length; index++)
           GarmentPhoto(
@@ -425,7 +418,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
       createdAt: now,
       updatedAt: now,
-    );
+    ).withCurrentStyleAnalysis(calculatedAt: now);
 
     try {
       if (!mounted) return;

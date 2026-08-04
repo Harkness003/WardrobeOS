@@ -31,7 +31,6 @@ class StyleAnalysis {
   final List<String>? userCharacteristics;
   final List<String> evidence;
   final DateTime calculatedAt;
-  final bool migratedFromLegacy;
 
   const StyleAnalysis({
     this.taxonomyVersion = StyleTaxonomy.version,
@@ -45,7 +44,6 @@ class StyleAnalysis {
     this.userCharacteristics,
     this.evidence = const [],
     required this.calculatedAt,
-    this.migratedFromLegacy = false,
   });
 
   String get register => userRegister ?? suggestedRegister;
@@ -68,7 +66,6 @@ class StyleAnalysis {
         userSecondaryStyles: secondaryStyles ?? userSecondaryStyles,
         userCharacteristics: characteristics ?? userCharacteristics,
         evidence: evidence, calculatedAt: calculatedAt,
-        migratedFromLegacy: migratedFromLegacy,
       );
 
   StyleAnalysis retainCorrectionsFrom(StyleAnalysis? previous) => StyleAnalysis(
@@ -80,7 +77,6 @@ class StyleAnalysis {
     userSecondaryStyles: previous?.userSecondaryStyles,
     userCharacteristics: previous?.userCharacteristics,
     evidence: evidence, calculatedAt: calculatedAt,
-    migratedFromLegacy: migratedFromLegacy,
   );
 
   String encode() => jsonEncode({
@@ -93,7 +89,6 @@ class StyleAnalysis {
     'userSecondaryStyles': userSecondaryStyles,
     'userCharacteristics': userCharacteristics,
     'evidence': evidence, 'calculatedAt': calculatedAt.toIso8601String(),
-    'migratedFromLegacy': migratedFromLegacy,
   });
 
   static StyleAnalysis? decode(Object? source) {
@@ -119,7 +114,6 @@ class StyleAnalysis {
         evidence: strings(map['evidence']),
         calculatedAt: DateTime.tryParse(map['calculatedAt']?.toString() ?? '') ??
             DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-        migratedFromLegacy: map['migratedFromLegacy'] == true,
       );
     } on FormatException { return null; }
   }

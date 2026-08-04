@@ -5,8 +5,8 @@ enum BreathabilityLevel { low, medium, high }
 enum WeatherProtection { none, limited, resistant }
 enum LayerRole { base, mid, outer }
 
-/// Versioned, explainable thermal description. Seasons are deliberately absent:
-/// they remain a legacy display/filter concern, not an estimation input.
+/// Versioned, explainable thermal description. Seasons are deliberately absent
+/// because they are not estimation inputs.
 class ThermalProfile {
   static const currentModelVersion = 1;
 
@@ -107,30 +107,4 @@ class ThermalProfile {
     }
   }
 
-  /// Allows pre-sprint records to be consumed until they are next edited.
-  factory ThermalProfile.fromLegacy({double? minimum, double? maximum, bool? rain, String? layerType}) {
-    final min = minimum ?? 12;
-    final max = maximum ?? min + 8;
-    final safeMax = max < min ? min : max;
-    final role = layerType?.toLowerCase().contains('ext') == true
-        ? LayerRole.outer
-        : layerType?.toLowerCase().contains('base') == true ? LayerRole.base : LayerRole.mid;
-    return ThermalProfile(
-      standaloneMinC: min,
-      standaloneMaxC: safeMax,
-      layeredMinC: min - 4,
-      layeredMaxC: safeMax - 2,
-      level: ThermalLevel.moderate,
-      breathability: BreathabilityLevel.medium,
-      windProtection: WeatherProtection.none,
-      rainCompatibility: rain == true ? WeatherProtection.limited : WeatherProtection.none,
-      primaryRole: role,
-      acceptsUnder: role == LayerRole.base ? const [] : const [LayerRole.base],
-      acceptsOver: role == LayerRole.outer ? const [] : const [LayerRole.mid, LayerRole.outer],
-      inputFingerprint: 'legacy',
-      calculatedAt: DateTime.fromMillisecondsSinceEpoch(0),
-      confidence: .3,
-      extensions: const {'source': 'legacy-adapter'},
-    );
-  }
 }

@@ -21,7 +21,7 @@ class SystemPromptSection implements PromptSection {
     'Pour toute question sur une tenue ou un vêtement, la section GARDE-ROBE de ce prompt est la seule source de vérité sur le dressing actuel.',
     "N'utilise jamais une pièce issue de la conversation, de la mémoire ou d'un ancien contexte si son identifiant n'est pas dans la GARDE-ROBE actuelle.",
     "Pour créer une ou plusieurs tenues ou idées de look, utilise exclusivement des vêtements réellement listés dans la GARDE-ROBE actuelle ; n'invente aucune pièce et ne propose aucun achat.",
-    'Priorise StyleAnalysis, profilThermiqueEffectif, rôle et compatibilités de couches, formalité, couleurs et préférences utilisateur. La saison et les anciens champs style ne sont que des recours secondaires.',
+    'Priorise StyleAnalysis, profilThermiqueEffectif, rôle et compatibilités de couches, formalité, couleurs et préférences utilisateur.',
     'La météo améliore une recommandation quand elle existe mais reste facultative : son absence ne doit jamais empêcher de proposer la meilleure tenue possible.',
     'Vérifie la cohérence globale de chaque tenue : style, température, couches, formalité et couleurs.',
     "Si plusieurs tenues sont demandées, donne pour chacune une justification courte et factuelle (profil thermique, style, rotation ou météo disponible).",

@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../data/image_storage_service.dart';
 import '../../models/garment.dart';
+import '../../models/garment_photo.dart';
 import '../../models/thermal_profile_calculator.dart';
 import '../../widgets/garment_image.dart';
 import 'wardrobe_controller.dart';
@@ -62,8 +63,8 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     final hasCustomCategory = g != null && !categories.contains(g.category);
     _otherCategory = TextEditingController(text: hasCustomCategory ? g.category : '');
     _otherSubCategory = TextEditingController(text: hasCustomCategory ? g.sousCategorie ?? '' : '');
-    _minTemp = TextEditingController(text: g?.temperatureMinimum?.toString() ?? '');
-    _maxTemp = TextEditingController(text: g?.temperatureMaximum?.toString() ?? '');
+    _minTemp = TextEditingController(text: g?.thermalProfile?.standaloneMinC.toString() ?? '');
+    _maxTemp = TextEditingController(text: g?.thermalProfile?.standaloneMaxC.toString() ?? '');
     _category = hasCustomCategory ? 'Autre' : (categories.contains(g?.category) ? g!.category : categories.first);
     _subCategory = _choice(g?.sousCategorie, subCategories[_category]!);
     final existingMaterial = g?.matierePrincipale ?? g?.material;
@@ -74,11 +75,11 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     final customUses = existingUses.where((value) => !uses.contains(value)).toList();
     if (customUses.isNotEmpty) _uses.add('Autre...');
     _otherUse = TextEditingController(text: customUses.join(', '));
-    _styles = {...?g?.stylesSecondaires, if (g?.stylePrincipal != null) g!.stylePrincipal!, if (g?.style != null) g!.style!}.where(styles.contains).toSet();
+    _styles = g == null ? <String>{} : {g.effectiveStyleAnalysis.register, ...g.effectiveStyleAnalysis.secondaryStyles}.where(styles.contains).toSet();
     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
     _rain = g?.compatiblePluie;
     _heat = g?.compatibleChaleur;
-    _imagePath = g?.imagePath;
+    _imagePath = g == null || g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path;
   }
 
   static String? _choice(String? value, List<String> values) => values.contains(value) ? value : null;
@@ -95,7 +96,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     final picked = await _picker.pickImage(source: source, imageQuality: 88, maxWidth: 1800);
     if (picked == null) return;
     final path = await ImageStorageService.persist(picked.path);
-    if (_imagePath != null && _imagePath != widget.garment?.imagePath) await ImageStorageService.remove(_imagePath);
+    if (_imagePath != null && _imagePath != (widget.garment == null || widget.garment!.effectivePhotos.isEmpty ? null : widget.garment!.effectivePhotos.first.path)) await ImageStorageService.remove(_imagePath);
     if (mounted) setState(() => _imagePath = path);
   }
 
@@ -104,7 +105,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     builder: (context) => SafeArea(child: Wrap(children: [
       ListTile(leading: const Icon(Icons.camera_alt_outlined), title: const Text('Prendre une photo'), onTap: () { Navigator.pop(context); _chooseImage(ImageSource.camera); }),
       ListTile(leading: const Icon(Icons.photo_library_outlined), title: const Text('Changer la photo'), onTap: () { Navigator.pop(context); _chooseImage(ImageSource.gallery); }),
-      if (_imagePath != null) ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Supprimer la photo'), onTap: () async { Navigator.pop(context); if (_imagePath != widget.garment?.imagePath) await ImageStorageService.remove(_imagePath); if (mounted) setState(() => _imagePath = null); }),
+      if (_imagePath != null) ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Supprimer la photo'), onTap: () async { Navigator.pop(context); if (_imagePath != (widget.garment == null || widget.garment!.effectivePhotos.isEmpty ? null : widget.garment!.effectivePhotos.first.path)) await ImageStorageService.remove(_imagePath); if (mounted) setState(() => _imagePath = null); }),
     ])),
   );
 
@@ -176,17 +177,12 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     );
     final garment = Garment(
       id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: _category == 'Autre' ? (_text(_otherCategory) ?? 'Autre') : _category,
-      brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes), imagePath: _imagePath,
+      brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes),
+      photos: _imagePath == null ? const [] : [GarmentPhoto(id: old?.effectivePhotos.firstOrNull?.id ?? const Uuid().v4(), path: _imagePath!, type: GarmentPhotoType.primary, createdAt: old?.effectivePhotos.firstOrNull?.createdAt ?? now)],
       sousCategorie: _subCategory == 'Autre' ? _text(_otherSubCategory) : _subCategory, couleurPrincipale: _text(_color), matierePrincipale: material,
-      // Legacy-only values remain persisted although they are no longer shown.
       typePrecis: old?.typePrecis, superposable: old?.superposable,
-      style: _styles.isEmpty ? null : _styles.first, stylePrincipal: _styles.isEmpty ? null : _styles.first, stylesSecondaires: _styles.toList(),
-      season: _seasons.length == 1 ? _seasons.single : null, saisons: _seasons.toList(),
-      // Keep the first value in the legacy scalar while persisting every use.
-      occasion: uniqueUses.isEmpty ? null : uniqueUses.first,
+      saisons: _seasons.toList(),
       occasions: uniqueUses.isEmpty ? null : uniqueUses,
-      // Legacy projections stay synchronized while consumers migrate.
-      temperatureMinimum: thermalProfile.standaloneMinC, temperatureMaximum: thermalProfile.standaloneMaxC,
       compatiblePluie: thermalProfile.rainCompatibility.name != 'none',
       compatibleChaleur: thermalProfile.breathability.name == 'high',
       layerType: switch (thermalProfile.primaryRole.name) {
@@ -200,7 +196,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       longueurManches: old?.longueurManches, typeCol: old?.typeCol, typeFermeture: old?.typeFermeture,
       matieresSecondaires: old?.matieresSecondaires, confianceMatiere: old?.confianceMatiere, etatVisuel: old?.etatVisuel,
       usureVisible: old?.usureVisible, defautsVisibles: old?.defautsVisibles, confianceGlobale: old?.confianceGlobale,
-      avertissementsIA: old?.avertissementsIA, resumeStylistique: old?.resumeStylistique, pointsForts: old?.pointsForts,
+      avertissementsIA: old?.avertissementsIA, pointsForts: old?.pointsForts,
       pointsFaibles: old?.pointsFaibles, conseils: old?.conseils, verdict: old?.verdict, couleursCompatibles: old?.couleursCompatibles,
       couleursMoinsAdaptees: old?.couleursMoinsAdaptees, basCompatibles: old?.basCompatibles, chaussuresCompatibles: old?.chaussuresCompatibles,
       explicationPolyvalence: old?.explicationPolyvalence, occasionsDeconseillees: old?.occasionsDeconseillees,

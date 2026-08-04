@@ -9,11 +9,11 @@ class GarmentAnalysisSnapshot {
   final List<String> photoIds;
   final Map<String, Object?> values;
 
-  const GarmentAnalysisSnapshot({required this.version, this.pipelineVersion = 'legacy', required this.analyzedAt, this.reanalysisType = 'complete', this.photoIds = const [], required this.values});
+  const GarmentAnalysisSnapshot({required this.version, this.pipelineVersion = 'scanner-pipeline-v1', required this.analyzedAt, this.reanalysisType = 'complete', this.photoIds = const [], required this.values});
   Map<String, Object?> toJson() => {'version': version, 'pipelineVersion': pipelineVersion, 'analyzedAt': analyzedAt.toIso8601String(), 'reanalysisType': reanalysisType, 'photoIds': photoIds, 'values': values};
   factory GarmentAnalysisSnapshot.fromJson(Map<String, Object?> json) => GarmentAnalysisSnapshot(
-    version: json['version']?.toString() ?? 'legacy',
-    pipelineVersion: json['pipelineVersion']?.toString() ?? 'legacy',
+    version: json['version']?.toString() ?? 'scanner-pipeline-v1',
+    pipelineVersion: json['pipelineVersion']?.toString() ?? 'scanner-pipeline-v1',
     analyzedAt: DateTime.tryParse(json['analyzedAt']?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
     reanalysisType: json['reanalysisType']?.toString() ?? 'complete',
     photoIds: (json['photoIds'] as List?)?.map((value) => value.toString()).toList() ?? const [],

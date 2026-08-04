@@ -188,7 +188,7 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              _ThumbnailGrid(paths: garments.map((g) => g.imagePath).toList()),
+              _ThumbnailGrid(paths: garments.map((g) => g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path).toList()),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -239,7 +239,7 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              _ThumbnailGrid(paths: garments.map((g) => g.imagePath).toList()),
+              _ThumbnailGrid(paths: garments.map((g) => g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path).toList()),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(

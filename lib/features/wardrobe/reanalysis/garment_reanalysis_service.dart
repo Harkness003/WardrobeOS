@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../../core/ai_context/ai_reanalysis_policy.dart';
 import '../../../models/garment.dart';
+import '../../../models/thermal_profile_calculator.dart';
 import '../../scanner/ai/analysis_foundations.dart';
 import '../../scanner/ai/garment_analysis_request.dart';
 import '../../scanner/ai/garment_analysis_result.dart';
@@ -68,10 +69,76 @@ class GarmentReanalysisService {
     await repository.save(updated.copyWith(previousAnalysis: latest.currentAnalysis, currentAnalysis: proposal.snapshot, aiAnalysisVersion: versions.aiModel, lastAnalyzedAt: proposal.snapshot.analyzedAt, updatedAt: now()));
   }
 
-  Map<String, Object?> _values(Garment g) => {'name': g.name, 'category': g.category, 'sousCategorie': g.sousCategorie, 'material': g.material, 'composition': g.composition, 'style': g.style, 'season': g.season, 'temperatureMinimum': g.temperatureMinimum, 'temperatureMaximum': g.temperatureMaximum};
-  Map<String, Object?> _resultValues(GarmentAnalysisResult r) => {'name': r.suggestedName, 'category': r.category, 'sousCategorie': r.preciseType, 'material': r.material, 'style': r.styleSummary, 'season': r.season}..removeWhere((_, value) => value == null);
-  Map<String, Object?> _restrict(Map<String, Object?> values, GarmentReanalysisType type) { if (type == GarmentReanalysisType.complete) return values; final fields = switch(type) { GarmentReanalysisType.composition => {'material','composition'}, GarmentReanalysisType.style => {'style'}, GarmentReanalysisType.thermal => {'season','temperatureMinimum','temperatureMaximum'}, GarmentReanalysisType.category => {'category','sousCategorie'}, _ => values.keys.toSet() }; return Map.fromEntries(values.entries.where((e) => fields.contains(e.key))); }
-  Set<String> _fields(GarmentReanalysisType type) => _restrict({'name': null, 'category': null, 'sousCategorie': null, 'material': null, 'composition': null, 'style': null, 'season': null, 'temperatureMinimum': null, 'temperatureMaximum': null}, type).keys.toSet();
-  Garment _applyField(Garment g, String field, Object? value) => switch(field) { 'name' => g.copyWith(name: value.toString()), 'category' => g.copyWith(category: value.toString()), 'sousCategorie' => g.copyWith(sousCategorie: value?.toString()), 'material' => g.copyWith(material: value?.toString()), 'composition' => g.copyWith(composition: value?.toString()), 'style' => g.copyWith(style: value?.toString()), 'season' => g.copyWith(season: value?.toString()), 'temperatureMinimum' => g.copyWith(temperatureMinimum: value as double?), 'temperatureMaximum' => g.copyWith(temperatureMaximum: value as double?), _ => g };
+  Map<String, Object?> _values(Garment g) => {
+    'name': g.name,
+    'category': g.category,
+    'sousCategorie': g.sousCategorie,
+    'material': g.material,
+    'composition': g.composition,
+    'styleAnalysis': g.styleAnalysis?.register,
+    'saisons': g.saisons,
+    'thermalProfile': g.thermalProfile?.toJson(),
+  };
+
+  Map<String, Object?> _resultValues(GarmentAnalysisResult result) => {
+    'name': result.suggestedName,
+    'category': result.category,
+    'sousCategorie': result.preciseType,
+    'material': result.material,
+    'styleAnalysis': result.styleSummary,
+    if (result.season != null) 'saisons': [result.season!],
+  }..removeWhere((_, value) => value == null);
+
+  Map<String, Object?> _restrict(Map<String, Object?> values, GarmentReanalysisType type) {
+    if (type == GarmentReanalysisType.complete) return values;
+    final fields = switch (type) {
+      GarmentReanalysisType.composition => {'material', 'composition'},
+      GarmentReanalysisType.style => {'styleAnalysis'},
+      GarmentReanalysisType.thermal => {'material', 'composition'},
+      GarmentReanalysisType.category => {'category', 'sousCategorie'},
+      _ => values.keys.toSet(),
+    };
+    return Map.fromEntries(values.entries.where((entry) => fields.contains(entry.key)));
+  }
+
+  Set<String> _fields(GarmentReanalysisType type) => _restrict({
+    'name': null,
+    'category': null,
+    'sousCategorie': null,
+    'material': null,
+    'composition': null,
+    'styleAnalysis': null,
+    'saisons': null,
+  }, type).keys.toSet();
+
+  Garment _applyField(Garment garment, String field, Object? value) {
+    final updated = switch (field) {
+      'name' => garment.copyWith(name: value.toString()),
+      'category' => garment.copyWith(category: value.toString()),
+      'sousCategorie' => garment.copyWith(sousCategorie: value?.toString()),
+      'material' => garment.copyWith(material: value?.toString()),
+      'composition' => garment.copyWith(composition: value?.toString()),
+      'styleAnalysis' => garment.copyWith(
+          styleAnalysis: garment.effectiveStyleAnalysis.withUserCorrections(register: value?.toString()),
+        ),
+      'saisons' => garment.copyWith(saisons: (value as List).map((item) => item.toString()).toList()),
+      _ => garment,
+    };
+    if (field != 'material' && field != 'composition' && field != 'category' && field != 'sousCategorie') {
+      return updated;
+    }
+    return updated.copyWith(
+      thermalProfile: const ThermalProfileCalculator().calculate(
+        ThermalProfileInput(
+          category: updated.category,
+          subcategory: updated.sousCategorie,
+          material: updated.material,
+          composition: updated.composition,
+          fit: updated.coupe ?? updated.fit,
+          thickness: updated.texture,
+        ),
+      ),
+    );
+  }
   String _mime(String path) => path.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
 }

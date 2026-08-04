@@ -10,7 +10,7 @@ class BackupFormatException implements Exception {
 /// Public metadata stored in `manifest.json`, so an archive can be inspected
 /// and confirmed without modifying application data.
 class BackupManifest {
-  static const currentSchemaVersion = 2;
+  static const currentSchemaVersion = 3;
   final String appVersion;
   final int schemaVersion;
   final DateTime createdAt;
@@ -36,8 +36,8 @@ class BackupManifest {
     if (json['format'] != 'WardrobeOS Backup' || schema is! int || date == null) {
       throw const BackupFormatException('Le manifeste WardrobeOS est invalide.');
     }
-    if (schema > currentSchemaVersion) {
-      throw BackupFormatException('Schéma $schema trop récent (maximum ${BackupManifest.currentSchemaVersion}).');
+    if (schema != currentSchemaVersion) {
+      throw BackupFormatException('Schéma $schema non pris en charge (requis : ${BackupManifest.currentSchemaVersion}).');
     }
     Map<String, int> counts(Object? value) => value is Map
         ? value.map((k, v) => MapEntry(k.toString(), v is int ? v : 0)) : {};

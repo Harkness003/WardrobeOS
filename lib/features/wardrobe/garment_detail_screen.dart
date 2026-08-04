@@ -9,7 +9,8 @@ import '../outfits/outfit_form_screen.dart';
 import '../outfits/outfits_controller.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
-import 'ai_reanalysis_controller.dart';
+import 'reanalysis/garment_reanalysis_models.dart';
+import 'reanalysis/garment_reanalysis_service.dart';
 
 String? _cleanDisplayText(String? value) {
   final trimmed = value?.trim();
@@ -32,13 +33,6 @@ List<String> _cleanDisplayList(Iterable<String>? values) =>
         .toSet()
         .toList(growable: false);
 
-String _stepLabel(AiReanalysisStep step) => switch (step) {
-  AiReanalysisStep.preparing => 'Préparation…',
-  AiReanalysisStep.analyzing => 'Analyse…',
-  AiReanalysisStep.comparing => 'Comparaison…',
-  AiReanalysisStep.completed => 'Terminé',
-  AiReanalysisStep.idle => '',
-};
 
 String _fieldLabel(String field) => const {
   'name': 'Nom', 'category': 'Catégorie', 'color': 'Couleur',
@@ -47,7 +41,7 @@ String _fieldLabel(String field) => const {
 }[field] ?? field;
 
 class _AiComparisonDialog extends StatefulWidget {
-  final AiReanalysisPreview preview;
+  final GarmentReanalysisProposal preview;
   const _AiComparisonDialog({required this.preview});
 
   @override
@@ -62,12 +56,12 @@ class _AiComparisonDialogState extends State<_AiComparisonDialog> {
     title: const Text('Comparer les modifications'),
     content: SizedBox(
       width: 560,
-      child: widget.preview.differences.isEmpty
+      child: widget.preview.changes.isEmpty
           ? const Text('L’IA ne propose aucune modification.')
           : ListView(
               shrinkWrap: true,
               children: [
-                if (widget.preview.differences.any((item) => item.userConflict))
+                if (widget.preview.changes.any((item) => item.conflict))
                   const Card(
                     color: Color(0xFFFFF3CD),
                     child: Padding(
@@ -75,7 +69,7 @@ class _AiComparisonDialogState extends State<_AiComparisonDialog> {
                       child: Text('⚠️ Conflit utilisateur : ces valeurs ont été corrigées manuellement et restent conservées par défaut.'),
                     ),
                   ),
-                for (final difference in widget.preview.differences)
+                for (final difference in widget.preview.changes)
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(12),
@@ -83,7 +77,7 @@ class _AiComparisonDialogState extends State<_AiComparisonDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(_fieldLabel(difference.field), style: const TextStyle(fontWeight: FontWeight.w900)),
-                          if (difference.userConflict) const Text('Conflit avec une modification utilisateur', style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold)),
+                          if (difference.conflict) const Text('Conflit avec une modification utilisateur', style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold)),
                           RadioListTile<bool>(
                             value: false,
                             groupValue: accepted.contains(difference.field),
@@ -96,7 +90,7 @@ class _AiComparisonDialogState extends State<_AiComparisonDialog> {
                             groupValue: accepted.contains(difference.field),
                             onChanged: (_) => setState(() => accepted.add(difference.field)),
                             title: const Text('Accepter la proposition IA'),
-                            subtitle: Text('${difference.suggestedValue ?? '—'}'),
+                            subtitle: Text('${difference.proposedValue ?? '—'}'),
                           ),
                         ],
                       ),
@@ -112,7 +106,7 @@ class _AiComparisonDialogState extends State<_AiComparisonDialog> {
         onPressed: () => setState(() {
           accepted
             ..clear()
-            ..addAll(widget.preview.differences.where((item) => !item.userConflict).map((item) => item.field));
+            ..addAll(widget.preview.changes.where((item) => !item.conflict).map((item) => item.field));
         }),
         child: const Text('Accepter tout sans conflit'),
       ),
@@ -127,13 +121,13 @@ String? _firstDisplayText(String? preferred, String? fallback) =>
 class GarmentDetailScreen extends StatefulWidget {
   final WardrobeController controller;
   final Garment garment;
-  final AiReanalysisController reanalysisController;
+  final GarmentReanalysisService reanalysisService;
 
   const GarmentDetailScreen({
     super.key,
     required this.controller,
     required this.garment,
-    required this.reanalysisController,
+    required this.reanalysisService,
   });
 
   @override
@@ -147,30 +141,34 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   late Future<WearHistory?> _firstWearFuture;
   late Future<List<Outfit>> _outfitsFuture;
 
+  bool _reanalyzing = false;
+
   Future<void> _reanalyze() async {
-    if (widget.reanalysisController.busy) return;
+    if (_reanalyzing) return;
+    setState(() => _reanalyzing = true);
     try {
-      final preview = await widget.reanalysisController.prepare(garment);
-      if (!mounted) {
-        widget.reanalysisController.cancel();
-        return;
-      }
+      final proposal = await widget.reanalysisService.propose(
+        garment.id,
+        GarmentReanalysisType.complete,
+      );
+      if (!mounted) return;
       final accepted = await showDialog<Set<String>>(
         context: context,
         barrierDismissible: false,
-        builder: (_) => _AiComparisonDialog(preview: preview),
+        builder: (_) => _AiComparisonDialog(preview: proposal),
       );
       if (accepted == null) {
-        widget.reanalysisController.cancel();
-        if (mounted) _showReanalysisMessage('Réanalyse annulée. Aucune donnée n’a été modifiée.');
+        _showReanalysisMessage('Réanalyse annulée. Aucune donnée n’a été modifiée.');
         return;
       }
-      await widget.reanalysisController.apply(preview, accepted);
+      await widget.reanalysisService.apply(proposal, accepted);
       await widget.controller.load();
       _refreshGarment();
       if (mounted) _showReanalysisMessage('Réanalyse terminée. La fiche est à jour.');
     } catch (error) {
       if (mounted) _showReanalysisMessage(error is Exception ? _friendlyReanalysisError(error) : 'Analyse impossible. Tes données sont intactes.');
+    } finally {
+      if (mounted) setState(() => _reanalyzing = false);
     }
   }
 
@@ -211,7 +209,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   }
 
   void _openPhoto() {
-    if (!_hasText(garment.imagePath)) return;
+    if (!_hasText((garment.effectivePhotos.isEmpty ? null : garment.effectivePhotos.first.path))) return;
     showDialog<void>(
       context: context,
       barrierColor: Colors.black,
@@ -225,7 +223,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
                 maxScale: 5,
                 child: Center(
                   child: GarmentImage(
-                    imagePath: garment.imagePath,
+                    imagePath: (garment.effectivePhotos.isEmpty ? null : garment.effectivePhotos.first.path),
                     width: double.infinity,
                     height: double.infinity,
                   ),
@@ -478,7 +476,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
               garment.color,
               garment.material,
               ...garment.effectiveSeasons,
-              garment.style,
+              garment.effectiveStyleAnalysis.register,
               garment.occasion,
             ]
             .whereType<String>()
@@ -523,7 +521,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
             child: Hero(
               tag: 'garment-${garment.id}',
               child: GarmentImage(
-                imagePath: garment.imagePath,
+                imagePath: (garment.effectivePhotos.isEmpty ? null : garment.effectivePhotos.first.path),
                 width: double.infinity,
                 height: 390,
                 borderRadius: BorderRadius.circular(32),
@@ -575,24 +573,12 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
             label: const Text('Modifier cette pièce'),
           ),
           const SizedBox(height: 8),
-          AnimatedBuilder(
-            animation: widget.reanalysisController,
-            builder: (context, _) {
-              final controller = widget.reanalysisController;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: controller.busy ? null : _reanalyze,
-                    icon: controller.busy
-                        ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.auto_awesome),
-                    label: const Text('Réanalyser avec l’IA'),
-                  ),
-                  if (controller.busy) Text(_stepLabel(controller.step), textAlign: TextAlign.center),
-                ],
-              );
-            },
+          OutlinedButton.icon(
+            onPressed: _reanalyzing ? null : _reanalyze,
+            icon: _reanalyzing
+                ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.auto_awesome),
+            label: const Text('Réanalyser avec l’IA'),
           ),
           if (identityChips.isNotEmpty) ...[
             const SizedBox(height: 17),
@@ -843,7 +829,7 @@ class _AiGarmentDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final styleEntries = <_AiDetailEntry>[
-      _AiDetailEntry.text('Résumé stylistique', garment.resumeStylistique),
+      _AiDetailEntry.text('Style', garment.effectiveStyleAnalysis.register),
       _AiDetailEntry.list('Points forts', garment.pointsForts),
       _AiDetailEntry.list('Points faibles', garment.pointsFaibles),
       _AiDetailEntry.list('Conseils', garment.conseils),

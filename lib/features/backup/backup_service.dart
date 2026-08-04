@@ -27,25 +27,29 @@ class BackupService {
     final photos = <String, List<int>>{};
     final garments = (data['garments'] ?? const []).map((source) => Map<String, Object?>.from(source)).toList();
     for (final garment in garments) {
-      final paths = <String>{};
-      final main = garment['image_path'] as String?;
-      if (main != null && main.isNotEmpty) paths.add(main);
-      // `photos` contains the scanner's additional photo descriptors/paths.
+      final descriptors = <Map<String, Object?>>[];
       final rawPhotos = garment['photos'];
       if (rawPhotos is String) {
-        try { for (final item in jsonDecode(rawPhotos) as List) { if (item is String) paths.add(item); } } catch (_) {}
+        try {
+          descriptors.addAll((jsonDecode(rawPhotos) as List)
+              .whereType<Map>()
+              .map((item) => item.cast<String, Object?>()));
+        } catch (_) {}
       }
-      final refs = <String>[];
-      for (final path in paths) {
+      final archivedDescriptors = <Map<String, Object?>>[];
+      for (final descriptor in descriptors) {
+        final path = descriptor['path']?.toString();
+        if (path == null || path.isEmpty) continue;
         try {
           final file = File(path);
           if (await file.exists()) {
-            final name = 'photos/${garment['id']}_${refs.length}_${file.uri.pathSegments.last}';
-            photos[name] = await file.readAsBytes(); refs.add(name);
+            final name = 'photos/${garment['id']}_${archivedDescriptors.length}_${file.uri.pathSegments.last}';
+            photos[name] = await file.readAsBytes();
+            archivedDescriptors.add({...descriptor, 'path': name});
           }
         } on FileSystemException { /* Reported by the photo count difference. */ }
       }
-      garment['image_path'] = null; garment['backup_photo_references'] = refs;
+      garment['photos'] = jsonEncode(archivedDescriptors);
     }
     data['garments'] = garments;
     final counts = {for (final entry in data.entries) entry.key: entry.value.length};

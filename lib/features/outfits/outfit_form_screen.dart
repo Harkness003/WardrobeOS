@@ -324,7 +324,7 @@ class _OutfitFormScreenState extends State<OutfitFormScreen> {
                 (garment) => Card(
                   child: ListTile(
                     leading: GarmentImage(
-                      imagePath: garment.imagePath,
+                      imagePath: (garment.effectivePhotos.isEmpty ? null : garment.effectivePhotos.first.path),
                       width: 48,
                       height: 48,
                       borderRadius: BorderRadius.circular(12),
@@ -474,7 +474,7 @@ class _GarmentSelectionScreenState extends State<GarmentSelectionScreen> {
                                   : selectedGarments.remove(garment.id);
                             }),
                         secondary: GarmentImage(
-                          imagePath: garment.imagePath,
+                          imagePath: (garment.effectivePhotos.isEmpty ? null : garment.effectivePhotos.first.path),
                           width: 52,
                           height: 52,
                           borderRadius: BorderRadius.circular(12),

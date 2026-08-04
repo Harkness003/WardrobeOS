@@ -15,8 +15,6 @@ class Garment {
   final String? brand;
   final String? color;
   final String? material;
-  final String? season;
-  final String? style;
   final String? occasion;
   final String? condition;
   final double? purchasePrice;
@@ -26,7 +24,6 @@ class Garment {
   final String? fit;
   final String? composition;
   final String? notes;
-  final String? imagePath;
   final List<GarmentPhoto> photos;
   final DateTime? lastAnalyzedAt;
   final String? aiAnalysisVersion;
@@ -41,8 +38,6 @@ class Garment {
   final String? motif;
   final String? texture;
   final bool? logoVisible;
-  final String? stylePrincipal;
-  final List<String>? stylesSecondaires;
   final String? niveauFormalite;
   final String? coupe;
   final String? longueur;
@@ -54,8 +49,6 @@ class Garment {
   final double? confianceMatiere;
   final List<String>? saisons;
   final List<String>? occasions;
-  final double? temperatureMinimum;
-  final double? temperatureMaximum;
   final bool? compatiblePluie;
   final bool? compatibleChaleur;
   final bool? superposable;
@@ -68,7 +61,6 @@ class Garment {
   final List<String>? defautsVisibles;
   final double? confianceGlobale;
   final List<String>? avertissementsIA;
-  final String? resumeStylistique;
   final List<String>? pointsForts;
   final List<String>? pointsFaibles;
   final List<String>? conseils;
@@ -99,8 +91,6 @@ class Garment {
     this.brand,
     this.color,
     this.material,
-    this.season,
-    this.style,
     this.occasion,
     this.condition,
     this.purchasePrice,
@@ -110,7 +100,6 @@ class Garment {
     this.fit,
     this.composition,
     this.notes,
-    this.imagePath,
     this.photos = const [],
     this.lastAnalyzedAt,
     this.aiAnalysisVersion,
@@ -125,8 +114,6 @@ class Garment {
     this.motif,
     this.texture,
     this.logoVisible,
-    this.stylePrincipal,
-    this.stylesSecondaires,
     this.niveauFormalite,
     this.coupe,
     this.longueur,
@@ -138,8 +125,6 @@ class Garment {
     this.confianceMatiere,
     this.saisons,
     this.occasions,
-    this.temperatureMinimum,
-    this.temperatureMaximum,
     this.compatiblePluie,
     this.compatibleChaleur,
     this.superposable,
@@ -151,7 +136,6 @@ class Garment {
     this.defautsVisibles,
     this.confianceGlobale,
     this.avertissementsIA,
-    this.resumeStylistique,
     this.pointsForts,
     this.pointsFaibles,
     this.conseils,
@@ -176,14 +160,11 @@ class Garment {
     required this.updatedAt,
   });
 
-  List<GarmentPhoto> get effectivePhotos => photos.isNotEmpty
-      ? photos
-      : [if (imagePath?.isNotEmpty == true) GarmentPhoto(id: 'legacy-$id', path: imagePath!, type: GarmentPhotoType.primary, createdAt: createdAt)];
+  List<GarmentPhoto> get effectivePhotos => photos;
   bool needsAiReanalysis(String currentVersion) => aiAnalysisVersion == null || aiAnalysisVersion != currentVersion;
 
-  /// Saisons canoniques du vêtement, avec repli sur l'ancien champ unique.
   List<String> get effectiveSeasons {
-    final source = saisons?.isNotEmpty == true ? saisons! : [if (season != null) season!];
+    final source = saisons ?? const <String>[];
     final expanded = source.expand(
       (value) => value.trim().toLowerCase() == 'toute saison'
           ? availableSeasons
@@ -209,20 +190,9 @@ class Garment {
         .toList(growable: false);
   }
 
-  /// New records persist this value; legacy records receive a conservative
-  /// adapter without rewriting their historical fields.
-  ThermalProfile get effectiveThermalProfile => thermalProfile ?? ThermalProfile.fromLegacy(
-    minimum: temperatureMinimum,
-    maximum: temperatureMaximum,
-    rain: compatiblePluie,
-    layerType: layerType,
-  );
+  ThermalProfile get effectiveThermalProfile => thermalProfile!;
 
-  /// Progressive adapter for rows created before the style-v1 column existed.
-  /// Reading old rows remains side-effect free; the result is persisted on the
-  /// next normal insert/update.
-  StyleAnalysis get effectiveStyleAnalysis => styleAnalysis ??
-      const StyleClassifier().classify(styleInput);
+  StyleAnalysis get effectiveStyleAnalysis => styleAnalysis!;
 
   StyleInput get styleInput => StyleInput(
     category: category,
@@ -233,8 +203,7 @@ class Garment {
     pattern: motif,
     construction: [texture, typeCol, typeFermeture].whereType<String>().join(' '),
     formality: niveauFormalite,
-    details: [descriptionIA, typePrecis, stylePrincipal, ...?stylesSecondaires]
-        .whereType<String>().join(' '),
+    details: [descriptionIA, typePrecis].whereType<String>().join(' '),
   );
 
   /// Recomputes only the style layer; no image scan is involved.
@@ -249,8 +218,6 @@ class Garment {
     String? brand,
     String? color,
     String? material,
-    String? season,
-    String? style,
     String? occasion,
     String? condition,
     double? purchasePrice,
@@ -260,7 +227,6 @@ class Garment {
     String? fit,
     String? composition,
     String? notes,
-    String? imagePath,
     List<GarmentPhoto>? photos,
     DateTime? lastAnalyzedAt,
     String? aiAnalysisVersion,
@@ -275,8 +241,6 @@ class Garment {
     String? motif,
     String? texture,
     bool? logoVisible,
-    String? stylePrincipal,
-    List<String>? stylesSecondaires,
     String? niveauFormalite,
     String? coupe,
     String? longueur,
@@ -288,8 +252,6 @@ class Garment {
     double? confianceMatiere,
     List<String>? saisons,
     List<String>? occasions,
-    double? temperatureMinimum,
-    double? temperatureMaximum,
     bool? compatiblePluie,
     bool? compatibleChaleur,
     bool? superposable,
@@ -301,7 +263,6 @@ class Garment {
     List<String>? defautsVisibles,
     double? confianceGlobale,
     List<String>? avertissementsIA,
-    String? resumeStylistique,
     List<String>? pointsForts,
     List<String>? pointsFaibles,
     List<String>? conseils,
@@ -331,8 +292,6 @@ class Garment {
     brand: brand ?? this.brand,
     color: color ?? this.color,
     material: material ?? this.material,
-    season: season ?? this.season,
-    style: style ?? this.style,
     occasion: occasion ?? this.occasion,
     condition: condition ?? this.condition,
     purchasePrice: purchasePrice ?? this.purchasePrice,
@@ -342,7 +301,6 @@ class Garment {
     fit: fit ?? this.fit,
     composition: composition ?? this.composition,
     notes: notes ?? this.notes,
-    imagePath: imagePath ?? this.imagePath,
     photos: photos ?? this.photos,
     lastAnalyzedAt: lastAnalyzedAt ?? this.lastAnalyzedAt,
     aiAnalysisVersion: aiAnalysisVersion ?? this.aiAnalysisVersion,
@@ -357,8 +315,6 @@ class Garment {
     motif: motif ?? this.motif,
     texture: texture ?? this.texture,
     logoVisible: logoVisible ?? this.logoVisible,
-    stylePrincipal: stylePrincipal ?? this.stylePrincipal,
-    stylesSecondaires: stylesSecondaires ?? this.stylesSecondaires,
     niveauFormalite: niveauFormalite ?? this.niveauFormalite,
     coupe: coupe ?? this.coupe,
     longueur: longueur ?? this.longueur,
@@ -370,8 +326,6 @@ class Garment {
     confianceMatiere: confianceMatiere ?? this.confianceMatiere,
     saisons: saisons ?? this.saisons,
     occasions: occasions ?? this.occasions,
-    temperatureMinimum: temperatureMinimum ?? this.temperatureMinimum,
-    temperatureMaximum: temperatureMaximum ?? this.temperatureMaximum,
     compatiblePluie: compatiblePluie ?? this.compatiblePluie,
     compatibleChaleur: compatibleChaleur ?? this.compatibleChaleur,
     superposable: superposable ?? this.superposable,
@@ -383,7 +337,6 @@ class Garment {
     defautsVisibles: defautsVisibles ?? this.defautsVisibles,
     confianceGlobale: confianceGlobale ?? this.confianceGlobale,
     avertissementsIA: avertissementsIA ?? this.avertissementsIA,
-    resumeStylistique: resumeStylistique ?? this.resumeStylistique,
     pointsForts: pointsForts ?? this.pointsForts,
     pointsFaibles: pointsFaibles ?? this.pointsFaibles,
     conseils: conseils ?? this.conseils,
@@ -415,9 +368,6 @@ class Garment {
     'brand': brand,
     'color': color,
     'material': material,
-    // Le champ historique reste alimenté pour les anciennes versions.
-    'season': effectiveSeasons.length == 1 ? effectiveSeasons.single : season,
-    'style': style,
     'occasion': occasion,
     'condition': condition,
     'purchase_price': purchasePrice,
@@ -427,7 +377,6 @@ class Garment {
     'fit': fit,
     'composition': composition,
     'notes': notes,
-    'image_path': imagePath,
     'photos': GarmentPhoto.encode(effectivePhotos),
     'last_analyzed_at': lastAnalyzedAt?.toIso8601String(),
     'ai_analysis_version': aiAnalysisVersion,
@@ -442,8 +391,6 @@ class Garment {
     'motif': motif,
     'texture': texture,
     'logo_visible': logoVisible == null ? null : (logoVisible! ? 1 : 0),
-    'style_principal': stylePrincipal,
-    'styles_secondaires': stylesSecondaires == null ? null : jsonEncode(stylesSecondaires),
     'niveau_formalite': niveauFormalite,
     'coupe': coupe,
     'longueur': longueur,
@@ -455,8 +402,6 @@ class Garment {
     'confiance_matiere': confianceMatiere,
     'saisons': jsonEncode(effectiveSeasons),
     'occasions': occasions == null ? null : jsonEncode(occasions),
-    'temperature_minimum': temperatureMinimum,
-    'temperature_maximum': temperatureMaximum,
     'compatible_pluie': compatiblePluie == null ? null : (compatiblePluie! ? 1 : 0),
     'compatible_chaleur': compatibleChaleur == null ? null : (compatibleChaleur! ? 1 : 0),
     'superposable': superposable == null ? null : (superposable! ? 1 : 0),
@@ -468,7 +413,6 @@ class Garment {
     'defauts_visibles': defautsVisibles == null ? null : jsonEncode(defautsVisibles),
     'confiance_globale': confianceGlobale,
     'avertissements_i_a': avertissementsIA == null ? null : jsonEncode(avertissementsIA),
-    'resume_stylistique': resumeStylistique,
     'points_forts': pointsForts == null ? null : jsonEncode(pointsForts),
     'points_faibles': pointsFaibles == null ? null : jsonEncode(pointsFaibles),
     'conseils': conseils == null ? null : jsonEncode(conseils),
@@ -522,16 +466,6 @@ class Garment {
       return value == true || value == 1;
     }
 
-    final legacySeason = text('season');
-    final storedSeasons = list('saisons');
-    final canonicalSeasons = storedSeasons?.isNotEmpty == true
-        ? storedSeasons
-        : legacySeason == null
-            ? null
-            : legacySeason.toLowerCase() == 'toute saison'
-                ? availableSeasons
-                : [legacySeason];
-
     return Garment(
       id: text('id') ?? '',
       name: text('name') ?? '',
@@ -539,8 +473,6 @@ class Garment {
       brand: text('brand'),
       color: text('color'),
       material: text('material'),
-      season: legacySeason,
-      style: text('style'),
       occasion: text('occasion'),
       condition: text('condition'),
       purchasePrice: number('purchase_price'),
@@ -550,7 +482,6 @@ class Garment {
       fit: text('fit'),
       composition: text('composition'),
       notes: text('notes'),
-      imagePath: text('image_path'),
       photos: GarmentPhoto.decode(map['photos']),
       lastAnalyzedAt: _parseDate(map['last_analyzed_at']),
       aiAnalysisVersion: text('ai_analysis_version'),
@@ -565,8 +496,6 @@ class Garment {
       motif: text('motif'),
       texture: text('texture'),
       logoVisible: boolean('logo_visible'),
-      stylePrincipal: text('style_principal'),
-      stylesSecondaires: list('styles_secondaires'),
       niveauFormalite: text('niveau_formalite'),
       coupe: text('coupe'),
       longueur: text('longueur'),
@@ -576,14 +505,12 @@ class Garment {
       matierePrincipale: text('matiere_principale'),
       matieresSecondaires: list('matieres_secondaires'),
       confianceMatiere: number('confiance_matiere'),
-      saisons: canonicalSeasons,
+      saisons: list('saisons'),
       occasions: list('occasions'),
-      temperatureMinimum: number('temperature_minimum'),
-      temperatureMaximum: number('temperature_maximum'),
       compatiblePluie: boolean('compatible_pluie'),
       compatibleChaleur: boolean('compatible_chaleur'),
       superposable: boolean('superposable'),
-      layerType: text('layer_type') ?? _legacyLayer(boolean('superposable'), text('category')),
+      layerType: text('layer_type'),
       thermalProfile: ThermalProfile.decode(map['thermal_profile']),
       styleAnalysis: StyleAnalysis.decode(map['style_analysis']),
       etatVisuel: text('etat_visuel'),
@@ -591,7 +518,6 @@ class Garment {
       defautsVisibles: list('defauts_visibles'),
       confianceGlobale: number('confiance_globale'),
       avertissementsIA: list('avertissements_i_a'),
-      resumeStylistique: text('resume_stylistique'),
       pointsForts: list('points_forts'),
       pointsFaibles: list('points_faibles'),
       conseils: list('conseils'),
@@ -626,15 +552,8 @@ class Garment {
     return DateTime.tryParse(value);
   }
 
-  static String? _legacyLayer(bool? superposable, String? category) {
-    if (superposable == false) return null;
-    if (category == 'Vestes') return 'Couche extérieure';
-    if (category == 'Hauts' || category == 'Chemises') return 'Couche de base';
-    return superposable == true ? 'Couche intermédiaire' : null;
-  }
 
   String? validate() {
-    if (temperatureMinimum != null && temperatureMaximum != null && temperatureMinimum! > temperatureMaximum!) return 'La température minimum doit être inférieure au maximum.';
     for (final confidence in [confianceMatiere, confianceGlobale]) {
       if (confidence != null && (confidence < 0 || confidence > 1)) return 'Une confiance doit être comprise entre 0 et 1.';
     }

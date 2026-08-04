@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../core/settings/app_settings.dart';
 import '../assistant/assistant_screen.dart';
@@ -35,7 +36,9 @@ import '../assistant/tools/agenda_tool.dart';
 import '../../core/ai_context/wardrobe_ai_context_service.dart';
 import '../../weather/location/unified_location_service.dart';
 import '../scanner/ai/openai_garment_vision_analyzer.dart';
-import '../wardrobe/ai_reanalysis_controller.dart';
+import '../wardrobe/reanalysis/database_garment_reanalysis_repository.dart';
+import '../wardrobe/reanalysis/garment_reanalysis_models.dart';
+import '../wardrobe/reanalysis/garment_reanalysis_service.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -64,9 +67,17 @@ class _MainShellState extends State<MainShell> {
     provider: _openAiProvider,
   )..load();
   late final _reanalysisAnalyzer = OpenAiGarmentVisionAnalyzer(apiKeyStorage: _apiKeyStorage);
-  late final _reanalysisController = AiReanalysisController(
-    database: DatabaseService.instance,
+  late final _reanalysisRepository = DatabaseGarmentReanalysisRepository(DatabaseService.instance);
+  late final _reanalysisService = GarmentReanalysisService(
+    repository: _reanalysisRepository,
     analyzer: _reanalysisAnalyzer,
+    loadPhoto: (path) => File(path).readAsBytes(),
+    versions: const GarmentReanalysisVersions(
+      aiModel: 'scanner-v1',
+      pipeline: 'scanner-pipeline-v1',
+      styleTaxonomy: '1',
+      thermalEngine: '1',
+    ),
   );
   late final _backupRepository = DatabaseBackupRepository(
     DatabaseService.instance,
@@ -132,7 +143,6 @@ class _MainShellState extends State<MainShell> {
     _backupController.dispose();
     _agendaController.dispose();
     _reanalysisAnalyzer.close();
-    _reanalysisController.dispose();
     super.dispose();
   }
 
@@ -160,7 +170,7 @@ class _MainShellState extends State<MainShell> {
           }
         },
       ),
-      WardrobeScreen(reanalysisController: _reanalysisController),
+      WardrobeScreen(reanalysisService: _reanalysisService),
       const OutfitsScreen(),
       AgendaScreen(controller: _agendaController, outfitsController: _assistantOutfits),
       AssistantScreen(service: _assistantService),
@@ -170,7 +180,6 @@ class _MainShellState extends State<MainShell> {
         locationService: widget.locationService,
         aiSettings: _aiSettings,
         backupController: _backupController,
-        reanalysisController: _reanalysisController,
       ),
     ];
 

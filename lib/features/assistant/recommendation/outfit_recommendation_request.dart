@@ -55,8 +55,6 @@ class OutfitRecommendationRequest {
               temperature: context.weather!.temperature,
               condition: context.weather!.condition,
             ),
-    // A season explicitly requested by the user is a useful legacy filter.
-    // Otherwise effective thermal profiles, not the calendar, drive advice.
     season: intent.parameters['saison'],
     requestedCategory: intent.parameters['catégorie'],
   );

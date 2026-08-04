@@ -18,7 +18,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 13,
+      version: 1,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -31,8 +31,6 @@ class DatabaseService {
             brand TEXT,
             color TEXT,
             material TEXT,
-            season TEXT,
-            style TEXT,
             occasion TEXT,
             condition TEXT,
             purchase_price REAL,
@@ -43,7 +41,6 @@ class DatabaseService {
             fit TEXT,
             composition TEXT,
             notes TEXT,
-            image_path TEXT,
             photos TEXT NOT NULL DEFAULT '[]',
             last_analyzed_at TEXT,
             ai_analysis_version TEXT,
@@ -59,8 +56,6 @@ class DatabaseService {
             motif TEXT,
             texture TEXT,
             logo_visible INTEGER,
-            style_principal TEXT,
-            styles_secondaires TEXT,
             niveau_formalite TEXT,
             coupe TEXT,
             longueur TEXT,
@@ -72,8 +67,6 @@ class DatabaseService {
             confiance_matiere REAL,
             saisons TEXT,
             occasions TEXT,
-            temperature_minimum REAL,
-            temperature_maximum REAL,
             compatible_pluie INTEGER,
             compatible_chaleur INTEGER,
             superposable INTEGER,
@@ -85,7 +78,6 @@ class DatabaseService {
             defauts_visibles TEXT,
             confiance_globale REAL,
             avertissements_i_a TEXT,
-            resume_stylistique TEXT,
             points_forts TEXT,
             points_faibles TEXT,
             conseils TEXT,
@@ -112,121 +104,6 @@ class DatabaseService {
         await _createOutfitTables(db);
         await _createPersonalizationTables(db);
         await _createAgendaTables(db);
-        await _createIndexes(db);
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await _addColumn(db, 'garments', 'style', 'TEXT');
-          await _addColumn(db, 'garments', 'occasion', 'TEXT');
-          await _addColumn(db, 'garments', 'condition', 'TEXT');
-          await _addColumn(db, 'garments', 'purchase_price', 'REAL');
-          await _addColumn(db, 'garments', 'purchase_date', 'TEXT');
-          await _addColumn(
-            db,
-            'garments',
-            'wear_count',
-            'INTEGER NOT NULL DEFAULT 0',
-          );
-          await _addColumn(db, 'garments', 'last_worn', 'TEXT');
-          await _addColumn(db, 'garments', 'size', 'TEXT');
-          await _addColumn(db, 'garments', 'fit', 'TEXT');
-          await _addColumn(db, 'garments', 'composition', 'TEXT');
-        }
-        if (oldVersion < 3) {
-          await _createWearHistoryTable(db);
-        }
-        if (oldVersion < 4) await _createOutfitTables(db);
-        if (oldVersion < 5) {
-          await _addColumn(db, 'garments', 'sous_categorie', 'TEXT');
-          await _addColumn(db, 'garments', 'type_precis', 'TEXT');
-          await _addColumn(db, 'garments', 'description_i_a', 'TEXT');
-          await _addColumn(db, 'garments', 'couleur_principale', 'TEXT');
-          await _addColumn(db, 'garments', 'couleurs_secondaires', 'TEXT');
-          await _addColumn(db, 'garments', 'motif', 'TEXT');
-          await _addColumn(db, 'garments', 'texture', 'TEXT');
-          await _addColumn(db, 'garments', 'logo_visible', 'INTEGER');
-          await _addColumn(db, 'garments', 'style_principal', 'TEXT');
-          await _addColumn(db, 'garments', 'styles_secondaires', 'TEXT');
-          await _addColumn(db, 'garments', 'niveau_formalite', 'TEXT');
-          await _addColumn(db, 'garments', 'coupe', 'TEXT');
-          await _addColumn(db, 'garments', 'longueur', 'TEXT');
-          await _addColumn(db, 'garments', 'longueur_manches', 'TEXT');
-          await _addColumn(db, 'garments', 'type_col', 'TEXT');
-          await _addColumn(db, 'garments', 'type_fermeture', 'TEXT');
-          await _addColumn(db, 'garments', 'matiere_principale', 'TEXT');
-          await _addColumn(db, 'garments', 'matieres_secondaires', 'TEXT');
-          await _addColumn(db, 'garments', 'confiance_matiere', 'REAL');
-          await _addColumn(db, 'garments', 'saisons', 'TEXT');
-          await _addColumn(db, 'garments', 'occasions', 'TEXT');
-          await _addColumn(db, 'garments', 'temperature_minimum', 'REAL');
-          await _addColumn(db, 'garments', 'temperature_maximum', 'REAL');
-          await _addColumn(db, 'garments', 'compatible_pluie', 'INTEGER');
-          await _addColumn(db, 'garments', 'compatible_chaleur', 'INTEGER');
-          await _addColumn(db, 'garments', 'superposable', 'INTEGER');
-          await _addColumn(db, 'garments', 'etat_visuel', 'TEXT');
-          await _addColumn(db, 'garments', 'usure_visible', 'TEXT');
-          await _addColumn(db, 'garments', 'defauts_visibles', 'TEXT');
-          await _addColumn(db, 'garments', 'confiance_globale', 'REAL');
-          await _addColumn(db, 'garments', 'avertissements_i_a', 'TEXT');
-        }
-        if (oldVersion < 6) {
-          for (final column in const [
-            'resume_stylistique',
-            'points_forts',
-            'points_faibles',
-            'conseils',
-            'verdict',
-            'occasions_deconseillees',
-            'composition_estimee',
-            'lavage',
-            'sechage',
-            'repassage',
-            'nettoyage',
-            'boulochage',
-            'taches',
-            'limites_analyse',
-          ]) {
-            await _addColumn(db, 'garments', column, 'TEXT');
-          }
-        }
-        if (oldVersion < 7) {
-          for (final column in const [
-            'couleurs_compatibles',
-            'couleurs_moins_adaptees',
-            'bas_compatibles',
-            'chaussures_compatibles',
-            'explication_polyvalence',
-          ]) {
-            await _addColumn(db, 'garments', column, 'TEXT');
-          }
-        }
-        if (oldVersion < 8) {
-          await _addColumn(db, 'garments', 'layer_type', 'TEXT');
-          await db.execute('''
-            UPDATE garments SET layer_type = CASE
-              WHEN category = 'Vestes' THEN 'Couche extérieure'
-              WHEN category IN ('Hauts', 'Chemises') THEN 'Couche de base'
-              WHEN superposable = 1 THEN 'Couche intermédiaire'
-            END
-            WHERE layer_type IS NULL
-          ''');
-        }
-        if (oldVersion < 9) await _createPersonalizationTables(db);
-        if (oldVersion < 10) await _createAgendaTables(db);
-        if (oldVersion < 11) {
-          await _addColumn(db, 'garments', 'photos', "TEXT NOT NULL DEFAULT '[]'");
-          await _addColumn(db, 'garments', 'last_analyzed_at', 'TEXT');
-          await _addColumn(db, 'garments', 'ai_analysis_version', 'TEXT');
-          await _addColumn(db, 'garments', 'previous_analysis', 'TEXT');
-          await _addColumn(db, 'garments', 'current_analysis', 'TEXT');
-          await _addColumn(db, 'garments', 'user_modified_fields', "TEXT NOT NULL DEFAULT '[]'");
-        }
-        if (oldVersion < 12) {
-          await _addColumn(db, 'garments', 'thermal_profile', 'TEXT');
-        }
-        if (oldVersion < 13) {
-          await _addColumn(db, 'garments', 'style_analysis', 'TEXT');
-        }
         await _createIndexes(db);
       },
     );
@@ -344,19 +221,6 @@ class DatabaseService {
     ''');
   }
 
-  Future<void> _addColumn(
-    Database db,
-    String table,
-    String column,
-    String definition,
-  ) async {
-    final columns = await db.rawQuery('PRAGMA table_info($table)');
-    final exists = columns.any((row) => row['name'] == column);
-    if (!exists) {
-      await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
-    }
-  }
-
   Future<void> _createIndexes(Database db) async {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_garments_category ON garments(category)',
@@ -435,7 +299,7 @@ class DatabaseService {
     final args = <Object?>[];
     if (search.trim().isNotEmpty) {
       where.add(
-        '(name LIKE ? OR brand LIKE ? OR color LIKE ? OR style LIKE ? OR occasion LIKE ?)',
+        '(name LIKE ? OR brand LIKE ? OR color LIKE ? OR style_analysis LIKE ? OR occasions LIKE ?)',
       );
       final q = '%${search.trim()}%';
       args.addAll([q, q, q, q, q]);
@@ -446,14 +310,14 @@ class DatabaseService {
     }
     if (favoritesOnly) where.add('is_favorite = 1');
     if (season.trim().isNotEmpty) {
-      where.add('(season = ? OR saisons LIKE ?)');
-      args.addAll([season.trim(), '%"${season.trim()}"%']);
+      where.add('saisons LIKE ?');
+      args.add('%"${season.trim()}"%');
     }
     for (final filter in <(String, String)>[
       ('brand', brand),
       ('color', color),
       ('material', material),
-      ('style', style),
+      ('style_analysis', style),
       ('occasion', occasion),
     ]) {
       if (filter.$2.trim().isNotEmpty) {
@@ -470,6 +334,12 @@ class DatabaseService {
     return rows.map(Garment.fromMap).toList();
   }
 
+  Future<Garment?> getGarmentById(String id) async {
+    final db = await database;
+    final rows = await db.query('garments', where: 'id = ?', whereArgs: [id], limit: 1);
+    return rows.isEmpty ? null : Garment.fromMap(rows.first);
+  }
+
   Future<void> insertGarment(Garment garment) async {
     final db = await database;
     await db.insert(
@@ -484,8 +354,6 @@ class DatabaseService {
     final rows = await db.query('garments', where: 'id = ?',
         whereArgs: [garment.id], limit: 1);
     final previous = rows.isEmpty ? null : Garment.fromMap(rows.first);
-    // A caller may send a partial/legacy object. Preserve explicit corrections
-    // already stored before recalculating changed stylistic inputs.
     final storedStyle = previous?.styleAnalysis;
     final incomingStyle = garment.styleAnalysis;
     final mustKeepStoredCorrections = storedStyle?.hasUserCorrections == true &&

@@ -6,11 +6,11 @@ import '../scanner/scanner_screen.dart';
 import 'garment_detail_screen.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
-import 'ai_reanalysis_controller.dart';
+import 'reanalysis/garment_reanalysis_service.dart';
 
 class WardrobeScreen extends StatefulWidget {
-  final AiReanalysisController reanalysisController;
-  const WardrobeScreen({super.key, required this.reanalysisController});
+  final GarmentReanalysisService reanalysisService;
+  const WardrobeScreen({super.key, required this.reanalysisService});
 
   @override
   State<WardrobeScreen> createState() => _WardrobeScreenState();
@@ -128,7 +128,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       MaterialPageRoute(
         builder:
             (_) =>
-                GarmentDetailScreen(controller: controller, garment: garment, reanalysisController: widget.reanalysisController),
+                GarmentDetailScreen(controller: controller, garment: garment, reanalysisService: widget.reanalysisService),
       ),
     );
   }
@@ -484,7 +484,7 @@ class _GarmentCard extends StatelessWidget {
                     fit: StackFit.expand,
                     children: [
                       GarmentImage(
-                        imagePath: garment.imagePath,
+                        imagePath: (garment.effectivePhotos.isEmpty ? null : garment.effectivePhotos.first.path),
                         borderRadius: BorderRadius.zero,
                       ),
                       Positioned(

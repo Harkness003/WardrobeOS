@@ -31,13 +31,13 @@ class GarmentReanalysisProposal {
   Iterable<GarmentReanalysisChange> get nonConflicting => changes.where((change) => !change.conflict);
 }
 
-enum ReanalysisStaleReason { legacy, pipeline, model, styleTaxonomy, thermalEngine, photos }
+enum ReanalysisStaleReason { missingAnalysis, pipeline, model, styleTaxonomy, thermalEngine, photos }
 
 class ReanalysisCandidatePolicy {
   const ReanalysisCandidatePolicy();
   Set<ReanalysisStaleReason> reasons(Garment garment, GarmentReanalysisVersions versions) {
     final snapshot = garment.currentAnalysis;
-    if (snapshot == null || garment.aiAnalysisVersion == null) return {ReanalysisStaleReason.legacy};
+    if (snapshot == null || garment.aiAnalysisVersion == null) return {ReanalysisStaleReason.missingAnalysis};
     final reasons = <ReanalysisStaleReason>{};
     if (snapshot.pipelineVersion != versions.pipeline) reasons.add(ReanalysisStaleReason.pipeline);
     if (snapshot.version != versions.aiModel) reasons.add(ReanalysisStaleReason.model);
