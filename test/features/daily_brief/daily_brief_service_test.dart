@@ -10,6 +10,8 @@ import 'package:wardrobeos/features/assistant/memory/user_memory.dart';
 import 'package:wardrobeos/features/daily_brief/daily_brief_models.dart';
 import 'package:wardrobeos/features/daily_brief/daily_brief_service.dart';
 import 'package:wardrobeos/models/garment.dart';
+import 'package:wardrobeos/models/style_analysis.dart';
+import 'package:wardrobeos/models/thermal_profile.dart';
 import 'package:wardrobeos/weather/models/weather_data.dart';
 import 'package:wardrobeos/weather/services/weather_service.dart';
 
@@ -19,8 +21,24 @@ Garment _garment(String id, String name, String category) => Garment(
   category: category,
   couleurPrincipale: 'Bleu',
   matierePrincipale: 'Coton',
-  temperatureMinimum: 10,
-  temperatureMaximum: 25,
+  styleAnalysis: StyleAnalysis(
+    inputFingerprint: 'style-fixture',
+    suggestedRegister: 'casual',
+    calculatedAt: DateTime(2026),
+  ),
+  thermalProfile: ThermalProfile(
+    standaloneMinC: 10,
+    standaloneMaxC: 25,
+    layeredMinC: 6,
+    layeredMaxC: 21,
+    level: ThermalLevel.moderate,
+    breathability: BreathabilityLevel.medium,
+    windProtection: WeatherProtection.limited,
+    rainCompatibility: WeatherProtection.none,
+    primaryRole: LayerRole.mid,
+    inputFingerprint: 'thermal-fixture',
+    calculatedAt: DateTime(2026),
+  ),
   createdAt: DateTime(2026),
   updatedAt: DateTime(2026),
 );

@@ -7,19 +7,21 @@ import 'package:wardrobeos/models/garment_photo.dart';
 void main() {
   final now = DateTime.utc(2026, 8, 4);
 
-  test('legacy garment exposes its image as a typed primary photo', () {
-    final legacy = Garment.fromMap({
-      'id': 'old', 'name': 'Pull', 'category': 'Hauts',
-      'image_path': '/images/old.jpg',
+  test('garment exposes its canonical primary photo', () {
+    final garment = Garment.fromMap({
+      'id': 'garment', 'name': 'Pull', 'category': 'Hauts',
+      'photos': GarmentPhoto.encode([
+        GarmentPhoto(id: 'primary', path: '/images/main.jpg', type: GarmentPhotoType.primary, createdAt: now),
+      ]),
       'created_at': now.toIso8601String(), 'updated_at': now.toIso8601String(),
     });
-    expect(legacy.effectivePhotos.single.path, '/images/old.jpg');
-    expect(legacy.effectivePhotos.single.type, GarmentPhotoType.primary);
+    expect(garment.effectivePhotos.single.path, '/images/main.jpg');
+    expect(garment.effectivePhotos.single.type, GarmentPhotoType.primary);
   });
 
   test('several typed photos survive a persistence round trip', () {
     final garment = Garment(
-      id: 'g', name: 'Basket', category: 'Chaussures', imagePath: '/p/main.jpg',
+      id: 'g', name: 'Basket', category: 'Chaussures',
       photos: [
         GarmentPhoto(id: '1', path: '/p/main.jpg', type: GarmentPhotoType.primary, createdAt: now),
         GarmentPhoto(id: '2', path: '/p/sole.jpg', type: GarmentPhotoType.sole, createdAt: now),
@@ -31,13 +33,13 @@ void main() {
     expect(restored.photos.map((photo) => photo.path), ['/p/main.jpg', '/p/sole.jpg']);
   });
 
-  test('missing complementary photo data degrades without losing legacy path', () {
+  test('malformed photo data degrades to an empty collection', () {
     final garment = Garment.fromMap({
       'id': 'g', 'name': 'Veste', 'category': 'Vestes',
-      'image_path': '/main.jpg', 'photos': '[broken',
+      'photos': '[broken',
       'created_at': now.toIso8601String(), 'updated_at': now.toIso8601String(),
     });
-    expect(garment.effectivePhotos.single.path, '/main.jpg');
+    expect(garment.effectivePhotos, isEmpty);
   });
 
   test('analysis version identifies stale records and snapshots round-trip', () {

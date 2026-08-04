@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/models/garment.dart';
 import 'package:wardrobeos/models/garment_normalizer.dart';
+import 'package:wardrobeos/models/style_analysis.dart';
+import 'package:wardrobeos/models/thermal_profile.dart';
 
 void main() {
   test('effectiveOccasions preserves multiple uses and supports legacy data', () {
@@ -43,19 +45,19 @@ void main() {
     expect(garment.validate(), isNull);
   });
 
-  test('uses multiple seasons and falls back to the legacy season', () {
-    final legacy = Garment.fromMap({
-      'id': 'legacy',
+  test('uses multiple canonical seasons', () {
+    final persisted = Garment.fromMap({
+      'id': 'persisted',
       'name': 'Manteau',
       'category': 'Vestes',
-      'season': 'Hiver',
+      'saisons': jsonEncode(['Hiver']),
       'created_at': now.toIso8601String(),
       'updated_at': now.toIso8601String(),
     });
-    expect(legacy.effectiveSeasons, ['Hiver']);
-    expect(legacy.saisons, ['Hiver']);
+    expect(persisted.effectiveSeasons, ['Hiver']);
+    expect(persisted.saisons, ['Hiver']);
 
-    final garment = legacy.copyWith(
+    final garment = persisted.copyWith(
       saisons: const ['Automne', 'Hiver', 'Hiver'],
     );
     expect(garment.effectiveSeasons, ['Automne', 'Hiver']);
@@ -78,8 +80,14 @@ void main() {
       motif: 'Rayures',
       texture: 'Lisse',
       logoVisible: false,
-      stylePrincipal: 'Business casual',
-      stylesSecondaires: const ['Élégant'],
+      styleAnalysis: StyleAnalysis(
+        inputFingerprint: 'style-fixture',
+        suggestedRegister: 'smart_casual',
+        suggestedSecondaryStyles: const ['preppy'],
+        suggestedCharacteristics: const ['structured', 'elegant'],
+        evidence: const ['Veste structurée'],
+        calculatedAt: now,
+      ),
       niveauFormalite: 'Formel',
       coupe: 'Slim',
       longueur: 'Standard',
@@ -91,8 +99,21 @@ void main() {
       confianceMatiere: .8,
       saisons: const ['Automne', 'Hiver'],
       occasions: const ['Travail'],
-      temperatureMinimum: 3,
-      temperatureMaximum: 18,
+      thermalProfile: ThermalProfile(
+        standaloneMinC: 3,
+        standaloneMaxC: 18,
+        layeredMinC: -2,
+        layeredMaxC: 14,
+        level: ThermalLevel.warm,
+        breathability: BreathabilityLevel.medium,
+        windProtection: WeatherProtection.limited,
+        rainCompatibility: WeatherProtection.none,
+        primaryRole: LayerRole.outer,
+        acceptsUnder: const [LayerRole.base, LayerRole.mid],
+        inputFingerprint: 'thermal-fixture',
+        calculatedAt: now,
+        confidence: .8,
+      ),
       compatiblePluie: false,
       compatibleChaleur: false,
       superposable: true,
@@ -101,7 +122,6 @@ void main() {
       defautsVisibles: const [],
       confianceGlobale: .9,
       avertissementsIA: const ['Matière à confirmer'],
-      resumeStylistique: 'Un blazer formel et structuré.',
       pointsForts: const ['Coupe nette'],
       pointsFaibles: const ['Peu décontracté'],
       conseils: const ['Associer à une chemise claire'],
@@ -127,19 +147,21 @@ void main() {
     expect(restored, garment);
     expect(restored.copyWith(name: 'Nouveau').name, 'Nouveau');
     expect(restored.validate(), isNull);
-    expect(restored.resumeStylistique, contains('formel'));
+    expect(restored.effectiveStyleAnalysis.register, 'smart_casual');
+    expect(restored.effectiveStyleAnalysis.characteristics,
+        ['structured', 'elegant']);
+    expect(restored.effectiveThermalProfile.standaloneMinC, 3);
+    expect(restored.effectiveThermalProfile.standaloneMaxC, 18);
     expect(restored.limitesAnalyse, ['Étiquette non visible']);
     expect(restored.couleursCompatibles, ['Écru', 'Marine']);
     expect(restored.explicationPolyvalence, 'Polyvalence moyenne.');
   });
 
-  test('validates temperatures and confidence', () {
+  test('validates confidence', () {
     final invalid = Garment(
       id: 'g',
       name: 'Test',
       category: 'Autre',
-      temperatureMinimum: 20,
-      temperatureMaximum: 10,
       confianceGlobale: 2,
       createdAt: now,
       updatedAt: now,

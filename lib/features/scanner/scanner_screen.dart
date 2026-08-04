@@ -455,14 +455,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
     return sections.entries.map((entry) => '${labels[entry.key] ?? entry.key} : ${entry.value.map((value) => '${value.material}${value.percentage == null ? '' : ' ${value.percentage!.toStringAsFixed(value.percentage! % 1 == 0 ? 0 : 1)} %'}').join(', ')}').join('\n');
   }
 
-  String _suggestStyle(GarmentAnalysisResult? analysis) {
-    final source = '${analysis?.styleSummary ?? ''} ${analysis?.styleVerdict ?? ''}'.toLowerCase();
-    for (final style in const ['Streetwear', 'Business', 'Sport', 'Outdoor', 'Vintage', 'Minimaliste', 'Élégant', 'Casual']) {
-      if (source.contains(style.toLowerCase())) return style;
-    }
-    return 'Casual';
-  }
-
   List<String> _suggestUses(List<String> suggestions) {
     const available = [
       'Quotidien', 'Travail', 'Sport', 'Voyage', 'Maison', 'Soirée',

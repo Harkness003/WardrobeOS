@@ -28,7 +28,6 @@ class OutfitCandidate {
     name: name,
     category: category,
     color: color,
-    season: season,
     wearCount: wearCount,
     lastWorn: lastWorn,
     createdAt: DateTime.fromMillisecondsSinceEpoch(0),

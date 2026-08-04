@@ -3,6 +3,8 @@ import 'package:wardrobeos/core/ai_context/ai_context.dart';
 import 'package:wardrobeos/core/ai_context/ai_reanalysis_policy.dart';
 import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
 import 'package:wardrobeos/models/garment.dart';
+import 'package:wardrobeos/models/style_analysis.dart';
+import 'package:wardrobeos/models/thermal_profile.dart';
 
 Garment garment(String name) => Garment(
   id: 'stable-id',
@@ -11,8 +13,25 @@ Garment garment(String name) => Garment(
   sousCategorie: 'T-shirt',
   couleurPrincipale: 'Bleu',
   matierePrincipale: 'Coton',
-  stylesSecondaires: const ['Casual'],
-  temperatureMinimum: 16,
+  styleAnalysis: StyleAnalysis(
+    inputFingerprint: 'style-fixture',
+    suggestedRegister: 'casual',
+    suggestedSecondaryStyles: const ['minimalist'],
+    calculatedAt: DateTime(2026),
+  ),
+  thermalProfile: ThermalProfile(
+    standaloneMinC: 16,
+    standaloneMaxC: 28,
+    layeredMinC: 12,
+    layeredMaxC: 24,
+    level: ThermalLevel.light,
+    breathability: BreathabilityLevel.high,
+    windProtection: WeatherProtection.none,
+    rainCompatibility: WeatherProtection.none,
+    primaryRole: LayerRole.base,
+    inputFingerprint: 'thermal-fixture',
+    calculatedAt: DateTime(2026),
+  ),
   createdAt: DateTime(2026),
   updatedAt: DateTime(2026),
 );
@@ -45,7 +64,6 @@ void main() {
 
     expect(context.fields['name']?.source, AiDataSource.user);
     expect(context.fields['thermalProfile']?.source, AiDataSource.calculated);
-    expect(context.fields['temperatureMinimum'], isNull);
     expect(context.fields['styleRegister']?.source, AiDataSource.aiAnalysis);
     expect(context.fields['styleCharacteristics']?.source,
         AiDataSource.aiAnalysis);

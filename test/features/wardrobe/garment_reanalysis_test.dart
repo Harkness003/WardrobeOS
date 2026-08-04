@@ -14,13 +14,19 @@ void main() {
   const policy = ReanalysisCandidatePolicy();
 
   test('une ancienne fiche sans version est candidate', () {
-    expect(policy.reasons(garment(), versions), {ReanalysisStaleReason.legacy});
+    expect(policy.reasons(garment(), versions), {ReanalysisStaleReason.missingAnalysis});
   });
 
   test('les versions et nouvelles photos invalident uniquement les bons moteurs', () {
     final photo = GarmentPhoto(id: 'p2', path: '/detail.jpg', type: GarmentPhotoType.detail, createdAt: DateTime(2025));
     final snapshot = GarmentAnalysisSnapshot(version: 'model-1', pipelineVersion: 'pipeline-1', analyzedAt: DateTime(2025), photoIds: const ['p1'], values: const {'_styleTaxonomyVersion': 'styles-1', '_thermalEngineVersion': 'thermal-1'});
-    expect(policy.reasons(garment(snapshot: snapshot, version: 'model-1', photos: [photo]), versions), containsAll(ReanalysisStaleReason.values.where((reason) => reason != ReanalysisStaleReason.legacy)));
+    expect(policy.reasons(garment(snapshot: snapshot, version: 'model-1', photos: [photo]), versions), containsAll(const {
+      ReanalysisStaleReason.pipeline,
+      ReanalysisStaleReason.model,
+      ReanalysisStaleReason.styleTaxonomy,
+      ReanalysisStaleReason.thermalEngine,
+      ReanalysisStaleReason.photos,
+    }));
   });
 
   test('un snapshot versionné conserve type, pipeline et photos', () {
