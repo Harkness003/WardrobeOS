@@ -10,6 +10,21 @@ class LocationData {
   });
 }
 
+enum LocationMode { gps, manual }
+
+class LocationPreferences {
+  final LocationMode mode;
+  final LocationData? manualLocation;
+
+  const LocationPreferences({
+    this.mode = LocationMode.gps,
+    this.manualLocation,
+  });
+
+  bool get usesManualLocation =>
+      mode == LocationMode.manual && manualLocation != null;
+}
+
 sealed class LocationException implements Exception {
   final String message;
   const LocationException(this.message);

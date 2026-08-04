@@ -43,6 +43,17 @@ void main() {
     await service.getCurrentWeather();
     expect(api.calls, 3);
   });
+
+  test('mutualise les appels simultanés', () async {
+    final results = await Future.wait([
+      service.getCurrentWeather(),
+      service.getCurrentWeather(),
+      service.getCurrentWeather(),
+    ]);
+    expect(results.toSet(), hasLength(1));
+    expect(api.calls, 1);
+    expect(location.calls, 1);
+  });
 }
 
 class _FakeLocationService implements LocationService {

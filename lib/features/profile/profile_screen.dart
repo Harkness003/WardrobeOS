@@ -2,16 +2,20 @@ import 'package:flutter/material.dart';
 import '../../core/settings/app_settings.dart';
 import '../assistant/settings/ai_settings_controller.dart';
 import '../backup/backup_controller.dart';
+import '../../weather/location/location_service.dart';
+import '../../weather/location/unified_location_service.dart';
 
 class ProfileScreen extends StatelessWidget {
   final AppSettings settings;
   final AiSettingsController aiSettings;
   final BackupController backupController;
+  final UnifiedLocationService locationService;
   const ProfileScreen({
     super.key,
     required this.settings,
     required this.aiSettings,
     required this.backupController,
+    required this.locationService,
   });
 
   @override
@@ -74,6 +78,7 @@ class ProfileScreen extends StatelessWidget {
               onChanged: settings.setDarkMode,
             ),
           ),
+          _LocationSettings(service: locationService),
           _BackupSettings(controller: backupController),
           _WardrobeGptSettings(controller: aiSettings),
           _Tile(icon: Icons.info_outline, title: 'À propos'),
@@ -88,6 +93,121 @@ class ProfileScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _LocationSettings extends StatefulWidget {
+  final UnifiedLocationService service;
+  const _LocationSettings({required this.service});
+
+  @override
+  State<_LocationSettings> createState() => _LocationSettingsState();
+}
+
+class _LocationSettingsState extends State<_LocationSettings> {
+  final _cityController = TextEditingController();
+  List<LocationData> _results = const [];
+  bool _searching = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _cityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search() async {
+    setState(() {
+      _searching = true;
+      _error = null;
+    });
+    try {
+      final results = await widget.service.searchCities(_cityController.text);
+      if (!mounted) return;
+      setState(() {
+        _results = results;
+        if (results.isEmpty) _error = 'Aucune ville trouvée.';
+      });
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Recherche indisponible. Réessayez.');
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.service,
+    builder: (context, _) {
+      final service = widget.service;
+      final manual = service.manualLocation;
+      return Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('📍 Localisation', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+              RadioListTile<LocationMode>(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Utiliser ma position actuelle'),
+                value: LocationMode.gps,
+                groupValue: service.mode,
+                onChanged: (_) => service.useGps(),
+              ),
+              RadioListTile<LocationMode>(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Choisir une ville manuellement'),
+                value: LocationMode.manual,
+                groupValue: service.mode,
+                onChanged: (_) => service.useManualMode(),
+              ),
+              if (service.mode == LocationMode.manual) ...[
+                TextField(
+                  controller: _cityController,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _search(),
+                  decoration: InputDecoration(
+                    labelText: 'Rechercher une ville',
+                    suffixIcon: IconButton(onPressed: _searching ? null : _search, icon: const Icon(Icons.search)),
+                  ),
+                ),
+                if (_searching) const LinearProgressIndicator(),
+                if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!)),
+                for (final result in _results)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.location_city),
+                    title: Text(result.city),
+                    subtitle: Text('${result.latitude.toStringAsFixed(3)}, ${result.longitude.toStringAsFixed(3)}'),
+                    onTap: () async {
+                      await service.useManualLocation(result);
+                      if (mounted) setState(() => _results = const []);
+                    },
+                  ),
+                if (manual != null)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.check_circle_outline),
+                    title: Text('Ville utilisée : ${manual.city}'),
+                    trailing: IconButton(
+                      tooltip: 'Supprimer la ville',
+                      onPressed: service.clearManualLocation,
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  )
+                else
+                  const Padding(
+                    padding: EdgeInsets.only(top: 10),
+                    child: Text('Aucune ville définie. Le GPS sera utilisé s’il est disponible.'),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _BackupSettings extends StatelessWidget {

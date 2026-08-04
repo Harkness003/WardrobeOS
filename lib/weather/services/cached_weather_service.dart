@@ -11,6 +11,7 @@ class CachedWeatherService implements WeatherService {
   final DateTime Function() _now;
   WeatherData? _cached;
   DateTime? _cachedAt;
+  Future<WeatherData>? _inFlight;
 
   CachedWeatherService({
     required this.locationService,
@@ -28,6 +29,17 @@ class CachedWeatherService implements WeatherService {
         _now().difference(cachedAt) < cacheDuration) {
       return cached;
     }
+    if (!forceRefresh && _inFlight != null) return _inFlight!;
+    final request = _fetch();
+    _inFlight = request;
+    try {
+      return await request;
+    } finally {
+      if (identical(_inFlight, request)) _inFlight = null;
+    }
+  }
+
+  Future<WeatherData> _fetch() async {
     final location = await locationService.getCurrentLocation();
     final json = await weatherApi.fetchCurrent(
       latitude: location.latitude,
@@ -46,5 +58,6 @@ class CachedWeatherService implements WeatherService {
   void clearCache() {
     _cached = null;
     _cachedAt = null;
+    _inFlight = null;
   }
 }

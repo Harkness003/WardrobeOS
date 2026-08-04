@@ -33,15 +33,18 @@ import '../agenda/agenda_screen.dart';
 import '../agenda/agenda_service.dart';
 import '../assistant/tools/agenda_tool.dart';
 import '../../core/ai_context/wardrobe_ai_context_service.dart';
+import '../../weather/location/unified_location_service.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
   final WeatherService weatherService;
+  final UnifiedLocationService locationService;
 
   const MainShell({
     super.key,
     required this.settings,
     required this.weatherService,
+    required this.locationService,
   });
 
   @override
@@ -155,6 +158,7 @@ class _MainShellState extends State<MainShell> {
       const WishlistScreen(),
       ProfileScreen(
         settings: widget.settings,
+        locationService: widget.locationService,
         aiSettings: _aiSettings,
         backupController: _backupController,
       ),
