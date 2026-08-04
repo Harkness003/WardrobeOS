@@ -1,0 +1,1222 @@
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index 66fd32122d7379a88c0f92c2bd3676f9501fcb77..d17ef1e4aecd1e0b7db6359436dfd81153be500c 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -1,46 +1,46 @@
+ import 'package:path/path.dart' as p;
+ import 'package:sqflite/sqflite.dart';
+ import '../models/garment.dart';
+ import '../models/outfit.dart';
+ import '../models/outfit_item.dart';
+ import '../models/wear_history.dart';
+ import '../features/agenda/agenda_models.dart';
+ import '../core/outfit/outfit_engine.dart';
+ 
+ class DatabaseService {
+   DatabaseService._();
+   static final DatabaseService instance = DatabaseService._();
+   Database? _database;
+ 
+   Future<Database> get database async => _database ??= await _open();
+ 
+   Future<Database> _open() async {
+     final dbPath = await getDatabasesPath();
+     return openDatabase(
+       p.join(dbPath, 'wardrobeos.db'),
+-      version: 13,
++      version: 14,
+       onConfigure: (db) async {
+         await db.execute('PRAGMA foreign_keys = ON');
+       },
+       onCreate: (db, version) async {
+         await db.execute('''
+           CREATE TABLE garments(
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             category TEXT NOT NULL,
+             brand TEXT,
+             color TEXT,
+             material TEXT,
+             season TEXT,
+             style TEXT,
+             occasion TEXT,
+             condition TEXT,
+             purchase_price REAL,
+             purchase_date TEXT,
+             wear_count INTEGER NOT NULL DEFAULT 0,
+             last_worn TEXT,
+             size TEXT,
+             fit TEXT,
+             composition TEXT,
+             notes TEXT,
+             image_path TEXT,
+@@ -90,50 +90,51 @@ class DatabaseService {
+             points_faibles TEXT,
+             conseils TEXT,
+             verdict TEXT,
+             couleurs_compatibles TEXT,
+             couleurs_moins_adaptees TEXT,
+             bas_compatibles TEXT,
+             chaussures_compatibles TEXT,
+             explication_polyvalence TEXT,
+             occasions_deconseillees TEXT,
+             composition_estimee TEXT,
+             lavage TEXT,
+             sechage TEXT,
+             repassage TEXT,
+             nettoyage TEXT,
+             boulochage TEXT,
+             taches TEXT,
+             limites_analyse TEXT,
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL
+           )
+         ''');
+         await _createWearHistoryTable(db);
+         await _createOutfitTables(db);
+         await _createPersonalizationTables(db);
+         await _createAgendaTables(db);
++        await _createCustomStylesTable(db);
+         await _createIndexes(db);
+       },
+       onUpgrade: (db, oldVersion, newVersion) async {
+         if (oldVersion < 2) {
+           await _addColumn(db, 'garments', 'style', 'TEXT');
+           await _addColumn(db, 'garments', 'occasion', 'TEXT');
+           await _addColumn(db, 'garments', 'condition', 'TEXT');
+           await _addColumn(db, 'garments', 'purchase_price', 'REAL');
+           await _addColumn(db, 'garments', 'purchase_date', 'TEXT');
+           await _addColumn(
+             db,
+             'garments',
+             'wear_count',
+             'INTEGER NOT NULL DEFAULT 0',
+           );
+           await _addColumn(db, 'garments', 'last_worn', 'TEXT');
+           await _addColumn(db, 'garments', 'size', 'TEXT');
+           await _addColumn(db, 'garments', 'fit', 'TEXT');
+           await _addColumn(db, 'garments', 'composition', 'TEXT');
+         }
+         if (oldVersion < 3) {
+           await _createWearHistoryTable(db);
+         }
+         if (oldVersion < 4) await _createOutfitTables(db);
+         if (oldVersion < 5) {
+@@ -205,50 +206,51 @@ class DatabaseService {
+           await db.execute('''
+             UPDATE garments SET layer_type = CASE
+               WHEN category = 'Vestes' THEN 'Couche extérieure'
+               WHEN category IN ('Hauts', 'Chemises') THEN 'Couche de base'
+               WHEN superposable = 1 THEN 'Couche intermédiaire'
+             END
+             WHERE layer_type IS NULL
+           ''');
+         }
+         if (oldVersion < 9) await _createPersonalizationTables(db);
+         if (oldVersion < 10) await _createAgendaTables(db);
+         if (oldVersion < 11) {
+           await _addColumn(db, 'garments', 'photos', "TEXT NOT NULL DEFAULT '[]'");
+           await _addColumn(db, 'garments', 'last_analyzed_at', 'TEXT');
+           await _addColumn(db, 'garments', 'ai_analysis_version', 'TEXT');
+           await _addColumn(db, 'garments', 'previous_analysis', 'TEXT');
+           await _addColumn(db, 'garments', 'current_analysis', 'TEXT');
+           await _addColumn(db, 'garments', 'user_modified_fields', "TEXT NOT NULL DEFAULT '[]'");
+         }
+         if (oldVersion < 12) {
+           await _addColumn(db, 'garments', 'thermal_profile', 'TEXT');
+         }
+         if (oldVersion < 13) {
+           await _addColumn(db, 'garments', 'style_analysis', 'TEXT');
+         }
++        if (oldVersion < 14) await _createCustomStylesTable(db);
+         await _createIndexes(db);
+       },
+     );
+   }
+ 
+   Future<void> _createWearHistoryTable(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS wear_history(
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         garment_id TEXT NOT NULL,
+         worn_at TEXT NOT NULL,
+         created_at TEXT NOT NULL,
+         FOREIGN KEY (garment_id) REFERENCES garments(id) ON DELETE CASCADE
+       )
+     ''');
+   }
+ 
+   Future<void> _createOutfitTables(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS outfits(
+         id TEXT PRIMARY KEY,
+         name TEXT NOT NULL,
+         season TEXT,
+         favorite INTEGER NOT NULL DEFAULT 0,
+         created_at TEXT NOT NULL,
+@@ -322,50 +324,65 @@ class DatabaseService {
+     ''');
+   }
+ 
+   Future<void> _createAgendaTables(Database db) async {
+     await db.execute('''
+       CREATE TABLE IF NOT EXISTS planned_outfits(
+         id TEXT PRIMARY KEY,
+         planned_date TEXT NOT NULL UNIQUE,
+         outfit_id TEXT NOT NULL,
+         origin TEXT,
+         strategy TEXT,
+         status TEXT,
+         justification TEXT,
+         weather_summary TEXT,
+         event_id TEXT,
+         event_title TEXT,
+         reuse_kind TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         wear_recorded_at TEXT,
+         FOREIGN KEY (outfit_id) REFERENCES outfits(id) ON DELETE CASCADE
+       )
+     ''');
+   }
+ 
++  Future<void> _createCustomStylesTable(Database db) async {
++    await db.execute('''
++      CREATE TABLE IF NOT EXISTS custom_styles(
++        id TEXT PRIMARY KEY,
++        name TEXT NOT NULL,
++        description TEXT NOT NULL DEFAULT '',
++        notes TEXT NOT NULL DEFAULT '',
++        examples TEXT NOT NULL DEFAULT '[]',
++        ai_enrichment TEXT,
++        created_at TEXT NOT NULL,
++        updated_at TEXT NOT NULL
++      )
++    ''');
++  }
++
+   Future<void> _addColumn(
+     Database db,
+     String table,
+     String column,
+     String definition,
+   ) async {
+     final columns = await db.rawQuery('PRAGMA table_info($table)');
+     final exists = columns.any((row) => row['name'] == column);
+     if (!exists) {
+       await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
+     }
+   }
+ 
+   Future<void> _createIndexes(Database db) async {
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_garments_category ON garments(category)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_garments_name ON garments(name)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_garments_last_worn ON garments(last_worn)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_wear_history_garment ON wear_history(garment_id)',
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index 21b650788c91960d15fb076e2b32baeeeb191bde..52411b467f8ad653a2a68e956f736e6121051e65 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -1,92 +1,101 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../backup/backup_controller.dart';
+ import '../../weather/location/location_service.dart';
+ import '../../weather/location/unified_location_service.dart';
++import '../assistant/ai/llm_provider.dart';
++import '../styles/style_library_screen.dart';
++import '../styles/style_repository.dart';
+ 
+ class ProfileScreen extends StatelessWidget {
+   final AppSettings settings;
+   final AiSettingsController aiSettings;
+   final BackupController backupController;
+   final UnifiedLocationService locationService;
++  final StyleRepository styleRepository;
++  final LlmProvider styleEnrichmentProvider;
+   const ProfileScreen({
+     super.key,
+     required this.settings,
+     required this.aiSettings,
+     required this.backupController,
+     required this.locationService,
++    required this.styleRepository,
++    required this.styleEnrichmentProvider,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
+         children: [
+           const Text(
+             'Profil',
+             style: TextStyle(
+               fontSize: 30,
+               fontWeight: FontWeight.w900,
+               letterSpacing: -1,
+             ),
+           ),
+           const SizedBox(height: 18),
+           const Card(
+             child: Padding(
+               padding: EdgeInsets.all(18),
+               child: Row(
+                 children: [
+                   CircleAvatar(radius: 31, child: Icon(Icons.person, size: 32)),
+                   SizedBox(width: 15),
+                   Expanded(
+                     child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: [
+                         Text(
+                           'Alex',
+                           style: TextStyle(
+                             fontSize: 19,
+                             fontWeight: FontWeight.w900,
+                           ),
+                         ),
+                         Text('Profil local WardrobeOS'),
+                       ],
+                     ),
+                   ),
+                 ],
+               ),
+             ),
+           ),
+           const SizedBox(height: 18),
+           _Tile(
+             icon: Icons.accessibility_new,
+             title: 'Morphologie & proportions',
+           ),
+-          _Tile(icon: Icons.style_outlined, title: 'Préférences de style'),
++          _Tile(icon: Icons.style_outlined, title: 'Styles', onTap: () =>
++            Navigator.push(context, MaterialPageRoute(builder: (_) => StyleLibraryScreen(
++              repository: styleRepository, llmProvider: styleEnrichmentProvider)))),
+           _Tile(icon: Icons.notifications_none, title: 'Notifications'),
+           Card(
+             margin: const EdgeInsets.only(bottom: 10),
+             child: SwitchListTile(
+               secondary: const Icon(Icons.dark_mode_outlined),
+               title: const Text(
+                 'Mode sombre',
+                 style: TextStyle(fontWeight: FontWeight.w800),
+               ),
+               value: settings.darkMode,
+               onChanged: settings.setDarkMode,
+             ),
+           ),
+           _LocationSettings(service: locationService),
+           _BackupSettings(controller: backupController),
+           _WardrobeGptSettings(controller: aiSettings),
+           _Tile(icon: Icons.info_outline, title: 'À propos'),
+           const SizedBox(height: 18),
+           Center(
+             child: Text(
+               'WardrobeOS Sprint 2 · Premium UI',
+               style: Theme.of(context).textTheme.bodySmall,
+             ),
+           ),
+         ],
+@@ -388,39 +397,41 @@ class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
+                               _show(await widget.controller.testConnection()),
+                   child: const Text('Tester la connexion'),
+                 ),
+                 TextButton(
+                   onPressed:
+                       busy || !widget.controller.configured
+                           ? null
+                           : () async {
+                             await widget.controller.delete();
+                             _show('Clé API supprimée');
+                           },
+                   child: const Text('Supprimer la clé'),
+                 ),
+               ],
+             ),
+           ),
+         );
+       },
+     );
+   }
+ }
+ 
+ class _Tile extends StatelessWidget {
+   final IconData icon;
+   final String title;
+-  const _Tile({required this.icon, required this.title});
++  final VoidCallback? onTap;
++  const _Tile({required this.icon, required this.title, this.onTap});
+ 
+   @override
+   Widget build(BuildContext context) {
+     return Card(
+       margin: const EdgeInsets.only(bottom: 10),
+       child: ListTile(
++        onTap: onTap,
+         leading: Icon(icon),
+         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+         trailing: const Icon(Icons.chevron_right),
+       ),
+     );
+   }
+ }
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 80fbd42fab08832c61edfd46114ad69787143b18..f6cc1c948ad2dd2819993bde64fb4ed4e9c7bfe8 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -12,73 +12,75 @@ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import '../assistant/tools/assistant_tool_context_builder.dart';
+ import '../assistant/tools/weather_tool.dart';
+ import '../assistant/recommendation/outfit_candidate.dart';
+ import '../assistant/recommendation/outfit_recommendation_engine.dart';
+ import '../assistant/memory/database_memory_repository.dart';
+ import '../assistant/memory/memory_service.dart';
+ import '../calendar/calendar_context_builder.dart';
+ import '../calendar/fake_calendar_service.dart';
+ import '../../data/database_service.dart';
+ import '../backup/backup_controller.dart';
+ import '../backup/backup_service.dart';
+ import '../backup/restore_service.dart';
+ import '../daily_brief/daily_brief_service.dart';
+ import '../agenda/agenda_controller.dart';
+ import '../agenda/agenda_screen.dart';
+ import '../agenda/agenda_service.dart';
+ import '../assistant/tools/agenda_tool.dart';
+ import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ import '../../weather/location/unified_location_service.dart';
++import '../styles/style_repository.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+   final UnifiedLocationService locationService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+     required this.locationService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
++  late final _styleRepository = StyleRepository(DatabaseService.instance);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
+   late final _backupRepository = DatabaseBackupRepository(
+     DatabaseService.instance,
+   );
+   late final _memoryService = MemoryService(
+     repository: DatabaseMemoryRepository(DatabaseService.instance),
+   );
+   late final _agendaCalendar = FakeCalendarService();
+   late final _aiContextService = WardrobeAiContextService(
+     loadCurrentGarments: DatabaseService.instance.getGarments,
+     memoryService: _memoryService,
+   );
+   late final _agendaService = AgendaService(
+     database: DatabaseService.instance,
+     calendarService: _agendaCalendar,
+     weatherService: widget.weatherService,
+     aiContextService: _aiContextService,
+   );
+   late final _backupController = BackupController(
+     backupService: BackupService(repository: _backupRepository),
+     restoreService: RestoreService(repository: _backupRepository),
+   );
+@@ -139,50 +141,52 @@ class _MainShellState extends State<MainShell> {
+         weatherService: widget.weatherService,
+         dailyBriefService: _dailyBriefService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(4),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+             MaterialPageRoute(builder: (_) => const ScannerScreen()),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+           }
+         },
+       ),
+       const WardrobeScreen(),
+       const OutfitsScreen(),
+       AgendaScreen(controller: _agendaController, outfitsController: _assistantOutfits),
+       AssistantScreen(service: _assistantService),
+       const WishlistScreen(),
+       ProfileScreen(
+         settings: widget.settings,
+         locationService: widget.locationService,
+         aiSettings: _aiSettings,
+         backupController: _backupController,
++        styleRepository: _styleRepository,
++        styleEnrichmentProvider: _openAiProvider,
+       ),
+     ];
+ 
+     return Scaffold(
+       body: AnimatedSwitcher(
+         duration: const Duration(milliseconds: 240),
+         transitionBuilder: (child, animation) {
+           return FadeTransition(
+             opacity: animation,
+             child: SlideTransition(
+               position: Tween<Offset>(
+                 begin: const Offset(.02, 0),
+                 end: Offset.zero,
+               ).animate(animation),
+               child: child,
+             ),
+           );
+         },
+         child: KeyedSubtree(key: ValueKey(index), child: pages[index]),
+       ),
+       bottomNavigationBar: NavigationBar(
+         selectedIndex: index,
+         onDestinationSelected: goTo,
+         destinations: const [
+           NavigationDestination(
+diff --git a/lib/features/styles/style_catalog.dart b/lib/features/styles/style_catalog.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..52eefb508fc9a7a4a5aeba4e5939df5ca30aeee9
+--- /dev/null
++++ b/lib/features/styles/style_catalog.dart
+@@ -0,0 +1,109 @@
++import '../../models/style_analysis.dart';
++import 'style_models.dart';
++
++/// Offline presentation layer keyed exclusively by StyleTaxonomy identifiers.
++abstract final class StyleCatalog {
++  static const locale = 'fr';
++
++  static final List<StyleDefinition> systemStyles = _build().values.toList(growable: false);
++  static final Map<String, StyleDefinition> _byId = {for (final style in systemStyles) style.id: style};
++
++  static StyleDefinition? byId(String id) => _byId[_normalize(id)];
++
++  static String _normalize(String value) => value.trim().toLowerCase()
++      .replaceAll('é', 'e').replaceAll('è', 'e').replaceAll(' ', '_');
++
++  static Map<String, StyleDefinition> _build() {
++    final definitions = <String, StyleDefinition>{};
++    void add(String id, String name, String short, String description, String formality,
++        {List<String> synonyms = const [], List<String> garments = const [],
++        List<String> colors = const [], List<String> materials = const [],
++        List<String> pieces = const [], List<String> occasions = const [],
++        List<String> related = const [], List<String> opposite = const [],
++        List<String> avoid = const []}) {
++      definitions[id] = StyleDefinition(id: id, taxonomyVersion: StyleTaxonomy.version,
++        origin: StyleOrigin.system, relatedStyleIds: related, oppositeStyleIds: opposite,
++        localizations: {'fr': LocalizedStyleContent(name: name, synonyms: synonyms,
++          shortDefinition: short, description: description, formality: formality,
++          garmentExamples: garments, colors: colors, materials: materials,
++          signaturePieces: pieces, occasions: occasions, avoid: avoid)});
++    }
++    add('casual', 'Décontracté', 'Une allure simple et confortable au quotidien.',
++      'Des pièces faciles à porter, souples et familières, assemblées sans rigidité.', 'Faible',
++      synonyms: ['casual', 'quotidien'], garments: ['Jean droit', 'T-shirt', 'Surchemise'],
++      colors: ['Bleu', 'Blanc', 'Beige'], materials: ['Coton', 'Denim'], pieces: ['Sneakers'],
++      occasions: ['Week-end', 'Sortie informelle'], related: ['smart_casual'], opposite: ['dressy']);
++    add('smart_casual', 'Smart casual', 'Le confort décontracté rendu plus soigné.',
++      'Un équilibre entre bases quotidiennes et pièces structurées, sans formalisme complet.', 'Moyen',
++      synonyms: ['décontracté chic'], garments: ['Chino', 'Chemise oxford', 'Blazer souple'],
++      colors: ['Marine', 'Écru'], materials: ['Coton', 'Laine froide'], pieces: ['Mocassins'],
++      occasions: ['Bureau souple', 'Dîner'], related: ['casual', 'dressy'], opposite: ['technical']);
++    add('dressy', 'Habillé', 'Une silhouette raffinée adaptée aux occasions formelles.',
++      'Des lignes nettes, des finitions précises et des matières élégantes composent une tenue tenue.', 'Élevé',
++      synonyms: ['formel', 'élégant'], garments: ['Costume', 'Robe habillée'], colors: ['Noir', 'Marine'],
++      materials: ['Laine', 'Soie'], pieces: ['Veste structurée'], occasions: ['Cérémonie', 'Soirée'],
++      related: ['smart_casual', 'elegant'], opposite: ['casual', 'sport']);
++    add('sport', 'Sport', 'Une esthétique inspirée des vêtements d’activité.',
++      'Confort, mobilité et détails athlétiques dominent, même hors pratique sportive.', 'Faible',
++      synonyms: ['sportswear', 'athleisure'], garments: ['Sweat', 'Jogging'], colors: ['Noir', 'Couleurs vives'],
++      materials: ['Jersey', 'Mesh'], pieces: ['Baskets'], occasions: ['Loisirs', 'Entraînement'],
++      related: ['technical', 'streetwear'], opposite: ['dressy']);
++    add('technical', 'Technique', 'Des pièces fonctionnelles conçues pour la performance.',
++      'La protection, la légèreté et les détails utilitaires structurent ce registre.', 'Faible à moyen',
++      synonyms: ['techwear'], garments: ['Shell imperméable', 'Pantalon cargo'], colors: ['Noir', 'Gris'],
++      materials: ['Nylon', 'Membrane'], pieces: ['Veste hardshell'], occasions: ['Trajet', 'Météo exigeante'],
++      related: ['sport', 'outdoor'], opposite: ['vintage']);
++    add('minimalist', 'Minimaliste', 'Peu de pièces, des lignes pures et une palette maîtrisée.',
++      'La silhouette privilégie la simplicité, la qualité et l’absence d’ornement superflu.', 'Variable',
++      synonyms: ['épuré'], garments: ['Pull uni', 'Pantalon droit'], colors: ['Neutres'], materials: ['Coton', 'Laine'],
++      pieces: ['Manteau droit'], occasions: ['Quotidien', 'Bureau'], related: ['modern', 'understated'], opposite: ['rock']);
++    add('workwear', 'Workwear', 'Une esthétique robuste issue du vêtement de travail.',
++      'Volumes pratiques, coutures solides et matières qui se patinent donnent son identité.', 'Faible à moyen',
++      garments: ['Veste chore', 'Jean brut'], colors: ['Indigo', 'Kaki'], materials: ['Denim', 'Canvas'],
++      pieces: ['Veste de travail'], occasions: ['Quotidien'], related: ['utility', 'outdoor'], opposite: ['elegant']);
++    add('streetwear', 'Streetwear', 'Une silhouette urbaine influencée par la rue et les cultures créatives.',
++      'Proportions affirmées, sneakers et graphismes forment un langage contemporain.', 'Faible',
++      garments: ['Hoodie', 'Pantalon ample'], colors: ['Noir', 'Accents vifs'], materials: ['Molleton', 'Nylon'],
++      pieces: ['Sneakers fortes'], occasions: ['Loisirs', 'Ville'], related: ['sport', 'modern'], opposite: ['preppy']);
++    add('preppy', 'Preppy', 'Un vestiaire soigné inspiré des campus classiques.',
++      'Mailles, chemises et codes sportifs traditionnels composent une allure nette.', 'Moyen',
++      garments: ['Polo', 'Cardigan'], colors: ['Marine', 'Bordeaux'], materials: ['Coton', 'Laine'],
++      pieces: ['Blazer club'], occasions: ['Bureau', 'Déjeuner'], related: ['smart_casual'], opposite: ['streetwear']);
++    add('vintage', 'Vintage', 'Des références et pièces évocatrices d’époques passées.',
++      'Coupes, imprimés et patines historiques sont assumés ou mélangés au contemporain.', 'Variable',
++      synonyms: ['rétro'], garments: ['Blouson ancien', 'Jean taille haute'], colors: ['Tons sourds'],
++      materials: ['Velours', 'Denim'], pieces: ['Pièce d’archive'], occasions: ['Quotidien'],
++      related: ['retro'], opposite: ['technical', 'modern']);
++    add('rock', 'Rock', 'Une allure contrastée, sombre et volontairement rebelle.',
++      'Cuir, denim, métal et proportions ajustées créent une présence forte.', 'Faible à moyen',
++      garments: ['Perfecto', 'Jean noir'], colors: ['Noir', 'Rouge'], materials: ['Cuir', 'Denim'],
++      pieces: ['Blouson biker'], occasions: ['Concert', 'Sortie'], related: ['streetwear'], opposite: ['understated']);
++    add('outdoor', 'Outdoor', 'Un vestiaire pratique inspiré des activités de plein air.',
++      'Protection, superposition et confort guident les choix de coupe et de matière.', 'Faible',
++      garments: ['Polaire', 'Parka'], colors: ['Kaki', 'Terre'], materials: ['Polaire', 'Ripstop'],
++      pieces: ['Parka technique'], occasions: ['Voyage', 'Randonnée'], related: ['technical', 'utility'], opposite: ['dressy']);
++    add('understated', 'Discret', 'Une expression mesurée qui évite les effets ostensibles.',
++      'Couleurs calmes, détails subtils et qualité silencieuse priment.', 'Variable',
++      synonyms: ['sobre'], related: ['minimalist'], opposite: ['rock']);
++    add('structured', 'Structuré', 'Des lignes construites qui dessinent nettement la silhouette.',
++      'Épaules, pinces et volumes maîtrisés donnent une architecture visible au vêtement.', 'Moyen à élevé',
++      related: ['dressy'], opposite: ['casual']);
++    add('modern', 'Moderne', 'Une lecture actuelle des coupes, volumes et associations.',
++      'La silhouette adopte des proportions contemporaines et des détails nets.', 'Variable',
++      related: ['minimalist', 'streetwear'], opposite: ['retro', 'vintage']);
++    add('retro', 'Rétro', 'Des codes visuels rappelant volontairement une époque passée.',
++      'Ce caractère peut venir d’une coupe, d’un motif ou d’une palette historique.', 'Variable',
++      related: ['vintage'], opposite: ['modern']);
++    add('elegant', 'Élégant', 'Une impression harmonieuse, raffinée et maîtrisée.',
++      'Les proportions, matières et finitions convergent vers une allure distinguée.', 'Élevé',
++      related: ['dressy', 'structured'], opposite: ['workwear']);
++    add('utility', 'Utilitaire', 'Des détails pratiques deviennent des marqueurs esthétiques.',
++      'Poches, réglages et constructions robustes privilégient la fonction visible.', 'Faible à moyen',
++      related: ['workwear', 'technical'], opposite: ['elegant']);
++
++    final expected = {...StyleTaxonomy.registers, ...StyleTaxonomy.secondaryStyles,
++      ...StyleTaxonomy.characteristics};
++    assert(definitions.keys.toSet().containsAll(expected));
++    return definitions;
++  }
++}
+diff --git a/lib/features/styles/style_detail_screen.dart b/lib/features/styles/style_detail_screen.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..d71b0ade15a3ebea135de7fbe1e795fe69c65729
+--- /dev/null
++++ b/lib/features/styles/style_detail_screen.dart
+@@ -0,0 +1,126 @@
++import 'package:flutter/material.dart';
++
++import 'style_enrichment_service.dart';
++import 'style_models.dart';
++import 'style_repository.dart';
++
++class StyleDetailScreen extends StatefulWidget {
++  final StyleDefinition style;
++  final StyleRepository repository;
++  final StyleEnrichmentService? enrichmentService;
++  const StyleDetailScreen({super.key, required this.style, required this.repository, this.enrichmentService});
++
++  @override
++  State<StyleDetailScreen> createState() => _StyleDetailScreenState();
++}
++
++class _StyleDetailScreenState extends State<StyleDetailScreen> {
++  late StyleDefinition style;
++  bool busy = false;
++
++  @override
++  void initState() {
++    super.initState();
++    style = widget.style;
++  }
++
++  Future<void> _enrich() async {
++    final service = widget.enrichmentService;
++    if (service == null) return;
++    setState(() => busy = true);
++    try {
++      final result = await service.enrich(style);
++      if (!mounted) return;
++      final edited = await _editText('Enrichissement IA', result);
++      if (edited == null) return;
++      final updated = style.copyWith(aiEnrichment: edited);
++      if (!updated.isSystem) await widget.repository.saveCustom(updated);
++      setState(() => style = updated);
++    } catch (error) {
++      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
++        content: Text('Enrichissement indisponible. La définition locale est conservée.')));
++    } finally { if (mounted) setState(() => busy = false); }
++  }
++
++  Future<void> _editCustom() async {
++    if (style.isSystem) return;
++    final current = style.content();
++    final name = TextEditingController(text: current.name);
++    final description = TextEditingController(text: current.description);
++    final notes = TextEditingController(text: style.notes);
++    final examples = TextEditingController(text: current.garmentExamples.join(', '));
++    final save = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
++      title: const Text('Modifier le style personnel'),
++      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
++        TextField(controller: name, decoration: const InputDecoration(labelText: 'Nom')),
++        TextField(controller: description, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Description')),
++        TextField(controller: notes, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Notes')),
++        TextField(controller: examples, decoration: const InputDecoration(labelText: 'Exemples, séparés par des virgules')),
++      ])), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
++        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Enregistrer'))]));
++    if (save == true && name.text.trim().isNotEmpty) {
++      final updated = StyleDefinition(id: style.id, taxonomyVersion: style.taxonomyVersion,
++        origin: StyleOrigin.user, notes: notes.text.trim(), aiEnrichment: style.aiEnrichment,
++        localizations: {'fr': LocalizedStyleContent(name: name.text.trim(),
++          shortDefinition: description.text.trim(), description: description.text.trim(), formality: 'Personnel',
++          garmentExamples: examples.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList())});
++      await widget.repository.saveCustom(updated);
++      if (mounted) setState(() => style = updated);
++    }
++    name.dispose(); description.dispose(); notes.dispose(); examples.dispose();
++  }
++
++  Future<String?> _editText(String title, String initial) async {
++    final controller = TextEditingController(text: initial);
++    final value = await showDialog<String>(context: context, builder: (context) => AlertDialog(
++      title: Text(title), content: TextField(controller: controller, minLines: 8, maxLines: 16,
++        decoration: const InputDecoration(hintText: 'Ce contenu reste modifiable.')),
++      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
++        FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Conserver'))]));
++    controller.dispose();
++    return value;
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final content = style.content();
++    return Scaffold(appBar: AppBar(title: Text(content.name), actions: [if (!style.isSystem)
++      IconButton(tooltip: 'Modifier', onPressed: _editCustom, icon: const Icon(Icons.edit_outlined))]), body: ListView(
++      padding: const EdgeInsets.all(18), children: [
++        Row(children: [Chip(label: Text(style.isSystem ? 'Style système' : 'Style personnel')),
++          const SizedBox(width: 8), Chip(label: Text('Formalité · ${content.formality}'))]),
++        _Section('Définition', content.shortDefinition),
++        _Section('Description', content.description),
++        _ListSection('Exemples de vêtements', content.garmentExamples),
++        _ListSection('Couleurs fréquentes', content.colors),
++        _ListSection('Matières fréquentes', content.materials),
++        _ListSection('Pièces emblématiques', content.signaturePieces),
++        _ListSection('Occasions adaptées', content.occasions),
++        _ListSection('Styles proches', style.relatedStyleIds),
++        _ListSection('Styles opposés', style.oppositeStyleIds),
++        _ListSection('À éviter', content.avoid),
++        if (style.notes.isNotEmpty) _Section('Notes', style.notes),
++        if (style.aiEnrichment?.isNotEmpty == true) _Section('Complément IA modifiable', style.aiEnrichment!),
++        const SizedBox(height: 12),
++        FilledButton.icon(onPressed: busy || widget.enrichmentService == null ? null : _enrich,
++          icon: busy ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.auto_awesome),
++          label: const Text('Enrichir avec l’IA')),
++      ]));
++  }
++}
++
++class _Section extends StatelessWidget {
++  final String title, value;
++  const _Section(this.title, this.value);
++  @override Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(top: 22),
++    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title,
++      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
++      const SizedBox(height: 6), Text(value, style: const TextStyle(height: 1.45))]));
++}
++
++class _ListSection extends StatelessWidget {
++  final String title; final List<String> values;
++  const _ListSection(this.title, this.values);
++  @override Widget build(BuildContext context) => values.isEmpty ? const SizedBox.shrink() :
++    _Section(title, values.join(' · '));
++}
+diff --git a/lib/features/styles/style_enrichment_service.dart b/lib/features/styles/style_enrichment_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..6bd68fa493b391adc8d52df877528f9f26ddc10f
+--- /dev/null
++++ b/lib/features/styles/style_enrichment_service.dart
+@@ -0,0 +1,18 @@
++import '../assistant/ai/llm_provider.dart';
++import 'style_models.dart';
++
++class StyleEnrichmentService {
++  final LlmProvider provider;
++  const StyleEnrichmentService(this.provider);
++
++  Future<String> enrich(StyleDefinition style) {
++    final content = style.content();
++    return provider.generate('''
++Complète la fiche du style « ${content.name} » en français.
++La définition locale existante est : ${content.description}
++Retourne un texte structuré et concis avec : définition approfondie, exemples
++supplémentaires, conseils et variantes. N'invente pas de certitudes historiques.
++Ne demande jamais de remplacer ou supprimer la définition locale.
++''');
++  }
++}
+diff --git a/lib/features/styles/style_library_screen.dart b/lib/features/styles/style_library_screen.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..1f6d3e9fb9e45a7edd814fd9c20ed88b619ae452
+--- /dev/null
++++ b/lib/features/styles/style_library_screen.dart
+@@ -0,0 +1,96 @@
++import 'package:flutter/material.dart';
++
++import '../assistant/ai/llm_provider.dart';
++import 'style_detail_screen.dart';
++import 'style_enrichment_service.dart';
++import 'style_models.dart';
++import 'style_repository.dart';
++
++class StyleLibraryScreen extends StatefulWidget {
++  final StyleRepository repository;
++  final LlmProvider? llmProvider;
++  const StyleLibraryScreen({super.key, required this.repository, this.llmProvider});
++  @override State<StyleLibraryScreen> createState() => _StyleLibraryScreenState();
++}
++
++class _StyleLibraryScreenState extends State<StyleLibraryScreen> {
++  List<StyleDefinition> styles = const [];
++  String query = '';
++  bool loading = true;
++
++  @override void initState() { super.initState(); _load(); }
++  Future<void> _load() async { final value = await widget.repository.all();
++    if (mounted) setState(() { styles = value; loading = false; }); }
++
++  void _open(StyleDefinition style) => Navigator.push(context, MaterialPageRoute(builder: (_) =>
++    StyleDetailScreen(style: style, repository: widget.repository,
++      enrichmentService: widget.llmProvider == null ? null : StyleEnrichmentService(widget.llmProvider!))));
++
++  Future<void> _create() async {
++    final name = TextEditingController(), description = TextEditingController(), notes = TextEditingController(), examples = TextEditingController();
++    final save = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
++      title: const Text('Nouveau style personnel'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
++        TextField(controller: name, decoration: const InputDecoration(labelText: 'Nom *')),
++        TextField(controller: description, decoration: const InputDecoration(labelText: 'Description'), minLines: 2, maxLines: 4),
++        TextField(controller: notes, decoration: const InputDecoration(labelText: 'Notes'), minLines: 2, maxLines: 4),
++        TextField(controller: examples, decoration: const InputDecoration(labelText: 'Exemples (séparés par des virgules)')),
++      ])), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
++        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Créer'))]));
++    if (save == true && name.text.trim().isNotEmpty) {
++      final id = 'user_${DateTime.now().microsecondsSinceEpoch}';
++      await widget.repository.saveCustom(StyleDefinition(id: id, taxonomyVersion: 1, origin: StyleOrigin.user,
++        notes: notes.text.trim(), localizations: {'fr': LocalizedStyleContent(name: name.text.trim(),
++          shortDefinition: description.text.trim(), description: description.text.trim(), formality: 'Personnel',
++          garmentExamples: examples.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList())}));
++      await _load();
++    }
++    name.dispose(); description.dispose(); notes.dispose(); examples.dispose();
++  }
++
++  Future<void> _delete(StyleDefinition style) async {
++    await widget.repository.deleteCustom(style.id); await _load();
++  }
++
++  Future<void> _compare() async {
++    if (styles.length < 2) return;
++    StyleDefinition first = styles.first, second = styles[1];
++    final selection = await showDialog<List<StyleDefinition>>(context: context, builder: (context) => StatefulBuilder(
++      builder: (context, setDialogState) => AlertDialog(title: const Text('Comparer deux styles'), content: Column(mainAxisSize: MainAxisSize.min, children: [
++        DropdownButtonFormField<StyleDefinition>(initialValue: first, items: _items(), onChanged: (v) => setDialogState(() => first = v!)),
++        const SizedBox(height: 12), DropdownButtonFormField<StyleDefinition>(initialValue: second, items: _items(), onChanged: (v) => setDialogState(() => second = v!)),
++      ]), actions: [FilledButton(onPressed: first == second ? null : () => Navigator.pop(context, [first, second]), child: const Text('Comparer'))])));
++    if (selection == null || !mounted) return;
++    final result = widget.repository.compare(selection[0], selection[1]);
++    await showDialog<void>(context: context, builder: (context) => AlertDialog(title: Text('${result.first.content().name} / ${result.second.content().name}'),
++      content: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++        _CompareBlock('Ressemblances', result.similarities), _CompareBlock('Différences', result.differences),
++        _CompareBlock('Contextes', result.contexts), _CompareBlock('Pièces caractéristiques', result.characteristicPieces)])),
++      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer'))]));
++  }
++
++  List<DropdownMenuItem<StyleDefinition>> _items() => styles.map((s) => DropdownMenuItem(value: s, child: Text(s.content().name))).toList();
++
++  @override Widget build(BuildContext context) {
++    final visible = widget.repository.search(styles, query);
++    return Scaffold(appBar: AppBar(title: const Text('Styles'), actions: [IconButton(tooltip: 'Comparer', onPressed: _compare, icon: const Icon(Icons.compare_arrows))]),
++      floatingActionButton: FloatingActionButton.extended(onPressed: _create, icon: const Icon(Icons.add), label: const Text('Style personnel')),
++      body: loading ? const Center(child: CircularProgressIndicator()) : ListView(padding: const EdgeInsets.fromLTRB(18, 10, 18, 100), children: [
++        TextField(onChanged: (v) => setState(() => query = v), decoration: const InputDecoration(prefixIcon: Icon(Icons.search),
++          labelText: 'Rechercher', hintText: 'Nom, synonyme ou description')),
++        const SizedBox(height: 16),
++        ...visible.map((style) { final c = style.content(); return Card(child: ListTile(onTap: () => _open(style),
++          leading: Icon(style.isSystem ? Icons.style_outlined : Icons.person_outline), title: Text(c.name),
++          subtitle: Text('${c.shortDefinition}\nFormalité : ${c.formality}'
++            '${style.relatedStyleIds.isEmpty ? '' : '\nProches : ${style.relatedStyleIds.join(', ')}'}'
++            '${style.oppositeStyleIds.isEmpty ? '' : '\nOpposés : ${style.oppositeStyleIds.join(', ')}'}', maxLines: 5), isThreeLine: true,
++          trailing: style.isSystem ? const Icon(Icons.chevron_right) : IconButton(tooltip: 'Supprimer', onPressed: () => _delete(style), icon: const Icon(Icons.delete_outline)))); }),
++        if (visible.isEmpty) const Padding(padding: EdgeInsets.all(30), child: Center(child: Text('Aucun style trouvé.'))),
++      ]));
++  }
++}
++
++class _CompareBlock extends StatelessWidget {
++  final String title; final List<String> values; const _CompareBlock(this.title, this.values);
++  @override Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(bottom: 16), child: Column(crossAxisAlignment: CrossAxisAlignment.start,
++    children: [Text(title, style: const TextStyle(fontWeight: FontWeight.w900)), const SizedBox(height: 4), Text(values.isEmpty ? 'Aucun élément commun identifié.' : values.join('\n'))]));
++}
+diff --git a/lib/features/styles/style_models.dart b/lib/features/styles/style_models.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..1361f13276db564319c58d07517fa96bc79d02e7
+--- /dev/null
++++ b/lib/features/styles/style_models.dart
+@@ -0,0 +1,80 @@
++enum StyleOrigin { system, user }
++
++class LocalizedStyleContent {
++  final String name;
++  final List<String> synonyms;
++  final String shortDefinition;
++  final String description;
++  final String formality;
++  final List<String> garmentExamples;
++  final List<String> colors;
++  final List<String> materials;
++  final List<String> signaturePieces;
++  final List<String> occasions;
++  final List<String> avoid;
++
++  const LocalizedStyleContent({
++    required this.name,
++    this.synonyms = const [],
++    required this.shortDefinition,
++    required this.description,
++    required this.formality,
++    this.garmentExamples = const [],
++    this.colors = const [],
++    this.materials = const [],
++    this.signaturePieces = const [],
++    this.occasions = const [],
++    this.avoid = const [],
++  });
++}
++
++class StyleDefinition {
++  final String id;
++  final int taxonomyVersion;
++  final StyleOrigin origin;
++  final Map<String, LocalizedStyleContent> localizations;
++  final List<String> relatedStyleIds;
++  final List<String> oppositeStyleIds;
++  final String notes;
++  final String? aiEnrichment;
++
++  const StyleDefinition({
++    required this.id,
++    required this.taxonomyVersion,
++    required this.origin,
++    required this.localizations,
++    this.relatedStyleIds = const [],
++    this.oppositeStyleIds = const [],
++    this.notes = '',
++    this.aiEnrichment,
++  });
++
++  bool get isSystem => origin == StyleOrigin.system;
++
++  LocalizedStyleContent content([String locale = 'fr']) =>
++      localizations[locale] ?? localizations['fr'] ?? localizations.values.first;
++
++  StyleDefinition copyWith({String? notes, String? aiEnrichment}) => StyleDefinition(
++    id: id,
++    taxonomyVersion: taxonomyVersion,
++    origin: origin,
++    localizations: localizations,
++    relatedStyleIds: relatedStyleIds,
++    oppositeStyleIds: oppositeStyleIds,
++    notes: notes ?? this.notes,
++    aiEnrichment: aiEnrichment ?? this.aiEnrichment,
++  );
++}
++
++class StyleComparison {
++  final StyleDefinition first;
++  final StyleDefinition second;
++  final List<String> similarities;
++  final List<String> differences;
++  final List<String> contexts;
++  final List<String> characteristicPieces;
++
++  const StyleComparison({required this.first, required this.second,
++    required this.similarities, required this.differences,
++    required this.contexts, required this.characteristicPieces});
++}
+diff --git a/lib/features/styles/style_repository.dart b/lib/features/styles/style_repository.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..20799c9a0209d0f4a9f247487af840d5a5f40840
+--- /dev/null
++++ b/lib/features/styles/style_repository.dart
+@@ -0,0 +1,82 @@
++import 'dart:convert';
++
++import 'package:sqflite/sqflite.dart';
++
++import '../../data/database_service.dart';
++import '../../models/style_analysis.dart';
++import 'style_catalog.dart';
++import 'style_models.dart';
++
++class StyleRepository {
++  final DatabaseService database;
++  const StyleRepository(this.database);
++
++  Future<List<StyleDefinition>> all() async => [...StyleCatalog.systemStyles, ...await customStyles()];
++
++  Future<List<StyleDefinition>> customStyles() async {
++    final db = await database.database;
++    return (await db.query('custom_styles', orderBy: 'name COLLATE NOCASE'))
++        .map(_fromRow).toList(growable: false);
++  }
++
++  Future<StyleDefinition?> find(String id) async {
++    final system = StyleCatalog.byId(id);
++    if (system != null) return system;
++    final db = await database.database;
++    final rows = await db.query('custom_styles', where: 'id = ?', whereArgs: [id], limit: 1);
++    return rows.isEmpty ? null : _fromRow(rows.first);
++  }
++
++  Future<void> saveCustom(StyleDefinition style) async {
++    if (style.isSystem || StyleCatalog.byId(style.id) != null) throw StateError('Un style système est immuable.');
++    final content = style.content(), now = DateTime.now().toIso8601String();
++    final db = await database.database;
++    await db.insert('custom_styles', {'id': style.id, 'name': content.name,
++      'description': content.description, 'notes': style.notes,
++      'examples': jsonEncode(content.garmentExamples), 'ai_enrichment': style.aiEnrichment,
++      'created_at': now, 'updated_at': now}, conflictAlgorithm: ConflictAlgorithm.replace);
++  }
++
++  Future<void> deleteCustom(String id) async {
++    if (StyleCatalog.byId(id) != null) throw StateError('Un style système ne peut pas être supprimé.');
++    final db = await database.database;
++    await db.delete('custom_styles', where: 'id = ?', whereArgs: [id]);
++  }
++
++  List<StyleDefinition> search(Iterable<StyleDefinition> styles, String query,
++      {String locale = StyleCatalog.locale}) {
++    final terms = _fold(query).split(RegExp(r'\s+')).where((value) => value.isNotEmpty);
++    if (terms.isEmpty) return styles.toList(growable: false);
++    return styles.where((style) {
++      final value = style.content(locale);
++      final haystack = _fold([value.name, ...value.synonyms, value.shortDefinition, value.description].join(' '));
++      return terms.every(haystack.contains);
++    }).toList(growable: false);
++  }
++
++  StyleComparison compare(StyleDefinition first, StyleDefinition second) {
++    final a = first.content(), b = second.content();
++    final sharedOccasions = a.occasions.toSet().intersection(b.occasions.toSet());
++    final sharedMaterials = a.materials.toSet().intersection(b.materials.toSet());
++    return StyleComparison(first: first, second: second,
++      similarities: [...sharedOccasions.map((e) => 'Contexte partagé : $e'), ...sharedMaterials.map((e) => 'Matière partagée : $e')],
++      differences: ['Formalité : ${a.formality} / ${b.formality}', '${a.name} : ${a.shortDefinition}', '${b.name} : ${b.shortDefinition}'],
++      contexts: {...a.occasions, ...b.occasions}.toList(),
++      characteristicPieces: {...a.signaturePieces, ...b.signaturePieces}.toList());
++  }
++
++  StyleDefinition _fromRow(Map<String, Object?> row) {
++    List<String> examples = const [];
++    try { examples = (jsonDecode(row['examples']?.toString() ?? '[]') as List).map((e) => e.toString()).toList(); }
++    on FormatException { /* Preserve the rest of a damaged local record. */ }
++    return StyleDefinition(id: row['id'].toString(), taxonomyVersion: StyleTaxonomy.version,
++      origin: StyleOrigin.user, notes: row['notes']?.toString() ?? '', aiEnrichment: row['ai_enrichment']?.toString(),
++      localizations: {'fr': LocalizedStyleContent(name: row['name'].toString(),
++        shortDefinition: row['description']?.toString() ?? '', description: row['description']?.toString() ?? '',
++        formality: 'Personnel', garmentExamples: examples)});
++  }
++
++  String _fold(String value) => value.toLowerCase().replaceAll(RegExp('[éèêë]'), 'e')
++      .replaceAll(RegExp('[àâä]'), 'a').replaceAll(RegExp('[îï]'), 'i')
++      .replaceAll(RegExp('[ôö]'), 'o').replaceAll(RegExp('[ùûü]'), 'u');
++}
+diff --git a/lib/features/wardrobe/garment_detail_screen.dart b/lib/features/wardrobe/garment_detail_screen.dart
+index 841e27e8aade7f7a2849ac91f19728a25d549138..a2ac93288e08e7505c1c6207b7e50e391af9f134 100644
+--- a/lib/features/wardrobe/garment_detail_screen.dart
++++ b/lib/features/wardrobe/garment_detail_screen.dart
+@@ -1,36 +1,39 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../data/database_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/outfit.dart';
+ import '../../models/wear_history.dart';
+ import '../../widgets/garment_image.dart';
+ import '../outfits/outfit_form_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import 'garment_form_screen.dart';
+ import 'wardrobe_controller.dart';
++import '../styles/style_catalog.dart';
++import '../styles/style_detail_screen.dart';
++import '../styles/style_repository.dart';
+ 
+ String? _cleanDisplayText(String? value) {
+   final trimmed = value?.trim();
+   if (trimmed == null || trimmed.isEmpty) return null;
+   final normalized = trimmed.toLowerCase();
+   if (normalized == 'null' ||
+       normalized == 'n/a' ||
+       normalized == 'vide' ||
+       normalized == 'inconnu' ||
+       normalized == 'inconnue') {
+     return null;
+   }
+   return trimmed;
+ }
+ 
+ List<String> _cleanDisplayList(Iterable<String>? values) =>
+     (values ?? const <String>[])
+         .map(_cleanDisplayText)
+         .whereType<String>()
+         .toSet()
+         .toList(growable: false);
+ 
+ String? _firstDisplayText(String? preferred, String? fallback) =>
+     _cleanDisplayText(preferred) ?? _cleanDisplayText(fallback);
+ 
+@@ -58,50 +61,58 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+   @override
+   void initState() {
+     super.initState();
+     garment = widget.garment;
+     _wearHistoryFuture = _loadWearHistory();
+     _firstWearFuture = _loadFirstWear();
+     _outfitsFuture = DatabaseService.instance.getOutfitsContainingGarment(
+       garment.id,
+     );
+   }
+ 
+   Future<void> edit() async {
+     final changed = await Navigator.push<bool>(
+       context,
+       MaterialPageRoute(
+         builder:
+             (_) => GarmentFormScreen(
+               controller: widget.controller,
+               garment: garment,
+             ),
+       ),
+     );
+     if (changed == true) _refreshGarment();
+   }
+ 
++  void _openStyleHelp(String styleId) {
++    final style = StyleCatalog.byId(styleId);
++    if (style == null) return;
++    final repository = StyleRepository(DatabaseService.instance);
++    Navigator.push(context, MaterialPageRoute(builder: (_) =>
++      StyleDetailScreen(style: style, repository: repository)));
++  }
++
+   void _openPhoto() {
+     if (!_hasText(garment.imagePath)) return;
+     showDialog<void>(
+       context: context,
+       barrierColor: Colors.black,
+       builder: (dialogContext) => Dialog.fullscreen(
+         backgroundColor: Colors.black,
+         child: Stack(
+           children: [
+             Positioned.fill(
+               child: InteractiveViewer(
+                 minScale: 1,
+                 maxScale: 5,
+                 child: Center(
+                   child: GarmentImage(
+                     imagePath: garment.imagePath,
+                     width: double.infinity,
+                     height: double.infinity,
+                   ),
+                 ),
+               ),
+             ),
+             SafeArea(
+               child: IconButton.filled(
+                 tooltip: 'Fermer',
+@@ -433,50 +444,66 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+                         : 'Ajouter aux favoris',
+                 onPressed: toggleFavorite,
+                 icon: Icon(
+                   garment.isFavorite ? Icons.favorite : Icons.favorite_border,
+                 ),
+               ),
+             ],
+           ),
+           const SizedBox(height: 14),
+           FilledButton.icon(
+             onPressed: edit,
+             icon: const Icon(Icons.edit_outlined),
+             label: const Text('Modifier cette pièce'),
+           ),
+           if (identityChips.isNotEmpty) ...[
+             const SizedBox(height: 17),
+             Wrap(
+               spacing: 8,
+               runSpacing: 8,
+               children:
+                   identityChips
+                       .map((value) => Chip(label: Text(value)))
+                       .toList(),
+             ),
+           ],
++          Builder(builder: (context) {
++            final analysis = garment.effectiveStyleAnalysis;
++            final ids = {analysis.register, ...analysis.secondaryStyles,
++              ...analysis.characteristics}.where((id) => StyleCatalog.byId(id) != null).toList();
++            if (ids.isEmpty) return const SizedBox.shrink();
++            return Card(margin: const EdgeInsets.only(top: 14), child: Padding(
++              padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++                const Row(children: [Icon(Icons.info_outline), SizedBox(width: 8),
++                  Text('Comprendre les styles', style: TextStyle(fontWeight: FontWeight.w900))]),
++                const SizedBox(height: 9), Wrap(spacing: 8, runSpacing: 8, children: ids.map((id) {
++                  final label = StyleCatalog.byId(id)!.content().name;
++                  return ActionChip(avatar: const Icon(Icons.help_outline, size: 18), label: Text(label),
++                    tooltip: 'Ouvrir la fiche du style', onPressed: () => _openStyleHelp(id));
++                }).toList()),
++              ])));
++          }),
+           _AiGarmentDetails(garment: garment),
+           const SizedBox(height: 26),
+           const _SectionTitle('Utilisé dans'),
+           const SizedBox(height: 10),
+           FutureBuilder<List<Outfit>>(
+             future: _outfitsFuture,
+             builder: (context, snapshot) {
+               if (snapshot.connectionState == ConnectionState.waiting) {
+                 return const Card(
+                   child: Padding(
+                     padding: EdgeInsets.all(18),
+                     child: Center(child: CircularProgressIndicator()),
+                   ),
+                 );
+               }
+               final outfits = snapshot.data ?? [];
+               if (outfits.isEmpty) {
+                 return const Card(
+                   child: ListTile(
+                     leading: Icon(Icons.style_outlined),
+                     title: Text('Aucune tenue'),
+                     subtitle: Text(
+                       'Cette pièce ne fait encore partie d’aucune tenue.',
+                     ),
+                   ),
