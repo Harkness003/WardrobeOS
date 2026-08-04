@@ -51,7 +51,17 @@ class OutfitCandidate {
     'nom': name,
     'catégorie': category,
     'couleur': color,
-    'saison': season,
+    'styleAnalysis': sourceGarment == null ? null : {
+      'registre': sourceGarment!.effectiveStyleAnalysis.register,
+      'stylesSecondaires': sourceGarment!.effectiveStyleAnalysis.secondaryStyles,
+      'caractéristiques': sourceGarment!.effectiveStyleAnalysis.characteristics,
+    },
+    'profilThermiqueEffectif':
+        sourceGarment?.effectiveThermalProfile.toJson(),
+    'niveauFormalité': sourceGarment?.niveauFormalite,
+    'occasions': sourceGarment?.effectiveOccasions,
+    'couleursCompatibles': sourceGarment?.couleursCompatibles,
+    'couleursMoinsAdaptées': sourceGarment?.couleursMoinsAdaptees,
     'fréquenceDePort': wearCount,
     'dernièreUtilisation': lastWorn?.toIso8601String(),
   };

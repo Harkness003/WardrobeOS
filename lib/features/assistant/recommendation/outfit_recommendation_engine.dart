@@ -31,9 +31,13 @@ class OutfitRecommendationEngine {
        assert(!recentWearWindow.isNegative);
 
   Future<OutfitRecommendationResult> recommend(
-    OutfitRecommendationRequest request,
-  ) async {
-    final candidates = (await _candidateSource())
+    OutfitRecommendationRequest request, {
+    Iterable<OutfitCandidate>? candidates,
+  }) async {
+    // AssistantService supplies the garments from the context it has just
+    // built. The source remains available for non-assistant callers, but must
+    // never create a second, potentially different snapshot during a reply.
+    final availableCandidates = (candidates ?? await _candidateSource())
         .where((candidate) => candidate.isAvailable)
         .where(
           (candidate) => request.requestedCategory == null ||
@@ -42,9 +46,11 @@ class OutfitRecommendationEngine {
               ),
         )
         .toList();
-    final byId = {for (final candidate in candidates) candidate.id: candidate};
+    final byId = {
+      for (final candidate in availableCandidates) candidate.id: candidate,
+    };
     final result = _engine.recommend(
-      wardrobe: candidates.map((candidate) => candidate.garment),
+      wardrobe: availableCandidates.map((candidate) => candidate.garment),
       context: RecommendationContext(
         season: request.season,
         occasion: request.occasion,
@@ -68,7 +74,7 @@ class OutfitRecommendationEngine {
           .whereType<OutfitCandidate>(),
       recommendation: result,
       outfit: _outfitEngine.generateBestOutfit(
-        wardrobe: candidates.map((candidate) => candidate.garment),
+        wardrobe: availableCandidates.map((candidate) => candidate.garment),
         context: RecommendationContext(
           season: request.season,
           occasion: request.occasion,

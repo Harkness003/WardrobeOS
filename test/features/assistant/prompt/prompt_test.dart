@@ -80,6 +80,10 @@ void main() {
     expect(prompt, contains('Tu es WardrobeGPT.'));
     expect(prompt, contains('réponse détaillée'));
     expect(prompt, contains('ne bloque jamais la réponse'));
+    expect(prompt, contains('seule source de vérité'));
+    expect(prompt, contains("n'invente aucune pièce"));
+    expect(prompt, contains('météo'));
+    expect(prompt, contains('profilThermiqueEffectif'));
     expect(prompt, contains('Ville : Lyon'));
     expect(prompt, contains('Température : 21.5°C'));
     expect(prompt, contains('Condition : Clair'));
@@ -87,5 +91,13 @@ void main() {
     expect(prompt, contains('Utilisations enregistrées : 7'));
     expect(prompt, contains('Jour : samedi'));
     expect(prompt, isNot(contains('## HISTORIQUE')));
+  });
+
+  test('sans météo, demande explicitement de continuer la recommandation', () {
+    final prompt = PromptBuilder().build(_context(withWeather: false));
+
+    expect(prompt, isNot(contains('## MÉTÉO')));
+    expect(prompt, contains('son absence ne doit jamais empêcher'));
+    expect(prompt, contains('meilleure combinaison réalisable'));
   });
 }

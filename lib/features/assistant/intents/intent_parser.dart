@@ -65,6 +65,11 @@ class IntentParser implements AssistantIntent {
       'tenue du jour',
       'que mettre',
       'comment m habiller',
+      'tenue',
+      'tenues',
+      'idee de look',
+      'idees de look',
+      'look avec',
     ])) {
       return AssistantIntentType.dailyOutfit;
     }

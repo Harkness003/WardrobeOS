@@ -13,6 +13,7 @@ import 'package:wardrobeos/weather/models/weather_data.dart';
 import 'package:wardrobeos/weather/services/weather_service.dart';
 import 'package:wardrobeos/features/assistant/recommendation/outfit_candidate.dart';
 import 'package:wardrobeos/features/assistant/recommendation/outfit_recommendation_engine.dart';
+import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
 
 class _WeatherService implements WeatherService {
   @override
@@ -168,5 +169,41 @@ void main() {
       await service.generatePrompt(userMessage: "Que mettre aujourd'hui ?"),
       contains('### RECOMMANDATION TENUE'),
     );
+  });
+
+  test('une modification récente remplace la fiche précédente dans chaque prompt', () async {
+    var currentName = 'Chemise avant modification';
+    final aiContext = WardrobeAiContextService(
+      loadCurrentGarments: () async => [
+        Garment(
+          id: 'stable-id',
+          name: currentName,
+          category: 'Haut',
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+        ),
+      ],
+    );
+    final service = AssistantService(
+      contextBuilder: AssistantContextBuilder(
+        weatherService: _WeatherService(),
+        wardrobeController: WardrobeController()..loading = false,
+        outfitsController: OutfitsController()..loading = false,
+        aiContextService: aiContext,
+      ),
+      recommendationEngine: OutfitRecommendationEngine(
+        candidateSource: () => fail('ne doit pas relire une autre copie'),
+      ),
+      llmProvider: const FakeLlmProvider(response: 'ok'),
+    );
+
+    final before = await service.generatePrompt(userMessage: 'Une idée de look ?');
+    currentName = 'Chemise corrigée maintenant';
+    final after = await service.generatePrompt(userMessage: 'Une idée de look ?');
+
+    expect(before, contains('Chemise avant modification'));
+    expect(after, contains('Chemise corrigée maintenant'));
+    expect(after, isNot(contains('Chemise avant modification')));
+    expect(service.lastRecommendationCandidates.single.name, 'Chemise corrigée maintenant');
   });
 }

@@ -28,14 +28,22 @@ class PromptBuilder {
     }
     if (recommendation != null) {
       final request = recommendation.request;
+      final composedOutfit = recommendation.outfit;
       prompt =
           '$prompt\n\n### RECOMMANDATION TENUE\n'
           'Demande utilisateur : ${request.originalMessage}\n'
           'Contexte météo : ${encoder.convert(request.weather?.toMap())}\n'
           'Vêtements candidats : '
           '${encoder.convert(recommendation.candidates.map((item) => item.toMap()).toList())}\n'
-          'Explique pourquoi la tenue est adaptée, les associations choisies '
-          'et les alternatives possibles. Utilise uniquement ces candidats.';
+          'Meilleure composition calculée : ${encoder.convert(composedOutfit == null ? null : {
+            'vêtements': composedOutfit.allGarments.map((item) => {'id': item.id, 'nom': item.name}).toList(),
+            'justifications': composedOutfit.justification,
+          })}\n'
+          'Construis le nombre de tenues demandé uniquement avec les identifiants '
+          'de la GARDE-ROBE actuelle. Appuie-toi sur la composition calculée, puis '
+          'sur les candidats classés pour des variantes cohérentes. Explique chaque '
+          'tenue brièvement. Si peu de catégories sont disponibles, propose une '
+          'composition partielle utile et signale simplement cette limite.';
     }
     return prompt;
   }

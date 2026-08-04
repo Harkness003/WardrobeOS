@@ -62,6 +62,8 @@ class AssistantService {
         shouldRecommend && _recommendationEngine != null
             ? await _recommendationEngine.recommend(
               OutfitRecommendationRequest.fromIntent(_lastIntent!, context),
+              candidates: context.wardrobe?.garments
+                  .map(OutfitCandidate.fromGarment),
             )
             : null;
     _lastRecommendationCandidates = recommendation?.candidates ?? const [];
