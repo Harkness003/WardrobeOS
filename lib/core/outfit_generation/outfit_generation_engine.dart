@@ -139,8 +139,9 @@ class OutfitGenerationEngine {
         : items.map((item) => 1 / (1 + item.wearCount)).reduce((a, b) => a + b) / items.length;
     final score = style * .25 + thermal * .20 + layering * .15 + formality * .15 +
         diversity * .10 + rotation * .15;
+    final temperature = request.context.weather?.temperature;
     final reasons = <String>[
-      if (thermal >= .7 && request.context.weather?.temperature case final temperature?)
+      if (thermal >= .7 && temperature != null)
         'Adaptée à ${temperature.round()} °C${request.context.weather?.isRaining == true ? ' et à la pluie' : ''}.',
       if (thermal >= .7 && request.context.weather == null) 'Bonne compatibilité thermique.',
       if (style >= .7) 'Couleurs et styles harmonieux.',

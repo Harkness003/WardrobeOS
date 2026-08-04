@@ -159,7 +159,8 @@ class AgendaService {
         final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
         if (proposal == null) throw StateError('Dressing insuffisant pour composer une tenue.');
         final value = await _saveProposal(date, preferences, proposal, weather, calendar.events.firstOrNull);
-        if (value != null) { generated.add(value); history.add(value); }
+        generated.add(value);
+        history.add(value);
       } catch (error) {
         failures.add(AgendaDayFailure(date, _errorMessage(error)));
       }
@@ -187,14 +188,16 @@ class AgendaService {
 
   Future<void> _ensureStored(Outfit outfit) async {
     if (await database.getOutfitById(outfit.id) == null) await database.createOutfit(outfit);
-    for (final garment in outfit.allGarments) await database.addGarmentToOutfit(outfit.id, garment.id);
+    for (final garment in outfit.allGarments) {
+      await database.addGarmentToOutfit(outfit.id, garment.id);
+    }
   }
 
-  Future<({List<CalendarEvent> events, bool available})> _events(DateTime date) async {
+  Future<({bool available, List<CalendarEvent> events})> _events(DateTime date) async {
     try { return (events: await calendarService.getTodayEvents(day: date),
       available: calendarService is! CalendarAvailability ||
           (calendarService as CalendarAvailability).isCalendarAvailable); }
-    catch (_) { return (events: const [], available: false); }
+    catch (_) { return (events: const <CalendarEvent>[], available: false); }
   }
   Future<WeatherData?> _optionalWeather() async {
     try { return await weatherService?.getCurrentWeather(); } catch (_) { return null; }
