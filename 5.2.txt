@@ -1,0 +1,719 @@
+diff --git a/docs/SPRINT_5_19_DAILY_BRIEF.md b/docs/SPRINT_5_19_DAILY_BRIEF.md
+index ec1c46d7430e3cb8438988df93a9c44929b6bf6a..47463d50945acf8d12e88d96587a87bff892b106 100644
+--- a/docs/SPRINT_5_19_DAILY_BRIEF.md
++++ b/docs/SPRINT_5_19_DAILY_BRIEF.md
+@@ -1,38 +1,70 @@
+-# Sprint 5.19 — Daily Brief
++# Sprint Daily Brief — fiabilité et chargement progressif
+ 
+-## Architecture
++## Périmètre
+ 
+-L'accueil consomme désormais un `DailyBrief`, modèle immuable constitué d'une
+-liste ordonnée de cartes typées. Chaque carte porte une priorité et ses données
+-de présentation. Cette structure permet de masquer, réordonner ou enregistrer
+-de nouveaux types de cartes sans déplacer de logique métier dans les widgets.
++Ce sprint ne modifie ni WardrobeGPT, ni le scanner, ni l’Agenda. Le Daily Brief
++ne sollicite plus WardrobeGPT : ses conseils courts sont dérivés localement de
++la tenue et de la météo facultative.
+ 
+-`DailyBriefService` est la façade de composition. Elle réutilise :
++## Fondations et fraîcheur des données
+ 
+-- `RecommendationEngine` pour classer les pièces selon la saison et la météo ;
+-- `WardrobeIntelligenceEngine` pour choisir une observation quotidienne ;
+-- `MemoryService` pour récupérer l'objectif actif ;
+-- `AssistantService` / WardrobeGPT pour le conseil personnalisé ;
+-- `WeatherService`, dont les erreurs restent non bloquantes.
++`DailyBriefService` utilise désormais le chemin unique suivant :
+ 
+-Le service limite volontairement le résultat à cinq cartes. L'entretien et
+-l'objectif sont conditionnels. L'observation est stable pendant une journée et
+-tourne au fil des jours parmi les insights existants.
++1. `WardrobeAiContextService.build()` relit le dressing courant ;
++2. le `PersonalizationSnapshot` est converti en `RecommendationPreferences` ;
++3. `OutfitGenerationEngine` classe les pièces à partir de `StyleAnalysis` et
++   `effectiveThermalProfile` ;
++4. la météo, lancée en parallèle, enrichit ensuite le contexte si elle arrive.
+ 
+-## Interface
++Aucune copie du dressing n’est conservée dans l’écran. Un pull-to-refresh crée
++un nouveau flux et relit donc immédiatement les ajouts et modifications. Les
++analyses stylistiques et profils thermiques persistés dans les vêtements sont
++réutilisés par le moteur ; aucun scan ni recalcul d’analyse n’est déclenché.
+ 
+-Le tableau de bord rend les cartes sans effectuer de calcul métier. La tenue
+-expose ses pièces, son score, une justification détaillée et les propositions
+-alternatives. Le pull-to-refresh reconstruit le brief. Une indisponibilité météo
+-ou WardrobeGPT masque seulement la carte concernée.
++## Chargement et états
+ 
+-## Évolutivité
++La structure et l’état « Chargement du dressing… » sont rendus dès la première
++frame. Le flux publie ensuite :
+ 
+-La personnalisation future pourra filtrer et trier `DailyBrief.cards` selon une
+-configuration persistée. L'ajout d'une carte se limite à un type, son modèle,
+-sa composition dans le service et son rendu indépendant.
++- une tenue et les observations disponibles dès la lecture du contexte ;
++- une version enrichie lorsque la météo est disponible ;
++- aucun second état si la météo échoue.
+ 
+-## Validation
++Les quatre issues sont explicites : chargement, tenue disponible, aucune
++recommandation et erreur avec action de relance. La carte tenue limite le titre,
++l’explication et les chips à deux lignes/trois pièces ; l’explication complète
++reste dans la bottom sheet « Pourquoi ? ».
+ 
+-Conformément aux contraintes du sprint, aucune commande Flutter, aucun build et
+-aucun test n'ont été exécutés.
++## Temps de chargement avant / après
++
++La comparaison du chemin critique est la suivante :
++
++| Mesure | Avant | Après |
++| --- | --- | --- |
++| Premier rendu utile de la page | après dressing + météo + mémoire + analyse + appel GPT | première frame (structure + état explicite) |
++| Première tenue | après météo et GPT | après une seule lecture du contexte dressing/mémoire |
++| Météo indisponible | attente de l’échec avant composition | hors chemin critique, tenue déjà publiée |
++| Accès dressing au démarrage du Daily | chargement du contrôleur puis nouvelle lecture du contexte | une lecture via `WardrobeAiContextService` |
++| Appel réseau de conseil | un appel GPT | aucun |
++
++Les valeurs en millisecondes doivent être relevées sur appareil cible (base et
++réseau représentatifs) : le conteneur de validation ne fournit pas de SDK
++Flutter. Le gain structurel est néanmoins déterministe : la météo et le conseil
++réseau ont été retirés du chemin critique, et une lecture dressing redondante a
++été supprimée.
++
++## Validation et suite avant le sprint Agenda
++
++Les tests automatisés couvrent la météo absente, l’émission progressive et la
++relecture d’une fiche récemment modifiée. Les dressings vide/réduit sont gérés
++par un état dédié et le moteur borné en `O(n log n)` reste adapté aux grands
++dressings.
++
++À finaliser avant le sprint Agenda :
++
++- relever P50/P95 sur un appareil avec dressing réduit et important ;
++- ajouter un test widget golden sur petit écran et avec noms très longs ;
++- décider si occasion et formalité de l’Agenda doivent, au sprint suivant,
++  compléter `RecommendationContext` sans rendre l’Agenda bloquant ;
++- observer la pertinence des règles de conversion des souvenirs en matières à
++  éviter et étendre leur taxonomie avec des champs structurés si nécessaire.
+diff --git a/lib/features/daily_brief/daily_brief_service.dart b/lib/features/daily_brief/daily_brief_service.dart
+index ef7e475a3e55a73a03d867a2ec8d5bd44e2e2da5..fdb70c4e7dc10f36a9d391fce2ed5e7fbaad549a 100644
+--- a/lib/features/daily_brief/daily_brief_service.dart
++++ b/lib/features/daily_brief/daily_brief_service.dart
+@@ -1,143 +1,192 @@
++import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ import '../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../core/recommendation/recommendation_context.dart';
+ import '../../core/recommendation/recommendation_engine.dart';
+ import '../../core/wardrobe_intelligence/wardrobe_intelligence_engine.dart';
++import '../../features/assistant/memory/personalization_snapshot.dart';
+ import '../../models/garment.dart';
+ import '../../weather/models/weather_data.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/memory/memory_service.dart';
+ import '../assistant/memory/personal_goal.dart';
+-import '../assistant/services/assistant_service.dart';
+ import 'daily_brief_models.dart';
+-import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ 
+-/// Adapts the existing intelligence, recommendation, memory and GPT services
+-/// into presentation-ready cards. Widgets never calculate recommendations.
++/// Composes the Daily Brief exclusively from the shared AI context and outfit
++/// engine. Expensive I/O is performed once and intermediate states are emitted
++/// as soon as they are useful to the UI.
+ class DailyBriefService {
+   static const maxVisibleCards = 5;
+ 
+   final WeatherService weatherService;
+   final MemoryService memoryService;
+-  final AssistantService assistantService;
+   final RecommendationEngine recommendationEngine;
+   final WardrobeIntelligenceEngine intelligenceEngine;
++  final OutfitGenerationEngine outfitEngine;
+   final DateTime Function() _clock;
+   final WardrobeAiContextService? aiContextService;
+ 
+   DailyBriefService({
+     required this.weatherService,
+     required this.memoryService,
+-    required this.assistantService,
++    Object? assistantService, // Kept source-compatible; Daily no longer calls GPT.
+     this.recommendationEngine = const RecommendationEngine(),
+     WardrobeIntelligenceEngine? intelligenceEngine,
++    OutfitGenerationEngine? outfitEngine,
+     DateTime Function()? clock,
+     this.aiContextService,
+   }) : intelligenceEngine = intelligenceEngine ?? WardrobeIntelligenceEngine(),
++       outfitEngine = outfitEngine ??
++           OutfitGenerationEngine(recommendationEngine: recommendationEngine),
+        _clock = clock ?? DateTime.now;
+ 
++  /// Emits wardrobe/outfit content first, then weather-enriched content. A
++  /// weather failure is data, not an error, and never prevents an outfit.
++  Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
++    final weatherFuture = _optionalWeather();
++    try {
++      final liveContext = await aiContextService?.build();
++      final garments = liveContext?.garments ??
++          List<Garment>.unmodifiable(wardrobe);
++      final memory = liveContext?.personalization ??
++          await memoryService.loadSnapshot();
++
++      var brief = _compose(garments, memory, weather: null);
++      yield brief;
++
++      final weather = await weatherFuture;
++      if (weather != null) {
++        brief = _compose(garments, memory, weather: weather);
++        yield brief;
++      }
++    } catch (_) {
++      // Stream errors are converted into an explicit UI state by the screen.
++      rethrow;
++    }
++  }
++
++  /// Compatibility API for non-progressive consumers.
+   Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
+-    final liveContext = await aiContextService?.build();
+-    final garments = liveContext?.garments ?? List<Garment>.unmodifiable(wardrobe);
+-    final weather = await _optionalWeather();
+-    final memory = liveContext?.personalization ?? await memoryService.loadSnapshot();
++    DailyBrief? latest;
++    await for (final brief in watch(wardrobe)) {
++      latest = brief;
++    }
++    return latest ?? DailyBrief(generatedAt: _clock(), cards: const [], outfitProposals: const []);
++  }
++
++  DailyBrief _compose(
++    List<Garment> garments,
++    PersonalizationSnapshot memory, {
++    required WeatherData? weather,
++  }) {
++    final preferences = _preferences(memory);
+     final report = intelligenceEngine.analyze(garments);
+-    final generation = OutfitGenerationEngine(recommendationEngine: recommendationEngine).generate(
+-      OutfitGenerationRequest(
+-        wardrobe: garments,
+-        proposalCount: 3,
+-        context: RecommendationContext(
+-          season: _season(_clock()),
+-          weather: weather == null
+-              ? null
+-              : RecommendationWeather(
+-                  temperature: weather.temperature,
+-                  isRaining: _isRaining(weather),
+-                  condition: weather.description,
+-                  windSpeed: weather.windSpeed,
+-                ),
+-        ),
++    final generation = outfitEngine.generate(OutfitGenerationRequest(
++      wardrobe: garments,
++      proposalCount: 3,
++      preferences: preferences,
++      context: RecommendationContext(
++        season: _season(_clock()),
++        desiredStyle: preferences.preferredStyles.firstOrNull,
++        weather: weather == null
++            ? null
++            : RecommendationWeather(
++                temperature: weather.temperature,
++                isRaining: _isRaining(weather),
++                condition: weather.description,
++                windSpeed: weather.windSpeed,
++              ),
+       ),
+-    );
++    ));
+     final proposals = generation.proposals.map((proposal) => DailyOutfitBrief(
+       garments: proposal.outfit.allGarments,
+       explanation: proposal.reasons.join(' '),
+       confidence: (proposal.score * 100).round(),
+     )).toList(growable: false);
+ 
+     final cards = <DailyBriefCard<Object>>[];
+     if (proposals.isNotEmpty) {
+       cards.add(DailyBriefCard(type: DailyBriefCardType.outfit, priority: 0, data: proposals.first));
+     }
+     if (weather != null) {
+       cards.add(DailyBriefCard(
+         type: DailyBriefCardType.weather,
+         priority: 1,
+         data: DailyWeatherBrief(weather: weather, impact: _weatherImpact(weather), isRaining: _isRaining(weather)),
+       ));
+     }
+     if (report.insights.isNotEmpty) {
+-      final dayIndex = _clock().difference(DateTime(_clock().year)).inDays;
+-      cards.add(DailyBriefCard(
+-        type: DailyBriefCardType.observation,
+-        priority: 2,
+-        data: report.insights[dayIndex % report.insights.length].message,
+-      ));
++      final now = _clock();
++      final dayIndex = now.difference(DateTime(now.year)).inDays;
++      cards.add(DailyBriefCard(type: DailyBriefCardType.observation, priority: 2,
++        data: report.insights[dayIndex % report.insights.length].message));
+     }
+-    final advice = await _stylistAdvice();
++    final advice = _localAdvice(proposals, weather);
+     if (advice != null) {
+       cards.add(DailyBriefCard(type: DailyBriefCardType.stylist, priority: 3, data: advice));
+     }
+     final care = _careMessage(garments);
+     if (care != null) {
+       cards.add(DailyBriefCard(type: DailyBriefCardType.care, priority: 4, data: care));
+     }
+     final goal = memory.goals.where((item) => item.status == PersonalGoalStatus.active).firstOrNull;
+     if (goal != null && proposals.isNotEmpty) {
+-      cards.add(DailyBriefCard(
+-        type: DailyBriefCardType.goal,
+-        priority: 5,
+-        data: DailyGoalBrief(title: goal.title, contribution: 'La sélection du jour privilégie des pièces cohérentes avec tes préférences et te permet d’avancer vers cet objectif.'),
+-      ));
++      cards.add(DailyBriefCard(type: DailyBriefCardType.goal, priority: 5,
++        data: DailyGoalBrief(title: goal.title,
++          contribution: 'Cette sélection tient compte de tes préférences et de la rotation de ton dressing.'));
+     }
+     cards.sort((a, b) => a.priority.compareTo(b.priority));
+-    return DailyBrief(generatedAt: _clock(), cards: List.unmodifiable(cards.take(maxVisibleCards)), outfitProposals: List.unmodifiable(proposals));
++    return DailyBrief(generatedAt: _clock(),
++      cards: List.unmodifiable(cards.take(maxVisibleCards)),
++      outfitProposals: List.unmodifiable(proposals));
++  }
++
++  static RecommendationPreferences _preferences(PersonalizationSnapshot snapshot) {
++    final profile = snapshot.styleProfile;
++    final avoidedMaterials = <String>{};
++    for (final memory in [...snapshot.declarativeMemories, ...snapshot.behavioralObservations]) {
++      if (memory.confidence < .6) continue;
++      final topic = memory.topic.toLowerCase();
++      if (topic.contains('mati') && (topic.contains('evit') || topic.contains('avoid'))) {
++        avoidedMaterials.add(memory.statement.trim());
++      }
++    }
++    return RecommendationPreferences(
++      preferredStyles: {...?profile?.favoriteStyles},
++      preferredColors: {...?profile?.preferredColors},
++      avoidedMaterials: avoidedMaterials,
++    );
+   }
+ 
+   Future<WeatherData?> _optionalWeather() async {
+     try { return await weatherService.getCurrentWeather(); } catch (_) { return null; }
+   }
+ 
+-  Future<String?> _stylistAdvice() async {
+-    final value = await assistantService.generateMessage(
+-      userMessage: 'Donne mon conseil de styliste personnalisé du jour en 3 phrases maximum.',
+-    );
+-    final clean = value.trim();
+-    if (clean.isEmpty || clean.startsWith('WardrobeGPT est temporairement')) return null;
+-    return clean.split(RegExp(r'(?<=[.!?])\s+')).take(3).join(' ');
++  static String? _localAdvice(List<DailyOutfitBrief> proposals, WeatherData? weather) {
++    if (proposals.isEmpty) return null;
++    if (weather == null) return 'La tenue reste modulable : ajoute ou retire une couche selon ton ressenti.';
++    return _weatherImpact(weather);
+   }
+ 
+   static bool _isRaining(WeatherData value) => value.weatherCode >= 51 && value.weatherCode <= 82;
+   static String _weatherImpact(WeatherData value) {
+-    if (_isRaining(value)) return 'Privilégie une couche imperméable et des chaussures qui supportent la pluie.';
++    if (_isRaining(value)) return 'Privilégie une couche imperméable et des chaussures adaptées à la pluie.';
+     if (value.windSpeed >= 30) return 'Le vent invite à choisir une couche extérieure bien fermée.';
+     if (value.temperature <= 10) return 'Ajoute une couche chaude pour rester confortable.';
+     if (value.temperature >= 25) return 'Choisis des matières légères et respirantes.';
+     return 'Les conditions sont douces : une superposition légère suffit.';
+   }
+ 
+   static String? _careMessage(List<Garment> garments) {
+     for (final item in garments) {
+       final condition = '${item.condition ?? ''} ${item.etatVisuel ?? ''} ${item.usureVisible ?? ''}'.toLowerCase();
+       if (condition.contains('sale') || condition.contains('tach')) return 'Pense à nettoyer ${item.name} avant sa prochaine sortie.';
+       if (condition.contains('us') || condition.contains('abîm')) return '${item.name} mérite un peu d’entretien avant d’être reporté.';
+     }
+     return null;
+   }
+ 
+   static String _season(DateTime date) => switch (date.month) {
+-    12 || 1 || 2 => 'Hiver',
+-    3 || 4 || 5 => 'Printemps',
+-    6 || 7 || 8 => 'Été',
+-    _ => 'Automne',
++    12 || 1 || 2 => 'Hiver', 3 || 4 || 5 => 'Printemps',
++    6 || 7 || 8 => 'Été', _ => 'Automne',
+   };
+ }
+diff --git a/lib/features/dashboard/dashboard_screen.dart b/lib/features/dashboard/dashboard_screen.dart
+index 68b85e70144074ed563aa81aa90b348a2db55eb8..d0a312729b38dc4e974201ba119bebff6eeed2b3 100644
+--- a/lib/features/dashboard/dashboard_screen.dart
++++ b/lib/features/dashboard/dashboard_screen.dart
+@@ -1,191 +1,219 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../core/theme/app_theme.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../daily_brief/daily_brief_models.dart';
+ import '../daily_brief/daily_brief_service.dart';
+-import '../wardrobe/wardrobe_controller.dart';
+ 
+ class DashboardScreen extends StatefulWidget {
+   final VoidCallback openWardrobe;
+   final VoidCallback openAssistant;
+   final VoidCallback openOutfits;
+   final VoidCallback openScanner;
+   final WeatherService weatherService;
+   final DailyBriefService dailyBriefService;
+ 
+   const DashboardScreen({
+     super.key,
+     required this.openWardrobe,
+     required this.openAssistant,
+     required this.openOutfits,
+     required this.openScanner,
+     required this.weatherService,
+     required this.dailyBriefService,
+   });
+ 
+   @override
+   State<DashboardScreen> createState() => _DashboardScreenState();
+ }
+ 
+ class _DashboardScreenState extends State<DashboardScreen> {
+-  late final WardrobeController _wardrobe = WardrobeController();
+-  Future<DailyBrief>? _brief;
++  late Stream<DailyBrief> _brief;
+   int _proposal = 0;
+ 
+   @override
+   void initState() {
+     super.initState();
+-    _load();
++    _brief = widget.dailyBriefService.watch();
+   }
+ 
+   Future<void> _load() async {
+-    await _wardrobe.load();
+-    if (!mounted) return;
+     setState(() {
+       _proposal = 0;
+-      _brief = widget.dailyBriefService.build(_wardrobe.garments);
++      // watch() always asks WardrobeAiContextService for a fresh database
++      // snapshot, so recent additions and edits appear after every refresh.
++      _brief = widget.dailyBriefService.watch();
+     });
+   }
+ 
+-  @override
+-  void dispose() {
+-    _wardrobe.dispose();
+-    super.dispose();
+-  }
+-
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: RefreshIndicator(
+         onRefresh: _load,
+         child: ListView(
+           padding: const EdgeInsets.fromLTRB(18, 18, 18, 32),
+           children: [
+             const Text('Bonjour', style: TextStyle(fontSize: 31, fontWeight: FontWeight.w900, letterSpacing: -1)),
+             const SizedBox(height: 4),
+             Text('Voici ton Daily Brief', style: Theme.of(context).textTheme.titleMedium),
+             const SizedBox(height: 22),
+-            if (_brief == null)
+-              const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+-            else
+-              FutureBuilder<DailyBrief>(
+-                future: _brief,
++              StreamBuilder<DailyBrief>(
++                stream: _brief,
+                 builder: (context, snapshot) {
+                   if (!snapshot.hasData) {
+-                    if (snapshot.hasError) return _EmptyBrief(onRetry: _load);
+-                    return const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()));
++                    if (snapshot.hasError) return _BriefError(onRetry: _load);
++                    return const _BriefLoading();
+                   }
+                   final brief = snapshot.requireData;
+                   if (brief.cards.isEmpty) return _EmptyBrief(onRetry: widget.openScanner);
+                   return Column(
+                     children: [
+                       for (final card in brief.cards) ...[
+                         _BriefCard(
+                           card: card,
+                           outfit: card.type == DailyBriefCardType.outfit && brief.outfitProposals.isNotEmpty
+                               ? brief.outfitProposals[_proposal.clamp(0, brief.outfitProposals.length - 1)]
+                               : null,
+-                          onWhy: () => _showWhy(context, (card.data as DailyOutfitBrief).explanation),
++                          onWhy: card.type == DailyBriefCardType.outfit
++                              ? () => _showWhy(context, (card.data as DailyOutfitBrief).explanation)
++                              : null,
+                           onAlternative: brief.outfitProposals.length < 2 ? null : () => setState(() => _proposal = (_proposal + 1) % brief.outfitProposals.length),
+                         ),
+                         const SizedBox(height: 14),
+                       ],
+                     ],
+                   );
+                 },
+               ),
+           ],
+         ),
+       ),
+     );
+   }
+ 
+   static void _showWhy(BuildContext context, String explanation) {
+     showModalBottomSheet<void>(context: context, builder: (context) => Padding(
+       padding: const EdgeInsets.all(24),
+       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+         const Text('Pourquoi cette tenue ?', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+         const SizedBox(height: 12), Text(explanation), const SizedBox(height: 12),
+       ]),
+     ));
+   }
+ }
+ 
+ class _BriefCard extends StatelessWidget {
+   final DailyBriefCard<Object> card;
+   final DailyOutfitBrief? outfit;
+-  final VoidCallback onWhy;
++  final VoidCallback? onWhy;
+   final VoidCallback? onAlternative;
+ 
+   const _BriefCard({required this.card, required this.outfit, required this.onWhy, required this.onAlternative});
+ 
+   @override
+   Widget build(BuildContext context) {
+     final (icon, title) = switch (card.type) {
+       DailyBriefCardType.outfit => (Icons.auto_awesome, 'Tenue du jour'),
+       DailyBriefCardType.weather => (Icons.cloud_outlined, 'Météo'),
+       DailyBriefCardType.observation => (Icons.insights_outlined, 'Observation'),
+       DailyBriefCardType.stylist => (Icons.format_quote_rounded, 'Conseil du styliste'),
+       DailyBriefCardType.care => (Icons.cleaning_services_outlined, 'Entretien'),
+       DailyBriefCardType.goal => (Icons.flag_outlined, 'Objectif'),
+     };
+     return Card(
+       clipBehavior: Clip.antiAlias,
+       child: Padding(
+         padding: const EdgeInsets.all(20),
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+           Row(children: [Icon(icon, color: AppTheme.gold), const SizedBox(width: 10), Text(title.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.1))]),
+           const SizedBox(height: 16),
+           _content(context),
+         ]),
+       ),
+     );
+   }
+ 
+   Widget _content(BuildContext context) {
+     if (card.type == DailyBriefCardType.outfit && outfit != null) {
+       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+-        Row(children: [Expanded(child: Text(outfit!.garments.map((item) => item.name).join(' · '), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))), _Confidence(value: outfit!.confidence)]),
++        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
++          Expanded(child: Text(outfit!.garments.map((item) => item.name).take(3).join(' · '),
++            maxLines: 2, overflow: TextOverflow.ellipsis,
++            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
++          const SizedBox(width: 8), _Confidence(value: outfit!.confidence),
++        ]),
+         const SizedBox(height: 8), Text(outfit!.explanation, maxLines: 2, overflow: TextOverflow.ellipsis),
+-        const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8, children: outfit!.garments.map((item) => Chip(label: Text(item.name))).toList()),
++        const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8,
++          children: outfit!.garments.take(3).map((item) => Chip(
++            label: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 150),
++              child: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis)))).toList()),
+         const SizedBox(height: 12), Row(children: [TextButton(onPressed: onWhy, child: const Text('Pourquoi ?')), const Spacer(), TextButton(onPressed: onAlternative, child: const Text('Autre proposition'))]),
+       ]);
+     }
+     if (card.data is DailyWeatherBrief) {
+       final value = card.data as DailyWeatherBrief;
+       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+         Text('${value.weather.temperature.round()} °C  ·  Pluie ${value.isRaining ? 'prévue' : 'non prévue'}  ·  Vent ${value.weather.windSpeed.round()} km/h', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+         const SizedBox(height: 8), Text(value.impact),
+       ]);
+     }
+     if (card.data is DailyGoalBrief) {
+       final value = card.data as DailyGoalBrief;
+       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(value.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)), const SizedBox(height: 7), Text(value.contribution)]);
+     }
+     return Text(card.data.toString(), style: const TextStyle(fontSize: 16, height: 1.45));
+   }
+ }
+ 
+ class _Confidence extends StatelessWidget {
+   final int value;
+   const _Confidence({required this.value});
+   @override
+   Widget build(BuildContext context) => Container(
+     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+     decoration: BoxDecoration(color: AppTheme.gold.withValues(alpha: .16), borderRadius: BorderRadius.circular(20)),
+     child: Text('$value %', style: const TextStyle(fontWeight: FontWeight.w900)),
+   );
+ }
+ 
+ class _EmptyBrief extends StatelessWidget {
+   final VoidCallback onRetry;
+   const _EmptyBrief({required this.onRetry});
+   @override
+   Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
+     const Icon(Icons.checkroom_outlined, size: 42), const SizedBox(height: 12),
+     const Text('Ton brief se prépare', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+     const SizedBox(height: 7), const Text('Ajoute quelques pièces pour recevoir des recommandations personnalisées.', textAlign: TextAlign.center),
+     const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Continuer')),
+   ])));
+ }
++
++class _BriefLoading extends StatelessWidget {
++  const _BriefLoading();
++  @override
++  Widget build(BuildContext context) => const Card(child: Padding(
++    padding: EdgeInsets.all(24),
++    child: Row(children: [
++      SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
++      SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
++        children: [Text('Chargement du dressing…', style: TextStyle(fontWeight: FontWeight.w800)),
++          SizedBox(height: 4), Text('La page est prête, la tenue arrive dans un instant.')]))
++    ]),
++  ));
++}
++
++class _BriefError extends StatelessWidget {
++  final VoidCallback onRetry;
++  const _BriefError({required this.onRetry});
++  @override
++  Widget build(BuildContext context) => Card(child: Padding(
++    padding: const EdgeInsets.all(24),
++    child: Column(children: [
++      const Icon(Icons.error_outline, size: 40), const SizedBox(height: 10),
++      const Text('Impossible de préparer le Daily Brief', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
++      const SizedBox(height: 6), const Text('Ton dressing reste intact. Tu peux réessayer maintenant.'),
++      const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Réessayer')),
++    ]),
++  ));
++}
+diff --git a/test/features/daily_brief/daily_brief_service_test.dart b/test/features/daily_brief/daily_brief_service_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..be0110514f4cf28922edda5926ccdb2ae22db67d
+--- /dev/null
++++ b/test/features/daily_brief/daily_brief_service_test.dart
+@@ -0,0 +1,115 @@
++import 'dart:async';
++
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
++import 'package:wardrobeos/features/assistant/memory/memory_repository.dart';
++import 'package:wardrobeos/features/assistant/memory/memory_service.dart';
++import 'package:wardrobeos/features/assistant/memory/personal_goal.dart';
++import 'package:wardrobeos/features/assistant/memory/style_profile.dart';
++import 'package:wardrobeos/features/assistant/memory/user_memory.dart';
++import 'package:wardrobeos/features/daily_brief/daily_brief_models.dart';
++import 'package:wardrobeos/features/daily_brief/daily_brief_service.dart';
++import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/weather/models/weather_data.dart';
++import 'package:wardrobeos/weather/services/weather_service.dart';
++
++Garment _garment(String id, String name, String category) => Garment(
++  id: id,
++  name: name,
++  category: category,
++  couleurPrincipale: 'Bleu',
++  matierePrincipale: 'Coton',
++  temperatureMinimum: 10,
++  temperatureMaximum: 25,
++  createdAt: DateTime(2026),
++  updatedAt: DateTime(2026),
++);
++
++void main() {
++  test('propose une tenue avant la météo puis enrichit le même brief', () async {
++    final weather = Completer<WeatherData>();
++    final service = _service(
++      wardrobe: [_garment('top', 'Chemise', 'Hauts')],
++      weather: _Weather(() => weather.future),
++    );
++    final events = <DailyBrief>[];
++    final done = service.watch().listen(events.add).asFuture<void>();
++
++    await Future<void>.delayed(Duration.zero);
++    expect(events, hasLength(1));
++    expect(events.single.outfitProposals, isNotEmpty);
++    expect(events.single.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
++
++    weather.complete(_weatherData);
++    await done;
++    expect(events, hasLength(2));
++    expect(events.last.cards.any((card) => card.type == DailyBriefCardType.weather), isTrue);
++  });
++
++  test('une météo absente ne bloque jamais la recommandation', () async {
++    final brief = await _service(
++      wardrobe: [_garment('top', 'T-shirt', 'Hauts')],
++      weather: _Weather(() => Future.error(StateError('indisponible'))),
++    ).build();
++
++    expect(brief.outfitProposals, isNotEmpty);
++    expect(brief.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
++  });
++
++  test('chaque relance relit le dressing actuel', () async {
++    var name = 'Avant modification';
++    var reads = 0;
++    final context = WardrobeAiContextService(loadCurrentGarments: () async {
++      reads++;
++      return [_garment('stable', name, 'Hauts')];
++    });
++    final service = DailyBriefService(
++      weatherService: _Weather(() => Future.error(StateError('offline'))),
++      memoryService: MemoryService(repository: _EmptyMemoryRepository()),
++      aiContextService: context,
++    );
++
++    final before = await service.build();
++    name = 'Après modification';
++    final after = await service.build();
++
++    expect(reads, 2);
++    expect(before.outfitProposals.single.garments.single.name, 'Avant modification');
++    expect(after.outfitProposals.single.garments.single.name, 'Après modification');
++  });
++}
++
++DailyBriefService _service({required List<Garment> wardrobe, required WeatherService weather}) =>
++    DailyBriefService(
++      weatherService: weather,
++      memoryService: MemoryService(repository: _EmptyMemoryRepository()),
++      aiContextService: WardrobeAiContextService(loadCurrentGarments: () async => wardrobe),
++    );
++
++final _weatherData = WeatherData(
++  city: 'Paris', latitude: 0, longitude: 0, temperature: 18,
++  apparentTemperature: 18, humidity: 50, windSpeed: 8, windDirection: 0,
++  weatherCode: 0, description: 'Clair', measuredAt: DateTime(2026),
++);
++
++class _Weather implements WeatherService {
++  final Future<WeatherData> Function() loader;
++  _Weather(this.loader);
++  @override
++  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) => loader();
++  @override
++  void clearCache() {}
++}
++
++class _EmptyMemoryRepository implements MemoryRepository {
++  @override Future<void> deleteMemory(String id) async {}
++  @override Future<void> deleteGoal(String id) async {}
++  @override Future<void> deleteStyleProfile() async {}
++  @override Future<List<PersonalGoal>> getGoals() async => [];
++  @override Future<List<UserMemoryRevision>> getMemoryHistory(String memoryId) async => [];
++  @override Future<List<UserMemory>> getMemories({UserMemoryKind? kind}) async => [];
++  @override Future<StyleProfile?> getStyleProfile() async => null;
++  @override Future<void> saveGoal(PersonalGoal goal) async {}
++  @override Future<void> saveMemory(UserMemory memory, {bool recordRevision = true}) async {}
++  @override Future<void> saveStyleProfile(StyleProfile profile) async {}
++}

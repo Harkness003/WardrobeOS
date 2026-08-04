@@ -1,63 +1,102 @@
+import '../../core/ai_context/wardrobe_ai_context_service.dart';
 import '../../core/outfit_generation/outfit_generation_engine.dart';
 import '../../core/recommendation/recommendation_context.dart';
 import '../../core/recommendation/recommendation_engine.dart';
 import '../../core/wardrobe_intelligence/wardrobe_intelligence_engine.dart';
+import '../../features/assistant/memory/personalization_snapshot.dart';
 import '../../models/garment.dart';
 import '../../weather/models/weather_data.dart';
 import '../../weather/services/weather_service.dart';
 import '../assistant/memory/memory_service.dart';
 import '../assistant/memory/personal_goal.dart';
-import '../assistant/services/assistant_service.dart';
 import 'daily_brief_models.dart';
-import '../../core/ai_context/wardrobe_ai_context_service.dart';
 
-/// Adapts the existing intelligence, recommendation, memory and GPT services
-/// into presentation-ready cards. Widgets never calculate recommendations.
+/// Composes the Daily Brief exclusively from the shared AI context and outfit
+/// engine. Expensive I/O is performed once and intermediate states are emitted
+/// as soon as they are useful to the UI.
 class DailyBriefService {
   static const maxVisibleCards = 5;
 
   final WeatherService weatherService;
   final MemoryService memoryService;
-  final AssistantService assistantService;
   final RecommendationEngine recommendationEngine;
   final WardrobeIntelligenceEngine intelligenceEngine;
+  final OutfitGenerationEngine outfitEngine;
   final DateTime Function() _clock;
   final WardrobeAiContextService? aiContextService;
 
   DailyBriefService({
     required this.weatherService,
     required this.memoryService,
-    required this.assistantService,
+    Object? assistantService, // Kept source-compatible; Daily no longer calls GPT.
     this.recommendationEngine = const RecommendationEngine(),
     WardrobeIntelligenceEngine? intelligenceEngine,
+    OutfitGenerationEngine? outfitEngine,
     DateTime Function()? clock,
     this.aiContextService,
   }) : intelligenceEngine = intelligenceEngine ?? WardrobeIntelligenceEngine(),
+       outfitEngine = outfitEngine ??
+           OutfitGenerationEngine(recommendationEngine: recommendationEngine),
        _clock = clock ?? DateTime.now;
 
+  /// Emits wardrobe/outfit content first, then weather-enriched content. A
+  /// weather failure is data, not an error, and never prevents an outfit.
+  Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
+    final weatherFuture = _optionalWeather();
+    try {
+      final liveContext = await aiContextService?.build();
+      final garments = liveContext?.garments ??
+          List<Garment>.unmodifiable(wardrobe);
+      final memory = liveContext?.personalization ??
+          await memoryService.loadSnapshot();
+
+      var brief = _compose(garments, memory, weather: null);
+      yield brief;
+
+      final weather = await weatherFuture;
+      if (weather != null) {
+        brief = _compose(garments, memory, weather: weather);
+        yield brief;
+      }
+    } catch (_) {
+      // Stream errors are converted into an explicit UI state by the screen.
+      rethrow;
+    }
+  }
+
+  /// Compatibility API for non-progressive consumers.
   Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
-    final liveContext = await aiContextService?.build();
-    final garments = liveContext?.garments ?? List<Garment>.unmodifiable(wardrobe);
-    final weather = await _optionalWeather();
-    final memory = liveContext?.personalization ?? await memoryService.loadSnapshot();
+    DailyBrief? latest;
+    await for (final brief in watch(wardrobe)) {
+      latest = brief;
+    }
+    return latest ?? DailyBrief(generatedAt: _clock(), cards: const [], outfitProposals: const []);
+  }
+
+  DailyBrief _compose(
+    List<Garment> garments,
+    PersonalizationSnapshot memory, {
+    required WeatherData? weather,
+  }) {
+    final preferences = _preferences(memory);
     final report = intelligenceEngine.analyze(garments);
-    final generation = OutfitGenerationEngine(recommendationEngine: recommendationEngine).generate(
-      OutfitGenerationRequest(
-        wardrobe: garments,
-        proposalCount: 3,
-        context: RecommendationContext(
-          season: _season(_clock()),
-          weather: weather == null
-              ? null
-              : RecommendationWeather(
-                  temperature: weather.temperature,
-                  isRaining: _isRaining(weather),
-                  condition: weather.description,
-                  windSpeed: weather.windSpeed,
-                ),
-        ),
+    final generation = outfitEngine.generate(OutfitGenerationRequest(
+      wardrobe: garments,
+      proposalCount: 3,
+      preferences: preferences,
+      context: RecommendationContext(
+        season: _season(_clock()),
+        desiredStyle: preferences.preferredStyles.firstOrNull,
+        weather: weather == null
+            ? null
+            : RecommendationWeather(
+                temperature: weather.temperature,
+                isRaining: _isRaining(weather),
+                condition: weather.description,
+                windSpeed: weather.windSpeed,
+              ),
       ),
-    );
+    ));
     final proposals = generation.proposals.map((proposal) => DailyOutfitBrief(
       garments: proposal.outfit.allGarments,
       explanation: proposal.reasons.join(' '),
@@ -76,14 +115,12 @@ class DailyBriefService {
       ));
     }
     if (report.insights.isNotEmpty) {
-      final dayIndex = _clock().difference(DateTime(_clock().year)).inDays;
-      cards.add(DailyBriefCard(
-        type: DailyBriefCardType.observation,
-        priority: 2,
-        data: report.insights[dayIndex % report.insights.length].message,
-      ));
+      final now = _clock();
+      final dayIndex = now.difference(DateTime(now.year)).inDays;
+      cards.add(DailyBriefCard(type: DailyBriefCardType.observation, priority: 2,
+        data: report.insights[dayIndex % report.insights.length].message));
     }
-    final advice = await _stylistAdvice();
+    final advice = _localAdvice(proposals, weather);
     if (advice != null) {
       cards.add(DailyBriefCard(type: DailyBriefCardType.stylist, priority: 3, data: advice));
     }
@@ -93,32 +130,46 @@ class DailyBriefService {
     }
     final goal = memory.goals.where((item) => item.status == PersonalGoalStatus.active).firstOrNull;
     if (goal != null && proposals.isNotEmpty) {
-      cards.add(DailyBriefCard(
-        type: DailyBriefCardType.goal,
-        priority: 5,
-        data: DailyGoalBrief(title: goal.title, contribution: 'La sélection du jour privilégie des pièces cohérentes avec tes préférences et te permet d’avancer vers cet objectif.'),
-      ));
+      cards.add(DailyBriefCard(type: DailyBriefCardType.goal, priority: 5,
+        data: DailyGoalBrief(title: goal.title,
+          contribution: 'Cette sélection tient compte de tes préférences et de la rotation de ton dressing.')));
     }
     cards.sort((a, b) => a.priority.compareTo(b.priority));
-    return DailyBrief(generatedAt: _clock(), cards: List.unmodifiable(cards.take(maxVisibleCards)), outfitProposals: List.unmodifiable(proposals));
+    return DailyBrief(generatedAt: _clock(),
+      cards: List.unmodifiable(cards.take(maxVisibleCards)),
+      outfitProposals: List.unmodifiable(proposals));
+  }
+
+  static RecommendationPreferences _preferences(PersonalizationSnapshot snapshot) {
+    final profile = snapshot.styleProfile;
+    final avoidedMaterials = <String>{};
+    for (final memory in [...snapshot.declarativeMemories, ...snapshot.behavioralObservations]) {
+      if (memory.confidence < .6) continue;
+      final topic = memory.topic.toLowerCase();
+      if (topic.contains('mati') && (topic.contains('evit') || topic.contains('avoid'))) {
+        avoidedMaterials.add(memory.statement.trim());
+      }
+    }
+    return RecommendationPreferences(
+      preferredStyles: {...?profile?.favoriteStyles},
+      preferredColors: {...?profile?.preferredColors},
+      avoidedMaterials: avoidedMaterials,
+    );
   }
 
   Future<WeatherData?> _optionalWeather() async {
     try { return await weatherService.getCurrentWeather(); } catch (_) { return null; }
   }
 
-  Future<String?> _stylistAdvice() async {
-    final value = await assistantService.generateMessage(
-      userMessage: 'Donne mon conseil de styliste personnalisé du jour en 3 phrases maximum.',
-    );
-    final clean = value.trim();
-    if (clean.isEmpty || clean.startsWith('WardrobeGPT est temporairement')) return null;
-    return clean.split(RegExp(r'(?<=[.!?])\s+')).take(3).join(' ');
+  static String? _localAdvice(List<DailyOutfitBrief> proposals, WeatherData? weather) {
+    if (proposals.isEmpty) return null;
+    if (weather == null) return 'La tenue reste modulable : ajoute ou retire une couche selon ton ressenti.';
+    return _weatherImpact(weather);
   }
 
   static bool _isRaining(WeatherData value) => value.weatherCode >= 51 && value.weatherCode <= 82;
   static String _weatherImpact(WeatherData value) {
-    if (_isRaining(value)) return 'Privilégie une couche imperméable et des chaussures qui supportent la pluie.';
+    if (_isRaining(value)) return 'Privilégie une couche imperméable et des chaussures adaptées à la pluie.';
     if (value.windSpeed >= 30) return 'Le vent invite à choisir une couche extérieure bien fermée.';
     if (value.temperature <= 10) return 'Ajoute une couche chaude pour rester confortable.';
     if (value.temperature >= 25) return 'Choisis des matières légères et respirantes.';
@@ -135,9 +186,7 @@ class DailyBriefService {
   }
 
   static String _season(DateTime date) => switch (date.month) {
-    12 || 1 || 2 => 'Hiver',
-    3 || 4 || 5 => 'Printemps',
-    6 || 7 || 8 => 'Été',
-    _ => 'Automne',
+    12 || 1 || 2 => 'Hiver', 3 || 4 || 5 => 'Printemps',
+    6 || 7 || 8 => 'Été', _ => 'Automne',
   };
 }

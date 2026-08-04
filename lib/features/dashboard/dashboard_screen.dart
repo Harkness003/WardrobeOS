@@ -4,7 +4,6 @@ import '../../core/theme/app_theme.dart';
 import '../../weather/services/weather_service.dart';
 import '../daily_brief/daily_brief_models.dart';
 import '../daily_brief/daily_brief_service.dart';
-import '../wardrobe/wardrobe_controller.dart';
 
 class DashboardScreen extends StatefulWidget {
   final VoidCallback openWardrobe;
@@ -29,29 +28,22 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  late final WardrobeController _wardrobe = WardrobeController();
-  Future<DailyBrief>? _brief;
+  late Stream<DailyBrief> _brief;
   int _proposal = 0;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _brief = widget.dailyBriefService.watch();
   }
 
   Future<void> _load() async {
-    await _wardrobe.load();
-    if (!mounted) return;
     setState(() {
       _proposal = 0;
-      _brief = widget.dailyBriefService.build(_wardrobe.garments);
+      // watch() always asks WardrobeAiContextService for a fresh database
+      // snapshot, so recent additions and edits appear after every refresh.
+      _brief = widget.dailyBriefService.watch();
     });
-  }
-
-  @override
-  void dispose() {
-    _wardrobe.dispose();
-    super.dispose();
   }
 
   @override
@@ -66,15 +58,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 4),
             Text('Voici ton Daily Brief', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 22),
-            if (_brief == null)
-              const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
-            else
-              FutureBuilder<DailyBrief>(
-                future: _brief,
+              StreamBuilder<DailyBrief>(
+                stream: _brief,
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
-                    if (snapshot.hasError) return _EmptyBrief(onRetry: _load);
-                    return const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()));
+                    if (snapshot.hasError) return _BriefError(onRetry: _load);
+                    return const _BriefLoading();
                   }
                   final brief = snapshot.requireData;
                   if (brief.cards.isEmpty) return _EmptyBrief(onRetry: widget.openScanner);
@@ -86,7 +75,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           outfit: card.type == DailyBriefCardType.outfit && brief.outfitProposals.isNotEmpty
                               ? brief.outfitProposals[_proposal.clamp(0, brief.outfitProposals.length - 1)]
                               : null,
-                          onWhy: () => _showWhy(context, (card.data as DailyOutfitBrief).explanation),
+                          onWhy: card.type == DailyBriefCardType.outfit
+                              ? () => _showWhy(context, (card.data as DailyOutfitBrief).explanation)
+                              : null,
                           onAlternative: brief.outfitProposals.length < 2 ? null : () => setState(() => _proposal = (_proposal + 1) % brief.outfitProposals.length),
                         ),
                         const SizedBox(height: 14),
@@ -115,7 +106,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 class _BriefCard extends StatelessWidget {
   final DailyBriefCard<Object> card;
   final DailyOutfitBrief? outfit;
-  final VoidCallback onWhy;
+  final VoidCallback? onWhy;
   final VoidCallback? onAlternative;
 
   const _BriefCard({required this.card, required this.outfit, required this.onWhy, required this.onAlternative});
@@ -146,9 +137,17 @@ class _BriefCard extends StatelessWidget {
   Widget _content(BuildContext context) {
     if (card.type == DailyBriefCardType.outfit && outfit != null) {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [Expanded(child: Text(outfit!.garments.map((item) => item.name).join(' · '), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))), _Confidence(value: outfit!.confidence)]),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: Text(outfit!.garments.map((item) => item.name).take(3).join(' · '),
+            maxLines: 2, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
+          const SizedBox(width: 8), _Confidence(value: outfit!.confidence),
+        ]),
         const SizedBox(height: 8), Text(outfit!.explanation, maxLines: 2, overflow: TextOverflow.ellipsis),
-        const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8, children: outfit!.garments.map((item) => Chip(label: Text(item.name))).toList()),
+        const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8,
+          children: outfit!.garments.take(3).map((item) => Chip(
+            label: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 150),
+              child: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis)))).toList()),
         const SizedBox(height: 12), Row(children: [TextButton(onPressed: onWhy, child: const Text('Pourquoi ?')), const Spacer(), TextButton(onPressed: onAlternative, child: const Text('Autre proposition'))]),
       ]);
     }
@@ -188,4 +187,33 @@ class _EmptyBrief extends StatelessWidget {
     const SizedBox(height: 7), const Text('Ajoute quelques pièces pour recevoir des recommandations personnalisées.', textAlign: TextAlign.center),
     const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Continuer')),
   ])));
+}
+
+class _BriefLoading extends StatelessWidget {
+  const _BriefLoading();
+  @override
+  Widget build(BuildContext context) => const Card(child: Padding(
+    padding: EdgeInsets.all(24),
+    child: Row(children: [
+      SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+      SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+        children: [Text('Chargement du dressing…', style: TextStyle(fontWeight: FontWeight.w800)),
+          SizedBox(height: 4), Text('La page est prête, la tenue arrive dans un instant.')]))
+    ]),
+  ));
+}
+
+class _BriefError extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _BriefError({required this.onRetry});
+  @override
+  Widget build(BuildContext context) => Card(child: Padding(
+    padding: const EdgeInsets.all(24),
+    child: Column(children: [
+      const Icon(Icons.error_outline, size: 40), const SizedBox(height: 10),
+      const Text('Impossible de préparer le Daily Brief', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 6), const Text('Ton dressing reste intact. Tu peux réessayer maintenant.'),
+      const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Réessayer')),
+    ]),
+  ));
 }
