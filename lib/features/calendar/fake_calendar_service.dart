@@ -3,7 +3,7 @@ import 'calendar_service.dart';
 
 typedef CalendarClock = DateTime Function();
 
-class FakeCalendarService implements CalendarService {
+class FakeCalendarService implements CalendarService, CalendarAvailability {
   final List<CalendarEvent> _events;
   final CalendarClock _clock;
 
@@ -12,6 +12,9 @@ class FakeCalendarService implements CalendarService {
     CalendarClock clock = DateTime.now,
   }) : _events = List.unmodifiable(events),
        _clock = clock;
+
+  @override
+  bool get isCalendarAvailable => false;
 
   @override
   Future<List<CalendarEvent>> getUpcomingEvents({DateTime? from}) async {

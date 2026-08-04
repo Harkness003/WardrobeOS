@@ -140,12 +140,16 @@ class OutfitGenerationEngine {
     final score = style * .25 + thermal * .20 + layering * .15 + formality * .15 +
         diversity * .10 + rotation * .15;
     final reasons = <String>[
-      if (thermal >= .7) 'Bonne compatibilité thermique.',
+      if (thermal >= .7 && request.context.weather?.temperature case final temperature?)
+        'Adaptée à ${temperature.round()} °C${request.context.weather?.isRaining == true ? ' et à la pluie' : ''}.',
+      if (thermal >= .7 && request.context.weather == null) 'Bonne compatibilité thermique.',
       if (style >= .7) 'Couleurs et styles harmonieux.',
       if (layering >= .7) 'Couches compatibles entre elles.',
       if (formality >= .7 && request.context.desiredStyle != null)
         'Adapté au registre ${request.context.desiredStyle}.',
       if (rotation >= .7) 'La sélection privilégie des pièces rarement portées.',
+      if (items.any((item) => item.lastWorn != null) && rotation >= .5)
+        'La rotation évite les pièces portées le plus récemment.',
       if (diversity >= .6) 'La tenue combine des catégories complémentaires.',
     ];
     if (reasons.isEmpty) reasons.add('Meilleur équilibre disponible dans le dressing actuel.');
@@ -165,7 +169,9 @@ class OutfitGenerationEngine {
         if (request.context.weather != null) 'Météo',
         if (request.context.occasion != null) 'Occasion',
         if (request.context.desiredStyle != null) 'Style souhaité',
-        if (request.context.season != null) 'Saison',
+        if (request.context.weather?.temperature != null) 'Température',
+        if (request.context.weather?.isRaining != null) 'Pluie',
+        if (items.any((item) => item.effectiveThermalProfile.primaryRole.name.isNotEmpty)) 'Rôles de couche',
         if (request.preferences.preferredColors.isNotEmpty) 'Couleurs préférées',
         if (request.preferences.preferredStyles.isNotEmpty) 'Styles préférés',
         if (request.preferences.avoidedMaterials.isNotEmpty) 'Matières évitées',

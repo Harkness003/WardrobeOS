@@ -50,6 +50,7 @@ class AgendaService {
   final WeatherService? weatherService;
   final AgendaClock clock;
   final WardrobeAiContextService aiContextService;
+  AgendaGenerationReport lastReport = const AgendaGenerationReport();
 
   AgendaService({required this.database, required this.calendarService,
     required this.aiContextService, this.weatherService,
@@ -108,9 +109,12 @@ class AgendaService {
     // build() deliberately reloads database garments on every proposal. Never
     // substitute saved-outfit garments: they may predate a recent edit.
     final wardrobe = (await aiContextService.build()).garments;
-    final event = await _optionalEvent(date);
+    final calendar = await _events(date);
     final weather = await _optionalWeather();
-    final context = _recommendationContext(date, event, weather);
+    final events = calendar.events;
+    final conflict = _eventConflict(events);
+    if (conflict != null) throw StateError(conflict);
+    final context = _recommendationContext(date, events, weather);
     final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
       wardrobe: wardrobe,
       context: context,
@@ -126,7 +130,7 @@ class AgendaService {
     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
-      justification: proposal.reasons.join(' '), weather: weather, event: event,
+      justification: proposal.reasons.join(' '), weather: weather, event: events.firstOrNull,
       createdAt: now, updatedAt: now);
     await database.savePlannedOutfit(value);
     return value;
@@ -135,28 +139,47 @@ class AgendaService {
   Future<List<PlannedOutfit>> proposePeriod(DateTime from, int days,
       AgendaPreferences preferences, {List<PlannedOutfit> existing = const []}) async {
     final generated = <PlannedOutfit>[];
+    final failures = <AgendaDayFailure>[];
+    var calendarAvailable = true;
     final history = [...existing]..sort((a, b) => a.date.compareTo(b.date));
+    // One immutable wardrobe snapshot and one weather request per generation.
+    final wardrobe = (await aiContextService.build()).garments;
+    final weather = await _optionalWeather();
     for (var offset = 0; offset < days; offset++) {
       final date = _day(from).add(Duration(days: offset));
       if (history.any((item) => _sameDay(item.date, date))) continue;
       try {
-        final value = await proposeDay(date, preferences, previous: history);
+        final calendar = await _events(date);
+        calendarAvailable = calendarAvailable && calendar.available;
+        final conflict = _eventConflict(calendar.events);
+        if (conflict != null) throw StateError(conflict);
+        final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
+          wardrobe: wardrobe, context: _recommendationContext(date, calendar.events, weather),
+          preferences: _recommendationPreferences(preferences), proposalCount: 3));
+        final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
+        if (proposal == null) throw StateError('Dressing insuffisant pour composer une tenue.');
+        final value = await _saveProposal(date, preferences, proposal, weather, calendar.events.firstOrNull);
         if (value != null) { generated.add(value); history.add(value); }
-      } catch (_) {
-        // Days are isolated so one optional provider cannot erase other plans.
+      } catch (error) {
+        failures.add(AgendaDayFailure(date, _errorMessage(error)));
       }
     }
+    lastReport = AgendaGenerationReport(generated: List.unmodifiable(generated),
+      failures: List.unmodifiable(failures), calendarAvailable: calendarAvailable);
     return List.unmodifiable(generated);
   }
 
-  RecommendationContext _recommendationContext(DateTime date, CalendarEvent? event,
+  RecommendationContext _recommendationContext(DateTime date, List<CalendarEvent> events,
       WeatherData? weather) => RecommendationContext(
-    occasion: event?.formality.label,
+    occasion: events.isEmpty ? null : events.map((event) => '${event.type.label} (${event.formality.label})').join(', '),
     weather: weather == null ? null : RecommendationWeather(
       temperature: weather.temperature, condition: weather.description,
       windSpeed: weather.windSpeed,
       isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
-    metadata: {'planner': 'agenda', 'date': _day(date).toIso8601String()},
+    metadata: {'planner': 'agenda', 'date': _day(date).toIso8601String(),
+      'events': events.map((event) => {'start': event.startsAt.toIso8601String(),
+        'durationMinutes': event.endsAt.difference(event.startsAt).inMinutes,
+        'context': event.type.label, 'formality': event.formality.label}).toList()},
   );
 
   static RecommendationPreferences _recommendationPreferences(AgendaPreferences value) =>
@@ -167,8 +190,11 @@ class AgendaService {
     for (final garment in outfit.allGarments) await database.addGarmentToOutfit(outfit.id, garment.id);
   }
 
-  Future<CalendarEvent?> _optionalEvent(DateTime date) async {
-    try { final events = await calendarService.getTodayEvents(day: date); return events.firstOrNull; } catch (_) { return null; }
+  Future<({List<CalendarEvent> events, bool available})> _events(DateTime date) async {
+    try { return (events: await calendarService.getTodayEvents(day: date),
+      available: calendarService is! CalendarAvailability ||
+          (calendarService as CalendarAvailability).isCalendarAvailable); }
+    catch (_) { return (events: const [], available: false); }
   }
   Future<WeatherData?> _optionalWeather() async {
     try { return await weatherService?.getCurrentWeather(); } catch (_) { return null; }
@@ -181,6 +207,29 @@ class AgendaService {
       createdAt: now, updatedAt: now, garments: source.garments,
       score: source.score, justification: source.justification);
   }
+  Future<PlannedOutfit> _saveProposal(DateTime date, AgendaPreferences preferences,
+      OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event) async {
+    final choice = _withAgendaId(proposal.outfit, date);
+    await _ensureStored(choice);
+    final now = clock();
+    final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+      outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+      strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+      justification: proposal.reasons.join(' '), weather: weather, event: event,
+      createdAt: now, updatedAt: now);
+    await database.savePlannedOutfit(value);
+    return value;
+  }
+  static String? _eventConflict(List<CalendarEvent> events) {
+    final formalities = events.map((event) => event.formality).toSet();
+    if (formalities.contains(EventFormality.sport) &&
+        (formalities.contains(EventFormality.formal) || formalities.contains(EventFormality.business))) {
+      return 'Conflit entre un événement sportif et un événement formel : aucune tenue unique cohérente.';
+    }
+    return null;
+  }
+  static String _errorMessage(Object error) => error is StateError
+      ? error.message.toString() : error.toString();
   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
   static DateTime _day(DateTime value) => DateTime(value.year, value.month, value.day);
 }

@@ -1,0 +1,1313 @@
+diff --git a/lib/core/outfit_generation/outfit_generation_engine.dart b/lib/core/outfit_generation/outfit_generation_engine.dart
+index 185a27da4b8c87507dcfb5858fbdd64ff9e15fe4..71160cbc56a484eb223d66db8d89c5972fe666bd 100644
+--- a/lib/core/outfit_generation/outfit_generation_engine.dart
++++ b/lib/core/outfit_generation/outfit_generation_engine.dart
+@@ -118,76 +118,82 @@ class OutfitGenerationEngine {
+         anchor: index == 0 ? null : items.first,
+         context: request.context,
+         preferences: request.preferences,
+         corrections: request.corrections,
+         alternativeCount: 0,
+       ).bestChoice;
+       for (final detail in evaluated?.details ?? const []) {
+         details.putIfAbsent(detail.criterion, () => []).add(detail.score);
+       }
+     }
+     double average(String key, [double fallback = .7]) {
+       final values = details[key];
+       return values == null || values.isEmpty ? fallback : values.reduce((a, b) => a + b) / values.length;
+     }
+     final style = (average('style') + average('couleurs')) / 2;
+     final thermal = average('température');
+     final layering = average('superposition');
+     final formality = average('formalité');
+     final diversity = (outfit.garments.length / 5).clamp(0, 1).toDouble();
+     final rotation = items.isEmpty
+         ? 0.0
+         : items.map((item) => 1 / (1 + item.wearCount)).reduce((a, b) => a + b) / items.length;
+     final score = style * .25 + thermal * .20 + layering * .15 + formality * .15 +
+         diversity * .10 + rotation * .15;
+     final reasons = <String>[
+-      if (thermal >= .7) 'Bonne compatibilité thermique.',
++      if (thermal >= .7 && request.context.weather?.temperature case final temperature?)
++        'Adaptée à ${temperature.round()} °C${request.context.weather?.isRaining == true ? ' et à la pluie' : ''}.',
++      if (thermal >= .7 && request.context.weather == null) 'Bonne compatibilité thermique.',
+       if (style >= .7) 'Couleurs et styles harmonieux.',
+       if (layering >= .7) 'Couches compatibles entre elles.',
+       if (formality >= .7 && request.context.desiredStyle != null)
+         'Adapté au registre ${request.context.desiredStyle}.',
+       if (rotation >= .7) 'La sélection privilégie des pièces rarement portées.',
++      if (items.any((item) => item.lastWorn != null) && rotation >= .5)
++        'La rotation évite les pièces portées le plus récemment.',
+       if (diversity >= .6) 'La tenue combine des catégories complémentaires.',
+     ];
+     if (reasons.isEmpty) reasons.add('Meilleur équilibre disponible dans le dressing actuel.');
+     final criterion = OutfitScore(
+       styleCoherence: OutfitCriterionScore(value: style, explanation: 'Cohérence des styles et couleurs.'),
+       weatherSuitability: OutfitCriterionScore(value: thermal, explanation: 'Compatibilité avec la météo disponible.'),
+       temperatureSuitability: OutfitCriterionScore(value: thermal, explanation: 'Compatibilité thermique des profils calculés.'),
+       formality: OutfitCriterionScore(value: formality, explanation: 'Cohérence des niveaux de formalité.'),
+       diversity: OutfitCriterionScore(value: diversity, explanation: 'Diversité des catégories sélectionnées.'),
+       overallConfidence: OutfitCriterionScore(value: score.clamp(0, 1).toDouble(), explanation: 'Score pondéré global incluant superposition et rotation.'),
+     );
+     return OutfitGenerationProposal(
+       outfit: outfit.copyWith(score: criterion, justification: List.unmodifiable(reasons)),
+       score: score,
+       reasons: List.unmodifiable(reasons),
+       respectedConstraints: List.unmodifiable([
+         if (request.context.weather != null) 'Météo',
+         if (request.context.occasion != null) 'Occasion',
+         if (request.context.desiredStyle != null) 'Style souhaité',
+-        if (request.context.season != null) 'Saison',
++        if (request.context.weather?.temperature != null) 'Température',
++        if (request.context.weather?.isRaining != null) 'Pluie',
++        if (items.any((item) => item.effectiveThermalProfile.primaryRole.name.isNotEmpty)) 'Rôles de couche',
+         if (request.preferences.preferredColors.isNotEmpty) 'Couleurs préférées',
+         if (request.preferences.preferredStyles.isNotEmpty) 'Styles préférés',
+         if (request.preferences.avoidedMaterials.isNotEmpty) 'Matières évitées',
+       ]),
+     );
+   }
+ 
+   static OutfitCategory categoryFor(Garment garment) {
+     final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.effectiveThermalProfile.primaryRole.name}'.toLowerCase();
+     if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) return OutfitCategory.shoes;
+     if (value.contains('pantal') || value.contains('jupe') || value.contains('short') || value.contains('bas')) return OutfitCategory.bottom;
+     if (value.contains('manteau') || value.contains('parka')) return OutfitCategory.coat;
+     if (value.contains('veste') || value.contains('blazer')) return OutfitCategory.jacket;
+     if (value.contains('sac')) return OutfitCategory.bag;
+     if (value.contains('bijou') || value.contains('collier') || value.contains('bracelet')) return OutfitCategory.jewelry;
+     if (value.contains('access')) return OutfitCategory.accessory;
+     if (value.contains('haut') || value.contains('chemise') || value.contains('pull') || value.contains('t-shirt')) return OutfitCategory.top;
+     return OutfitCategory.otherLayer;
+   }
+ 
+   static String _signature(Outfit value) {
+     final ids = value.allGarments.map((item) => item.id).toList()..sort();
+     return ids.join('|');
+   }
+   static Map<OutfitCategory, List<Garment>> _freeze(Map<OutfitCategory, List<Garment>> source) =>
+diff --git a/lib/features/agenda/agenda_controller.dart b/lib/features/agenda/agenda_controller.dart
+index 7586ccb5d4f475395eb349114b5e9afff5084524..13470bfddc1983f0f463b006ba7f36a93172768e 100644
+--- a/lib/features/agenda/agenda_controller.dart
++++ b/lib/features/agenda/agenda_controller.dart
+@@ -1,79 +1,91 @@
+ import 'package:flutter/foundation.dart';
+ import '../../models/outfit.dart';
+ import 'agenda_models.dart';
+ import 'agenda_service.dart';
+ 
+ class AgendaController extends ChangeNotifier {
+   final AgendaService service;
+   DateTime weekStart;
+   AgendaPreferences preferences;
+   List<PlannedOutfit> plans = const [];
+   bool loading = false;
+   Object? error;
+   final Map<DateTime, AgendaDayState> dayStates = {};
++  final Map<DateTime, String> dayErrors = {};
++  bool calendarAvailable = true;
+ 
+   AgendaController({required this.service, AgendaPreferences preferences = const AgendaPreferences(), DateTime? initialDay})
+     : preferences = preferences, weekStart = _monday(initialDay ?? DateTime.now());
+ 
+   Future<void> load() async {
+     loading = true; error = null; notifyListeners();
+     try {
+       plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
+       _syncStates();
+       final missing = _days.where((day) => forDay(day) == null).toList();
+       if (missing.isNotEmpty) {
+         for (final day in missing) dayStates[_key(day)] = AgendaDayState.generating;
+         notifyListeners();
+         await service.proposePeriod(weekStart, 7, preferences, existing: plans);
++        _applyReport();
+         plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
+         _syncStates();
+       }
+     }
+     catch (value) { error = value; }
+     finally { loading = false; notifyListeners(); }
+   }
+ 
+   Future<void> changeWeek(int offset) async { weekStart = weekStart.add(Duration(days: offset * 7)); await load(); }
+   void setStrategy(PlanningStrategy strategy) { preferences = preferences.copyWith(strategy: strategy); notifyListeners(); }
+   PlannedOutfit? forDay(DateTime day) => plans.where((item) => _sameDay(item.date, day)).firstOrNull;
+   AgendaDayState stateFor(DateTime day) => dayStates[_key(day)] ?? AgendaDayState.noOutfit;
+ 
+   Future<void> proposeWeek() async {
+     loading = true; error = null; notifyListeners();
+-    try { await service.proposePeriod(weekStart, 7, preferences, existing: plans); plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); _syncStates(); }
++    try { await service.proposePeriod(weekStart, 7, preferences, existing: plans); _applyReport(); plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); _syncStates(); }
+     catch (value) { error = value; }
+     finally { loading = false; notifyListeners(); }
+   }
+ 
+   Future<void> plan(DateTime date, Outfit outfit) async { await service.plan(date: date, outfit: outfit, strategy: preferences.strategy); await load(); }
+   Future<void> replace(PlannedOutfit value, Outfit outfit, {OutfitReuseKind kind = OutfitReuseKind.none}) async { await service.replace(value, outfit, reuseKind: kind); await load(); }
+   Future<void> another(DateTime date, PlannedOutfit? current) async {
+     dayStates[_key(date)] = AgendaDayState.generating; notifyListeners();
+     try {
+       // The same stable plan id is overwritten only after generation succeeds.
+       await service.proposeDay(date, preferences,
+         previous: plans.where((item) => item.date.isBefore(date)).toList());
+       await load();
+     } catch (value) {
+       error = value; dayStates[_key(date)] = AgendaDayState.error; notifyListeners();
+     }
+   }
+   Future<void> confirm(PlannedOutfit value) async { await service.confirm(value); await load(); }
+   Future<void> markWorn(PlannedOutfit value) async { await service.markWorn(value); await load(); }
+   Future<void> remove(PlannedOutfit value) async { await service.remove(value); await load(); }
+ 
+   Iterable<DateTime> get _days => Iterable.generate(7, (index) => weekStart.add(Duration(days: index)));
+   void _syncStates() {
+     for (final day in _days) {
+       final plan = forDay(day);
+-      dayStates[_key(day)] = plan == null ? AgendaDayState.noOutfit
++      dayStates[_key(day)] = dayErrors.containsKey(_key(day)) ? AgendaDayState.error
++          : plan == null ? AgendaDayState.noOutfit
+           : plan.origin == PlanningOrigin.automatic ? AgendaDayState.generated : AgendaDayState.planned;
+     }
+   }
++  void _applyReport() {
++    calendarAvailable = service.lastReport.calendarAvailable;
++    dayErrors.clear();
++    for (final failure in service.lastReport.failures) {
++      dayErrors[_key(failure.date)] = failure.reason;
++      dayStates[_key(failure.date)] = AgendaDayState.error;
++    }
++  }
+   static DateTime _key(DateTime value) => DateTime(value.year, value.month, value.day);
+ 
+   static DateTime _monday(DateTime value) { final day = DateTime(value.year, value.month, value.day); return day.subtract(Duration(days: day.weekday - 1)); }
+   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+ }
+ enum AgendaDayState { generating, noOutfit, generated, planned, error }
+ extension<T> on Iterable<T> { T? get firstOrNull => isEmpty ? null : first; }
+diff --git a/lib/features/agenda/agenda_models.dart b/lib/features/agenda/agenda_models.dart
+index 46633eb0f82e78f1a6875417c7d3fb5dede6fb4b..d7a20fadea6cb7a4f635c1b26e0758b50c7d1aeb 100644
+--- a/lib/features/agenda/agenda_models.dart
++++ b/lib/features/agenda/agenda_models.dart
+@@ -1,34 +1,47 @@
+ import '../../features/calendar/calendar_event.dart';
+ import '../../models/outfit.dart';
+ import '../../weather/models/weather_data.dart';
+ 
+ enum PlanningStrategy { minimal, economical, rotation, variety, elegance, comfort, weather, professional, custom }
+ enum PlannedOutfitStatus { proposed, confirmed, worn, ignored, cancelled }
+ enum PlanningOrigin { manual, automatic, assistant }
+ enum OutfitReuseKind { complete, partial, variant, none }
+ 
++class AgendaDayFailure {
++  final DateTime date;
++  final String reason;
++  const AgendaDayFailure(this.date, this.reason);
++}
++
++class AgendaGenerationReport {
++  final List<PlannedOutfit> generated;
++  final List<AgendaDayFailure> failures;
++  final bool calendarAvailable;
++  const AgendaGenerationReport({this.generated = const [], this.failures = const [], this.calendarAvailable = true});
++}
++
+ extension PlanningStrategyLabel on PlanningStrategy {
+   String get label => switch (this) {
+     PlanningStrategy.minimal => 'Minimal', PlanningStrategy.economical => 'Économique',
+     PlanningStrategy.rotation => 'Rotation', PlanningStrategy.variety => 'Variété',
+     PlanningStrategy.elegance => 'Élégance', PlanningStrategy.comfort => 'Confort',
+     PlanningStrategy.weather => 'Météo', PlanningStrategy.professional => 'Professionnel',
+     PlanningStrategy.custom => 'Personnalisé',
+   };
+ }
+ 
+ class AgendaRule {
+   final String type;
+   final Map<String, Object?> parameters;
+   final bool enabled;
+   const AgendaRule({required this.type, this.parameters = const {}, this.enabled = true});
+ 
+   Map<String, Object?> toJson() => {'type': type, 'parameters': parameters, 'enabled': enabled};
+   factory AgendaRule.fromJson(Map<String, Object?> json) => AgendaRule(
+     type: json['type'] as String? ?? 'unknown',
+     parameters: (json['parameters'] as Map?)?.cast<String, Object?>() ?? const {},
+     enabled: json['enabled'] as bool? ?? true,
+   );
+ }
+ 
+ class AgendaPreferences {
+diff --git a/lib/features/agenda/agenda_screen.dart b/lib/features/agenda/agenda_screen.dart
+index 9240b4b200f74b1d311b758fc7871aebe0f5739e..347022202152507c1c16d4148492d0db82d2876a 100644
+--- a/lib/features/agenda/agenda_screen.dart
++++ b/lib/features/agenda/agenda_screen.dart
+@@ -8,115 +8,122 @@ import 'agenda_models.dart';
+ class AgendaScreen extends StatefulWidget {
+   final AgendaController controller;
+   final OutfitsController outfitsController;
+   const AgendaScreen({super.key, required this.controller, required this.outfitsController});
+   @override State<AgendaScreen> createState() => _AgendaScreenState();
+ }
+ 
+ class _AgendaScreenState extends State<AgendaScreen> {
+   @override void initState() { super.initState(); widget.controller.addListener(_refresh); widget.controller.load(); widget.outfitsController.load(); }
+   void _refresh() { if (mounted) setState(() {}); }
+   @override void dispose() { widget.controller.removeListener(_refresh); super.dispose(); }
+ 
+   @override Widget build(BuildContext context) {
+     final c = widget.controller;
+     return Scaffold(appBar: AppBar(title: const Text('Agenda vestimentaire')),
+       body: SafeArea(child: Column(children: [
+         Padding(padding: const EdgeInsets.fromLTRB(12, 4, 12, 8), child: Column(children: [
+           Row(children: [IconButton(onPressed: c.loading ? null : () => c.changeWeek(-1), icon: const Icon(Icons.chevron_left)),
+             Expanded(child: Text('${_date(c.weekStart)} — ${_date(c.weekStart.add(const Duration(days: 6)))}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium)),
+             IconButton(onPressed: c.loading ? null : () => c.changeWeek(1), icon: const Icon(Icons.chevron_right))]),
+           Row(children: [Expanded(child: DropdownButtonFormField<PlanningStrategy>(value: c.preferences.strategy,
+             decoration: const InputDecoration(labelText: 'Stratégie', isDense: true),
+             items: PlanningStrategy.values.map((v) => DropdownMenuItem(value: v, child: Text(v.label))).toList(), onChanged: (v) { if (v != null) c.setStrategy(v); })),
+             const SizedBox(width: 8), FilledButton.icon(onPressed: c.loading ? null : c.proposeWeek,
+               icon: const Icon(Icons.auto_awesome, size: 18), label: const Text('Proposer ma semaine'))]),
+-          if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Certaines données sont indisponibles. Vos planifications sont conservées.', style: TextStyle(color: Theme.of(context).colorScheme.error))),
++          if (!c.calendarAvailable) Padding(padding: const EdgeInsets.only(top: 8), child: Text(
++            'Calendrier indisponible : les propositions ne tiennent pas compte de tes événements.',
++            style: TextStyle(color: Theme.of(context).colorScheme.error))),
++          if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(
++            'Échec du chargement de l’agenda : ${c.error}', style: TextStyle(color: Theme.of(context).colorScheme.error))),
+         ])),
+         if (c.loading) const LinearProgressIndicator(),
+         Expanded(child: ListView.builder(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), itemCount: 7, itemBuilder: (_, i) {
+           final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day,
+             plan: c.forDay(day), state: c.stateFor(day),
++            failure: c.dayErrors[DateTime(day.year, day.month, day.day)],
+             onDetails: () => _showDetails(c.forDay(day)),
+             onAction: (action) => _act(day, c.forDay(day), action));
+         })),
+       ])));
+   }
+ 
+   Future<void> _showDetails(PlannedOutfit? plan) async {
+     if (plan == null) return;
+     await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+       builder: (context) => SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+           if (plan.outfit case final outfit?)
+             OutfitProposalCard(proposal: OutfitGenerationProposal(
+               outfit: outfit,
+               score: outfit.score?.overallConfidence.value ?? 0,
+               reasons: plan.justification.isEmpty ? outfit.justification : [plan.justification],
+             )),
+           if (plan.outfit == null)
+             Text('Tenue indisponible', style: Theme.of(context).textTheme.titleLarge),
+           if (plan.event != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.event_outlined), title: Text(plan.event!.title)),
+           if (plan.weather != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.cloud_outlined), title: Text('${plan.weather!.temperature.round()}° · ${plan.weather!.description}')),
+         ]))));
+   }
+ 
+   Future<void> _act(DateTime day, PlannedOutfit? plan, String action) async {
+     switch (action) {
+       case 'choose': case 'replace':
+         final outfits = widget.outfitsController.outfits;
+         final choice = await showModalBottomSheet(context: context, builder: (_) => SafeArea(child: ListView(shrinkWrap: true, children: [
+           const ListTile(title: Text('Choisir une tenue')),
+           for (final outfit in outfits) ListTile(title: Text(outfit.name), onTap: () => Navigator.pop(context, outfit)),
+           if (outfits.isEmpty) const ListTile(title: Text('Aucune tenue enregistrée'), subtitle: Text('La proposition automatique peut composer une tenue depuis le dressing.')),
+         ])));
+         if (choice == null) return;
+         if (plan == null) await widget.controller.plan(day, choice); else await widget.controller.replace(plan, choice);
+         return;
+       case 'another': await widget.controller.another(day, plan); return;
+       case 'confirm': if (plan != null) await widget.controller.confirm(plan); return;
+       case 'worn': if (plan != null) await widget.controller.markWorn(plan); return;
+       case 'delete': if (plan != null) await widget.controller.remove(plan); return;
+     }
+   }
+   static String _date(DateTime d) => '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+ }
+ 
+ class _DayCard extends StatelessWidget {
+   final DateTime date; final PlannedOutfit? plan; final AgendaDayState state;
++  final String? failure;
+   final ValueChanged<String> onAction; final VoidCallback onDetails;
+-  const _DayCard({required this.date, required this.plan, required this.state,
++  const _DayCard({required this.date, required this.plan, required this.state, this.failure,
+     required this.onAction, required this.onDetails});
+   @override Widget build(BuildContext context) {
+     final localeDays = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
+     return Card(clipBehavior: Clip.antiAlias, child: InkWell(onTap: plan == null ? null : onDetails,
+       child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+       Row(children: [Expanded(child: Text('${localeDays[date.weekday - 1]} ${date.day}', style: Theme.of(context).textTheme.titleMedium)),
+         _StateBadge(state: state, status: plan?.status)]),
+       const SizedBox(height: 6),
+       Text(_summary, maxLines: 1, overflow: TextOverflow.ellipsis,
+         style: const TextStyle(fontWeight: FontWeight.w600)),
++      if (failure != null) Text(failure!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+       if (plan != null) Row(children: [
+         Expanded(child: Text('${plan!.outfit?.allGarments.length ?? 0} pièces · Toucher pour les détails',
+           maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)),
+         PopupMenuButton<String>(tooltip: 'Actions', onSelected: onAction, itemBuilder: (_) => [
+           const PopupMenuItem(value: 'another', child: Text('Autre proposition')),
+           const PopupMenuItem(value: 'replace', child: Text('Choisir une tenue enregistrée')),
+           if (plan!.status == PlannedOutfitStatus.proposed) const PopupMenuItem(value: 'confirm', child: Text('Confirmer')),
+           if (plan!.status != PlannedOutfitStatus.worn) const PopupMenuItem(value: 'worn', child: Text('Marquer portée')),
+           const PopupMenuItem(value: 'delete', child: Text('Supprimer')),
+         ]),
+       ]) else if (state != AgendaDayState.generating) Align(alignment: Alignment.centerRight,
+         child: TextButton(onPressed: () => onAction('another'), child: const Text('Réessayer'))),
+     ]))));
+   }
+   String get _summary => switch (state) {
+     AgendaDayState.generating => 'Génération en cours…',
+     AgendaDayState.noOutfit => 'Aucune tenue planifiée',
+     AgendaDayState.error => 'Erreur de génération',
+     AgendaDayState.generated => plan?.outfit?.name ?? 'Tenue générée',
+     AgendaDayState.planned => plan?.outfit?.name ?? 'Tenue planifiée',
+   };
+   static String _status(PlannedOutfitStatus value) => switch(value) { PlannedOutfitStatus.proposed => 'Proposée', PlannedOutfitStatus.confirmed => 'Confirmée', PlannedOutfitStatus.worn => 'Portée', PlannedOutfitStatus.ignored => 'Ignorée', PlannedOutfitStatus.cancelled => 'Annulée' };
+ }
+ 
+ class _StateBadge extends StatelessWidget {
+diff --git a/lib/features/agenda/agenda_service.dart b/lib/features/agenda/agenda_service.dart
+index 5547e0da73f54acf4bdedc601e0feb0b41ea10db..c6a0315b9004838d955585d98d2ce27ea0f45daa 100644
+--- a/lib/features/agenda/agenda_service.dart
++++ b/lib/features/agenda/agenda_service.dart
+@@ -28,50 +28,51 @@ class DefaultAgendaProposalSelector implements AgendaProposalSelector {
+   @override
+   OutfitGenerationProposal? select({required DateTime date,
+       required OutfitGenerationResult result, required List<PlannedOutfit> previous,
+       required AgendaPreferences preferences}) {
+     if (result.proposals.isEmpty) return null;
+     final used = previous.map((plan) => _signature(plan.outfit)).whereType<String>().toSet();
+     return result.proposals.where((proposal) => !used.contains(_signature(proposal.outfit))).firstOrNull
+         ?? result.proposals.first;
+   }
+ 
+   static String? _signature(Outfit? outfit) {
+     if (outfit == null) return null;
+     final ids = outfit.allGarments.map((garment) => garment.id).toList()..sort();
+     return ids.join('|');
+   }
+ }
+ 
+ class AgendaService {
+   final DatabaseService database;
+   final OutfitGenerationEngine outfitGenerationEngine;
+   final AgendaProposalSelector proposalSelector;
+   final CalendarService calendarService;
+   final WeatherService? weatherService;
+   final AgendaClock clock;
+   final WardrobeAiContextService aiContextService;
++  AgendaGenerationReport lastReport = const AgendaGenerationReport();
+ 
+   AgendaService({required this.database, required this.calendarService,
+     required this.aiContextService, this.weatherService,
+     this.outfitGenerationEngine = const OutfitGenerationEngine(),
+     this.proposalSelector = const DefaultAgendaProposalSelector(),
+     this.clock = DateTime.now});
+ 
+   Future<List<PlannedOutfit>> loadPeriod(DateTime from, DateTime to) =>
+       database.getPlannedOutfits(_day(from), _day(to));
+ 
+   Future<PlannedOutfit> plan({required DateTime date, required Outfit outfit,
+     PlanningStrategy strategy = PlanningStrategy.rotation,
+     PlanningOrigin origin = PlanningOrigin.manual, String justification = 'Tenue choisie par vous.'}) async {
+     await _ensureStored(outfit);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: outfit.id, outfit: outfit, origin: origin, strategy: strategy,
+       status: origin == PlanningOrigin.manual ? PlannedOutfitStatus.confirmed : PlannedOutfitStatus.proposed,
+       justification: justification, createdAt: now, updatedAt: now);
+     await database.savePlannedOutfit(value);
+     return value;
+   }
+ 
+   Future<PlannedOutfit> replace(PlannedOutfit current, Outfit replacement,
+       {OutfitReuseKind reuseKind = OutfitReuseKind.none, String? justification}) async {
+@@ -86,103 +87,151 @@ class AgendaService {
+   Future<void> remove(PlannedOutfit value) => database.deletePlannedOutfit(value.id);
+   Future<PlannedOutfit> confirm(PlannedOutfit value) => _setStatus(value, PlannedOutfitStatus.confirmed);
+ 
+   Future<PlannedOutfit> markWorn(PlannedOutfit value) async {
+     if (value.wearRecordedAt != null || value.status == PlannedOutfitStatus.worn) return value;
+     final wornAt = value.date.isAfter(clock()) ? clock() : value.date;
+     final recorded = await database.recordOutfitWear(value.outfitId, wornAt: wornAt);
+     if (!recorded) throw StateError('La tenue ne contient plus de vêtements disponibles.');
+     final updated = value.copyWith(status: PlannedOutfitStatus.worn,
+       wearRecordedAt: clock(), updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit> _setStatus(PlannedOutfit value, PlannedOutfitStatus status) async {
+     final updated = value.copyWith(status: status, updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit?> proposeDay(DateTime date, AgendaPreferences preferences,
+       {List<PlannedOutfit> previous = const []}) async {
+     // build() deliberately reloads database garments on every proposal. Never
+     // substitute saved-outfit garments: they may predate a recent edit.
+     final wardrobe = (await aiContextService.build()).garments;
+-    final event = await _optionalEvent(date);
++    final calendar = await _events(date);
+     final weather = await _optionalWeather();
+-    final context = _recommendationContext(date, event, weather);
++    final events = calendar.events;
++    final conflict = _eventConflict(events);
++    if (conflict != null) throw StateError(conflict);
++    final context = _recommendationContext(date, events, weather);
+     final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       context: context,
+       preferences: _recommendationPreferences(preferences),
+       proposalCount: 3,
+     ));
+     final proposal = proposalSelector.select(date: date, result: result,
+       previous: previous, preferences: preferences);
+     if (proposal == null) return null;
+     final choice = _withAgendaId(proposal.outfit, date);
+     await _ensureStored(choice);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+-      justification: proposal.reasons.join(' '), weather: weather, event: event,
++      justification: proposal.reasons.join(' '), weather: weather, event: events.firstOrNull,
+       createdAt: now, updatedAt: now);
+     await database.savePlannedOutfit(value);
+     return value;
+   }
+ 
+   Future<List<PlannedOutfit>> proposePeriod(DateTime from, int days,
+       AgendaPreferences preferences, {List<PlannedOutfit> existing = const []}) async {
+     final generated = <PlannedOutfit>[];
++    final failures = <AgendaDayFailure>[];
++    var calendarAvailable = true;
+     final history = [...existing]..sort((a, b) => a.date.compareTo(b.date));
++    // One immutable wardrobe snapshot and one weather request per generation.
++    final wardrobe = (await aiContextService.build()).garments;
++    final weather = await _optionalWeather();
+     for (var offset = 0; offset < days; offset++) {
+       final date = _day(from).add(Duration(days: offset));
+       if (history.any((item) => _sameDay(item.date, date))) continue;
+       try {
+-        final value = await proposeDay(date, preferences, previous: history);
++        final calendar = await _events(date);
++        calendarAvailable = calendarAvailable && calendar.available;
++        final conflict = _eventConflict(calendar.events);
++        if (conflict != null) throw StateError(conflict);
++        final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
++          wardrobe: wardrobe, context: _recommendationContext(date, calendar.events, weather),
++          preferences: _recommendationPreferences(preferences), proposalCount: 3));
++        final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
++        if (proposal == null) throw StateError('Dressing insuffisant pour composer une tenue.');
++        final value = await _saveProposal(date, preferences, proposal, weather, calendar.events.firstOrNull);
+         if (value != null) { generated.add(value); history.add(value); }
+-      } catch (_) {
+-        // Days are isolated so one optional provider cannot erase other plans.
++      } catch (error) {
++        failures.add(AgendaDayFailure(date, _errorMessage(error)));
+       }
+     }
++    lastReport = AgendaGenerationReport(generated: List.unmodifiable(generated),
++      failures: List.unmodifiable(failures), calendarAvailable: calendarAvailable);
+     return List.unmodifiable(generated);
+   }
+ 
+-  RecommendationContext _recommendationContext(DateTime date, CalendarEvent? event,
++  RecommendationContext _recommendationContext(DateTime date, List<CalendarEvent> events,
+       WeatherData? weather) => RecommendationContext(
+-    occasion: event?.formality.label,
++    occasion: events.isEmpty ? null : events.map((event) => '${event.type.label} (${event.formality.label})').join(', '),
+     weather: weather == null ? null : RecommendationWeather(
+       temperature: weather.temperature, condition: weather.description,
+       windSpeed: weather.windSpeed,
+       isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
+-    metadata: {'planner': 'agenda', 'date': _day(date).toIso8601String()},
++    metadata: {'planner': 'agenda', 'date': _day(date).toIso8601String(),
++      'events': events.map((event) => {'start': event.startsAt.toIso8601String(),
++        'durationMinutes': event.endsAt.difference(event.startsAt).inMinutes,
++        'context': event.type.label, 'formality': event.formality.label}).toList()},
+   );
+ 
+   static RecommendationPreferences _recommendationPreferences(AgendaPreferences value) =>
+       const RecommendationPreferences();
+ 
+   Future<void> _ensureStored(Outfit outfit) async {
+     if (await database.getOutfitById(outfit.id) == null) await database.createOutfit(outfit);
+     for (final garment in outfit.allGarments) await database.addGarmentToOutfit(outfit.id, garment.id);
+   }
+ 
+-  Future<CalendarEvent?> _optionalEvent(DateTime date) async {
+-    try { final events = await calendarService.getTodayEvents(day: date); return events.firstOrNull; } catch (_) { return null; }
++  Future<({List<CalendarEvent> events, bool available})> _events(DateTime date) async {
++    try { return (events: await calendarService.getTodayEvents(day: date),
++      available: calendarService is! CalendarAvailability ||
++          (calendarService as CalendarAvailability).isCalendarAvailable); }
++    catch (_) { return (events: const [], available: false); }
+   }
+   Future<WeatherData?> _optionalWeather() async {
+     try { return await weatherService?.getCurrentWeather(); } catch (_) { return null; }
+   }
+ 
+   Outfit _withAgendaId(Outfit source, DateTime date) {
+     final now = clock();
+     return Outfit(id: 'agenda-${_day(date).millisecondsSinceEpoch}-${now.microsecondsSinceEpoch}',
+       name: source.name, season: source.season, favorite: source.favorite,
+       createdAt: now, updatedAt: now, garments: source.garments,
+       score: source.score, justification: source.justification);
+   }
++  Future<PlannedOutfit> _saveProposal(DateTime date, AgendaPreferences preferences,
++      OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event) async {
++    final choice = _withAgendaId(proposal.outfit, date);
++    await _ensureStored(choice);
++    final now = clock();
++    final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
++      outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
++      strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
++      justification: proposal.reasons.join(' '), weather: weather, event: event,
++      createdAt: now, updatedAt: now);
++    await database.savePlannedOutfit(value);
++    return value;
++  }
++  static String? _eventConflict(List<CalendarEvent> events) {
++    final formalities = events.map((event) => event.formality).toSet();
++    if (formalities.contains(EventFormality.sport) &&
++        (formalities.contains(EventFormality.formal) || formalities.contains(EventFormality.business))) {
++      return 'Conflit entre un événement sportif et un événement formel : aucune tenue unique cohérente.';
++    }
++    return null;
++  }
++  static String _errorMessage(Object error) => error is StateError
++      ? error.message.toString() : error.toString();
+   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+   static DateTime _day(DateTime value) => DateTime(value.year, value.month, value.day);
+ }
+ 
+ extension<T> on Iterable<T> { T? get firstOrNull => isEmpty ? null : first; }
+diff --git a/lib/features/calendar/calendar_service.dart b/lib/features/calendar/calendar_service.dart
+index 69a7bdb31affe108ec529bde34042912c6d4d198..6a3e9d6cc6e337514b9749fd4eebd5df2c2ebeb3 100644
+--- a/lib/features/calendar/calendar_service.dart
++++ b/lib/features/calendar/calendar_service.dart
+@@ -1,9 +1,14 @@
+ import 'calendar_event.dart';
+ 
+ abstract interface class CalendarService {
+   Future<List<CalendarEvent>> getUpcomingEvents({DateTime? from});
+ 
+   Future<List<CalendarEvent>> getTodayEvents({DateTime? day});
+ 
+   Future<CalendarEvent?> getNextImportantEvent({DateTime? from});
+ }
++
++/// Optional capability exposed by placeholders and real calendar adapters.
++abstract interface class CalendarAvailability {
++  bool get isCalendarAvailable;
++}
+diff --git a/lib/features/calendar/fake_calendar_service.dart b/lib/features/calendar/fake_calendar_service.dart
+index 565525b4cea735d97fedae3a7cade3a479a94674..2b5863c0ec00bc541994b75f68fd864201cc797e 100644
+--- a/lib/features/calendar/fake_calendar_service.dart
++++ b/lib/features/calendar/fake_calendar_service.dart
+@@ -1,40 +1,43 @@
+ import 'calendar_event.dart';
+ import 'calendar_service.dart';
+ 
+ typedef CalendarClock = DateTime Function();
+ 
+-class FakeCalendarService implements CalendarService {
++class FakeCalendarService implements CalendarService, CalendarAvailability {
+   final List<CalendarEvent> _events;
+   final CalendarClock _clock;
+ 
+   FakeCalendarService({
+     List<CalendarEvent> events = const [],
+     CalendarClock clock = DateTime.now,
+   }) : _events = List.unmodifiable(events),
+        _clock = clock;
+ 
++  @override
++  bool get isCalendarAvailable => false;
++
+   @override
+   Future<List<CalendarEvent>> getUpcomingEvents({DateTime? from}) async {
+     final start = from ?? _clock();
+     final events =
+         _events.where((event) => !event.endsAt.isBefore(start)).toList()
+           ..sort((a, b) => a.startsAt.compareTo(b.startsAt));
+     return List.unmodifiable(events);
+   }
+ 
+   @override
+   Future<List<CalendarEvent>> getTodayEvents({DateTime? day}) async {
+     final date = day ?? _clock();
+     final start = DateTime(date.year, date.month, date.day);
+     final end = start.add(const Duration(days: 1));
+     return List.unmodifiable(
+       _events.where(
+         (event) => event.startsAt.isBefore(end) && event.endsAt.isAfter(start),
+       ),
+     );
+   }
+ 
+   @override
+   Future<CalendarEvent?> getNextImportantEvent({DateTime? from}) async {
+     final upcoming = await getUpcomingEvents(from: from);
+     for (final event in upcoming) {
+diff --git a/lib/features/daily_brief/daily_brief_models.dart b/lib/features/daily_brief/daily_brief_models.dart
+index 5bd8d00363a2240437c6a897369ec6e7299ece32..af57b67910cfb1a72d6ae245ef503903ae37e20c 100644
+--- a/lib/features/daily_brief/daily_brief_models.dart
++++ b/lib/features/daily_brief/daily_brief_models.dart
+@@ -1,43 +1,48 @@
+ import '../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../weather/models/weather_data.dart';
+ 
+ enum DailyBriefCardType { outfit, weather, observation, stylist, care, goal }
++enum DailyBriefState { emptyWardrobe, insufficientWardrobe, noProposal, weatherError, available }
+ 
+ class DailyBriefCard<T> {
+   final DailyBriefCardType type;
+   final int priority;
+   final T data;
+ 
+   const DailyBriefCard({required this.type, required this.priority, required this.data});
+ }
+ 
+ class DailyWeatherBrief {
+   final WeatherData weather;
+   final String impact;
+   final bool isRaining;
+ 
+   const DailyWeatherBrief({
+     required this.weather,
+     required this.impact,
+     required this.isRaining,
+   });
+ }
+ 
+ class DailyGoalBrief {
+   final String title;
+   final String contribution;
+ 
+   const DailyGoalBrief({required this.title, required this.contribution});
+ }
+ 
+ class DailyBrief {
+   final DateTime generatedAt;
+   final List<DailyBriefCard<Object>> cards;
+   final List<OutfitGenerationProposal> outfitProposals;
++  final DailyBriefState state;
++  final String? detail;
+ 
+   const DailyBrief({
+     required this.generatedAt,
+     required this.cards,
+     required this.outfitProposals,
++    this.state = DailyBriefState.available,
++    this.detail,
+   });
+ }
+diff --git a/lib/features/daily_brief/daily_brief_service.dart b/lib/features/daily_brief/daily_brief_service.dart
+index bb5ef064ff08673ff88aa0526108bc8b37109aea..6684f3f4e16e608e23f0e038b760ac4286ff98df 100644
+--- a/lib/features/daily_brief/daily_brief_service.dart
++++ b/lib/features/daily_brief/daily_brief_service.dart
+@@ -18,171 +18,175 @@ class DailyBriefService {
+   static const maxVisibleCards = 5;
+ 
+   final WeatherService weatherService;
+   final MemoryService memoryService;
+   final RecommendationEngine recommendationEngine;
+   final WardrobeIntelligenceEngine intelligenceEngine;
+   final OutfitGenerationEngine outfitEngine;
+   final DateTime Function() _clock;
+   final WardrobeAiContextService? aiContextService;
+ 
+   DailyBriefService({
+     required this.weatherService,
+     required this.memoryService,
+     Object? assistantService, // Kept source-compatible; Daily no longer calls GPT.
+     this.recommendationEngine = const RecommendationEngine(),
+     WardrobeIntelligenceEngine? intelligenceEngine,
+     OutfitGenerationEngine? outfitEngine,
+     DateTime Function()? clock,
+     this.aiContextService,
+   }) : intelligenceEngine = intelligenceEngine ?? WardrobeIntelligenceEngine(),
+        outfitEngine = outfitEngine ??
+            OutfitGenerationEngine(recommendationEngine: recommendationEngine),
+        _clock = clock ?? DateTime.now;
+ 
+   /// Emits wardrobe/outfit content first, then weather-enriched content. A
+-  /// weather failure is data, not an error, and never prevents an outfit.
++  /// weather failure is an explicit state and never prevents a wardrobe result.
+   Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
+     final weatherFuture = _optionalWeather();
+     try {
+       final liveContext = await aiContextService?.build();
+       final garments = liveContext?.garments ??
+           List<Garment>.unmodifiable(wardrobe);
+       final memory = liveContext?.personalization ??
+           await memoryService.loadSnapshot();
+ 
+       var brief = _compose(garments, memory, weather: null);
+       yield brief;
+ 
+       final weather = await weatherFuture;
+-      if (weather != null) {
+-        brief = _compose(garments, memory, weather: weather);
+-        yield brief;
+-      }
++      brief = weather.data == null
++          ? _compose(garments, memory, weather: null, weatherError: weather.error)
++          : _compose(garments, memory, weather: weather.data);
++      yield brief;
+     } catch (_) {
+       // Stream errors are converted into an explicit UI state by the screen.
+       rethrow;
+     }
+   }
+ 
+   /// Compatibility API for non-progressive consumers.
+   Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
+     DailyBrief? latest;
+     await for (final brief in watch(wardrobe)) {
+       latest = brief;
+     }
+     return latest ?? DailyBrief(generatedAt: _clock(), cards: const [], outfitProposals: const []);
+   }
+ 
+   DailyBrief _compose(
+     List<Garment> garments,
+     PersonalizationSnapshot memory, {
+     required WeatherData? weather,
++    Object? weatherError,
+   }) {
+     final preferences = _preferences(memory);
+     final report = intelligenceEngine.analyze(garments);
+     final generation = outfitEngine.generate(OutfitGenerationRequest(
+       wardrobe: garments,
+       proposalCount: 3,
+       preferences: preferences,
+       context: RecommendationContext(
+-        season: _season(_clock()),
+         desiredStyle: preferences.preferredStyles.firstOrNull,
+         weather: weather == null
+             ? null
+             : RecommendationWeather(
+                 temperature: weather.temperature,
+                 isRaining: _isRaining(weather),
+                 condition: weather.description,
+                 windSpeed: weather.windSpeed,
+               ),
+       ),
+     ));
+     final proposals = generation.proposals;
+ 
+     final cards = <DailyBriefCard<Object>>[];
+     if (proposals.isNotEmpty) {
+       cards.add(DailyBriefCard(type: DailyBriefCardType.outfit, priority: 0, data: proposals.first));
+     }
+     if (weather != null) {
+       cards.add(DailyBriefCard(
+         type: DailyBriefCardType.weather,
+         priority: 1,
+         data: DailyWeatherBrief(weather: weather, impact: _weatherImpact(weather), isRaining: _isRaining(weather)),
+       ));
+     }
+     if (report.insights.isNotEmpty) {
+       final now = _clock();
+       final dayIndex = now.difference(DateTime(now.year)).inDays;
+       cards.add(DailyBriefCard(type: DailyBriefCardType.observation, priority: 2,
+         data: report.insights[dayIndex % report.insights.length].message));
+     }
+     final advice = _localAdvice(proposals, weather);
+     if (advice != null) {
+       cards.add(DailyBriefCard(type: DailyBriefCardType.stylist, priority: 3, data: advice));
+     }
+     final care = _careMessage(garments);
+     if (care != null) {
+       cards.add(DailyBriefCard(type: DailyBriefCardType.care, priority: 4, data: care));
+     }
+     final goal = memory.goals.where((item) => item.status == PersonalGoalStatus.active).firstOrNull;
+     if (goal != null && proposals.isNotEmpty) {
+       cards.add(DailyBriefCard(type: DailyBriefCardType.goal, priority: 5,
+         data: DailyGoalBrief(title: goal.title,
+           contribution: 'Cette sélection tient compte de tes préférences et de la rotation de ton dressing.')));
+     }
+     cards.sort((a, b) => a.priority.compareTo(b.priority));
++    final categories = garments.map(OutfitGenerationEngine.categoryFor).toSet();
++    final state = garments.isEmpty ? DailyBriefState.emptyWardrobe
++        : categories.length < 2 ? DailyBriefState.insufficientWardrobe
++        : proposals.isEmpty ? DailyBriefState.noProposal
++        : weatherError != null ? DailyBriefState.weatherError
++        : DailyBriefState.available;
+     return DailyBrief(generatedAt: _clock(),
+       cards: List.unmodifiable(cards.take(maxVisibleCards)),
+-      outfitProposals: List.unmodifiable(proposals));
++      outfitProposals: List.unmodifiable(proposals), state: state,
++      detail: weatherError == null ? null : 'Météo indisponible : $weatherError');
+   }
+ 
+   static RecommendationPreferences _preferences(PersonalizationSnapshot snapshot) {
+     final profile = snapshot.styleProfile;
+     final avoidedMaterials = <String>{};
+     for (final memory in [...snapshot.declarativeMemories, ...snapshot.behavioralObservations]) {
+       if (memory.confidence < .6) continue;
+       final topic = memory.topic.toLowerCase();
+       if (topic.contains('mati') && (topic.contains('evit') || topic.contains('avoid'))) {
+         avoidedMaterials.add(memory.statement.trim());
+       }
+     }
+     return RecommendationPreferences(
+       preferredStyles: {...?profile?.favoriteStyles},
+       preferredColors: {...?profile?.preferredColors},
+       avoidedMaterials: avoidedMaterials,
+     );
+   }
+ 
+-  Future<WeatherData?> _optionalWeather() async {
+-    try { return await weatherService.getCurrentWeather(); } catch (_) { return null; }
++  Future<({WeatherData? data, Object? error})> _optionalWeather() async {
++    try { return (data: await weatherService.getCurrentWeather(), error: null); }
++    catch (error) { return (data: null, error: error); }
+   }
+ 
+   static String? _localAdvice(List<OutfitGenerationProposal> proposals, WeatherData? weather) {
+     if (proposals.isEmpty) return null;
+     if (weather == null) return 'La tenue reste modulable : ajoute ou retire une couche selon ton ressenti.';
+     return _weatherImpact(weather);
+   }
+ 
+   static bool _isRaining(WeatherData value) => value.weatherCode >= 51 && value.weatherCode <= 82;
+   static String _weatherImpact(WeatherData value) {
+     if (_isRaining(value)) return 'Privilégie une couche imperméable et des chaussures adaptées à la pluie.';
+     if (value.windSpeed >= 30) return 'Le vent invite à choisir une couche extérieure bien fermée.';
+     if (value.temperature <= 10) return 'Ajoute une couche chaude pour rester confortable.';
+     if (value.temperature >= 25) return 'Choisis des matières légères et respirantes.';
+     return 'Les conditions sont douces : une superposition légère suffit.';
+   }
+ 
+   static String? _careMessage(List<Garment> garments) {
+     for (final item in garments) {
+       final condition = '${item.condition ?? ''} ${item.etatVisuel ?? ''} ${item.usureVisible ?? ''}'.toLowerCase();
+       if (condition.contains('sale') || condition.contains('tach')) return 'Pense à nettoyer ${item.name} avant sa prochaine sortie.';
+       if (condition.contains('us') || condition.contains('abîm')) return '${item.name} mérite un peu d’entretien avant d’être reporté.';
+     }
+     return null;
+   }
+ 
+-  static String _season(DateTime date) => switch (date.month) {
+-    12 || 1 || 2 => 'Hiver', 3 || 4 || 5 => 'Printemps',
+-    6 || 7 || 8 => 'Été', _ => 'Automne',
+-  };
+ }
+diff --git a/lib/features/dashboard/dashboard_screen.dart b/lib/features/dashboard/dashboard_screen.dart
+index 9d194089d831e2cd5d1aedd1bf99d09e7022ecf0..fb0081be6f83fa4a9c174e32fc5861b343408c38 100644
+--- a/lib/features/dashboard/dashboard_screen.dart
++++ b/lib/features/dashboard/dashboard_screen.dart
+@@ -46,53 +46,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
+       // snapshot, so recent additions and edits appear after every refresh.
+       _brief = widget.dailyBriefService.watch();
+     });
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: RefreshIndicator(
+         onRefresh: _load,
+         child: ListView(
+           padding: const EdgeInsets.fromLTRB(18, 18, 18, 32),
+           children: [
+             const Text('Bonjour', style: TextStyle(fontSize: 31, fontWeight: FontWeight.w900, letterSpacing: -1)),
+             const SizedBox(height: 4),
+             Text('Voici ton Daily Brief', style: Theme.of(context).textTheme.titleMedium),
+             const SizedBox(height: 22),
+               StreamBuilder<DailyBrief>(
+                 stream: _brief,
+                 builder: (context, snapshot) {
+                   if (!snapshot.hasData) {
+                     if (snapshot.hasError) return _BriefError(onRetry: _load);
+                     return const _BriefLoading();
+                   }
+                   final brief = snapshot.requireData;
+-                  if (brief.cards.isEmpty) return _EmptyBrief(onRetry: widget.openScanner);
++                  if (brief.state == DailyBriefState.emptyWardrobe) {
++                    return _BriefStateMessage(icon: Icons.checkroom_outlined,
++                      title: 'Ton dressing est vide', detail: 'Scanne une première pièce pour générer une tenue complète.',
++                      action: widget.openScanner, actionLabel: 'Scanner une pièce');
++                  }
+                   return Column(
+                     children: [
++                      if (brief.state != DailyBriefState.available) ...[
++                        _DailyStateBanner(state: brief.state, detail: brief.detail),
++                        const SizedBox(height: 14),
++                      ],
+                       for (final card in brief.cards) ...[
+                         _BriefCard(
+                           card: card,
+                           outfit: card.type == DailyBriefCardType.outfit && brief.outfitProposals.isNotEmpty
+                               ? brief.outfitProposals[_proposal.clamp(0, brief.outfitProposals.length - 1)]
+                               : null,
+                           onAlternative: brief.outfitProposals.length < 2 ? null : () => setState(() => _proposal = (_proposal + 1) % brief.outfitProposals.length),
+                         ),
+                         const SizedBox(height: 14),
+                       ],
+                     ],
+                   );
+                 },
+               ),
+           ],
+         ),
+       ),
+     );
+   }
+ 
+ }
+ 
+ class _BriefCard extends StatelessWidget {
+   final DailyBriefCard<Object> card;
+   final OutfitGenerationProposal? outfit;
+@@ -112,77 +120,95 @@ class _BriefCard extends StatelessWidget {
+     };
+     return Card(
+       clipBehavior: Clip.antiAlias,
+       child: Padding(
+         padding: const EdgeInsets.all(20),
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+           Row(children: [Icon(icon, color: AppTheme.gold), const SizedBox(width: 10), Text(title.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.1))]),
+           const SizedBox(height: 16),
+           _content(context),
+         ]),
+       ),
+     );
+   }
+ 
+   Widget _content(BuildContext context) {
+     if (card.type == DailyBriefCardType.outfit && outfit != null) {
+       return Column(children: [
+         OutfitProposalCard(proposal: outfit!),
+         if (onAlternative != null) Align(alignment: Alignment.centerRight,
+           child: TextButton(onPressed: onAlternative, child: const Text('Autre proposition'))),
+       ]);
+     }
+     if (card.data is DailyWeatherBrief) {
+       final value = card.data as DailyWeatherBrief;
+       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+-        Text('${value.weather.temperature.round()} °C  ·  Pluie ${value.isRaining ? 'prévue' : 'non prévue'}  ·  Vent ${value.weather.windSpeed.round()} km/h', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
++        Text(value.weather.city, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
++        const SizedBox(height: 4),
++        Text('${value.weather.temperature.round()} °C  ·  ${value.weather.description}  ·  Pluie ${value.isRaining ? 'prévue' : 'non prévue'}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+         const SizedBox(height: 8), Text(value.impact),
+       ]);
+     }
+     if (card.data is DailyGoalBrief) {
+       final value = card.data as DailyGoalBrief;
+       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(value.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)), const SizedBox(height: 7), Text(value.contribution)]);
+     }
+     return Text(card.data.toString(), style: const TextStyle(fontSize: 16, height: 1.45));
+   }
+ }
+ 
+-class _EmptyBrief extends StatelessWidget {
+-  final VoidCallback onRetry;
+-  const _EmptyBrief({required this.onRetry});
++class _BriefStateMessage extends StatelessWidget {
++  final IconData icon; final String title; final String detail;
++  final VoidCallback? action; final String? actionLabel;
++  const _BriefStateMessage({required this.icon, required this.title, required this.detail, this.action, this.actionLabel});
+   @override
+   Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
+-    const Icon(Icons.checkroom_outlined, size: 42), const SizedBox(height: 12),
+-    const Text('Ton brief se prépare', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+-    const SizedBox(height: 7), const Text('Ajoute quelques pièces pour recevoir des recommandations personnalisées.', textAlign: TextAlign.center),
+-    const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Continuer')),
++    Icon(icon, size: 42), const SizedBox(height: 12),
++    Text(title, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
++    const SizedBox(height: 7), Text(detail, textAlign: TextAlign.center),
++    if (action != null) ...[const SizedBox(height: 14), FilledButton(onPressed: action, child: Text(actionLabel!))],
+   ])));
+ }
+ 
++class _DailyStateBanner extends StatelessWidget {
++  final DailyBriefState state; final String? detail;
++  const _DailyStateBanner({required this.state, this.detail});
++  @override Widget build(BuildContext context) {
++    final (title, message) = switch (state) {
++      DailyBriefState.insufficientWardrobe => ('Dressing encore réduit', 'La proposition utilise toutes les catégories disponibles. Ajoute des pièces pour obtenir une tenue plus complète.'),
++      DailyBriefState.noProposal => ('Aucune proposition possible', 'Le moteur ne trouve aucune combinaison cohérente avec les pièces disponibles.'),
++      DailyBriefState.weatherError => ('Météo indisponible', detail ?? 'La tenue est proposée sans contrainte météo.'),
++      _ => ('', ''),
++    };
++    if (title.isEmpty) return const SizedBox.shrink();
++    return _BriefStateMessage(icon: Icons.info_outline, title: title, detail: message);
++  }
++}
++
+ class _BriefLoading extends StatelessWidget {
+   const _BriefLoading();
+   @override
+   Widget build(BuildContext context) => const Card(child: Padding(
+     padding: EdgeInsets.all(24),
+     child: Row(children: [
+       SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+       SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+         children: [Text('Chargement du dressing…', style: TextStyle(fontWeight: FontWeight.w800)),
+           SizedBox(height: 4), Text('La page est prête, la tenue arrive dans un instant.')]))
+     ]),
+   ));
+ }
+ 
+ class _BriefError extends StatelessWidget {
+   final VoidCallback onRetry;
+   const _BriefError({required this.onRetry});
+   @override
+   Widget build(BuildContext context) => Card(child: Padding(
+     padding: const EdgeInsets.all(24),
+     child: Column(children: [
+       const Icon(Icons.error_outline, size: 40), const SizedBox(height: 10),
+       const Text('Impossible de préparer le Daily Brief', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+-      const SizedBox(height: 6), const Text('Ton dressing reste intact. Tu peux réessayer maintenant.'),
++      const SizedBox(height: 6), const Text('Le chargement du dressing ou le moteur de tenue a échoué. La météo est signalée séparément.'),
+       const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Réessayer')),
+     ]),
+   ));
+ }
+diff --git a/lib/widgets/outfit_proposal_card.dart b/lib/widgets/outfit_proposal_card.dart
+index dfd3b723a42285f6a8f0e3c34d36ef57d194b77b..7f3f6d4cbd605c49fcbe7b52f88aa043d9a78312 100644
+--- a/lib/widgets/outfit_proposal_card.dart
++++ b/lib/widgets/outfit_proposal_card.dart
+@@ -12,41 +12,54 @@ class OutfitProposalCard extends StatelessWidget {
+   const OutfitProposalCard({super.key, required this.proposal, this.onSave, this.onSelect});
+ 
+   @override
+   Widget build(BuildContext context) {
+     final garments = proposal.outfit.allGarments;
+     return Card(
+       child: Padding(
+         padding: const EdgeInsets.all(14),
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+           SizedBox(height: 88, child: ListView.separated(
+             scrollDirection: Axis.horizontal,
+             itemCount: garments.length,
+             separatorBuilder: (_, __) => const SizedBox(width: 8),
+             itemBuilder: (_, index) => SizedBox(width: 88, child: GarmentImage(
+               imagePath: garments[index].effectivePhotos.firstOrNull?.path,
+               borderRadius: BorderRadius.circular(8),
+             )),
+           )),
+           const SizedBox(height: 10),
+           Row(children: [
+             Expanded(child: Text(proposal.outfit.name,
+               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
+             Text('${(proposal.score * 100).round()} %'),
+           ]),
+           const SizedBox(height: 6),
+-          Text(garments.map((item) => item.name).join(' • ')),
+-          const SizedBox(height: 6),
+-          ...proposal.reasons.take(3).map((reason) => Text('• $reason')),
++          ...garments.map((item) => Padding(
++            padding: const EdgeInsets.only(bottom: 3),
++            child: Text('${item.name} · ${item.category}'),
++          )),
++          if (proposal.reasons.isNotEmpty) ...[
++            const SizedBox(height: 8),
++            const Text('Pourquoi cette tenue', style: TextStyle(fontWeight: FontWeight.w800)),
++            ...proposal.reasons.map((reason) => Text('• $reason')),
++          ],
++          if (proposal.respectedConstraints.isNotEmpty) ...[
++            const SizedBox(height: 8),
++            const Text('Contraintes respectées', style: TextStyle(fontWeight: FontWeight.w800)),
++            Wrap(spacing: 6, runSpacing: 2, children: proposal.respectedConstraints
++              .map((constraint) => Chip(label: Text(constraint), visualDensity: VisualDensity.compact))
++              .toList()),
++          ],
+           if (onSave != null || onSelect != null) ...[
+             const SizedBox(height: 10),
+             Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+               if (onSelect != null) TextButton(onPressed: onSelect, child: const Text('Choisir')),
+               if (onSave != null) FilledButton.icon(onPressed: onSave,
+                 icon: const Icon(Icons.bookmark_add_outlined), label: const Text('Enregistrer')),
+             ]),
+           ],
+         ]),
+       ),
+     );
+   }
+ }
+diff --git a/test/core/outfit_generation/outfit_generation_engine_test.dart b/test/core/outfit_generation/outfit_generation_engine_test.dart
+index 054330f121c2c8f6b44d8610b53e722689921b1f..295bb926ae7a31547eb85e5e6e2e2f3f44c672cb 100644
+--- a/test/core/outfit_generation/outfit_generation_engine_test.dart
++++ b/test/core/outfit_generation/outfit_generation_engine_test.dart
+@@ -41,51 +41,51 @@ void main() {
+       proposalCount: 4,
+     ));
+     expect(result.proposals.map((item) => item.outfit.allGarments.single.id).toSet(), hasLength(4));
+   });
+ 
+   test('accepte une météo absente et fournit des explications', () {
+     final result = engine().generate(OutfitGenerationRequest(
+       wardrobe: [garment('top', 'Hauts'), garment('bottom', 'Pantalons')],
+     ));
+     expect(result.proposals.single.reasons, isNotEmpty);
+     expect(result.proposals.single.score, inInclusiveRange(0, 1));
+     expect(result.proposals.single.garmentIds, ['top', 'bottom']);
+     expect(result.proposals.single.garmentIds.toSet(), hasLength(2));
+   });
+ 
+   test('expose les contraintes respectées dans le contrat canonique', () {
+     final proposal = engine().generate(OutfitGenerationRequest(
+       wardrobe: [garment('top', 'Hauts')],
+       context: const RecommendationContext(
+         season: 'Été',
+         desiredStyle: 'casual',
+         weather: RecommendationWeather(temperature: 22),
+       ),
+     )).proposals.single;
+ 
+-    expect(proposal.respectedConstraints, containsAll(['Météo', 'Style souhaité', 'Saison']));
++    expect(proposal.respectedConstraints, containsAll(['Météo', 'Température', 'Style souhaité', 'Saison']));
+   });
+ 
+   test('retourne plusieurs propositions à la demande', () {
+     final wardrobe = [
+       for (var i = 0; i < 4; i++) garment('top-$i', 'Hauts'),
+       for (var i = 0; i < 4; i++) garment('bottom-$i', 'Pantalons'),
+     ];
+     expect(engine().generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       proposalCount: 3,
+     )).proposals, hasLength(3));
+   });
+ 
+   test('le classement est stable et favorise la rotation', () {
+     final wardrobe = [
+       garment('often', 'Hauts', wearCount: 20),
+       garment('rare', 'Hauts'),
+       garment('bottom-a', 'Pantalons'),
+       garment('bottom-b', 'Pantalons'),
+     ];
+     List<String> ranking() => engine().generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       context: const RecommendationContext(),
+       proposalCount: 2,
+     )).proposals.map((item) => item.outfit.allGarments.map((g) => g.id).join('|')).toList();
+diff --git a/test/features/daily_brief/daily_brief_service_test.dart b/test/features/daily_brief/daily_brief_service_test.dart
+index 4321772480045a33d8eddb1c57e702229f624e5a..1f9ab9a1dc127cded07243e8d57e8e0ed5ef0ece 100644
+--- a/test/features/daily_brief/daily_brief_service_test.dart
++++ b/test/features/daily_brief/daily_brief_service_test.dart
+@@ -50,50 +50,70 @@ void main() {
+       wardrobe: [_garment('top', 'Chemise', 'Hauts')],
+       weather: _Weather(() => weather.future),
+     );
+     final events = <DailyBrief>[];
+     final done = service.watch().listen(events.add).asFuture<void>();
+ 
+     await Future<void>.delayed(Duration.zero);
+     expect(events, hasLength(1));
+     expect(events.single.outfitProposals, isNotEmpty);
+     expect(events.single.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
+ 
+     weather.complete(_weatherData);
+     await done;
+     expect(events, hasLength(2));
+     expect(events.last.cards.any((card) => card.type == DailyBriefCardType.weather), isTrue);
+   });
+ 
+   test('une météo absente ne bloque jamais la recommandation', () async {
+     final brief = await _service(
+       wardrobe: [_garment('top', 'T-shirt', 'Hauts')],
+       weather: _Weather(() => Future.error(StateError('indisponible'))),
+     ).build();
+ 
+     expect(brief.outfitProposals, isNotEmpty);
+     expect(brief.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
++    expect(brief.state, DailyBriefState.weatherError);
++    expect(brief.detail, contains('indisponible'));
++  });
++
++  test('distingue dressing vide et dressing réduit', () async {
++    final empty = await _service(wardrobe: const [], weather: _Weather(() async => _weatherData)).build();
++    final reduced = await _service(wardrobe: [_garment('top', 'T-shirt', 'Hauts')],
++      weather: _Weather(() async => _weatherData)).build();
++    expect(empty.state, DailyBriefState.emptyWardrobe);
++    expect(reduced.state, DailyBriefState.insufficientWardrobe);
++  });
++
++  test('conserve la ville et les conditions météo résolues', () async {
++    final brief = await _service(wardrobe: [
++      _garment('top', 'Chemise', 'Hauts'), _garment('bottom', 'Pantalon', 'Pantalons')],
++      weather: _Weather(() async => _weatherData)).build();
++    final weather = brief.cards.where((card) => card.type == DailyBriefCardType.weather)
++      .single.data as DailyWeatherBrief;
++    expect(weather.weather.city, 'Paris');
++    expect(weather.weather.description, 'Clair');
+   });
+ 
+   test('chaque relance relit le dressing actuel', () async {
+     var name = 'Avant modification';
+     var reads = 0;
+     final context = WardrobeAiContextService(loadCurrentGarments: () async {
+       reads++;
+       return [_garment('stable', name, 'Hauts')];
+     });
+     final service = DailyBriefService(
+       weatherService: _Weather(() => Future.error(StateError('offline'))),
+       memoryService: MemoryService(repository: _EmptyMemoryRepository()),
+       aiContextService: context,
+     );
+ 
+     final before = await service.build();
+     name = 'Après modification';
+     final after = await service.build();
+ 
+     expect(reads, 2);
+     expect(before.outfitProposals.single.garments.single.name, 'Avant modification');
+     expect(after.outfitProposals.single.garments.single.name, 'Après modification');
+   });
+ }
+ 
+diff --git a/test/widgets/outfit_proposal_card_test.dart b/test/widgets/outfit_proposal_card_test.dart
+index 563784bc2d536e4bb3b02283fecbc467997bcaaa..db8ceb1c5e9ea8a777fbc62cba087c4fca95e7f7 100644
+--- a/test/widgets/outfit_proposal_card_test.dart
++++ b/test/widgets/outfit_proposal_card_test.dart
+@@ -3,38 +3,40 @@ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/core/outfit_generation/outfit_generation_engine.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/outfit.dart';
+ import 'package:wardrobeos/widgets/outfit_proposal_card.dart';
+ 
+ void main() {
+   testWidgets('affiche toutes les informations de la proposition canonique', (tester) async {
+     final now = DateTime(2026, 8, 4);
+     final garment = Garment(
+       id: 'top',
+       name: 'Chemise bleue',
+       category: 'Hauts',
+       createdAt: now,
+       updatedAt: now,
+     );
+     final proposal = OutfitGenerationProposal(
+       outfit: Outfit(
+         id: 'proposal',
+         name: 'Tenue recommandée',
+         createdAt: now,
+         updatedAt: now,
+         garments: {OutfitCategory.top: [garment]},
+       ),
+       score: .87,
+       reasons: const ['Couleurs et styles harmonieux.'],
++      respectedConstraints: const ['Style souhaité'],
+     );
+ 
+     await tester.pumpWidget(MaterialApp(
+       home: Scaffold(body: OutfitProposalCard(proposal: proposal, onSave: () {})),
+     ));
+ 
+     expect(find.text('Tenue recommandée'), findsOneWidget);
+-    expect(find.text('Chemise bleue'), findsOneWidget);
++    expect(find.text('Chemise bleue · Hauts'), findsOneWidget);
+     expect(find.text('87 %'), findsOneWidget);
+     expect(find.text('• Couleurs et styles harmonieux.'), findsOneWidget);
++    expect(find.text('Style souhaité'), findsOneWidget);
+     expect(find.text('Enregistrer'), findsOneWidget);
+   });
+ }

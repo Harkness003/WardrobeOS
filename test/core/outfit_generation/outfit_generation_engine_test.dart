@@ -63,7 +63,7 @@ void main() {
       ),
     )).proposals.single;
 
-    expect(proposal.respectedConstraints, containsAll(['Météo', 'Style souhaité', 'Saison']));
+    expect(proposal.respectedConstraints, containsAll(['Météo', 'Température', 'Style souhaité', 'Saison']));
   });
 
   test('retourne plusieurs propositions à la demande', () {

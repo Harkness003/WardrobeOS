@@ -7,6 +7,19 @@ enum PlannedOutfitStatus { proposed, confirmed, worn, ignored, cancelled }
 enum PlanningOrigin { manual, automatic, assistant }
 enum OutfitReuseKind { complete, partial, variant, none }
 
+class AgendaDayFailure {
+  final DateTime date;
+  final String reason;
+  const AgendaDayFailure(this.date, this.reason);
+}
+
+class AgendaGenerationReport {
+  final List<PlannedOutfit> generated;
+  final List<AgendaDayFailure> failures;
+  final bool calendarAvailable;
+  const AgendaGenerationReport({this.generated = const [], this.failures = const [], this.calendarAvailable = true});
+}
+
 extension PlanningStrategyLabel on PlanningStrategy {
   String get label => switch (this) {
     PlanningStrategy.minimal => 'Minimal', PlanningStrategy.economical => 'Économique',

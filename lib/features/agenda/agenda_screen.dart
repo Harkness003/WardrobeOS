@@ -30,12 +30,17 @@ class _AgendaScreenState extends State<AgendaScreen> {
             items: PlanningStrategy.values.map((v) => DropdownMenuItem(value: v, child: Text(v.label))).toList(), onChanged: (v) { if (v != null) c.setStrategy(v); })),
             const SizedBox(width: 8), FilledButton.icon(onPressed: c.loading ? null : c.proposeWeek,
               icon: const Icon(Icons.auto_awesome, size: 18), label: const Text('Proposer ma semaine'))]),
-          if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Certaines données sont indisponibles. Vos planifications sont conservées.', style: TextStyle(color: Theme.of(context).colorScheme.error))),
+          if (!c.calendarAvailable) Padding(padding: const EdgeInsets.only(top: 8), child: Text(
+            'Calendrier indisponible : les propositions ne tiennent pas compte de tes événements.',
+            style: TextStyle(color: Theme.of(context).colorScheme.error))),
+          if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(
+            'Échec du chargement de l’agenda : ${c.error}', style: TextStyle(color: Theme.of(context).colorScheme.error))),
         ])),
         if (c.loading) const LinearProgressIndicator(),
         Expanded(child: ListView.builder(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), itemCount: 7, itemBuilder: (_, i) {
           final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day,
             plan: c.forDay(day), state: c.stateFor(day),
+            failure: c.dayErrors[DateTime(day.year, day.month, day.day)],
             onDetails: () => _showDetails(c.forDay(day)),
             onAction: (action) => _act(day, c.forDay(day), action));
         })),
@@ -83,8 +88,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
 class _DayCard extends StatelessWidget {
   final DateTime date; final PlannedOutfit? plan; final AgendaDayState state;
+  final String? failure;
   final ValueChanged<String> onAction; final VoidCallback onDetails;
-  const _DayCard({required this.date, required this.plan, required this.state,
+  const _DayCard({required this.date, required this.plan, required this.state, this.failure,
     required this.onAction, required this.onDetails});
   @override Widget build(BuildContext context) {
     final localeDays = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
@@ -95,6 +101,7 @@ class _DayCard extends StatelessWidget {
       const SizedBox(height: 6),
       Text(_summary, maxLines: 1, overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontWeight: FontWeight.w600)),
+      if (failure != null) Text(failure!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
       if (plan != null) Row(children: [
         Expanded(child: Text('${plan!.outfit?.allGarments.length ?? 0} pièces · Toucher pour les détails',
           maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)),

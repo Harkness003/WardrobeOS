@@ -11,6 +11,8 @@ class AgendaController extends ChangeNotifier {
   bool loading = false;
   Object? error;
   final Map<DateTime, AgendaDayState> dayStates = {};
+  final Map<DateTime, String> dayErrors = {};
+  bool calendarAvailable = true;
 
   AgendaController({required this.service, AgendaPreferences preferences = const AgendaPreferences(), DateTime? initialDay})
     : preferences = preferences, weekStart = _monday(initialDay ?? DateTime.now());
@@ -25,6 +27,7 @@ class AgendaController extends ChangeNotifier {
         for (final day in missing) dayStates[_key(day)] = AgendaDayState.generating;
         notifyListeners();
         await service.proposePeriod(weekStart, 7, preferences, existing: plans);
+        _applyReport();
         plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
         _syncStates();
       }
@@ -40,7 +43,7 @@ class AgendaController extends ChangeNotifier {
 
   Future<void> proposeWeek() async {
     loading = true; error = null; notifyListeners();
-    try { await service.proposePeriod(weekStart, 7, preferences, existing: plans); plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); _syncStates(); }
+    try { await service.proposePeriod(weekStart, 7, preferences, existing: plans); _applyReport(); plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); _syncStates(); }
     catch (value) { error = value; }
     finally { loading = false; notifyListeners(); }
   }
@@ -66,8 +69,17 @@ class AgendaController extends ChangeNotifier {
   void _syncStates() {
     for (final day in _days) {
       final plan = forDay(day);
-      dayStates[_key(day)] = plan == null ? AgendaDayState.noOutfit
+      dayStates[_key(day)] = dayErrors.containsKey(_key(day)) ? AgendaDayState.error
+          : plan == null ? AgendaDayState.noOutfit
           : plan.origin == PlanningOrigin.automatic ? AgendaDayState.generated : AgendaDayState.planned;
+    }
+  }
+  void _applyReport() {
+    calendarAvailable = service.lastReport.calendarAvailable;
+    dayErrors.clear();
+    for (final failure in service.lastReport.failures) {
+      dayErrors[_key(failure.date)] = failure.reason;
+      dayStates[_key(failure.date)] = AgendaDayState.error;
     }
   }
   static DateTime _key(DateTime value) => DateTime(value.year, value.month, value.day);

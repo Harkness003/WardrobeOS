@@ -40,7 +40,7 @@ class DailyBriefService {
        _clock = clock ?? DateTime.now;
 
   /// Emits wardrobe/outfit content first, then weather-enriched content. A
-  /// weather failure is data, not an error, and never prevents an outfit.
+  /// weather failure is an explicit state and never prevents a wardrobe result.
   Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
     final weatherFuture = _optionalWeather();
     try {
@@ -54,10 +54,10 @@ class DailyBriefService {
       yield brief;
 
       final weather = await weatherFuture;
-      if (weather != null) {
-        brief = _compose(garments, memory, weather: weather);
-        yield brief;
-      }
+      brief = weather.data == null
+          ? _compose(garments, memory, weather: null, weatherError: weather.error)
+          : _compose(garments, memory, weather: weather.data);
+      yield brief;
     } catch (_) {
       // Stream errors are converted into an explicit UI state by the screen.
       rethrow;
@@ -77,6 +77,7 @@ class DailyBriefService {
     List<Garment> garments,
     PersonalizationSnapshot memory, {
     required WeatherData? weather,
+    Object? weatherError,
   }) {
     final preferences = _preferences(memory);
     final report = intelligenceEngine.analyze(garments);
@@ -85,7 +86,6 @@ class DailyBriefService {
       proposalCount: 3,
       preferences: preferences,
       context: RecommendationContext(
-        season: _season(_clock()),
         desiredStyle: preferences.preferredStyles.firstOrNull,
         weather: weather == null
             ? null
@@ -131,9 +131,16 @@ class DailyBriefService {
           contribution: 'Cette sélection tient compte de tes préférences et de la rotation de ton dressing.')));
     }
     cards.sort((a, b) => a.priority.compareTo(b.priority));
+    final categories = garments.map(OutfitGenerationEngine.categoryFor).toSet();
+    final state = garments.isEmpty ? DailyBriefState.emptyWardrobe
+        : categories.length < 2 ? DailyBriefState.insufficientWardrobe
+        : proposals.isEmpty ? DailyBriefState.noProposal
+        : weatherError != null ? DailyBriefState.weatherError
+        : DailyBriefState.available;
     return DailyBrief(generatedAt: _clock(),
       cards: List.unmodifiable(cards.take(maxVisibleCards)),
-      outfitProposals: List.unmodifiable(proposals));
+      outfitProposals: List.unmodifiable(proposals), state: state,
+      detail: weatherError == null ? null : 'Météo indisponible : $weatherError');
   }
 
   static RecommendationPreferences _preferences(PersonalizationSnapshot snapshot) {
@@ -153,8 +160,9 @@ class DailyBriefService {
     );
   }
 
-  Future<WeatherData?> _optionalWeather() async {
-    try { return await weatherService.getCurrentWeather(); } catch (_) { return null; }
+  Future<({WeatherData? data, Object? error})> _optionalWeather() async {
+    try { return (data: await weatherService.getCurrentWeather(), error: null); }
+    catch (error) { return (data: null, error: error); }
   }
 
   static String? _localAdvice(List<OutfitGenerationProposal> proposals, WeatherData? weather) {
@@ -181,8 +189,4 @@ class DailyBriefService {
     return null;
   }
 
-  static String _season(DateTime date) => switch (date.month) {
-    12 || 1 || 2 => 'Hiver', 3 || 4 || 5 => 'Printemps',
-    6 || 7 || 8 => 'Été', _ => 'Automne',
-  };
 }

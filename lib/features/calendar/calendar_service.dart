@@ -7,3 +7,8 @@ abstract interface class CalendarService {
 
   Future<CalendarEvent?> getNextImportantEvent({DateTime? from});
 }
+
+/// Optional capability exposed by placeholders and real calendar adapters.
+abstract interface class CalendarAvailability {
+  bool get isCalendarAvailable;
+}

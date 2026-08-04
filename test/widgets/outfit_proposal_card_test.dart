@@ -25,6 +25,7 @@ void main() {
       ),
       score: .87,
       reasons: const ['Couleurs et styles harmonieux.'],
+      respectedConstraints: const ['Style souhaité'],
     );
 
     await tester.pumpWidget(MaterialApp(
@@ -32,9 +33,10 @@ void main() {
     ));
 
     expect(find.text('Tenue recommandée'), findsOneWidget);
-    expect(find.text('Chemise bleue'), findsOneWidget);
+    expect(find.text('Chemise bleue · Hauts'), findsOneWidget);
     expect(find.text('87 %'), findsOneWidget);
     expect(find.text('• Couleurs et styles harmonieux.'), findsOneWidget);
+    expect(find.text('Style souhaité'), findsOneWidget);
     expect(find.text('Enregistrer'), findsOneWidget);
   });
 }

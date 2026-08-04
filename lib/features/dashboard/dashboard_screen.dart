@@ -68,9 +68,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     return const _BriefLoading();
                   }
                   final brief = snapshot.requireData;
-                  if (brief.cards.isEmpty) return _EmptyBrief(onRetry: widget.openScanner);
+                  if (brief.state == DailyBriefState.emptyWardrobe) {
+                    return _BriefStateMessage(icon: Icons.checkroom_outlined,
+                      title: 'Ton dressing est vide', detail: 'Scanne une première pièce pour générer une tenue complète.',
+                      action: widget.openScanner, actionLabel: 'Scanner une pièce');
+                  }
                   return Column(
                     children: [
+                      if (brief.state != DailyBriefState.available) ...[
+                        _DailyStateBanner(state: brief.state, detail: brief.detail),
+                        const SizedBox(height: 14),
+                      ],
                       for (final card in brief.cards) ...[
                         _BriefCard(
                           card: card,
@@ -134,7 +142,9 @@ class _BriefCard extends StatelessWidget {
     if (card.data is DailyWeatherBrief) {
       final value = card.data as DailyWeatherBrief;
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('${value.weather.temperature.round()} °C  ·  Pluie ${value.isRaining ? 'prévue' : 'non prévue'}  ·  Vent ${value.weather.windSpeed.round()} km/h', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+        Text(value.weather.city, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 4),
+        Text('${value.weather.temperature.round()} °C  ·  ${value.weather.description}  ·  Pluie ${value.isRaining ? 'prévue' : 'non prévue'}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
         const SizedBox(height: 8), Text(value.impact),
       ]);
     }
@@ -146,16 +156,32 @@ class _BriefCard extends StatelessWidget {
   }
 }
 
-class _EmptyBrief extends StatelessWidget {
-  final VoidCallback onRetry;
-  const _EmptyBrief({required this.onRetry});
+class _BriefStateMessage extends StatelessWidget {
+  final IconData icon; final String title; final String detail;
+  final VoidCallback? action; final String? actionLabel;
+  const _BriefStateMessage({required this.icon, required this.title, required this.detail, this.action, this.actionLabel});
   @override
   Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
-    const Icon(Icons.checkroom_outlined, size: 42), const SizedBox(height: 12),
-    const Text('Ton brief se prépare', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
-    const SizedBox(height: 7), const Text('Ajoute quelques pièces pour recevoir des recommandations personnalisées.', textAlign: TextAlign.center),
-    const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Continuer')),
+    Icon(icon, size: 42), const SizedBox(height: 12),
+    Text(title, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+    const SizedBox(height: 7), Text(detail, textAlign: TextAlign.center),
+    if (action != null) ...[const SizedBox(height: 14), FilledButton(onPressed: action, child: Text(actionLabel!))],
   ])));
+}
+
+class _DailyStateBanner extends StatelessWidget {
+  final DailyBriefState state; final String? detail;
+  const _DailyStateBanner({required this.state, this.detail});
+  @override Widget build(BuildContext context) {
+    final (title, message) = switch (state) {
+      DailyBriefState.insufficientWardrobe => ('Dressing encore réduit', 'La proposition utilise toutes les catégories disponibles. Ajoute des pièces pour obtenir une tenue plus complète.'),
+      DailyBriefState.noProposal => ('Aucune proposition possible', 'Le moteur ne trouve aucune combinaison cohérente avec les pièces disponibles.'),
+      DailyBriefState.weatherError => ('Météo indisponible', detail ?? 'La tenue est proposée sans contrainte météo.'),
+      _ => ('', ''),
+    };
+    if (title.isEmpty) return const SizedBox.shrink();
+    return _BriefStateMessage(icon: Icons.info_outline, title: title, detail: message);
+  }
 }
 
 class _BriefLoading extends StatelessWidget {
@@ -181,7 +207,7 @@ class _BriefError extends StatelessWidget {
     child: Column(children: [
       const Icon(Icons.error_outline, size: 40), const SizedBox(height: 10),
       const Text('Impossible de préparer le Daily Brief', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 6), const Text('Ton dressing reste intact. Tu peux réessayer maintenant.'),
+      const SizedBox(height: 6), const Text('Le chargement du dressing ou le moteur de tenue a échoué. La météo est signalée séparément.'),
       const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Réessayer')),
     ]),
   ));

@@ -72,6 +72,26 @@ void main() {
 
     expect(brief.outfitProposals, isNotEmpty);
     expect(brief.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
+    expect(brief.state, DailyBriefState.weatherError);
+    expect(brief.detail, contains('indisponible'));
+  });
+
+  test('distingue dressing vide et dressing réduit', () async {
+    final empty = await _service(wardrobe: const [], weather: _Weather(() async => _weatherData)).build();
+    final reduced = await _service(wardrobe: [_garment('top', 'T-shirt', 'Hauts')],
+      weather: _Weather(() async => _weatherData)).build();
+    expect(empty.state, DailyBriefState.emptyWardrobe);
+    expect(reduced.state, DailyBriefState.insufficientWardrobe);
+  });
+
+  test('conserve la ville et les conditions météo résolues', () async {
+    final brief = await _service(wardrobe: [
+      _garment('top', 'Chemise', 'Hauts'), _garment('bottom', 'Pantalon', 'Pantalons')],
+      weather: _Weather(() async => _weatherData)).build();
+    final weather = brief.cards.where((card) => card.type == DailyBriefCardType.weather)
+      .single.data as DailyWeatherBrief;
+    expect(weather.weather.city, 'Paris');
+    expect(weather.weather.description, 'Clair');
   });
 
   test('chaque relance relit le dressing actuel', () async {

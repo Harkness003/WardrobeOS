@@ -34,9 +34,22 @@ class OutfitProposalCard extends StatelessWidget {
             Text('${(proposal.score * 100).round()} %'),
           ]),
           const SizedBox(height: 6),
-          Text(garments.map((item) => item.name).join(' • ')),
-          const SizedBox(height: 6),
-          ...proposal.reasons.take(3).map((reason) => Text('• $reason')),
+          ...garments.map((item) => Padding(
+            padding: const EdgeInsets.only(bottom: 3),
+            child: Text('${item.name} · ${item.category}'),
+          )),
+          if (proposal.reasons.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text('Pourquoi cette tenue', style: TextStyle(fontWeight: FontWeight.w800)),
+            ...proposal.reasons.map((reason) => Text('• $reason')),
+          ],
+          if (proposal.respectedConstraints.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text('Contraintes respectées', style: TextStyle(fontWeight: FontWeight.w800)),
+            Wrap(spacing: 6, runSpacing: 2, children: proposal.respectedConstraints
+              .map((constraint) => Chip(label: Text(constraint), visualDensity: VisualDensity.compact))
+              .toList()),
+          ],
           if (onSave != null || onSelect != null) ...[
             const SizedBox(height: 10),
             Row(mainAxisAlignment: MainAxisAlignment.end, children: [

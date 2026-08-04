@@ -2,6 +2,7 @@ import '../../core/outfit_generation/outfit_generation_engine.dart';
 import '../../weather/models/weather_data.dart';
 
 enum DailyBriefCardType { outfit, weather, observation, stylist, care, goal }
+enum DailyBriefState { emptyWardrobe, insufficientWardrobe, noProposal, weatherError, available }
 
 class DailyBriefCard<T> {
   final DailyBriefCardType type;
@@ -34,10 +35,14 @@ class DailyBrief {
   final DateTime generatedAt;
   final List<DailyBriefCard<Object>> cards;
   final List<OutfitGenerationProposal> outfitProposals;
+  final DailyBriefState state;
+  final String? detail;
 
   const DailyBrief({
     required this.generatedAt,
     required this.cards,
     required this.outfitProposals,
+    this.state = DailyBriefState.available,
+    this.detail,
   });
 }
