@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'garment_normalizer.dart';
 import 'garment_photo.dart';
+import 'thermal_profile.dart';
 import '../features/scanner/ai/analysis_foundations.dart';
 
 class Garment {
@@ -58,6 +59,7 @@ class Garment {
   final bool? superposable;
   /// Couche calculée par l'analyse (jamais demandée à l'utilisateur).
   final String? layerType;
+  final ThermalProfile? thermalProfile;
   final String? etatVisuel;
   final String? usureVisible;
   final List<String>? defautsVisibles;
@@ -139,6 +141,7 @@ class Garment {
     this.compatibleChaleur,
     this.superposable,
     this.layerType,
+    this.thermalProfile,
     this.etatVisuel,
     this.usureVisible,
     this.defautsVisibles,
@@ -202,6 +205,15 @@ class Garment {
         .toList(growable: false);
   }
 
+  /// New records persist this value; legacy records receive a conservative
+  /// adapter without rewriting their historical fields.
+  ThermalProfile get effectiveThermalProfile => thermalProfile ?? ThermalProfile.fromLegacy(
+    minimum: temperatureMinimum,
+    maximum: temperatureMaximum,
+    rain: compatiblePluie,
+    layerType: layerType,
+  );
+
   Garment copyWith({
     String? id,
     String? name,
@@ -254,6 +266,7 @@ class Garment {
     bool? compatibleChaleur,
     bool? superposable,
     String? layerType,
+    ThermalProfile? thermalProfile,
     String? etatVisuel,
     String? usureVisible,
     List<String>? defautsVisibles,
@@ -334,6 +347,7 @@ class Garment {
     compatibleChaleur: compatibleChaleur ?? this.compatibleChaleur,
     superposable: superposable ?? this.superposable,
     layerType: layerType ?? this.layerType,
+    thermalProfile: thermalProfile ?? this.thermalProfile,
     etatVisuel: etatVisuel ?? this.etatVisuel,
     usureVisible: usureVisible ?? this.usureVisible,
     defautsVisibles: defautsVisibles ?? this.defautsVisibles,
@@ -417,6 +431,7 @@ class Garment {
     'compatible_chaleur': compatibleChaleur == null ? null : (compatibleChaleur! ? 1 : 0),
     'superposable': superposable == null ? null : (superposable! ? 1 : 0),
     'layer_type': layerType,
+    'thermal_profile': thermalProfile?.encode(),
     'etat_visuel': etatVisuel,
     'usure_visible': usureVisible,
     'defauts_visibles': defautsVisibles == null ? null : jsonEncode(defautsVisibles),
@@ -538,6 +553,7 @@ class Garment {
       compatibleChaleur: boolean('compatible_chaleur'),
       superposable: boolean('superposable'),
       layerType: text('layer_type') ?? _legacyLayer(boolean('superposable'), text('category')),
+      thermalProfile: ThermalProfile.decode(map['thermal_profile']),
       etatVisuel: text('etat_visuel'),
       usureVisible: text('usure_visible'),
       defautsVisibles: list('defauts_visibles'),

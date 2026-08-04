@@ -18,7 +18,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 11,
+      version: 12,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -78,6 +78,7 @@ class DatabaseService {
             compatible_chaleur INTEGER,
             superposable INTEGER,
             layer_type TEXT,
+            thermal_profile TEXT,
             etat_visuel TEXT,
             usure_visible TEXT,
             defauts_visibles TEXT,
@@ -218,6 +219,9 @@ class DatabaseService {
           await _addColumn(db, 'garments', 'previous_analysis', 'TEXT');
           await _addColumn(db, 'garments', 'current_analysis', 'TEXT');
           await _addColumn(db, 'garments', 'user_modified_fields', "TEXT NOT NULL DEFAULT '[]'");
+        }
+        if (oldVersion < 12) {
+          await _addColumn(db, 'garments', 'thermal_profile', 'TEXT');
         }
         await _createIndexes(db);
       },

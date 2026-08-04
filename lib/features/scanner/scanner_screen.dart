@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/image_storage_service.dart';
 import '../../models/garment.dart';
 import '../../models/garment_photo.dart';
+import '../../models/thermal_profile_calculator.dart';
 import '../../widgets/garment_image.dart';
 import '../wardrobe/wardrobe_controller.dart';
 import '../wardrobe/garment_form_screen.dart';
@@ -331,7 +332,21 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
     setState(() => saving = true);
     final now = DateTime.now();
-    final climate = _estimateClimate(category, material.text, season);
+    final composition = _formattedComposition(result?.compositions ?? const []);
+    final thermalProfile = const ThermalProfileCalculator().calculate(
+      ThermalProfileInput(
+        category: category,
+        subcategory: result?.preciseType,
+        material: material.text,
+        composition: composition,
+        lining: result?.compositions.any((value) => value.section == 'lining') == true ? 'doublure détectée' : null,
+        detectedFeatures: [
+          if (result?.styleSummary != null) result!.styleSummary!,
+          ...?result?.fieldMetadata?.keys,
+        ],
+      ),
+      calculatedAt: now,
+    );
     final garment = Garment(
       id: const Uuid().v4(),
       name: name.text.trim().isEmpty ? 'Vêtement à identifier' : name.text.trim(),
@@ -350,18 +365,23 @@ class _ScannerScreenState extends State<ScannerScreen> {
           .map((value) => value.material)
           .skip(1)
           .toList(growable: false),
-      composition: _formattedComposition(result?.compositions ?? const []),
+      composition: composition,
       saisons: switch (result?.season) {
         final value? => [value],
         null => null,
       },
       stylePrincipal: _suggestStyle(result),
       stylesSecondaires: [_suggestStyle(result)],
-      temperatureMinimum: climate.$1,
-      temperatureMaximum: climate.$2,
-      compatiblePluie: _suggestRain(category, material.text),
-      compatibleChaleur: climate.$2 >= 25,
-      layerType: _suggestLayer(category, material.text),
+      temperatureMinimum: thermalProfile.standaloneMinC,
+      temperatureMaximum: thermalProfile.standaloneMaxC,
+      compatiblePluie: thermalProfile.rainCompatibility.name != 'none',
+      compatibleChaleur: thermalProfile.breathability.name == 'high',
+      layerType: switch (thermalProfile.primaryRole.name) {
+        'base' => 'Couche de base',
+        'outer' => 'Couche extérieure',
+        _ => 'Couche intermédiaire',
+      },
+      thermalProfile: thermalProfile,
       confianceGlobale: result?.globalConfidence,
       avertissementsIA: result?.warnings,
       resumeStylistique: result?.styleSummary,
@@ -440,22 +460,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
       (sections[value.section] ??= []).add(value);
     }
     return sections.entries.map((entry) => '${labels[entry.key] ?? entry.key} : ${entry.value.map((value) => '${value.material}${value.percentage == null ? '' : ' ${value.percentage!.toStringAsFixed(value.percentage! % 1 == 0 ? 0 : 1)} %'}').join(', ')}').join('\n');
-  }
-
-  (double, double) _estimateClimate(String category, String material, String season) {
-    final warm = RegExp('laine|mérinos|cachemire|doudoune', caseSensitive: false).hasMatch('$material $category');
-    if (warm || season == 'Hiver') return (-5, 12);
-    if (season == 'Été' || RegExp('lin|soie', caseSensitive: false).hasMatch(material)) return (18, 35);
-    return (8, 24);
-  }
-
-  bool _suggestRain(String category, String material) =>
-      RegExp('imperméable|parka|nylon|synthétique', caseSensitive: false).hasMatch('$category $material');
-
-  String _suggestLayer(String category, String material) {
-    if (category == 'Vestes') return 'Couche extérieure';
-    if (RegExp('laine|mérinos|cachemire', caseSensitive: false).hasMatch(material)) return 'Couche chaude';
-    return 'Couche de base';
   }
 
   String _suggestStyle(GarmentAnalysisResult? analysis) {

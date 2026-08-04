@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../data/image_storage_service.dart';
 import '../../models/garment.dart';
+import '../../models/thermal_profile_calculator.dart';
 import '../../widgets/garment_image.dart';
 import 'wardrobe_controller.dart';
 
@@ -106,11 +107,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     ])),
   );
 
-  String _calculatedLayer() {
-    if (_category == 'Vestes') return _subCategory == 'Imperméable' ? 'Couche de protection' : 'Couche extérieure';
-    if (_category == 'Hauts' || _category == 'Chemises') return _material == 'Laine' || _material == 'Mérinos' || _material == 'Cachemire' ? 'Couche chaude' : 'Couche de base';
-    return 'Couche intermédiaire';
-  }
+ 
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
@@ -130,6 +127,26 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       );
     }
     final uniqueUses = selectedUses.toSet().toList();
+    final composition = _text(_composition);
+    final thermalInput = ThermalProfileInput(
+      category: _category == 'Autre' ? (_text(_otherCategory) ?? 'Autre') : _category,
+      subcategory: _subCategory == 'Autre' ? _text(_otherSubCategory) : _subCategory,
+      material: material,
+      composition: composition,
+      lining: composition?.toLowerCase().contains('doublure') == true ? 'doublure' : null,
+      fit: old?.coupe ?? old?.fit,
+      thickness: old?.texture,
+      detectedFeatures: [
+        if (old?.typePrecis != null) old!.typePrecis!,
+        if (old?.motif != null) old!.motif!,
+        if (old?.typeFermeture != null) old!.typeFermeture!,
+      ],
+    );
+    final thermalProfile = const ThermalProfileCalculator().ensureCurrent(
+      thermalInput,
+      old?.thermalProfile,
+      calculatedAt: now,
+    );
     final garment = Garment(
       id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: _category == 'Autre' ? (_text(_otherCategory) ?? 'Autre') : _category,
       brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes), imagePath: _imagePath,
@@ -141,8 +158,16 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       // Keep the first value in the legacy scalar while persisting every use.
       occasion: uniqueUses.isEmpty ? null : uniqueUses.first,
       occasions: uniqueUses.isEmpty ? null : uniqueUses,
-      temperatureMinimum: min, temperatureMaximum: max,
-      compatiblePluie: _rain, compatibleChaleur: _heat, layerType: _calculatedLayer(),
+      // Legacy projections stay synchronized while consumers migrate.
+      temperatureMinimum: thermalProfile.standaloneMinC, temperatureMaximum: thermalProfile.standaloneMaxC,
+      compatiblePluie: thermalProfile.rainCompatibility.name != 'none',
+      compatibleChaleur: thermalProfile.breathability.name == 'high',
+      layerType: switch (thermalProfile.primaryRole.name) {
+        'base' => 'Couche de base',
+        'outer' => 'Couche extérieure',
+        _ => 'Couche intermédiaire',
+      },
+      thermalProfile: thermalProfile,
       descriptionIA: old?.descriptionIA, couleursSecondaires: old?.couleursSecondaires, motif: old?.motif, texture: old?.texture,
       logoVisible: old?.logoVisible, niveauFormalite: old?.niveauFormalite, coupe: old?.coupe, longueur: old?.longueur,
       longueurManches: old?.longueurManches, typeCol: old?.typeCol, typeFermeture: old?.typeFermeture,
@@ -155,7 +180,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       compositionEstimee: old?.compositionEstimee, lavage: old?.lavage, sechage: old?.sechage, repassage: old?.repassage,
       nettoyage: old?.nettoyage, boulochage: old?.boulochage, taches: old?.taches, limitesAnalyse: old?.limitesAnalyse,
       condition: old?.condition, purchasePrice: old?.purchasePrice, purchaseDate: old?.purchaseDate, lastWorn: old?.lastWorn,
-      fit: old?.fit, composition: _text(_composition), wearCount: old?.wearCount ?? 0, isFavorite: old?.isFavorite ?? false,
+      fit: old?.fit, composition: composition, wearCount: old?.wearCount ?? 0, isFavorite: old?.isFavorite ?? false,
       createdAt: old?.createdAt ?? now, updatedAt: now,
     );
     try { await widget.controller.save(garment, isNew: old == null || widget.isDraft); if (mounted) Navigator.pop(context, true); }
