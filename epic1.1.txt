@@ -1,0 +1,915 @@
+diff --git a/docs/AI_CONTEXT_AUDIT.md b/docs/AI_CONTEXT_AUDIT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..9b2569c43e47bd7cda0e49e60a52e63b4d787669
+--- /dev/null
++++ b/docs/AI_CONTEXT_AUDIT.md
+@@ -0,0 +1,64 @@
++# Audit et architecture du contexte IA
++
++## État avant cette modification
++
++- **WardrobeGPT** construisait ses statistiques et son historique depuis un
++  `WardrobeController` longue durée. Une fois `loading == false`, un nouvel
++  appel ne rechargeait pas la base. Les outils dressing et le moteur de
++  recommandation réutilisaient la même liste en mémoire.
++- **Daily Brief** recevait une liste de vêtements fournie par le widget du
++  tableau de bord. Cette copie était cohérente au chargement de l'écran, mais
++  sa fraîcheur dépendait du cycle de vie de ce contrôleur. Son conseil GPT
++  déclenchait en plus le flux WardrobeGPT, avec son propre cache en mémoire.
++- **Agenda** relisait déjà `DatabaseService.getGarments()` pour générer une
++  proposition. Il constituait toutefois son contexte séparément, sans contrat
++  commun avec les autres fonctions IA.
++- **Transmission au modèle** : le prompt WardrobeGPT ne contenait que des
++  compteurs. Un outil ajoutait catégories, couleurs et quelques identifiants,
++  tandis que le moteur de recommandation transmettait des candidats. Aucun
++  payload unique ne décrivait toutes les fiches, leur provenance ou la règle
++  de priorité entre mémoire et dressing.
++- Les vêtements avaient déjà un identifiant UUID stable, stocké comme clé
++  primaire SQLite. Aucun nouveau champ ni aucune migration n'étaient donc
++  nécessaires.
++
++Le risque principal était une réponse fondée sur la liste d'un contrôleur
++encore vivant après une modification du dressing. Les différents chemins
++pouvaient aussi fournir au modèle des représentations partielles et
++contradictoires.
++
++## Architecture retenue
++
++`WardrobeAiContextService` est désormais l'unique fabrique du snapshot métier
++destiné aux fonctions intelligentes. Chaque appel relit les vêtements dans la
++base, sans cache. La mémoire est chargée séparément et reste facultative ; elle
++n'est jamais fusionnée dans une fiche vêtement.
++
++Le snapshot conserve les objets `Garment` pour les moteurs déterministes et
++expose parallèlement des `AiGarmentContext` sérialisables pour les prompts.
++Chaque valeur est étiquetée `user`, `aiAnalysis` ou `calculated`. Les champs
++modifiables dans la fiche sont considérés comme autoritatifs après
++enregistrement, y compris lorsqu'ils provenaient initialement d'une suggestion
++IA. L'identifiant transmis est la clé primaire existante et permet toujours de
++retrouver la fiche courante.
++
++WardrobeGPT, Daily Brief, Agenda et la source de candidats de recommandation
++utilisent ce service dans la composition de production. Les signatures
++historiques gardent un repli pour les tests et les intégrations existantes,
++afin de préserver la compatibilité.
++
++## Prochains sprints
++
++1. Persister une provenance par champ et l'instant de dernière correction
++   utilisateur. La présente classification explicite le contrat, mais les
++   anciennes lignes ne permettent pas de reconstruire leur historique exact.
++2. Ajouter une table de propositions d'analyse versionnées (`model`, prompt,
++   confiance, avant/après) avant d'autoriser la réanalyse d'une fiche.
++3. Implémenter une validation de fusion qui applique automatiquement les
++   valeurs calculées, propose les changements IA et bloque les champs corrigés
++   par l'utilisateur jusqu'à confirmation explicite.
++4. Faire relire également les tenues depuis la base dans le snapshot central,
++   puis supprimer les replis sur contrôleurs lorsque les appelants historiques
++   auront migré.
++5. Ajouter un mécanisme de budget/taille de prompt pour les très grands
++   dressings, sans réintroduire de cache de vérité métier.
+diff --git a/lib/core/ai_context/ai_context.dart b/lib/core/ai_context/ai_context.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..5c9aeca9d40627be9a7f452297588f3013d6ec89
+--- /dev/null
++++ b/lib/core/ai_context/ai_context.dart
+@@ -0,0 +1,88 @@
++import '../../features/assistant/memory/personalization_snapshot.dart';
++import '../../models/garment.dart';
++
++/// Provenance of a value exposed to an AI engine.
++enum AiDataSource { user, aiAnalysis, calculated }
++
++class AiContextValue<T> {
++  final T value;
++  final AiDataSource source;
++
++  const AiContextValue(this.value, this.source);
++
++  Map<String, Object?> toMap() => {
++    'value': value,
++    'source': source.name,
++  };
++}
++
++/// Immutable, prompt-safe representation of one garment.
++///
++/// [id] is the existing database primary key. It is deliberately included in
++/// AI payloads but remains an internal implementation detail in the UI.
++class AiGarmentContext {
++  final String id;
++  final Map<String, AiContextValue<Object>> fields;
++
++  AiGarmentContext._({required this.id, required Map<String, AiContextValue<Object>> fields})
++      : fields = Map.unmodifiable(fields);
++
++  factory AiGarmentContext.fromGarment(Garment garment) {
++    final values = <String, AiContextValue<Object>>{};
++    void add(String key, Object? value, AiDataSource source) {
++      if (value == null || value == '' || value is List && value.isEmpty) return;
++      values[key] = AiContextValue<Object>(value, source);
++    }
++
++    // Editable form values are authoritative user data, even when initially
++    // suggested by AI: once the user saves the sheet, later analysis must not
++    // silently replace them.
++    add('name', garment.name, AiDataSource.user);
++    add('category', garment.category, AiDataSource.user);
++    add('subcategory', garment.sousCategorie, AiDataSource.user);
++    add('color', garment.couleurPrincipale ?? garment.color, AiDataSource.user);
++    add('secondaryColors', garment.couleursSecondaires, AiDataSource.aiAnalysis);
++    add('material', garment.matierePrincipale ?? garment.material, AiDataSource.user);
++    add('secondaryMaterials', garment.matieresSecondaires, AiDataSource.aiAnalysis);
++    add('style', garment.stylePrincipal ?? garment.style, AiDataSource.user);
++    add('secondaryStyles', garment.stylesSecondaires, AiDataSource.user);
++    add('seasons', garment.effectiveSeasons, AiDataSource.user);
++    add('occasions', garment.effectiveOccasions, AiDataSource.user);
++    add('temperatureMinimum', garment.temperatureMinimum, AiDataSource.calculated);
++    add('temperatureMaximum', garment.temperatureMaximum, AiDataSource.calculated);
++    add('rainCompatible', garment.compatiblePluie, AiDataSource.calculated);
++    add('heatCompatible', garment.compatibleChaleur, AiDataSource.calculated);
++    add('layerType', garment.layerType, AiDataSource.calculated);
++    add('description', garment.descriptionIA, AiDataSource.aiAnalysis);
++    add('wearCount', garment.wearCount, AiDataSource.calculated);
++    add('lastWorn', garment.lastWorn?.toIso8601String(), AiDataSource.calculated);
++    return AiGarmentContext._(id: garment.id, fields: values);
++  }
++
++  Map<String, Object?> toMap() => {
++    'id': id,
++    'fields': fields.map((key, value) => MapEntry(key, value.toMap())),
++  };
++}
++
++/// A fresh snapshot shared by all intelligent features.
++class WardrobeAiContext {
++  final DateTime generatedAt;
++  final List<Garment> garments;
++  final List<AiGarmentContext> aiGarments;
++  final PersonalizationSnapshot? personalization;
++
++  WardrobeAiContext({
++    required this.generatedAt,
++    required List<Garment> garments,
++    required this.personalization,
++  })  : garments = List.unmodifiable(garments),
++        aiGarments = List.unmodifiable(garments.map(AiGarmentContext.fromGarment));
++
++  Map<String, Object?> toMap() => {
++    'generatedAt': generatedAt.toIso8601String(),
++    'wardrobeSource': 'live_database',
++    'memoryPolicy': 'memory_never_overrides_garments',
++    'garments': aiGarments.map((garment) => garment.toMap()).toList(growable: false),
++  };
++}
+diff --git a/lib/core/ai_context/ai_reanalysis_policy.dart b/lib/core/ai_context/ai_reanalysis_policy.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..f291b72c19d48c57707c1f72b6eff59671722dca
+--- /dev/null
++++ b/lib/core/ai_context/ai_reanalysis_policy.dart
+@@ -0,0 +1,41 @@
++/// Result of comparing a new AI analysis with the value originally analyzed
++/// and the current (possibly user-corrected) record.
++class AiReanalysisDecision {
++  final Map<String, Object?> applicable;
++  final Map<String, Object?> protectedUserValues;
++
++  AiReanalysisDecision({
++    required Map<String, Object?> applicable,
++    required Map<String, Object?> protectedUserValues,
++  })  : applicable = Map.unmodifiable(applicable),
++        protectedUserValues = Map.unmodifiable(protectedUserValues);
++}
++
++/// Pure three-way comparison used by future garment reanalysis flows.
++///
++/// A suggestion is applicable only when the stored value still equals the
++/// baseline that was sent to the model. Any intervening edit is treated as a
++/// user correction and returned separately for explicit confirmation.
++class AiReanalysisPolicy {
++  const AiReanalysisPolicy();
++
++  AiReanalysisDecision compare({
++    required Map<String, Object?> baseline,
++    required Map<String, Object?> current,
++    required Map<String, Object?> suggested,
++  }) {
++    final applicable = <String, Object?>{};
++    final protected = <String, Object?>{};
++    for (final entry in suggested.entries) {
++      if (current[entry.key] == baseline[entry.key]) {
++        applicable[entry.key] = entry.value;
++      } else {
++        protected[entry.key] = current[entry.key];
++      }
++    }
++    return AiReanalysisDecision(
++      applicable: applicable,
++      protectedUserValues: protected,
++    );
++  }
++}
+diff --git a/lib/core/ai_context/wardrobe_ai_context_service.dart b/lib/core/ai_context/wardrobe_ai_context_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..26c488a1d00c0b6f6f74bd0cc4797482bd495015
+--- /dev/null
++++ b/lib/core/ai_context/wardrobe_ai_context_service.dart
+@@ -0,0 +1,38 @@
++import '../../features/assistant/memory/memory_service.dart';
++import '../../features/assistant/memory/personalization_snapshot.dart';
++import '../../models/garment.dart';
++import 'ai_context.dart';
++
++typedef CurrentGarmentsLoader = Future<List<Garment>> Function();
++
++/// Single entry point for wardrobe data consumed by AI features.
++///
++/// No snapshot is cached: every [build] invokes [loadCurrentGarments]. Memory
++/// is loaded independently and can personalize advice, but is never merged into
++/// garment records.
++class WardrobeAiContextService {
++  final CurrentGarmentsLoader loadCurrentGarments;
++  final MemoryService? memoryService;
++  final DateTime Function() clock;
++
++  const WardrobeAiContextService({
++    required this.loadCurrentGarments,
++    this.memoryService,
++    this.clock = DateTime.now,
++  });
++
++  Future<WardrobeAiContext> build() async {
++    final garments = await loadCurrentGarments();
++    PersonalizationSnapshot? personalization;
++    try {
++      personalization = await memoryService?.loadSnapshot();
++    } catch (_) {
++      // Personalization is optional; current database garments are not.
++    }
++    return WardrobeAiContext(
++      generatedAt: clock(),
++      garments: garments,
++      personalization: personalization,
++    );
++  }
++}
+diff --git a/lib/features/agenda/agenda_service.dart b/lib/features/agenda/agenda_service.dart
+index 25f14fd82a6e64169680fba80cfce52d8488e9b8..1166f8f06ed5fe68bd89e790c0924718fcb12731 100644
+--- a/lib/features/agenda/agenda_service.dart
++++ b/lib/features/agenda/agenda_service.dart
+@@ -1,46 +1,48 @@
+ import '../../core/outfit/outfit_engine.dart';
+ import '../../core/recommendation/recommendation_context.dart';
+ import '../../data/database_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/outfit.dart';
+ import '../../weather/models/weather_data.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../calendar/calendar_event.dart';
+ import '../calendar/calendar_service.dart';
+ import 'agenda_models.dart';
++import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ 
+ typedef AgendaClock = DateTime Function();
+ 
+ class AgendaService {
+   final DatabaseService database;
+   final OutfitEngine outfitEngine;
+   final CalendarService calendarService;
+   final WeatherService? weatherService;
+   final AgendaClock clock;
++  final WardrobeAiContextService? aiContextService;
+ 
+-  AgendaService({required this.database, required this.calendarService, this.weatherService,
++  AgendaService({required this.database, required this.calendarService, this.weatherService, this.aiContextService,
+     this.outfitEngine = const OutfitEngine(), this.clock = DateTime.now});
+ 
+   Future<List<PlannedOutfit>> loadPeriod(DateTime from, DateTime to) =>
+       database.getPlannedOutfits(_day(from), _day(to));
+ 
+   Future<PlannedOutfit> plan({required DateTime date, required Outfit outfit,
+     PlanningStrategy strategy = PlanningStrategy.rotation,
+     PlanningOrigin origin = PlanningOrigin.manual, String justification = 'Tenue choisie par vous.'}) async {
+     await _ensureStored(outfit);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: outfit.id, outfit: outfit, origin: origin, strategy: strategy,
+       status: origin == PlanningOrigin.manual ? PlannedOutfitStatus.confirmed : PlannedOutfitStatus.proposed,
+       justification: justification, createdAt: now, updatedAt: now);
+     await database.savePlannedOutfit(value);
+     return value;
+   }
+ 
+   Future<PlannedOutfit> replace(PlannedOutfit current, Outfit replacement,
+       {OutfitReuseKind reuseKind = OutfitReuseKind.none, String? justification}) async {
+     await _ensureStored(replacement);
+     final changed = current.copyWith(outfit: replacement, outfitId: replacement.id,
+       status: PlannedOutfitStatus.proposed, reuseKind: reuseKind,
+       justification: justification ?? 'Tenue remplacée selon votre choix.', updatedAt: clock());
+     await database.savePlannedOutfit(changed);
+@@ -48,51 +50,53 @@ class AgendaService {
+   }
+ 
+   Future<void> remove(PlannedOutfit value) => database.deletePlannedOutfit(value.id);
+   Future<PlannedOutfit> confirm(PlannedOutfit value) => _setStatus(value, PlannedOutfitStatus.confirmed);
+ 
+   Future<PlannedOutfit> markWorn(PlannedOutfit value) async {
+     if (value.wearRecordedAt != null || value.status == PlannedOutfitStatus.worn) return value;
+     final wornAt = value.date.isAfter(clock()) ? clock() : value.date;
+     final recorded = await database.recordOutfitWear(value.outfitId, wornAt: wornAt);
+     if (!recorded) throw StateError('La tenue ne contient plus de vêtements disponibles.');
+     final updated = value.copyWith(status: PlannedOutfitStatus.worn,
+       wearRecordedAt: clock(), updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit> _setStatus(PlannedOutfit value, PlannedOutfitStatus status) async {
+     final updated = value.copyWith(status: status, updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit?> proposeDay(DateTime date, AgendaPreferences preferences,
+       {List<PlannedOutfit> previous = const []}) async {
+     final outfits = await _loadOutfits();
+-    final wardrobe = await database.getGarments();
++    final wardrobe = aiContextService == null
++        ? await database.getGarments()
++        : (await aiContextService!.build()).garments;
+     final event = await _optionalEvent(date);
+     final weather = await _optionalWeather();
+     final context = RecommendationContext(
+       occasion: event?.formality.label,
+       weather: weather == null ? null : RecommendationWeather(
+         temperature: weather.temperature, condition: weather.description),
+     );
+     Outfit? choice;
+     OutfitReuseKind reuse = OutfitReuseKind.none;
+     final last = previous.isEmpty ? null : previous.last;
+     final repeated = last == null ? 0 : _consecutive(previous, last.outfitId);
+     if (preferences.allowCompleteOutfitReuse && last?.outfit != null &&
+         (preferences.strategy == PlanningStrategy.minimal || preferences.strategy == PlanningStrategy.professional) &&
+         repeated < preferences.maximumConsecutiveDays) {
+       choice = last!.outfit;
+       reuse = OutfitReuseKind.complete;
+     } else if (last?.outfit != null && preferences.strategy == PlanningStrategy.economical) {
+       choice = _partialVariant(last!.outfit!, wardrobe, context, preferences);
+       reuse = choice == null ? OutfitReuseKind.none : OutfitReuseKind.partial;
+     }
+     choice ??= _chooseSaved(outfits, previous, preferences, date);
+     choice ??= outfitEngine.generateBestOutfit(wardrobe: wardrobe, context: context);
+     if (choice == null) return null;
+     if (choice.id.startsWith('generated-') || reuse == OutfitReuseKind.partial) {
+       choice = _cloneWithId(choice, 'agenda-${date.microsecondsSinceEpoch}');
+diff --git a/lib/features/assistant/context/assistant_context.dart b/lib/features/assistant/context/assistant_context.dart
+index 52d751a4487f5b4e1123e62ccddc1aecf7b2a750..6e1f46a5e4c18b0633b1e34ce53b653c6db717ff 100644
+--- a/lib/features/assistant/context/assistant_context.dart
++++ b/lib/features/assistant/context/assistant_context.dart
+@@ -1,43 +1,46 @@
+ import '../../calendar/calendar_context_builder.dart';
+ import '../memory/personalization_snapshot.dart';
++import '../../../core/ai_context/ai_context.dart';
+ 
+ class AssistantContext {
+   final CalendarContext? calendar;
+   final AssistantWeather? weather;
+   final AssistantStatistics statistics;
+   final AssistantHistory history;
+   final AssistantDate date;
+   final PersonalizationSnapshot? personalization;
++  final WardrobeAiContext? wardrobe;
+ 
+   const AssistantContext({
+     this.calendar,
+     required this.weather,
+     required this.statistics,
+     required this.history,
+     required this.date,
+     this.personalization,
++    this.wardrobe,
+   });
+ }
+ 
+ class AssistantWeather {
+   final double temperature;
+   final String condition;
+   final String city;
+ 
+   const AssistantWeather({
+     required this.temperature,
+     required this.condition,
+     required this.city,
+   });
+ }
+ 
+ class AssistantStatistics {
+   final int garmentCount;
+   final int outfitCount;
+   final int recordedWearCount;
+ 
+   const AssistantStatistics({
+     required this.garmentCount,
+     required this.outfitCount,
+     required this.recordedWearCount,
+   });
+diff --git a/lib/features/assistant/context/assistant_context_builder.dart b/lib/features/assistant/context/assistant_context_builder.dart
+index c265c41a57ad42614e9abd7e14fdb70535b85841..cea4110502f67e078faa6f33d0c69b1a67828977 100644
+--- a/lib/features/assistant/context/assistant_context_builder.dart
++++ b/lib/features/assistant/context/assistant_context_builder.dart
+@@ -1,125 +1,134 @@
+ import '../../../weather/models/weather_data.dart';
+ import '../../../weather/services/weather_service.dart';
+ import '../../calendar/calendar_context_builder.dart';
+ import '../../outfits/outfits_controller.dart';
+ import '../../wardrobe/wardrobe_controller.dart';
+ import '../memory/memory_service.dart';
+ import '../memory/personalization_snapshot.dart';
+ import 'assistant_context.dart';
++import '../../../core/ai_context/wardrobe_ai_context_service.dart';
+ 
+ typedef AssistantClock = DateTime Function();
+ 
+ class AssistantContextBuilder {
+   final WeatherService _weatherService;
+   final WardrobeController _wardrobeController;
+   final OutfitsController _outfitsController;
+   final AssistantClock _clock;
+   final CalendarContextBuilder? _calendarContextBuilder;
+   final MemoryService? _memoryService;
++  final WardrobeAiContextService? _aiContextService;
+ 
+   const AssistantContextBuilder({
+     required WeatherService weatherService,
+     required WardrobeController wardrobeController,
+     required OutfitsController outfitsController,
+     AssistantClock clock = DateTime.now,
+     CalendarContextBuilder? calendarContextBuilder,
+     MemoryService? memoryService,
++    WardrobeAiContextService? aiContextService,
+   }) : _weatherService = weatherService,
+        _wardrobeController = wardrobeController,
+        _outfitsController = outfitsController,
+        _clock = clock,
+        _calendarContextBuilder = calendarContextBuilder,
+-       _memoryService = memoryService;
++       _memoryService = memoryService,
++       _aiContextService = aiContextService;
+ 
+   Future<AssistantContext> build() async {
++    final wardrobeContext = await _aiContextService?.build();
+     final weatherFuture = _weatherService.getCurrentWeather();
+     final calendarFuture = _calendarContextBuilder?.build().then<CalendarContext?>(
+       (value) => value,
+     ).catchError((_) => null);
+-    final personalizationFuture = _memoryService?.loadSnapshot()
++    final personalizationFuture = wardrobeContext != null
++        ? Future<PersonalizationSnapshot?>.value(wardrobeContext.personalization)
++        : _memoryService?.loadSnapshot()
+         .then<PersonalizationSnapshot?>((value) => value)
+         .catchError((_) => null);
+     if (_wardrobeController.loading) await _wardrobeController.load();
+     if (_outfitsController.loading) await _outfitsController.load();
+     final weather = await weatherFuture
+         .then<WeatherData?>((value) => value)
+         .catchError((_) => null);
+     final now = _clock();
+ 
++    final currentGarments = wardrobeContext?.garments ?? _wardrobeController.garments;
+     final recentGarments =
+-        _wardrobeController.garments
++        currentGarments
+             .where((garment) => garment.lastWorn != null)
+             .toList()
+           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
+     final wornOutfits =
+         _outfitsController.outfits
+             .where((outfit) => outfit.lastWorn != null)
+             .toList()
+           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
+     final lastOutfit = wornOutfits.isEmpty ? null : wornOutfits.first;
+ 
+     return AssistantContext(
+       calendar: await calendarFuture,
+       personalization: await personalizationFuture,
+       weather: weather == null
+           ? null
+           : AssistantWeather(
+             temperature: weather.temperature,
+             condition: weather.description,
+             city: weather.city,
+           ),
+       statistics: AssistantStatistics(
+-        garmentCount: _wardrobeController.garments.length,
++        garmentCount: currentGarments.length,
+         outfitCount: _outfitsController.outfits.length,
+-        recordedWearCount: _wardrobeController.garments.fold(
++        recordedWearCount: currentGarments.fold(
+           0,
+           (total, garment) => total + garment.wearCount,
+         ),
+       ),
+       history: AssistantHistory(
+         lastWornOutfit:
+             lastOutfit == null
+                 ? null
+                 : WornOutfit(
+                   id: lastOutfit.id,
+                   name: lastOutfit.name,
+                   wornAt: lastOutfit.lastWorn!,
+                 ),
+         recentlyWornGarments: recentGarments
+             .map(
+               (garment) => WornGarment(
+                 id: garment.id,
+                 name: garment.name,
+                 wornAt: garment.lastWorn!,
+               ),
+             )
+             .toList(growable: false),
+       ),
+       date: AssistantDate(
+         value: now,
+         day: _days[now.weekday - 1],
+         time:
+             '${now.hour.toString().padLeft(2, '0')}:'
+             '${now.minute.toString().padLeft(2, '0')}',
+         season: _seasonFor(now),
+       ),
++      wardrobe: wardrobeContext,
+     );
+   }
+ 
+   static const _days = [
+     'lundi',
+     'mardi',
+     'mercredi',
+     'jeudi',
+     'vendredi',
+     'samedi',
+     'dimanche',
+   ];
+ 
+   static String _seasonFor(DateTime date) => switch (date.month) {
+     3 || 4 || 5 => 'printemps',
+     6 || 7 || 8 => 'été',
+     9 || 10 || 11 => 'automne',
+     _ => 'hiver',
+   };
+ }
+diff --git a/lib/features/assistant/prompt/prompt_section.dart b/lib/features/assistant/prompt/prompt_section.dart
+index 6791fcd094cd4007b3da9c352c8e086cb09a326f..41a4223e5e62aaba08f7bd87d53537d40bbcda70 100644
+--- a/lib/features/assistant/prompt/prompt_section.dart
++++ b/lib/features/assistant/prompt/prompt_section.dart
+@@ -114,53 +114,59 @@ class WeatherPromptSection implements PromptSection {
+ class CalendarPromptSection implements PromptSection {
+   const CalendarPromptSection();
+ 
+   @override
+   String get title => 'CONTEXTE CALENDRIER';
+ 
+   @override
+   String? build(AssistantContext context) {
+     final calendar = context.calendar;
+     if (calendar == null) return null;
+     final event = calendar.event;
+     return 'Événement : ${event.title}\n'
+         'Date : ${event.startsAt.toIso8601String()}\n'
+         'Lieu : ${event.location ?? 'non précisé'}\n'
+         'Formalité : ${event.formality.label}';
+   }
+ }
+ 
+ class WardrobePromptSection implements PromptSection {
+   const WardrobePromptSection();
+ 
+   @override
+   String get title => 'GARDE-ROBE';
+ 
+   @override
+-  String build(AssistantContext context) =>
+-      'Nombre de vêtements : ${context.statistics.garmentCount}\n'
+-      'Nombre de tenues : ${context.statistics.outfitCount}';
++  String build(AssistantContext context) {
++    final wardrobe = context.wardrobe;
++    final header = 'Nombre de vêtements : ${context.statistics.garmentCount}\n'
++        'Nombre de tenues : ${context.statistics.outfitCount}';
++    if (wardrobe == null) return header;
++    return '$header\nSource dressing : base actuelle (${wardrobe.generatedAt.toIso8601String()})\n'
++        'Règle : la mémoire ne remplace jamais les fiches ci-dessous.\n'
++        'Fiches actuelles : ${wardrobe.aiGarments.map((item) => item.toMap()).toList()}';
++  }
+ }
+ 
+ class StatisticsPromptSection implements PromptSection {
+   const StatisticsPromptSection();
+ 
+   @override
+   String get title => 'STATISTIQUES';
+ 
+   @override
+   String build(AssistantContext context) =>
+       'Utilisations enregistrées : ${context.statistics.recordedWearCount}';
+ }
+ 
+ /// Extension point for future wear frequency and forgotten-garment insights.
+ class HistoryPromptSection implements PromptSection {
+   const HistoryPromptSection();
+ 
+   @override
+   String get title => 'HISTORIQUE';
+ 
+   @override
+   String? build(AssistantContext context) {
+     final history = context.history;
+     if (history.lastWornOutfit == null && history.recentlyWornGarments.isEmpty) {
+       return null;
+diff --git a/lib/features/daily_brief/daily_brief_service.dart b/lib/features/daily_brief/daily_brief_service.dart
+index bf9897016b02ae2776bedce14ab10e05bf7cda96..2a5f436fc8c5b31c3e58e198f6327f4fac8cfece 100644
+--- a/lib/features/daily_brief/daily_brief_service.dart
++++ b/lib/features/daily_brief/daily_brief_service.dart
+@@ -1,62 +1,66 @@
+ import '../../core/recommendation/recommendation_context.dart';
+ import '../../core/recommendation/recommendation_engine.dart';
+ import '../../core/wardrobe_intelligence/wardrobe_intelligence_engine.dart';
+ import '../../models/garment.dart';
+ import '../../weather/models/weather_data.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/memory/memory_service.dart';
+ import '../assistant/memory/personal_goal.dart';
+ import '../assistant/services/assistant_service.dart';
+ import 'daily_brief_models.dart';
++import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ 
+ /// Adapts the existing intelligence, recommendation, memory and GPT services
+ /// into presentation-ready cards. Widgets never calculate recommendations.
+ class DailyBriefService {
+   static const maxVisibleCards = 5;
+ 
+   final WeatherService weatherService;
+   final MemoryService memoryService;
+   final AssistantService assistantService;
+   final RecommendationEngine recommendationEngine;
+   final WardrobeIntelligenceEngine intelligenceEngine;
+   final DateTime Function() _clock;
++  final WardrobeAiContextService? aiContextService;
+ 
+   DailyBriefService({
+     required this.weatherService,
+     required this.memoryService,
+     required this.assistantService,
+     this.recommendationEngine = const RecommendationEngine(),
+     WardrobeIntelligenceEngine? intelligenceEngine,
+     DateTime Function()? clock,
++    this.aiContextService,
+   }) : intelligenceEngine = intelligenceEngine ?? WardrobeIntelligenceEngine(),
+        _clock = clock ?? DateTime.now;
+ 
+-  Future<DailyBrief> build(Iterable<Garment> wardrobe) async {
+-    final garments = List<Garment>.unmodifiable(wardrobe);
++  Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
++    final liveContext = await aiContextService?.build();
++    final garments = liveContext?.garments ?? List<Garment>.unmodifiable(wardrobe);
+     final weather = await _optionalWeather();
+-    final memory = await memoryService.loadSnapshot();
++    final memory = liveContext?.personalization ?? await memoryService.loadSnapshot();
+     final report = intelligenceEngine.analyze(garments);
+     final recommendation = recommendationEngine.recommend(
+       wardrobe: garments,
+       context: RecommendationContext(
+         season: _season(_clock()),
+         weather: weather == null
+             ? null
+             : RecommendationWeather(
+                 temperature: weather.temperature,
+                 isRaining: _isRaining(weather),
+                 condition: weather.description,
+               ),
+       ),
+       alternativeCount: 8,
+     );
+     final proposals = <DailyOutfitBrief>[];
+     for (var start = 0; start < recommendation.choices.length; start += 3) {
+       final choices = recommendation.choices.skip(start).take(3).toList();
+       if (choices.isEmpty) continue;
+       proposals.add(DailyOutfitBrief(
+         garments: choices.map((choice) => choice.garment).toList(growable: false),
+         explanation: choices.first.explanation,
+         confidence: (choices.fold<int>(0, (sum, item) => sum + item.score) / choices.length).round(),
+       ));
+     }
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 19fd3ae233864a71145ba8cba49e0a6f3b85a6d1..12dbb9ceaeff7fec30669e45064d7ad2cc53422d 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -1,134 +1,136 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import '../assistant/tools/assistant_tool_context_builder.dart';
+-import '../assistant/tools/outfit_tool.dart';
+-import '../assistant/tools/statistics_tool.dart';
+-import '../assistant/tools/wardrobe_tool.dart';
+ import '../assistant/tools/weather_tool.dart';
+ import '../assistant/recommendation/outfit_candidate.dart';
+ import '../assistant/recommendation/outfit_recommendation_engine.dart';
+ import '../assistant/memory/database_memory_repository.dart';
+ import '../assistant/memory/memory_service.dart';
+ import '../calendar/calendar_context_builder.dart';
+ import '../calendar/fake_calendar_service.dart';
+ import '../../data/database_service.dart';
+ import '../backup/backup_controller.dart';
+ import '../backup/backup_service.dart';
+ import '../backup/restore_service.dart';
+ import '../daily_brief/daily_brief_service.dart';
+ import '../agenda/agenda_controller.dart';
+ import '../agenda/agenda_screen.dart';
+ import '../agenda/agenda_service.dart';
+ import '../assistant/tools/agenda_tool.dart';
++import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
+   late final _backupRepository = DatabaseBackupRepository(
+     DatabaseService.instance,
+   );
+   late final _memoryService = MemoryService(
+     repository: DatabaseMemoryRepository(DatabaseService.instance),
+   );
+   late final _agendaCalendar = FakeCalendarService();
++  late final _aiContextService = WardrobeAiContextService(
++    loadCurrentGarments: DatabaseService.instance.getGarments,
++    memoryService: _memoryService,
++  );
+   late final _agendaService = AgendaService(
+     database: DatabaseService.instance,
+     calendarService: _agendaCalendar,
+     weatherService: widget.weatherService,
++    aiContextService: _aiContextService,
+   );
+   late final _backupController = BackupController(
+     backupService: BackupService(repository: _backupRepository),
+     restoreService: RestoreService(repository: _backupRepository),
+   );
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+       outfitsController: _assistantOutfits,
+       calendarContextBuilder: CalendarContextBuilder(
+         service: FakeCalendarService(),
+       ),
+       memoryService: _memoryService,
++      aiContextService: _aiContextService,
+     ),
+     toolContextBuilder: AssistantToolContextBuilder(
+       tools: [
+         WeatherTool(weatherService: widget.weatherService),
+-        WardrobeTool(controller: _assistantWardrobe),
+-        OutfitTool(controller: _assistantOutfits),
+-        StatisticsTool(controller: _assistantWardrobe),
+         AgendaTool(service: _agendaService),
+       ],
+     ),
+     llmProvider: _openAiProvider,
+     recommendationEngine: OutfitRecommendationEngine(
+       candidateSource:
+-          () async => _assistantWardrobe.garments
++          () async => (await _aiContextService.build()).garments
+               .map(OutfitCandidate.fromGarment)
+               .toList(growable: false),
+     ),
+   );
+   late final _dailyBriefService = DailyBriefService(
+     weatherService: widget.weatherService,
+     memoryService: _memoryService,
+     assistantService: _assistantService,
++    aiContextService: _aiContextService,
+   );
+   late final _agendaController = AgendaController(
+     service: _agendaService,
+   );
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _assistantOutfits.dispose();
+     _aiSettings.dispose();
+     _backupController.dispose();
+     _agendaController.dispose();
+     super.dispose();
+   }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+diff --git a/test/core/ai_context/wardrobe_ai_context_service_test.dart b/test/core/ai_context/wardrobe_ai_context_service_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..2f621874ee93eb80891bb4cbbab2039c39f293ad
+--- /dev/null
++++ b/test/core/ai_context/wardrobe_ai_context_service_test.dart
+@@ -0,0 +1,61 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/core/ai_context/ai_context.dart';
++import 'package:wardrobeos/core/ai_context/ai_reanalysis_policy.dart';
++import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
++import 'package:wardrobeos/models/garment.dart';
++
++Garment garment(String name) => Garment(
++  id: 'stable-id',
++  name: name,
++  category: 'Hauts',
++  sousCategorie: 'T-shirt',
++  couleurPrincipale: 'Bleu',
++  matierePrincipale: 'Coton',
++  stylesSecondaires: const ['Casual'],
++  temperatureMinimum: 16,
++  createdAt: DateTime(2026),
++  updatedAt: DateTime(2026),
++);
++
++void main() {
++  test('relit la source à chaque construction et conserve l’identifiant', () async {
++    var name = 'Avant';
++    var calls = 0;
++    final service = WardrobeAiContextService(
++      loadCurrentGarments: () async {
++        calls++;
++        return [garment(name)];
++      },
++      clock: () => DateTime.utc(2026, 8, 4),
++    );
++
++    final before = await service.build();
++    name = 'Après correction';
++    final after = await service.build();
++
++    expect(calls, 2);
++    expect(before.garments.single.name, 'Avant');
++    expect(after.garments.single.name, 'Après correction');
++    expect(after.aiGarments.single.id, 'stable-id');
++    expect(after.toMap()['wardrobeSource'], 'live_database');
++  });
++
++  test('étiquette séparément saisie, analyse et calcul', () async {
++    final context = AiGarmentContext.fromGarment(garment('T-shirt bleu'));
++
++    expect(context.fields['name']?.source, AiDataSource.user);
++    expect(context.fields['temperatureMinimum']?.source, AiDataSource.calculated);
++    expect(context.fields['subcategory']?.source, AiDataSource.user);
++  });
++
++  test('une réanalyse protège une correction postérieure', () {
++    final decision = const AiReanalysisPolicy().compare(
++      baseline: const {'color': 'Bleu', 'material': 'Coton'},
++      current: const {'color': 'Vert', 'material': 'Coton'},
++      suggested: const {'color': 'Rouge', 'material': 'Lin'},
++    );
++
++    expect(decision.protectedUserValues, {'color': 'Vert'});
++    expect(decision.applicable, {'material': 'Lin'});
++  });
++}

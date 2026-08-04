@@ -6,6 +6,7 @@ import '../../wardrobe/wardrobe_controller.dart';
 import '../memory/memory_service.dart';
 import '../memory/personalization_snapshot.dart';
 import 'assistant_context.dart';
+import '../../../core/ai_context/wardrobe_ai_context_service.dart';
 
 typedef AssistantClock = DateTime Function();
 
@@ -16,6 +17,7 @@ class AssistantContextBuilder {
   final AssistantClock _clock;
   final CalendarContextBuilder? _calendarContextBuilder;
   final MemoryService? _memoryService;
+  final WardrobeAiContextService? _aiContextService;
 
   const AssistantContextBuilder({
     required WeatherService weatherService,
@@ -24,19 +26,24 @@ class AssistantContextBuilder {
     AssistantClock clock = DateTime.now,
     CalendarContextBuilder? calendarContextBuilder,
     MemoryService? memoryService,
+    WardrobeAiContextService? aiContextService,
   }) : _weatherService = weatherService,
        _wardrobeController = wardrobeController,
        _outfitsController = outfitsController,
        _clock = clock,
        _calendarContextBuilder = calendarContextBuilder,
-       _memoryService = memoryService;
+       _memoryService = memoryService,
+       _aiContextService = aiContextService;
 
   Future<AssistantContext> build() async {
+    final wardrobeContext = await _aiContextService?.build();
     final weatherFuture = _weatherService.getCurrentWeather();
     final calendarFuture = _calendarContextBuilder?.build().then<CalendarContext?>(
       (value) => value,
     ).catchError((_) => null);
-    final personalizationFuture = _memoryService?.loadSnapshot()
+    final personalizationFuture = wardrobeContext != null
+        ? Future<PersonalizationSnapshot?>.value(wardrobeContext.personalization)
+        : _memoryService?.loadSnapshot()
         .then<PersonalizationSnapshot?>((value) => value)
         .catchError((_) => null);
     if (_wardrobeController.loading) await _wardrobeController.load();
@@ -46,8 +53,9 @@ class AssistantContextBuilder {
         .catchError((_) => null);
     final now = _clock();
 
+    final currentGarments = wardrobeContext?.garments ?? _wardrobeController.garments;
     final recentGarments =
-        _wardrobeController.garments
+        currentGarments
             .where((garment) => garment.lastWorn != null)
             .toList()
           ..sort((a, b) => b.lastWorn!.compareTo(a.lastWorn!));
@@ -69,9 +77,9 @@ class AssistantContextBuilder {
             city: weather.city,
           ),
       statistics: AssistantStatistics(
-        garmentCount: _wardrobeController.garments.length,
+        garmentCount: currentGarments.length,
         outfitCount: _outfitsController.outfits.length,
-        recordedWearCount: _wardrobeController.garments.fold(
+        recordedWearCount: currentGarments.fold(
           0,
           (total, garment) => total + garment.wearCount,
         ),
@@ -103,6 +111,7 @@ class AssistantContextBuilder {
             '${now.minute.toString().padLeft(2, '0')}',
         season: _seasonFor(now),
       ),
+      wardrobe: wardrobeContext,
     );
   }
 

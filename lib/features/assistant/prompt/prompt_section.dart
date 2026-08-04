@@ -136,9 +136,15 @@ class WardrobePromptSection implements PromptSection {
   String get title => 'GARDE-ROBE';
 
   @override
-  String build(AssistantContext context) =>
-      'Nombre de vêtements : ${context.statistics.garmentCount}\n'
-      'Nombre de tenues : ${context.statistics.outfitCount}';
+  String build(AssistantContext context) {
+    final wardrobe = context.wardrobe;
+    final header = 'Nombre de vêtements : ${context.statistics.garmentCount}\n'
+        'Nombre de tenues : ${context.statistics.outfitCount}';
+    if (wardrobe == null) return header;
+    return '$header\nSource dressing : base actuelle (${wardrobe.generatedAt.toIso8601String()})\n'
+        'Règle : la mémoire ne remplace jamais les fiches ci-dessous.\n'
+        'Fiches actuelles : ${wardrobe.aiGarments.map((item) => item.toMap()).toList()}';
+  }
 }
 
 class StatisticsPromptSection implements PromptSection {

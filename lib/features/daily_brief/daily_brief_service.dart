@@ -8,6 +8,7 @@ import '../assistant/memory/memory_service.dart';
 import '../assistant/memory/personal_goal.dart';
 import '../assistant/services/assistant_service.dart';
 import 'daily_brief_models.dart';
+import '../../core/ai_context/wardrobe_ai_context_service.dart';
 
 /// Adapts the existing intelligence, recommendation, memory and GPT services
 /// into presentation-ready cards. Widgets never calculate recommendations.
@@ -20,6 +21,7 @@ class DailyBriefService {
   final RecommendationEngine recommendationEngine;
   final WardrobeIntelligenceEngine intelligenceEngine;
   final DateTime Function() _clock;
+  final WardrobeAiContextService? aiContextService;
 
   DailyBriefService({
     required this.weatherService,
@@ -28,13 +30,15 @@ class DailyBriefService {
     this.recommendationEngine = const RecommendationEngine(),
     WardrobeIntelligenceEngine? intelligenceEngine,
     DateTime Function()? clock,
+    this.aiContextService,
   }) : intelligenceEngine = intelligenceEngine ?? WardrobeIntelligenceEngine(),
        _clock = clock ?? DateTime.now;
 
-  Future<DailyBrief> build(Iterable<Garment> wardrobe) async {
-    final garments = List<Garment>.unmodifiable(wardrobe);
+  Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
+    final liveContext = await aiContextService?.build();
+    final garments = liveContext?.garments ?? List<Garment>.unmodifiable(wardrobe);
     final weather = await _optionalWeather();
-    final memory = await memoryService.loadSnapshot();
+    final memory = liveContext?.personalization ?? await memoryService.loadSnapshot();
     final report = intelligenceEngine.analyze(garments);
     final recommendation = recommendationEngine.recommend(
       wardrobe: garments,

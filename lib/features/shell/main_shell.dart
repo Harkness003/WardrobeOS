@@ -16,9 +16,6 @@ import '../assistant/ai/openai_provider.dart';
 import '../assistant/settings/ai_settings_controller.dart';
 import '../assistant/settings/api_key_storage.dart';
 import '../assistant/tools/assistant_tool_context_builder.dart';
-import '../assistant/tools/outfit_tool.dart';
-import '../assistant/tools/statistics_tool.dart';
-import '../assistant/tools/wardrobe_tool.dart';
 import '../assistant/tools/weather_tool.dart';
 import '../assistant/recommendation/outfit_candidate.dart';
 import '../assistant/recommendation/outfit_recommendation_engine.dart';
@@ -35,6 +32,7 @@ import '../agenda/agenda_controller.dart';
 import '../agenda/agenda_screen.dart';
 import '../agenda/agenda_service.dart';
 import '../assistant/tools/agenda_tool.dart';
+import '../../core/ai_context/wardrobe_ai_context_service.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -67,10 +65,15 @@ class _MainShellState extends State<MainShell> {
     repository: DatabaseMemoryRepository(DatabaseService.instance),
   );
   late final _agendaCalendar = FakeCalendarService();
+  late final _aiContextService = WardrobeAiContextService(
+    loadCurrentGarments: DatabaseService.instance.getGarments,
+    memoryService: _memoryService,
+  );
   late final _agendaService = AgendaService(
     database: DatabaseService.instance,
     calendarService: _agendaCalendar,
     weatherService: widget.weatherService,
+    aiContextService: _aiContextService,
   );
   late final _backupController = BackupController(
     backupService: BackupService(repository: _backupRepository),
@@ -85,20 +88,18 @@ class _MainShellState extends State<MainShell> {
         service: FakeCalendarService(),
       ),
       memoryService: _memoryService,
+      aiContextService: _aiContextService,
     ),
     toolContextBuilder: AssistantToolContextBuilder(
       tools: [
         WeatherTool(weatherService: widget.weatherService),
-        WardrobeTool(controller: _assistantWardrobe),
-        OutfitTool(controller: _assistantOutfits),
-        StatisticsTool(controller: _assistantWardrobe),
         AgendaTool(service: _agendaService),
       ],
     ),
     llmProvider: _openAiProvider,
     recommendationEngine: OutfitRecommendationEngine(
       candidateSource:
-          () async => _assistantWardrobe.garments
+          () async => (await _aiContextService.build()).garments
               .map(OutfitCandidate.fromGarment)
               .toList(growable: false),
     ),
@@ -107,6 +108,7 @@ class _MainShellState extends State<MainShell> {
     weatherService: widget.weatherService,
     memoryService: _memoryService,
     assistantService: _assistantService,
+    aiContextService: _aiContextService,
   );
   late final _agendaController = AgendaController(
     service: _agendaService,

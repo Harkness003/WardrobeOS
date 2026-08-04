@@ -8,6 +8,7 @@ import '../../weather/services/weather_service.dart';
 import '../calendar/calendar_event.dart';
 import '../calendar/calendar_service.dart';
 import 'agenda_models.dart';
+import '../../core/ai_context/wardrobe_ai_context_service.dart';
 
 typedef AgendaClock = DateTime Function();
 
@@ -17,8 +18,9 @@ class AgendaService {
   final CalendarService calendarService;
   final WeatherService? weatherService;
   final AgendaClock clock;
+  final WardrobeAiContextService? aiContextService;
 
-  AgendaService({required this.database, required this.calendarService, this.weatherService,
+  AgendaService({required this.database, required this.calendarService, this.weatherService, this.aiContextService,
     this.outfitEngine = const OutfitEngine(), this.clock = DateTime.now});
 
   Future<List<PlannedOutfit>> loadPeriod(DateTime from, DateTime to) =>
@@ -70,7 +72,9 @@ class AgendaService {
   Future<PlannedOutfit?> proposeDay(DateTime date, AgendaPreferences preferences,
       {List<PlannedOutfit> previous = const []}) async {
     final outfits = await _loadOutfits();
-    final wardrobe = await database.getGarments();
+    final wardrobe = aiContextService == null
+        ? await database.getGarments()
+        : (await aiContextService!.build()).garments;
     final event = await _optionalEvent(date);
     final weather = await _optionalWeather();
     final context = RecommendationContext(

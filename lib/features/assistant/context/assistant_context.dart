@@ -1,5 +1,6 @@
 import '../../calendar/calendar_context_builder.dart';
 import '../memory/personalization_snapshot.dart';
+import '../../../core/ai_context/ai_context.dart';
 
 class AssistantContext {
   final CalendarContext? calendar;
@@ -8,6 +9,7 @@ class AssistantContext {
   final AssistantHistory history;
   final AssistantDate date;
   final PersonalizationSnapshot? personalization;
+  final WardrobeAiContext? wardrobe;
 
   const AssistantContext({
     this.calendar,
@@ -16,6 +18,7 @@ class AssistantContext {
     required this.history,
     required this.date,
     this.personalization,
+    this.wardrobe,
   });
 }
 
