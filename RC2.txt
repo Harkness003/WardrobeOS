@@ -1,0 +1,633 @@
+diff --git a/lib/core/recommendation/recommendation_engine.dart b/lib/core/recommendation/recommendation_engine.dart
+index c51137d198d40aebc131c29164abfc3f144d9146..dcbe6e36d2cc478510332040adf3316fafacbde2 100644
+--- a/lib/core/recommendation/recommendation_engine.dart
++++ b/lib/core/recommendation/recommendation_engine.dart
+@@ -1,39 +1,39 @@
+ import '../../models/garment.dart';
+ import '../../models/thermal_profile.dart';
+ import 'recommendation_context.dart';
+ import 'recommendation_result.dart';
+ import 'recommendation_rotation_policy.dart';
+ import 'recommendation_weights.dart';
+ 
+ class RecommendationEngine {
+   final RecommendationWeights weights;
+   final RecommendationRotationPolicy rotationPolicy;
+ 
+   const RecommendationEngine({
+     this.weights = const RecommendationWeights(),
+-    this.rotationPolicy = const NoRecommendationRotation(),
++    this.rotationPolicy = const WardrobeRotationPolicy(),
+   });
+ 
+   RecommendationResult recommend({
+     required Iterable<Garment> wardrobe,
+     Garment? anchor,
+     RecommendationContext context = const RecommendationContext(),
+     RecommendationPreferences preferences = const RecommendationPreferences(),
+     Iterable<GarmentRecommendationCorrection> corrections = const [],
+     int alternativeCount = 3,
+   }) {
+     assert(alternativeCount >= 0);
+     final correctionById = {
+       for (final correction in corrections) correction.garmentId: correction,
+     };
+     final ranked = wardrobe
+         .where((garment) => garment.id != anchor?.id)
+         .map(
+           (garment) => _evaluate(
+             garment,
+             anchor: anchor,
+             context: context,
+             preferences: preferences,
+             correction: correctionById[garment.id],
+             anchorCorrection:
+                 anchor == null ? null : correctionById[anchor.id],
+diff --git a/lib/core/recommendation/recommendation_rotation_policy.dart b/lib/core/recommendation/recommendation_rotation_policy.dart
+index 716c4b278a6acf0665752d0e0f5c60f78e4acd58..dc13a9f81836a4868b7578d7d3104ad0b00c650d 100644
+--- a/lib/core/recommendation/recommendation_rotation_policy.dart
++++ b/lib/core/recommendation/recommendation_rotation_policy.dart
+@@ -1,15 +1,29 @@
+ import '../../models/garment.dart';
+ import 'recommendation_context.dart';
+ 
+-/// Point d'extension pour l'historique, la fréquence et les rotations.
+-/// Aucun comportement de rotation n'est appliqué dans ce sprint.
++/// Central rotation rule used by outfit generation for both frequency and
++/// recent-wear history.
+ abstract interface class RecommendationRotationPolicy {
+   double scoreAdjustment(Garment garment, RecommendationContext context);
+ }
+ 
+ class NoRecommendationRotation implements RecommendationRotationPolicy {
+   const NoRecommendationRotation();
+ 
+   @override
+   double scoreAdjustment(Garment garment, RecommendationContext context) => 0;
+ }
++
++class WardrobeRotationPolicy implements RecommendationRotationPolicy {
++  const WardrobeRotationPolicy();
++
++  @override
++  double scoreAdjustment(Garment garment, RecommendationContext context) {
++    final frequencyPenalty = (garment.wearCount.clamp(0, 20) / 20) * .18;
++    final lastWorn = garment.lastWorn;
++    if (lastWorn == null) return .12 - frequencyPenalty;
++    final days = DateTime.now().difference(lastWorn).inDays.clamp(0, 30);
++    final recencyBonus = (days / 30) * .12;
++    return recencyBonus - frequencyPenalty;
++  }
++}
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index b41d558abd56e8a89c617211c16a3f0ba6a4144e..f1f3de43af06495d17a64f568eb72b48d7ad30ba 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -1,33 +1,33 @@
+ import 'package:path/path.dart' as p;
+ import 'package:sqflite/sqflite.dart';
+ import '../models/garment.dart';
+ import '../models/outfit.dart';
+ import '../models/outfit_item.dart';
+ import '../models/wear_history.dart';
+ import '../features/agenda/agenda_models.dart';
+-import '../core/outfit/outfit_engine.dart';
++import '../core/outfit_generation/outfit_generation_engine.dart';
+ 
+ class DatabaseService {
+   DatabaseService._();
+   static final DatabaseService instance = DatabaseService._();
+   Database? _database;
+ 
+   Future<Database> get database async => _database ??= await _open();
+ 
+   Future<Database> _open() async {
+     final dbPath = await getDatabasesPath();
+     return openDatabase(
+       p.join(dbPath, 'wardrobeos.db'),
+       version: 1,
+       onConfigure: (db) async {
+         await db.execute('PRAGMA foreign_keys = ON');
+       },
+       onCreate: (db, version) async {
+         await db.execute('''
+           CREATE TABLE garments(
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             category TEXT NOT NULL,
+             brand TEXT,
+             color TEXT,
+             material TEXT,
+@@ -238,51 +238,51 @@ class DatabaseService {
+       'CREATE INDEX IF NOT EXISTS idx_wear_history_worn_at ON wear_history(worn_at)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_outfit_items_garment ON outfit_items(garment_id)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_user_memories_kind ON user_memories(kind, status)',
+     );
+     await db.execute(
+       'CREATE INDEX IF NOT EXISTS idx_memory_revisions_memory ON user_memory_revisions(memory_id)',
+     );
+     await db.execute('CREATE INDEX IF NOT EXISTS idx_planned_outfits_date ON planned_outfits(planned_date)');
+   }
+ 
+   Future<List<PlannedOutfit>> getPlannedOutfits(DateTime from, DateTime to) async {
+     final db = await database;
+     final rows = await db.query('planned_outfits', where: 'planned_date >= ? AND planned_date < ?',
+       whereArgs: [_dateOnly(from), _dateOnly(to)], orderBy: 'planned_date');
+     final result = <PlannedOutfit>[];
+     for (final row in rows) {
+       var outfit = await getOutfitById(row['outfit_id'] as String);
+       if (outfit != null) {
+         final garments = await getGarmentsInOutfit(outfit.id);
+         final grouped = <OutfitCategory, List<Garment>>{};
+         for (final garment in garments) {
+-          final category = OutfitEngine.categoryFor(garment);
++          final category = OutfitGenerationEngine.categoryFor(garment);
+           grouped.putIfAbsent(category, () => []).add(garment);
+         }
+         outfit = outfit.copyWith(garments: grouped);
+       }
+       result.add(PlannedOutfit.fromMap(row, outfit: outfit));
+     }
+     return result;
+   }
+ 
+   Future<void> savePlannedOutfit(PlannedOutfit value) async {
+     final db = await database;
+     await db.insert('planned_outfits', value.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+   }
+ 
+   Future<void> deletePlannedOutfit(String id) async {
+     final db = await database;
+     await db.delete('planned_outfits', where: 'id = ?', whereArgs: [id]);
+   }
+ 
+   static String _dateOnly(DateTime value) =>
+       DateTime(value.year, value.month, value.day).toIso8601String();
+ 
+   Future<List<Garment>> getGarments({
+     String search = '',
+     String category = 'Tout',
+diff --git a/lib/features/outfits/outfits_controller.dart b/lib/features/outfits/outfits_controller.dart
+index a2de4ab60888c79d99e5bb550009c04194ef3fa5..63e090e34b470590839e7dee875fee5603f04a2a 100644
+--- a/lib/features/outfits/outfits_controller.dart
++++ b/lib/features/outfits/outfits_controller.dart
+@@ -1,71 +1,75 @@
+ import 'package:flutter/foundation.dart';
+ 
+ import '../../data/database_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/outfit.dart';
++import '../../core/outfit_generation/outfit_generation_engine.dart';
++
++typedef WardrobeLoader = Future<List<Garment>> Function();
+ 
+ class OutfitsController extends ChangeNotifier {
+   static const int neverWornScore = 100000;
+   final DatabaseService _database;
++  final OutfitGenerationEngine _generationEngine;
++  final WardrobeLoader _wardrobeLoader;
+ 
+-  OutfitsController({DatabaseService? database})
+-    : _database = database ?? DatabaseService.instance;
++  OutfitsController({DatabaseService? database, OutfitGenerationEngine? generationEngine,
++    WardrobeLoader? wardrobeLoader})
++    : _database = database ?? DatabaseService.instance,
++      _generationEngine = generationEngine ?? const OutfitGenerationEngine(),
++      _wardrobeLoader = wardrobeLoader ?? (() => (database ?? DatabaseService.instance).getGarments());
+ 
+   List<Outfit> outfits = [];
+   final Map<String, List<Garment>> garmentsByOutfit = {};
+   bool loading = true;
+   Object? error;
++  List<OutfitGenerationProposal> proposals = const [];
++  bool generating = false;
+   bool _disposed = false;
+ 
+-  /// Returns the business score used to rank an outfit for today's suggestions.
+-  static int suggestionScore(Outfit outfit, {DateTime? now}) {
+-    final lastWorn = outfit.lastWorn;
+-    if (lastWorn == null) return neverWornScore;
+-
+-    final todayValue = now ?? DateTime.now();
+-    final today = DateTime(todayValue.year, todayValue.month, todayValue.day);
+-    final wornDay = DateTime(lastWorn.year, lastWorn.month, lastWorn.day);
+-    return today.difference(wornDay).inDays;
++  Future<void> generate() async {
++    generating = true;
++    error = null;
++    _notifyListenersIfActive();
++    try {
++      final wardrobe = await _wardrobeLoader();
++      proposals = _generationEngine.generate(OutfitGenerationRequest(
++        wardrobe: wardrobe, proposalCount: 3,
++      )).proposals;
++    } catch (exception) {
++      error = exception;
++    } finally {
++      generating = false;
++      _notifyListenersIfActive();
++    }
+   }
+ 
+-  static List<Outfit> selectSuggestions(
+-    Iterable<Outfit> outfits, {
+-    DateTime? now,
+-  }) {
+-    final ranked = outfits.toList();
+-    ranked.sort(
+-      (first, second) => suggestionScore(
+-        second,
+-        now: now,
+-      ).compareTo(suggestionScore(first, now: now)),
+-    );
+-    return ranked.take(3).toList(growable: false);
++  Future<void> saveProposal(OutfitGenerationProposal proposal) async {
++    await create(proposal.outfit, proposal.outfit.allGarments.map((item) => item.id));
+   }
+ 
+-  List<Outfit> get suggestions => selectSuggestions(outfits);
+-
+   Future<void> load() async {
+     loading = true;
+     error = null;
+     _notifyListenersIfActive();
+     try {
+       outfits = await _database.getAllOutfits();
+       final entries = await Future.wait(
+         outfits.map(
+           (outfit) async => MapEntry(
+             outfit.id,
+             await _database.getGarmentsInOutfit(outfit.id),
+           ),
+         ),
+       );
+       garmentsByOutfit
+         ..clear()
+         ..addEntries(entries);
+     } catch (exception) {
+       error = exception;
+     } finally {
+       loading = false;
+       _notifyListenersIfActive();
+     }
+   }
+ 
+diff --git a/lib/features/outfits/outfits_screen.dart b/lib/features/outfits/outfits_screen.dart
+index 17fa21005e824a8ff0a2baccdd82314e3583b57b..aaf660333b3db96bbbb3877e1dece5b040add382 100644
+--- a/lib/features/outfits/outfits_screen.dart
++++ b/lib/features/outfits/outfits_screen.dart
+@@ -1,30 +1,31 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../core/theme/app_theme.dart';
+ import '../../models/outfit.dart';
+ import '../../widgets/garment_image.dart';
++import '../../widgets/outfit_proposal_card.dart';
+ import 'outfit_form_screen.dart';
+ import 'outfits_controller.dart';
+ 
+ class OutfitsScreen extends StatefulWidget {
+   const OutfitsScreen({super.key});
+ 
+   @override
+   State<OutfitsScreen> createState() => _OutfitsScreenState();
+ }
+ 
+ class _OutfitsScreenState extends State<OutfitsScreen> {
+   final controller = OutfitsController();
+   final Set<String> _recordingOutfitIds = {};
+ 
+   @override
+   void initState() {
+     super.initState();
+     controller.addListener(_refresh);
+     controller.load();
+   }
+ 
+   void _refresh() {
+     if (mounted) setState(() {});
+   }
+ 
+@@ -81,175 +82,114 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
+         onPressed: _open,
+         icon: const Icon(Icons.add),
+         label: const Text('Créer'),
+       ),
+       body: SafeArea(
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.start,
+           children: [
+             Padding(
+               padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+               child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                   const Text(
+                     'Mes tenues',
+                     style: TextStyle(
+                       fontSize: 30,
+                       fontWeight: FontWeight.w900,
+                       letterSpacing: -1,
+                     ),
+                   ),
+                   const SizedBox(height: 3),
+                   Text(
+                     '${controller.outfits.length} tenue${controller.outfits.length > 1 ? 's' : ''}',
+                   ),
++                  const SizedBox(height: 12),
++                  FilledButton.icon(
++                    onPressed: controller.generating ? null : controller.generate,
++                    icon: controller.generating
++                        ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
++                        : const Icon(Icons.auto_awesome),
++                    label: const Text('Générer une tenue'),
++                  ),
+                 ],
+               ),
+             ),
+             Expanded(child: _body()),
+           ],
+         ),
+       ),
+     );
+   }
+ 
+   Widget _body() {
+     if (controller.loading) {
+       return const Center(child: CircularProgressIndicator());
+     }
+     if (controller.error != null) {
+       return Center(
+         child: FilledButton.icon(
+           onPressed: controller.load,
+           icon: const Icon(Icons.refresh),
+           label: const Text('Réessayer'),
+         ),
+       );
+     }
+-    if (controller.outfits.isEmpty) {
+-      return const Center(
+-        child: Padding(
+-          padding: EdgeInsets.all(34),
+-          child: Column(
+-            mainAxisSize: MainAxisSize.min,
+-            children: [
+-              Icon(Icons.style_outlined, size: 64, color: AppTheme.gold),
+-              SizedBox(height: 16),
+-              Text(
+-                'Aucune tenue enregistrée',
+-                style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
+-              ),
+-              SizedBox(height: 7),
+-              Text(
+-                'Regroupe les pièces de ton dressing pour créer une tenue.',
+-                textAlign: TextAlign.center,
+-              ),
+-            ],
+-          ),
+-        ),
+-      );
+-    }
+     return RefreshIndicator(
+       onRefresh: controller.load,
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 0, 18, 100),
+         children: [
+-          const Text(
+-            'Suggestions du jour',
+-            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
+-          ),
+-          const SizedBox(height: 8),
+-          ...controller.suggestions.map(_suggestionCard),
+-          const SizedBox(height: 14),
++          if (controller.proposals.isNotEmpty) ...[
++            const Text('Propositions calculées',
++              style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
++            const SizedBox(height: 8),
++            ...controller.proposals.map((proposal) => OutfitProposalCard(
++              proposal: proposal,
++              onSave: () async {
++                await controller.saveProposal(proposal);
++                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
++                  const SnackBar(content: Text('Tenue enregistrée.')));
++              },
++            )),
++            const SizedBox(height: 14),
++          ],
+           const Text(
+             'Toutes les tenues',
+             style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
+           ),
+           const SizedBox(height: 8),
+-          ...controller.outfits.map(_outfitCard),
++          if (controller.outfits.isEmpty)
++            const Padding(padding: EdgeInsets.symmetric(vertical: 32), child: Center(
++              child: Text('Aucune tenue enregistrée. Générez votre première proposition.')))
++          else ...controller.outfits.map(_outfitCard),
+         ],
+       ),
+     );
+   }
+ 
+-  Widget _suggestionCard(Outfit outfit) {
+-    final garments = controller.garmentsByOutfit[outfit.id] ?? [];
+-    final recording = _recordingOutfitIds.contains(outfit.id);
+-    final lastWornLabel =
+-        outfit.lastWorn == null
+-            ? '🔥 Jamais portée'
+-            : 'Portée il y a ${OutfitsController.suggestionScore(outfit)} jours';
+-    return Card(
+-      clipBehavior: Clip.antiAlias,
+-      margin: const EdgeInsets.only(bottom: 10),
+-      child: InkWell(
+-        onTap: () => _open(outfit),
+-        child: Padding(
+-          padding: const EdgeInsets.all(14),
+-          child: Row(
+-            children: [
+-              _ThumbnailGrid(paths: garments.map((g) => g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path).toList()),
+-              const SizedBox(width: 14),
+-              Expanded(
+-                child: Column(
+-                  crossAxisAlignment: CrossAxisAlignment.start,
+-                  children: [
+-                    Text(
+-                      outfit.name,
+-                      style: const TextStyle(
+-                        fontSize: 18,
+-                        fontWeight: FontWeight.w900,
+-                      ),
+-                    ),
+-                    const SizedBox(height: 5),
+-                    Text(
+-                      '${garments.length} vêtement${garments.length > 1 ? 's' : ''}',
+-                    ),
+-                    const SizedBox(height: 3),
+-                    Text(lastWornLabel),
+-                  ],
+-                ),
+-              ),
+-              const SizedBox(width: 8),
+-              FilledButton(
+-                onPressed: recording ? null : () => _recordWear(outfit),
+-                child:
+-                    recording
+-                        ? const SizedBox.square(
+-                          dimension: 18,
+-                          child: CircularProgressIndicator(strokeWidth: 2),
+-                        )
+-                        : const Text('Porter'),
+-              ),
+-            ],
+-          ),
+-        ),
+-      ),
+-    );
+-  }
+-
+   Widget _outfitCard(Outfit outfit) {
+     final garments = controller.garmentsByOutfit[outfit.id] ?? [];
+     return Card(
+       clipBehavior: Clip.antiAlias,
+       margin: const EdgeInsets.only(bottom: 10),
+       child: InkWell(
+         onTap: () => _open(outfit),
+         child: Padding(
+           padding: const EdgeInsets.all(14),
+           child: Row(
+             children: [
+               _ThumbnailGrid(paths: garments.map((g) => g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path).toList()),
+               const SizedBox(width: 14),
+               Expanded(
+                 child: Column(
+                   crossAxisAlignment: CrossAxisAlignment.start,
+                   children: [
+                     Row(
+                       children: [
+                         Expanded(
+                           child: Text(
+                             outfit.name,
+                             style: const TextStyle(
+                               fontSize: 18,
+                               fontWeight: FontWeight.w900,
+diff --git a/lib/widgets/outfit_proposal_card.dart b/lib/widgets/outfit_proposal_card.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..658270efcf4abf60f605ce7850c3ac23901e2063
+--- /dev/null
++++ b/lib/widgets/outfit_proposal_card.dart
+@@ -0,0 +1,52 @@
++import 'package:flutter/material.dart';
++
++import '../core/outfit_generation/outfit_generation_engine.dart';
++import 'garment_image.dart';
++
++/// Canonical presentation of a generated outfit, shared by every feature.
++class OutfitProposalCard extends StatelessWidget {
++  final OutfitGenerationProposal proposal;
++  final VoidCallback? onSave;
++  final VoidCallback? onSelect;
++
++  const OutfitProposalCard({super.key, required this.proposal, this.onSave, this.onSelect});
++
++  @override
++  Widget build(BuildContext context) {
++    final garments = proposal.outfit.allGarments;
++    return Card(
++      child: Padding(
++        padding: const EdgeInsets.all(14),
++        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++          SizedBox(height: 88, child: ListView.separated(
++            scrollDirection: Axis.horizontal,
++            itemCount: garments.length,
++            separatorBuilder: (_, __) => const SizedBox(width: 8),
++            itemBuilder: (_, index) => SizedBox(width: 88, child: GarmentImage(
++              imagePath: garments[index].effectivePhotos.firstOrNull?.path,
++              borderRadius: BorderRadius.circular(8),
++            )),
++          )),
++          const SizedBox(height: 10),
++          Row(children: [
++            Expanded(child: Text(proposal.outfit.name,
++              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
++            Text('${(proposal.score * 100).round()} %'),
++          ]),
++          const SizedBox(height: 6),
++          Text(garments.map((item) => item.name).join(' • ')),
++          const SizedBox(height: 6),
++          ...proposal.reasons.take(3).map((reason) => Text('• $reason')),
++          if (onSave != null || onSelect != null) ...[
++            const SizedBox(height: 10),
++            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
++              if (onSelect != null) TextButton(onPressed: onSelect, child: const Text('Choisir')),
++              if (onSave != null) FilledButton.icon(onPressed: onSave,
++                icon: const Icon(Icons.bookmark_add_outlined), child: const Text('Enregistrer')),
++            ]),
++          ],
++        ]),
++      ),
++    );
++  }
++}
+diff --git a/test/features/outfits/outfits_controller_test.dart b/test/features/outfits/outfits_controller_test.dart
+index 7ca359fdc9e007e8b4892078d222188e9f3dcbc0..29284f98c75038ae7b4069c36f4d1d5e1ac667f0 100644
+--- a/test/features/outfits/outfits_controller_test.dart
++++ b/test/features/outfits/outfits_controller_test.dart
+@@ -1,43 +1,22 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/outfits/outfits_controller.dart';
+-import 'package:wardrobeos/models/outfit.dart';
++import 'package:wardrobeos/models/garment.dart';
+ 
+ void main() {
+-  final now = DateTime(2026, 7, 18, 15);
+-
+-  Outfit outfit(String id, {DateTime? lastWorn}) => Outfit(
++  Garment garment(String id) => Garment(
+     id: id,
+-    name: id,
++    name: id, category: 'Hauts',
+     createdAt: DateTime(2026),
+     updatedAt: DateTime(2026),
+-    lastWorn: lastWorn,
+   );
+ 
+-  test('an outfit that has never been worn scores 100000', () {
+-    expect(
+-      OutfitsController.suggestionScore(outfit('new'), now: now),
+-      OutfitsController.neverWornScore,
+-    );
+-  });
+-
+-  test('score is the number of calendar days since the last wear', () {
+-    expect(
+-      OutfitsController.suggestionScore(
+-        outfit('worn', lastWorn: DateTime(2026, 7, 8, 23)),
+-        now: now,
+-      ),
+-      10,
+-    );
+-  });
+-
+-  test('suggestions contain the three highest scores in descending order', () {
+-    final suggestions = OutfitsController.selectSuggestions([
+-      outfit('yesterday', lastWorn: DateTime(2026, 7, 17)),
+-      outfit('never'),
+-      outfit('month', lastWorn: DateTime(2026, 6, 18)),
+-      outfit('week', lastWorn: DateTime(2026, 7, 11)),
+-    ], now: now);
+-
+-    expect(suggestions.map((item) => item.id), ['never', 'month', 'week']);
++  test('l onglet Tenues calcule jusqu à trois propositions sans tenue sauvegardée', () async {
++    final controller = OutfitsController(wardrobeLoader: () async => [
++      garment('a'), garment('b'), garment('c'), garment('d'),
++    ]);
++    await controller.generate();
++    expect(controller.proposals, hasLength(3));
++    expect(controller.proposals.map((item) => item.outfit.allGarments.single.id).toSet(), hasLength(3));
++    controller.dispose();
+   });
+ }

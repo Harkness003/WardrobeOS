@@ -3,46 +3,50 @@ import 'package:flutter/foundation.dart';
 import '../../data/database_service.dart';
 import '../../models/garment.dart';
 import '../../models/outfit.dart';
+import '../../core/outfit_generation/outfit_generation_engine.dart';
+
+typedef WardrobeLoader = Future<List<Garment>> Function();
 
 class OutfitsController extends ChangeNotifier {
   static const int neverWornScore = 100000;
   final DatabaseService _database;
+  final OutfitGenerationEngine _generationEngine;
+  final WardrobeLoader _wardrobeLoader;
 
-  OutfitsController({DatabaseService? database})
-    : _database = database ?? DatabaseService.instance;
+  OutfitsController({DatabaseService? database, OutfitGenerationEngine? generationEngine,
+    WardrobeLoader? wardrobeLoader})
+    : _database = database ?? DatabaseService.instance,
+      _generationEngine = generationEngine ?? const OutfitGenerationEngine(),
+      _wardrobeLoader = wardrobeLoader ?? (() => (database ?? DatabaseService.instance).getGarments());
 
   List<Outfit> outfits = [];
   final Map<String, List<Garment>> garmentsByOutfit = {};
   bool loading = true;
   Object? error;
+  List<OutfitGenerationProposal> proposals = const [];
+  bool generating = false;
   bool _disposed = false;
 
-  /// Returns the business score used to rank an outfit for today's suggestions.
-  static int suggestionScore(Outfit outfit, {DateTime? now}) {
-    final lastWorn = outfit.lastWorn;
-    if (lastWorn == null) return neverWornScore;
-
-    final todayValue = now ?? DateTime.now();
-    final today = DateTime(todayValue.year, todayValue.month, todayValue.day);
-    final wornDay = DateTime(lastWorn.year, lastWorn.month, lastWorn.day);
-    return today.difference(wornDay).inDays;
+  Future<void> generate() async {
+    generating = true;
+    error = null;
+    _notifyListenersIfActive();
+    try {
+      final wardrobe = await _wardrobeLoader();
+      proposals = _generationEngine.generate(OutfitGenerationRequest(
+        wardrobe: wardrobe, proposalCount: 3,
+      )).proposals;
+    } catch (exception) {
+      error = exception;
+    } finally {
+      generating = false;
+      _notifyListenersIfActive();
+    }
   }
 
-  static List<Outfit> selectSuggestions(
-    Iterable<Outfit> outfits, {
-    DateTime? now,
-  }) {
-    final ranked = outfits.toList();
-    ranked.sort(
-      (first, second) => suggestionScore(
-        second,
-        now: now,
-      ).compareTo(suggestionScore(first, now: now)),
-    );
-    return ranked.take(3).toList(growable: false);
+  Future<void> saveProposal(OutfitGenerationProposal proposal) async {
+    await create(proposal.outfit, proposal.outfit.allGarments.map((item) => item.id));
   }
-
-  List<Outfit> get suggestions => selectSuggestions(outfits);
 
   Future<void> load() async {
     loading = true;

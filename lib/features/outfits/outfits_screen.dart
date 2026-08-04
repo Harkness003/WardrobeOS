@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/outfit.dart';
 import '../../widgets/garment_image.dart';
+import '../../widgets/outfit_proposal_card.dart';
 import 'outfit_form_screen.dart';
 import 'outfits_controller.dart';
 
@@ -103,6 +104,14 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
                   Text(
                     '${controller.outfits.length} tenue${controller.outfits.length > 1 ? 's' : ''}',
                   ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: controller.generating ? null : controller.generate,
+                    icon: controller.generating
+                        ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.auto_awesome),
+                    label: const Text('Générer une tenue'),
+                  ),
                 ],
               ),
             ),
@@ -126,104 +135,35 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
         ),
       );
     }
-    if (controller.outfits.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(34),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.style_outlined, size: 64, color: AppTheme.gold),
-              SizedBox(height: 16),
-              Text(
-                'Aucune tenue enregistrée',
-                style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
-              ),
-              SizedBox(height: 7),
-              Text(
-                'Regroupe les pièces de ton dressing pour créer une tenue.',
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
     return RefreshIndicator(
       onRefresh: controller.load,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 0, 18, 100),
         children: [
-          const Text(
-            'Suggestions du jour',
-            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 8),
-          ...controller.suggestions.map(_suggestionCard),
-          const SizedBox(height: 14),
+          if (controller.proposals.isNotEmpty) ...[
+            const Text('Propositions calculées',
+              style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            ...controller.proposals.map((proposal) => OutfitProposalCard(
+              proposal: proposal,
+              onSave: () async {
+                await controller.saveProposal(proposal);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Tenue enregistrée.')));
+              },
+            )),
+            const SizedBox(height: 14),
+          ],
           const Text(
             'Toutes les tenues',
             style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 8),
-          ...controller.outfits.map(_outfitCard),
+          if (controller.outfits.isEmpty)
+            const Padding(padding: EdgeInsets.symmetric(vertical: 32), child: Center(
+              child: Text('Aucune tenue enregistrée. Générez votre première proposition.')))
+          else ...controller.outfits.map(_outfitCard),
         ],
-      ),
-    );
-  }
-
-  Widget _suggestionCard(Outfit outfit) {
-    final garments = controller.garmentsByOutfit[outfit.id] ?? [];
-    final recording = _recordingOutfitIds.contains(outfit.id);
-    final lastWornLabel =
-        outfit.lastWorn == null
-            ? '🔥 Jamais portée'
-            : 'Portée il y a ${OutfitsController.suggestionScore(outfit)} jours';
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      margin: const EdgeInsets.only(bottom: 10),
-      child: InkWell(
-        onTap: () => _open(outfit),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              _ThumbnailGrid(paths: garments.map((g) => g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path).toList()),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      outfit.name,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      '${garments.length} vêtement${garments.length > 1 ? 's' : ''}',
-                    ),
-                    const SizedBox(height: 3),
-                    Text(lastWornLabel),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: recording ? null : () => _recordWear(outfit),
-                child:
-                    recording
-                        ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                        : const Text('Porter'),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

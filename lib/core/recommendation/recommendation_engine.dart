@@ -11,7 +11,7 @@ class RecommendationEngine {
 
   const RecommendationEngine({
     this.weights = const RecommendationWeights(),
-    this.rotationPolicy = const NoRecommendationRotation(),
+    this.rotationPolicy = const WardrobeRotationPolicy(),
   });
 
   RecommendationResult recommend({

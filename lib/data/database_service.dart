@@ -5,7 +5,7 @@ import '../models/outfit.dart';
 import '../models/outfit_item.dart';
 import '../models/wear_history.dart';
 import '../features/agenda/agenda_models.dart';
-import '../core/outfit/outfit_engine.dart';
+import '../core/outfit_generation/outfit_generation_engine.dart';
 
 class DatabaseService {
   DatabaseService._();
@@ -260,7 +260,7 @@ class DatabaseService {
         final garments = await getGarmentsInOutfit(outfit.id);
         final grouped = <OutfitCategory, List<Garment>>{};
         for (final garment in garments) {
-          final category = OutfitEngine.categoryFor(garment);
+          final category = OutfitGenerationEngine.categoryFor(garment);
           grouped.putIfAbsent(category, () => []).add(garment);
         }
         outfit = outfit.copyWith(garments: grouped);
