@@ -8,6 +8,7 @@ import '../../models/garment.dart';
 import '../../models/garment_photo.dart';
 import '../../models/garment_normalizer.dart';
 import '../../models/thermal_profile_calculator.dart';
+import '../../models/style_analysis.dart';
 import '../../widgets/garment_image.dart';
 import 'wardrobe_controller.dart';
 
@@ -48,7 +49,6 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     'Autre': ['Autre'],
   };
   static const materials = ['Coton', 'Laine', 'Mérinos', 'Cachemire', 'Lin', 'Polyester', 'Viscose', 'Denim', 'Cuir', 'Daim', 'Nylon', 'Soie', 'Mélange', 'Autre...'];
-  static const styles = ['Casual', 'Smart Casual', 'Business', 'Business Casual', 'Chic', 'Streetwear', 'Workwear', 'Sport', 'Outdoor', 'Vintage', 'Minimaliste', 'Preppy', 'Classique', 'Élégant'];
   static const uses = ['Quotidien', 'Travail', 'Soirée', 'Sport', 'Voyage', 'Randonnée', 'Maison', 'Vacances', 'Autre...'];
   static const seasons = Garment.availableSeasons;
 
@@ -82,7 +82,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       g.effectiveStyleAnalysis.register,
       ...g.effectiveStyleAnalysis.secondaryStyles,
     };
-    _styleOptions = {...styles, ..._styles}.toList(growable: false);
+    _styleOptions = {...StyleTaxonomy.entries.keys, ..._styles}.toList(growable: false);
     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
     _rain = g?.compatiblePluie;
     _heat = g?.compatibleChaleur;
@@ -133,7 +133,9 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
           const SizedBox(height: 8),
           const Text('Retrouvez ici les repères utilisés dans les fiches. Vous pouvez toujours choisir « Autre… » pour saisir votre propre valeur.'),
           const SizedBox(height: 16),
-          _HelpSection(title: 'Styles', icon: Icons.style_outlined, values: styles, description: 'L’esthétique générale de la pièce, par exemple Casual, Business ou Streetwear.'),
+          _HelpSection(title: 'Styles', icon: Icons.style_outlined,
+            values: StyleTaxonomy.entries.values.map((style) => style.name).toList(),
+            description: 'Les styles sont définis par la bibliothèque commune.'),
           _HelpSection(title: 'Matières', icon: Icons.texture_outlined, values: materials.where((value) => value != 'Autre...').toList(), description: 'La fibre ou le textile principal. Consultez l’étiquette de composition en cas de doute.'),
           _HelpSection(title: 'Formalités', icon: Icons.business_center_outlined, values: const ['Casual', 'Smart Casual', 'Business', 'Formel', 'Sport'], description: 'Le niveau de tenue attendu, du plus décontracté au plus habillé.'),
           _HelpSection(title: 'Occasions', icon: Icons.event_available_outlined, values: uses.where((value) => value != 'Autre...').toList(), description: 'Les contextes dans lesquels vous porteriez naturellement cette pièce.'),

@@ -37,6 +37,8 @@ import '../scanner/ai/openai_garment_vision_analyzer.dart';
 import '../wardrobe/reanalysis/database_garment_reanalysis_repository.dart';
 import '../wardrobe/reanalysis/garment_reanalysis_models.dart';
 import '../wardrobe/reanalysis/garment_reanalysis_service.dart';
+import '../styles/style_repository.dart';
+import '../styles/style_enrichment_service.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -60,6 +62,8 @@ class _MainShellState extends State<MainShell> {
   late final _assistantOutfits = OutfitsController();
   late final _apiKeyStorage = ApiKeyStorage();
   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+  late final _styleCatalog = StyleCatalog();
+  late final _styleEnrichment = StyleEnrichmentService(_openAiProvider);
   late final _aiSettings = AiSettingsController(
     storage: _apiKeyStorage,
     provider: _openAiProvider,
@@ -180,6 +184,8 @@ class _MainShellState extends State<MainShell> {
         locationService: widget.locationService,
         aiSettings: _aiSettings,
         backupController: _backupController,
+        styleRepository: _styleCatalog,
+        styleEnrichment: _styleEnrichment,
       ),
     ];
 

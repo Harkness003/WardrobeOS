@@ -4,18 +4,25 @@ import '../assistant/settings/ai_settings_controller.dart';
 import '../backup/backup_controller.dart';
 import '../../weather/location/location_service.dart';
 import '../../weather/location/unified_location_service.dart';
+import '../styles/style_library_screen.dart';
+import '../styles/style_repository.dart';
+import '../styles/style_enrichment_service.dart';
 
 class ProfileScreen extends StatelessWidget {
   final AppSettings settings;
   final AiSettingsController aiSettings;
   final BackupController backupController;
   final UnifiedLocationService locationService;
+  final StyleRepository styleRepository;
+  final StyleEnrichmentService styleEnrichment;
   const ProfileScreen({
     super.key,
     required this.settings,
     required this.aiSettings,
     required this.backupController,
     required this.locationService,
+    required this.styleRepository,
+    required this.styleEnrichment,
   });
 
   @override
@@ -64,7 +71,10 @@ class ProfileScreen extends StatelessWidget {
             icon: Icons.accessibility_new,
             title: 'Morphologie & proportions',
           ),
-          _Tile(icon: Icons.style_outlined, title: 'Préférences de style'),
+          _Tile(icon: Icons.style_outlined, title: 'Bibliothèque des styles',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) =>
+              StyleLibraryScreen(repository: styleRepository,
+                enrichment: aiSettings.configured ? styleEnrichment : null)))),
           _Tile(icon: Icons.notifications_none, title: 'Notifications'),
           Card(
             margin: const EdgeInsets.only(bottom: 10),
@@ -411,13 +421,15 @@ class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
 class _Tile extends StatelessWidget {
   final IconData icon;
   final String title;
-  const _Tile({required this.icon, required this.title});
+  final VoidCallback? onTap;
+  const _Tile({required this.icon, required this.title, this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
+        onTap: onTap,
         leading: Icon(icon),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
         trailing: const Icon(Icons.chevron_right),

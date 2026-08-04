@@ -1,6 +1,7 @@
 import 'assistant_intent.dart';
 import 'intent_result.dart';
 import 'intent_type.dart';
+import '../../../models/style_analysis.dart';
 
 class IntentParser implements AssistantIntent {
   const IntentParser();
@@ -125,10 +126,11 @@ class IntentParser implements AssistantIntent {
   }
 
   void _extractStyle(String text, Map<String, String> parameters) {
-    const styles = ['casual', 'chic', 'elegant', 'sportif', 'minimaliste'];
-    for (final style in styles) {
-      if (text.contains(style)) {
-        parameters['style'] = style == 'elegant' ? 'élégant' : style;
+    for (final style in StyleTaxonomy.entries.values) {
+      final aliases = [style.id.replaceAll('_', ' '), style.name, ...style.synonyms]
+          .map(_normalize);
+      if (aliases.any(text.contains)) {
+        parameters['style'] = style.id;
         return;
       }
     }

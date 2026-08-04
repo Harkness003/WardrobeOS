@@ -11,6 +11,8 @@ import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
 import 'reanalysis/garment_reanalysis_models.dart';
 import 'reanalysis/garment_reanalysis_service.dart';
+import '../styles/style_detail_screen.dart';
+import '../styles/style_repository.dart';
 
 String? _cleanDisplayText(String? value) {
   final trimmed = value?.trim();
@@ -135,6 +137,7 @@ class GarmentDetailScreen extends StatefulWidget {
 }
 
 class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+  final StyleRepository _styles = StyleCatalog();
   late Garment garment;
   bool _recordingWear = false;
   late Future<List<WearHistory>> _wearHistoryFuture;
@@ -142,6 +145,45 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   late Future<List<Outfit>> _outfitsFuture;
 
   bool _reanalyzing = false;
+
+  Future<void> _styleHelp(String id) async {
+    final style = await _styles.find(id);
+    if (!mounted) return;
+    if (style == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ce style n’est pas encore présent dans la bibliothèque.')));
+      return;
+    }
+    await showModalBottomSheet<void>(context: context, showDragHandle: true,
+      builder: (sheetContext) => Padding(padding: const EdgeInsets.all(20), child: Column(
+        mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(style.name, style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
+          Text(style.definition), if (style.examples.isNotEmpty) ...[const SizedBox(height: 12), Text('Exemples : ${style.examples.take(3).join(', ')}')],
+          if (style.characteristics.isNotEmpty) ...[const SizedBox(height: 8), Text('Caractéristiques : ${style.characteristics.take(3).join(', ')}')],
+          const SizedBox(height: 12), FilledButton(onPressed: () { Navigator.pop(sheetContext); Navigator.push(context,
+            MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: _styles))); }, child: const Text('Voir la fiche complète')),
+        ])));
+  }
+
+  Future<void> _editStyleAnalysis() async {
+    final all = await _styles.all(); if (!mounted) return;
+    var primary = garment.effectiveStyleAnalysis.register;
+    final secondary = {...garment.effectiveStyleAnalysis.secondaryStyles};
+    final characteristics = TextEditingController(text: garment.effectiveStyleAnalysis.characteristics.join(', '));
+    final saved = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (_, update) => AlertDialog(
+      title: const Text('Corriger l’analyse de style'), content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(children: [
+        DropdownButtonFormField<String>(value: all.any((e) => e.id == primary) ? primary : null,
+          decoration: const InputDecoration(labelText: 'Style principal'), items: all.map((e) => DropdownMenuItem(value: e.id, child: Text(e.name))).toList(), onChanged: (v) => update(() => primary = v ?? primary)),
+        const SizedBox(height: 14), Align(alignment: Alignment.centerLeft, child: Text('Styles secondaires', style: Theme.of(context).textTheme.titleSmall)),
+        ...all.where((e) => e.id != primary).map((e) => CheckboxListTile(dense: true, value: secondary.contains(e.id), title: Text(e.name), onChanged: (v) => update(() { if (v == true) secondary.add(e.id); else secondary.remove(e.id); }))),
+        TextField(controller: characteristics, decoration: const InputDecoration(labelText: 'Caractéristiques (séparées par des virgules)')),
+      ]))), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Enregistrer'))])));
+    if (saved != true) return;
+    final corrected = garment.effectiveStyleAnalysis.withUserCorrections(register: primary,
+      secondaryStyles: secondary.toList(), characteristics: characteristics.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList());
+    await widget.controller.save(garment.copyWith(styleAnalysis: corrected, updatedAt: DateTime.now()), isNew: false);
+    _refreshGarment();
+  }
 
   Future<void> _reanalyze() async {
     if (_reanalyzing) return;
@@ -476,7 +518,6 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
               garment.color,
               garment.material,
               ...garment.effectiveSeasons,
-              garment.effectiveStyleAnalysis.register,
               garment.occasion,
             ]
             .whereType<String>()
@@ -591,6 +632,18 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
                       .toList(),
             ),
           ],
+          const SizedBox(height: 18),
+          Row(children: [const Expanded(child: _SectionTitle('Analyse de style')),
+            IconButton(tooltip: 'Corriger les styles', onPressed: _editStyleAnalysis, icon: const Icon(Icons.edit_outlined))]),
+          const SizedBox(height: 8),
+          FutureBuilder<List<LibraryStyle?>>(future: Future.wait([
+            _styles.find(garment.effectiveStyleAnalysis.register),
+            ...garment.effectiveStyleAnalysis.secondaryStyles.map(_styles.find),
+          ]), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final style in snapshot.data?.whereType<LibraryStyle>() ?? const <LibraryStyle>[])
+              GestureDetector(onLongPress: () => _styleHelp(style.id), child: ActionChip(
+                avatar: const Icon(Icons.info_outline, size: 18), label: Text(style.name), onPressed: () => _styleHelp(style.id))),
+          ])),
           _AiGarmentDetails(garment: garment),
           const SizedBox(height: 26),
           const _SectionTitle('Utilisé dans'),
