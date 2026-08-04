@@ -6,9 +6,11 @@ import '../scanner/scanner_screen.dart';
 import 'garment_detail_screen.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
+import 'ai_reanalysis_controller.dart';
 
 class WardrobeScreen extends StatefulWidget {
-  const WardrobeScreen({super.key});
+  final AiReanalysisController reanalysisController;
+  const WardrobeScreen({super.key, required this.reanalysisController});
 
   @override
   State<WardrobeScreen> createState() => _WardrobeScreenState();
@@ -126,7 +128,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       MaterialPageRoute(
         builder:
             (_) =>
-                GarmentDetailScreen(controller: controller, garment: garment),
+                GarmentDetailScreen(controller: controller, garment: garment, reanalysisController: widget.reanalysisController),
       ),
     );
   }

@@ -34,6 +34,8 @@ import '../agenda/agenda_service.dart';
 import '../assistant/tools/agenda_tool.dart';
 import '../../core/ai_context/wardrobe_ai_context_service.dart';
 import '../../weather/location/unified_location_service.dart';
+import '../scanner/ai/openai_garment_vision_analyzer.dart';
+import '../wardrobe/ai_reanalysis_controller.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -61,6 +63,11 @@ class _MainShellState extends State<MainShell> {
     storage: _apiKeyStorage,
     provider: _openAiProvider,
   )..load();
+  late final _reanalysisAnalyzer = OpenAiGarmentVisionAnalyzer(apiKeyStorage: _apiKeyStorage);
+  late final _reanalysisController = AiReanalysisController(
+    database: DatabaseService.instance,
+    analyzer: _reanalysisAnalyzer,
+  );
   late final _backupRepository = DatabaseBackupRepository(
     DatabaseService.instance,
   );
@@ -124,6 +131,8 @@ class _MainShellState extends State<MainShell> {
     _aiSettings.dispose();
     _backupController.dispose();
     _agendaController.dispose();
+    _reanalysisAnalyzer.close();
+    _reanalysisController.dispose();
     super.dispose();
   }
 
@@ -151,7 +160,7 @@ class _MainShellState extends State<MainShell> {
           }
         },
       ),
-      const WardrobeScreen(),
+      WardrobeScreen(reanalysisController: _reanalysisController),
       const OutfitsScreen(),
       AgendaScreen(controller: _agendaController, outfitsController: _assistantOutfits),
       AssistantScreen(service: _assistantService),
@@ -161,6 +170,7 @@ class _MainShellState extends State<MainShell> {
         locationService: widget.locationService,
         aiSettings: _aiSettings,
         backupController: _backupController,
+        reanalysisController: _reanalysisController,
       ),
     ];
 

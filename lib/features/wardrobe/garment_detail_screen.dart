@@ -9,6 +9,7 @@ import '../outfits/outfit_form_screen.dart';
 import '../outfits/outfits_controller.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
+import 'ai_reanalysis_controller.dart';
 
 String? _cleanDisplayText(String? value) {
   final trimmed = value?.trim();
@@ -31,17 +32,108 @@ List<String> _cleanDisplayList(Iterable<String>? values) =>
         .toSet()
         .toList(growable: false);
 
+String _stepLabel(AiReanalysisStep step) => switch (step) {
+  AiReanalysisStep.preparing => 'Préparation…',
+  AiReanalysisStep.analyzing => 'Analyse…',
+  AiReanalysisStep.comparing => 'Comparaison…',
+  AiReanalysisStep.completed => 'Terminé',
+  AiReanalysisStep.idle => '',
+};
+
+String _fieldLabel(String field) => const {
+  'name': 'Nom', 'category': 'Catégorie', 'color': 'Couleur',
+  'material': 'Matière', 'season': 'Saison', 'brand': 'Marque',
+  'composition': 'Composition', 'style': 'Style',
+}[field] ?? field;
+
+class _AiComparisonDialog extends StatefulWidget {
+  final AiReanalysisPreview preview;
+  const _AiComparisonDialog({required this.preview});
+
+  @override
+  State<_AiComparisonDialog> createState() => _AiComparisonDialogState();
+}
+
+class _AiComparisonDialogState extends State<_AiComparisonDialog> {
+  final Set<String> accepted = {};
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Comparer les modifications'),
+    content: SizedBox(
+      width: 560,
+      child: widget.preview.differences.isEmpty
+          ? const Text('L’IA ne propose aucune modification.')
+          : ListView(
+              shrinkWrap: true,
+              children: [
+                if (widget.preview.differences.any((item) => item.userConflict))
+                  const Card(
+                    color: Color(0xFFFFF3CD),
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Text('⚠️ Conflit utilisateur : ces valeurs ont été corrigées manuellement et restent conservées par défaut.'),
+                    ),
+                  ),
+                for (final difference in widget.preview.differences)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_fieldLabel(difference.field), style: const TextStyle(fontWeight: FontWeight.w900)),
+                          if (difference.userConflict) const Text('Conflit avec une modification utilisateur', style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold)),
+                          RadioListTile<bool>(
+                            value: false,
+                            groupValue: accepted.contains(difference.field),
+                            onChanged: (_) => setState(() => accepted.remove(difference.field)),
+                            title: const Text('Conserver ma valeur'),
+                            subtitle: Text('${difference.currentValue ?? '—'}'),
+                          ),
+                          RadioListTile<bool>(
+                            value: true,
+                            groupValue: accepted.contains(difference.field),
+                            onChanged: (_) => setState(() => accepted.add(difference.field)),
+                            title: const Text('Accepter la proposition IA'),
+                            subtitle: Text('${difference.suggestedValue ?? '—'}'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+    ),
+    actions: [
+      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+      TextButton(onPressed: () => setState(() => accepted.clear()), child: const Text('Conserver toutes mes modifications')),
+      TextButton(
+        onPressed: () => setState(() {
+          accepted
+            ..clear()
+            ..addAll(widget.preview.differences.where((item) => !item.userConflict).map((item) => item.field));
+        }),
+        child: const Text('Accepter tout sans conflit'),
+      ),
+      FilledButton(onPressed: () => Navigator.pop(context, accepted), child: const Text('Appliquer')),
+    ],
+  );
+}
+
 String? _firstDisplayText(String? preferred, String? fallback) =>
     _cleanDisplayText(preferred) ?? _cleanDisplayText(fallback);
 
 class GarmentDetailScreen extends StatefulWidget {
   final WardrobeController controller;
   final Garment garment;
+  final AiReanalysisController reanalysisController;
 
   const GarmentDetailScreen({
     super.key,
     required this.controller,
     required this.garment,
+    required this.reanalysisController,
   });
 
   @override
@@ -54,6 +146,44 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   late Future<List<WearHistory>> _wearHistoryFuture;
   late Future<WearHistory?> _firstWearFuture;
   late Future<List<Outfit>> _outfitsFuture;
+
+  Future<void> _reanalyze() async {
+    if (widget.reanalysisController.busy) return;
+    try {
+      final preview = await widget.reanalysisController.prepare(garment);
+      if (!mounted) {
+        widget.reanalysisController.cancel();
+        return;
+      }
+      final accepted = await showDialog<Set<String>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _AiComparisonDialog(preview: preview),
+      );
+      if (accepted == null) {
+        widget.reanalysisController.cancel();
+        if (mounted) _showReanalysisMessage('Réanalyse annulée. Aucune donnée n’a été modifiée.');
+        return;
+      }
+      await widget.reanalysisController.apply(preview, accepted);
+      await widget.controller.load();
+      _refreshGarment();
+      if (mounted) _showReanalysisMessage('Réanalyse terminée. La fiche est à jour.');
+    } catch (error) {
+      if (mounted) _showReanalysisMessage(error is Exception ? _friendlyReanalysisError(error) : 'Analyse impossible. Tes données sont intactes.');
+    }
+  }
+
+  String _friendlyReanalysisError(Exception error) {
+    final text = error.toString();
+    if (text.contains('photo') || text.contains('Photo')) return 'Photos manquantes ou illisibles. Tes données sont intactes.';
+    if (text.contains('annul')) return 'Réanalyse annulée. Aucune donnée n’a été modifiée.';
+    return 'Erreur IA : analyse impossible pour le moment. Tes données sont intactes.';
+  }
+
+  void _showReanalysisMessage(String message) => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(message)));
 
   @override
   void initState() {
@@ -443,6 +573,26 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
             onPressed: edit,
             icon: const Icon(Icons.edit_outlined),
             label: const Text('Modifier cette pièce'),
+          ),
+          const SizedBox(height: 8),
+          AnimatedBuilder(
+            animation: widget.reanalysisController,
+            builder: (context, _) {
+              final controller = widget.reanalysisController;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: controller.busy ? null : _reanalyze,
+                    icon: controller.busy
+                        ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.auto_awesome),
+                    label: const Text('Réanalyser avec l’IA'),
+                  ),
+                  if (controller.busy) Text(_stepLabel(controller.step), textAlign: TextAlign.center),
+                ],
+              );
+            },
           ),
           if (identityChips.isNotEmpty) ...[
             const SizedBox(height: 17),

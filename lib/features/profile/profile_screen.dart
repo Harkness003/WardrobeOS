@@ -4,18 +4,21 @@ import '../assistant/settings/ai_settings_controller.dart';
 import '../backup/backup_controller.dart';
 import '../../weather/location/location_service.dart';
 import '../../weather/location/unified_location_service.dart';
+import '../wardrobe/ai_reanalysis_controller.dart';
 
 class ProfileScreen extends StatelessWidget {
   final AppSettings settings;
   final AiSettingsController aiSettings;
   final BackupController backupController;
   final UnifiedLocationService locationService;
+  final AiReanalysisController reanalysisController;
   const ProfileScreen({
     super.key,
     required this.settings,
     required this.aiSettings,
     required this.backupController,
     required this.locationService,
+    required this.reanalysisController,
   });
 
   @override
@@ -81,6 +84,7 @@ class ProfileScreen extends StatelessWidget {
           _LocationSettings(service: locationService),
           _BackupSettings(controller: backupController),
           _WardrobeGptSettings(controller: aiSettings),
+          _AiReanalysisSettings(controller: reanalysisController),
           _Tile(icon: Icons.info_outline, title: 'À propos'),
           const SizedBox(height: 18),
           Center(
@@ -307,6 +311,96 @@ class _WardrobeGptSettings extends StatefulWidget {
   @override
   State<_WardrobeGptSettings> createState() => _WardrobeGptSettingsState();
 }
+
+class _AiReanalysisSettings extends StatefulWidget {
+  final AiReanalysisController controller;
+  const _AiReanalysisSettings({required this.controller});
+
+  @override
+  State<_AiReanalysisSettings> createState() => _AiReanalysisSettingsState();
+}
+
+class _AiReanalysisSettingsState extends State<_AiReanalysisSettings> {
+  AiReanalysisScope scope = AiReanalysisScope.all;
+  (int, int)? estimate;
+  bool estimating = false;
+
+  Future<void> _estimate() async {
+    setState(() => estimating = true);
+    final value = await widget.controller.estimate(scope);
+    if (mounted) setState(() { estimate = value; estimating = false; });
+  }
+
+  Future<void> _run() async {
+    if (estimate == null) await _estimate();
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Lancer la réanalyse IA ?'),
+        content: Text('${estimate!.$1} fiches concernées\nEnviron ${estimate!.$2} appels IA'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lancer')),
+        ],
+      ),
+    );
+    if (confirmed == true) await widget.controller.runGlobal(scope);
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.controller,
+    builder: (context, _) {
+      final report = widget.controller.lastReport;
+      return Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Réanalyse IA', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<AiReanalysisScope>(
+                initialValue: scope,
+                decoration: const InputDecoration(labelText: 'Périmètre'),
+                items: const [
+                  DropdownMenuItem(value: AiReanalysisScope.all, child: Text('Tout le dressing')),
+                  DropdownMenuItem(value: AiReanalysisScope.old, child: Text('Uniquement les fiches anciennes')),
+                  DropdownMenuItem(value: AiReanalysisScope.style, child: Text('Uniquement le style')),
+                  DropdownMenuItem(value: AiReanalysisScope.thermal, child: Text('Uniquement le thermique')),
+                  DropdownMenuItem(value: AiReanalysisScope.composition, child: Text('Uniquement la composition')),
+                ],
+                onChanged: widget.controller.busy ? null : (value) => setState(() { scope = value!; estimate = null; }),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(onPressed: estimating || widget.controller.busy ? null : _estimate, icon: const Icon(Icons.calculate_outlined), label: const Text('Calculer les fiches concernées')),
+              if (estimate != null) Text('${estimate!.$1} fiches concernées · environ ${estimate!.$2} appels IA'),
+              FilledButton.icon(onPressed: widget.controller.busy ? null : _run, icon: const Icon(Icons.auto_awesome), label: const Text('Réanalyser')),
+              if (widget.controller.busy) ...[
+                const LinearProgressIndicator(),
+                Text(_profileStep(widget.controller.step), textAlign: TextAlign.center),
+              ],
+              if (report != null) Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text('Réussites : ${report.successes}\nÉchecs : ${report.failures}\nDurée : ${report.duration.inSeconds} s${report.errors.isEmpty ? '' : '\nErreurs :\n${report.errors.join('\n')}'}'),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+String _profileStep(AiReanalysisStep step) => switch (step) {
+  AiReanalysisStep.preparing => 'Préparation…',
+  AiReanalysisStep.analyzing => 'Analyse…',
+  AiReanalysisStep.comparing => 'Comparaison…',
+  AiReanalysisStep.completed => 'Terminé',
+  AiReanalysisStep.idle => '',
+};
 
 class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
   final _apiKeyController = TextEditingController();

@@ -1,0 +1,1031 @@
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index 21b650788c91960d15fb076e2b32baeeeb191bde..ec71d0630d311af6b54b38b9b9c64700eaec94fd 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -1,43 +1,46 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../backup/backup_controller.dart';
+ import '../../weather/location/location_service.dart';
+ import '../../weather/location/unified_location_service.dart';
++import '../wardrobe/ai_reanalysis_controller.dart';
+ 
+ class ProfileScreen extends StatelessWidget {
+   final AppSettings settings;
+   final AiSettingsController aiSettings;
+   final BackupController backupController;
+   final UnifiedLocationService locationService;
++  final AiReanalysisController reanalysisController;
+   const ProfileScreen({
+     super.key,
+     required this.settings,
+     required this.aiSettings,
+     required this.backupController,
+     required this.locationService,
++    required this.reanalysisController,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
+         children: [
+           const Text(
+             'Profil',
+             style: TextStyle(
+               fontSize: 30,
+               fontWeight: FontWeight.w900,
+               letterSpacing: -1,
+             ),
+           ),
+           const SizedBox(height: 18),
+           const Card(
+             child: Padding(
+               padding: EdgeInsets.all(18),
+               child: Row(
+                 children: [
+                   CircleAvatar(radius: 31, child: Icon(Icons.person, size: 32)),
+                   SizedBox(width: 15),
+                   Expanded(
+@@ -59,50 +62,51 @@ class ProfileScreen extends StatelessWidget {
+               ),
+             ),
+           ),
+           const SizedBox(height: 18),
+           _Tile(
+             icon: Icons.accessibility_new,
+             title: 'Morphologie & proportions',
+           ),
+           _Tile(icon: Icons.style_outlined, title: 'Préférences de style'),
+           _Tile(icon: Icons.notifications_none, title: 'Notifications'),
+           Card(
+             margin: const EdgeInsets.only(bottom: 10),
+             child: SwitchListTile(
+               secondary: const Icon(Icons.dark_mode_outlined),
+               title: const Text(
+                 'Mode sombre',
+                 style: TextStyle(fontWeight: FontWeight.w800),
+               ),
+               value: settings.darkMode,
+               onChanged: settings.setDarkMode,
+             ),
+           ),
+           _LocationSettings(service: locationService),
+           _BackupSettings(controller: backupController),
+           _WardrobeGptSettings(controller: aiSettings),
++          _AiReanalysisSettings(controller: reanalysisController),
+           _Tile(icon: Icons.info_outline, title: 'À propos'),
+           const SizedBox(height: 18),
+           Center(
+             child: Text(
+               'WardrobeOS Sprint 2 · Premium UI',
+               style: Theme.of(context).textTheme.bodySmall,
+             ),
+           ),
+         ],
+       ),
+     );
+   }
+ }
+ 
+ class _LocationSettings extends StatefulWidget {
+   final UnifiedLocationService service;
+   const _LocationSettings({required this.service});
+ 
+   @override
+   State<_LocationSettings> createState() => _LocationSettingsState();
+ }
+ 
+ class _LocationSettingsState extends State<_LocationSettings> {
+   final _cityController = TextEditingController();
+   List<LocationData> _results = const [];
+@@ -286,50 +290,140 @@ class _BackupSettings extends StatelessWidget {
+                       controller.busy ? null : () => _confirmRestore(context),
+                   icon: const Icon(Icons.settings_backup_restore),
+                   label: const Text('Restaurer une sauvegarde'),
+                 ),
+                 if (controller.busy) const LinearProgressIndicator(),
+                 if (controller.result != null) ...[
+                   const SizedBox(height: 8),
+                   Text(controller.result!),
+                 ],
+               ],
+             ),
+           ),
+         ),
+   );
+ }
+ 
+ class _WardrobeGptSettings extends StatefulWidget {
+   final AiSettingsController controller;
+ 
+   const _WardrobeGptSettings({required this.controller});
+ 
+   @override
+   State<_WardrobeGptSettings> createState() => _WardrobeGptSettingsState();
+ }
+ 
++class _AiReanalysisSettings extends StatefulWidget {
++  final AiReanalysisController controller;
++  const _AiReanalysisSettings({required this.controller});
++
++  @override
++  State<_AiReanalysisSettings> createState() => _AiReanalysisSettingsState();
++}
++
++class _AiReanalysisSettingsState extends State<_AiReanalysisSettings> {
++  AiReanalysisScope scope = AiReanalysisScope.all;
++  (int, int)? estimate;
++  bool estimating = false;
++
++  Future<void> _estimate() async {
++    setState(() => estimating = true);
++    final value = await widget.controller.estimate(scope);
++    if (mounted) setState(() { estimate = value; estimating = false; });
++  }
++
++  Future<void> _run() async {
++    if (estimate == null) await _estimate();
++    if (!mounted) return;
++    final confirmed = await showDialog<bool>(
++      context: context,
++      builder: (context) => AlertDialog(
++        title: const Text('Lancer la réanalyse IA ?'),
++        content: Text('${estimate!.$1} fiches concernées\nEnviron ${estimate!.$2} appels IA'),
++        actions: [
++          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
++          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Lancer')),
++        ],
++      ),
++    );
++    if (confirmed == true) await widget.controller.runGlobal(scope);
++  }
++
++  @override
++  Widget build(BuildContext context) => AnimatedBuilder(
++    animation: widget.controller,
++    builder: (context, _) {
++      final report = widget.controller.lastReport;
++      return Card(
++        margin: const EdgeInsets.only(bottom: 10),
++        child: Padding(
++          padding: const EdgeInsets.all(16),
++          child: Column(
++            crossAxisAlignment: CrossAxisAlignment.stretch,
++            children: [
++              const Text('Réanalyse IA', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
++              const SizedBox(height: 8),
++              DropdownButtonFormField<AiReanalysisScope>(
++                initialValue: scope,
++                decoration: const InputDecoration(labelText: 'Périmètre'),
++                items: const [
++                  DropdownMenuItem(value: AiReanalysisScope.all, child: Text('Tout le dressing')),
++                  DropdownMenuItem(value: AiReanalysisScope.old, child: Text('Uniquement les fiches anciennes')),
++                  DropdownMenuItem(value: AiReanalysisScope.style, child: Text('Uniquement le style')),
++                  DropdownMenuItem(value: AiReanalysisScope.thermal, child: Text('Uniquement le thermique')),
++                  DropdownMenuItem(value: AiReanalysisScope.composition, child: Text('Uniquement la composition')),
++                ],
++                onChanged: widget.controller.busy ? null : (value) => setState(() { scope = value!; estimate = null; }),
++              ),
++              const SizedBox(height: 10),
++              OutlinedButton.icon(onPressed: estimating || widget.controller.busy ? null : _estimate, icon: const Icon(Icons.calculate_outlined), label: const Text('Calculer les fiches concernées')),
++              if (estimate != null) Text('${estimate!.$1} fiches concernées · environ ${estimate!.$2} appels IA'),
++              FilledButton.icon(onPressed: widget.controller.busy ? null : _run, icon: const Icon(Icons.auto_awesome), label: const Text('Réanalyser')),
++              if (widget.controller.busy) ...[
++                const LinearProgressIndicator(),
++                Text(_profileStep(widget.controller.step), textAlign: TextAlign.center),
++              ],
++              if (report != null) Padding(
++                padding: const EdgeInsets.only(top: 10),
++                child: Text('Réussites : ${report.successes}\nÉchecs : ${report.failures}\nDurée : ${report.duration.inSeconds} s${report.errors.isEmpty ? '' : '\nErreurs :\n${report.errors.join('\n')}'}'),
++              ),
++            ],
++          ),
++        ),
++      );
++    },
++  );
++}
++
++String _profileStep(AiReanalysisStep step) => switch (step) {
++  AiReanalysisStep.preparing => 'Préparation…',
++  AiReanalysisStep.analyzing => 'Analyse…',
++  AiReanalysisStep.comparing => 'Comparaison…',
++  AiReanalysisStep.completed => 'Terminé',
++  AiReanalysisStep.idle => '',
++};
++
+ class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
+   final _apiKeyController = TextEditingController();
+   bool _obscureKey = true;
+ 
+   @override
+   void dispose() {
+     _apiKeyController.dispose();
+     super.dispose();
+   }
+ 
+   void _show(String message) {
+     if (!mounted) return;
+     ScaffoldMessenger.of(context)
+       ..hideCurrentSnackBar()
+       ..showSnackBar(SnackBar(content: Text(message)));
+   }
+ 
+   Future<void> _save() async {
+     try {
+       await widget.controller.save(_apiKeyController.text);
+       _apiKeyController.clear();
+       _show('Clé API enregistrée');
+     } catch (_) {
+       _show('Saisissez une clé API OpenAI valide.');
+     }
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 80fbd42fab08832c61edfd46114ad69787143b18..d99dc4b960b7f4ab350b2de3b72324db316b3863 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -12,77 +12,84 @@ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import '../assistant/tools/assistant_tool_context_builder.dart';
+ import '../assistant/tools/weather_tool.dart';
+ import '../assistant/recommendation/outfit_candidate.dart';
+ import '../assistant/recommendation/outfit_recommendation_engine.dart';
+ import '../assistant/memory/database_memory_repository.dart';
+ import '../assistant/memory/memory_service.dart';
+ import '../calendar/calendar_context_builder.dart';
+ import '../calendar/fake_calendar_service.dart';
+ import '../../data/database_service.dart';
+ import '../backup/backup_controller.dart';
+ import '../backup/backup_service.dart';
+ import '../backup/restore_service.dart';
+ import '../daily_brief/daily_brief_service.dart';
+ import '../agenda/agenda_controller.dart';
+ import '../agenda/agenda_screen.dart';
+ import '../agenda/agenda_service.dart';
+ import '../assistant/tools/agenda_tool.dart';
+ import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ import '../../weather/location/unified_location_service.dart';
++import '../scanner/ai/openai_garment_vision_analyzer.dart';
++import '../wardrobe/ai_reanalysis_controller.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+   final UnifiedLocationService locationService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+     required this.locationService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
++  late final _reanalysisAnalyzer = OpenAiGarmentVisionAnalyzer(apiKeyStorage: _apiKeyStorage);
++  late final _reanalysisController = AiReanalysisController(
++    database: DatabaseService.instance,
++    analyzer: _reanalysisAnalyzer,
++  );
+   late final _backupRepository = DatabaseBackupRepository(
+     DatabaseService.instance,
+   );
+   late final _memoryService = MemoryService(
+     repository: DatabaseMemoryRepository(DatabaseService.instance),
+   );
+   late final _agendaCalendar = FakeCalendarService();
+   late final _aiContextService = WardrobeAiContextService(
+     loadCurrentGarments: DatabaseService.instance.getGarments,
+     memoryService: _memoryService,
+   );
+   late final _agendaService = AgendaService(
+     database: DatabaseService.instance,
+     calendarService: _agendaCalendar,
+     weatherService: widget.weatherService,
+     aiContextService: _aiContextService,
+   );
+   late final _backupController = BackupController(
+     backupService: BackupService(repository: _backupRepository),
+     restoreService: RestoreService(repository: _backupRepository),
+   );
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+@@ -102,87 +109,90 @@ class _MainShellState extends State<MainShell> {
+     llmProvider: _openAiProvider,
+     recommendationEngine: OutfitRecommendationEngine(
+       candidateSource:
+           () async => (await _aiContextService.build()).garments
+               .map(OutfitCandidate.fromGarment)
+               .toList(growable: false),
+     ),
+   );
+   late final _dailyBriefService = DailyBriefService(
+     weatherService: widget.weatherService,
+     memoryService: _memoryService,
+     assistantService: _assistantService,
+     aiContextService: _aiContextService,
+   );
+   late final _agendaController = AgendaController(
+     service: _agendaService,
+   );
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _assistantOutfits.dispose();
+     _aiSettings.dispose();
+     _backupController.dispose();
+     _agendaController.dispose();
++    _reanalysisAnalyzer.close();
++    _reanalysisController.dispose();
+     super.dispose();
+   }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         dailyBriefService: _dailyBriefService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(4),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+             MaterialPageRoute(builder: (_) => const ScannerScreen()),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+           }
+         },
+       ),
+-      const WardrobeScreen(),
++      WardrobeScreen(reanalysisController: _reanalysisController),
+       const OutfitsScreen(),
+       AgendaScreen(controller: _agendaController, outfitsController: _assistantOutfits),
+       AssistantScreen(service: _assistantService),
+       const WishlistScreen(),
+       ProfileScreen(
+         settings: widget.settings,
+         locationService: widget.locationService,
+         aiSettings: _aiSettings,
+         backupController: _backupController,
++        reanalysisController: _reanalysisController,
+       ),
+     ];
+ 
+     return Scaffold(
+       body: AnimatedSwitcher(
+         duration: const Duration(milliseconds: 240),
+         transitionBuilder: (child, animation) {
+           return FadeTransition(
+             opacity: animation,
+             child: SlideTransition(
+               position: Tween<Offset>(
+                 begin: const Offset(.02, 0),
+                 end: Offset.zero,
+               ).animate(animation),
+               child: child,
+             ),
+           );
+         },
+         child: KeyedSubtree(key: ValueKey(index), child: pages[index]),
+       ),
+       bottomNavigationBar: NavigationBar(
+         selectedIndex: index,
+         onDestinationSelected: goTo,
+         destinations: const [
+           NavigationDestination(
+diff --git a/lib/features/wardrobe/ai_reanalysis_controller.dart b/lib/features/wardrobe/ai_reanalysis_controller.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..21c4a2afe42c2471bc4d4ac478a55d829650c6fc
+--- /dev/null
++++ b/lib/features/wardrobe/ai_reanalysis_controller.dart
+@@ -0,0 +1,215 @@
++import 'dart:io';
++import 'dart:typed_data';
++
++import 'package:flutter/foundation.dart';
++
++import '../../core/ai_context/ai_reanalysis_policy.dart';
++import '../../data/database_service.dart';
++import '../../models/garment.dart';
++import '../scanner/ai/garment_analysis_exception.dart';
++import '../scanner/ai/garment_analysis_request.dart';
++import '../scanner/ai/garment_analysis_result.dart';
++import '../scanner/ai/garment_image_processing.dart';
++import '../scanner/ai/garment_vision_analyzer.dart';
++
++enum AiReanalysisStep { idle, preparing, analyzing, comparing, completed }
++enum AiReanalysisScope { all, old, style, thermal, composition }
++
++class AiReanalysisDifference {
++  final String field;
++  final Object? currentValue;
++  final Object? suggestedValue;
++  final bool userConflict;
++
++  const AiReanalysisDifference({
++    required this.field,
++    required this.currentValue,
++    required this.suggestedValue,
++    required this.userConflict,
++  });
++}
++
++class AiReanalysisPreview {
++  final Garment garment;
++  final GarmentAnalysisResult analysis;
++  final List<AiReanalysisDifference> differences;
++
++  const AiReanalysisPreview(this.garment, this.analysis, this.differences);
++}
++
++class AiReanalysisReport {
++  final int successes;
++  final int failures;
++  final Duration duration;
++  final List<String> errors;
++
++  const AiReanalysisReport(this.successes, this.failures, this.duration, this.errors);
++}
++
++/// UI-facing coordinator. Analysis, three-way comparison and persistence stay
++/// delegated to the existing analyzer, policy, snapshots and database.
++class AiReanalysisController extends ChangeNotifier {
++  static const analysisVersion = 'scanner-v1';
++  static const _categories = ['Hauts', 'Chemises', 'Vestes', 'Bas', 'Chaussures', 'Accessoires', 'Autre'];
++  static const _colors = ['Noir', 'Blanc', 'Gris', 'Bleu', 'Marron', 'Beige', 'Vert', 'Rouge', 'Rose', 'Violet', 'Jaune', 'Orange'];
++  static const _materials = ['Coton', 'Laine', 'Lin', 'Soie', 'Polyester', 'Cuir', 'Denim', 'Cachemire', 'Viscose', 'Autre'];
++  static const _seasons = ['Printemps', 'Été', 'Automne', 'Hiver', 'Toute saison'];
++
++  final DatabaseService database;
++  final GarmentVisionAnalyzer analyzer;
++  final AiReanalysisPolicy policy;
++  bool _busy = false;
++  AiReanalysisStep step = AiReanalysisStep.idle;
++  AiReanalysisReport? lastReport;
++
++  AiReanalysisController({
++    required this.database,
++    required this.analyzer,
++    this.policy = const AiReanalysisPolicy(),
++  });
++
++  bool get busy => _busy;
++
++  Future<AiReanalysisPreview> prepare(Garment garment) async {
++    if (_busy) throw const GarmentAnalysisException(GarmentAnalysisError.invalidSchema, 'Une analyse est déjà en cours.');
++    _busy = true;
++    step = AiReanalysisStep.preparing;
++    notifyListeners();
++    try {
++      final photos = garment.effectivePhotos;
++      if (photos.isEmpty) {
++        throw const GarmentAnalysisException(GarmentAnalysisError.missingImage, 'Ajoute au moins une photo avant de réanalyser cette fiche.');
++      }
++      final bytes = <Uint8List>[];
++      for (final photo in photos) {
++        final file = File(photo.path);
++        if (await file.exists()) bytes.add(await file.readAsBytes());
++      }
++      if (bytes.isEmpty) {
++        throw const GarmentAnalysisException(GarmentAnalysisError.missingImage, 'Les photos de cette fiche sont introuvables.');
++      }
++      step = AiReanalysisStep.analyzing;
++      notifyListeners();
++      final result = await analyzer.analyze(GarmentAnalysisRequest(
++        imageBytes: bytes.first,
++        mimeType: GarmentImageValidator.detectMimeType(bytes.first) ?? 'image/jpeg',
++        allowedCategories: _categories,
++        allowedColors: _colors,
++        allowedMaterials: _materials,
++        allowedSeasons: _seasons,
++        existingValues: _stringValues(_currentValues(garment)),
++        previousImageBytes: bytes.skip(1).toList(growable: false),
++        previousAnalysis: garment.currentAnalysis?.values,
++      ));
++      if (!result.isUsableImage) {
++        throw GarmentAnalysisException(GarmentAnalysisError.rejectedImage, result.rejectionReason ?? 'Les photos ne permettent pas une nouvelle analyse.');
++      }
++      step = AiReanalysisStep.comparing;
++      notifyListeners();
++      final current = _currentValues(garment);
++      final suggested = _suggestedValues(result);
++      final baseline = _snapshotValues(garment.currentAnalysis?.values ?? const {});
++      final decision = policy.compare(baseline: baseline, current: current, suggested: suggested);
++      final differences = <AiReanalysisDifference>[];
++      for (final entry in suggested.entries) {
++        if (_equal(entry.value, current[entry.key])) continue;
++        differences.add(AiReanalysisDifference(
++          field: entry.key,
++          currentValue: current[entry.key],
++          suggestedValue: entry.value,
++          userConflict: decision.protectedUserValues.containsKey(entry.key) || garment.userModifiedFields.contains(entry.key),
++        ));
++      }
++      return AiReanalysisPreview(garment, result, differences);
++    } catch (_) {
++      _finish(AiReanalysisStep.idle);
++      rethrow;
++    }
++  }
++
++  Future<Garment> apply(AiReanalysisPreview preview, Set<String> accepted) async {
++    try {
++      final values = _suggestedValues(preview.analysis);
++      var updated = _applyValues(preview.garment, {for (final key in accepted) key: values[key]});
++      final now = DateTime.now();
++      updated = updated.copyWith(
++        previousAnalysis: preview.garment.currentAnalysis,
++        currentAnalysis: GarmentAnalysisSnapshot(version: analysisVersion, analyzedAt: now, values: preview.analysis.toJson().cast<String, Object?>()),
++        lastAnalyzedAt: now,
++        aiAnalysisVersion: analysisVersion,
++        updatedAt: now,
++      );
++      await database.updateGarment(updated);
++      _finish(AiReanalysisStep.completed);
++      return updated;
++    } catch (_) {
++      _finish(AiReanalysisStep.idle);
++      rethrow;
++    }
++  }
++
++  void cancel() => _finish(AiReanalysisStep.idle);
++
++  Future<(int, int)> estimate(AiReanalysisScope scope) async {
++    final garments = await database.getGarments();
++    final selected = _select(garments, scope);
++    return (selected.length, selected.fold<int>(0, (sum, item) => sum + (item.effectivePhotos.isEmpty ? 0 : 1)));
++  }
++
++  Future<AiReanalysisReport> runGlobal(AiReanalysisScope scope) async {
++    if (_busy) throw StateError('Une analyse est déjà en cours.');
++    final watch = Stopwatch()..start();
++    var successes = 0;
++    final errors = <String>[];
++    final selected = _select(await database.getGarments(), scope);
++    for (final garment in selected) {
++      try {
++        final preview = await prepare(garment);
++        final scopeFields = switch (scope) {
++          AiReanalysisScope.style => const {'style'},
++          AiReanalysisScope.composition => const {'composition', 'material'},
++          AiReanalysisScope.thermal => const <String>{},
++          _ => const {'name', 'category', 'color', 'material', 'season', 'brand', 'composition', 'style'},
++        };
++        final allowed = preview.differences
++            .where((item) => !item.userConflict && scopeFields.contains(item.field))
++            .map((item) => item.field)
++            .toSet();
++        await apply(preview, allowed);
++        successes++;
++      } catch (error) {
++        errors.add('${garment.name} : ${_message(error)}');
++      }
++    }
++    watch.stop();
++    lastReport = AiReanalysisReport(successes, errors.length, watch.elapsed, List.unmodifiable(errors));
++    notifyListeners();
++    return lastReport!;
++  }
++
++  List<Garment> _select(List<Garment> garments, AiReanalysisScope scope) => switch (scope) {
++    AiReanalysisScope.old => garments.where((item) => item.needsAiReanalysis(analysisVersion)).toList(),
++    _ => garments,
++  };
++
++  void _finish(AiReanalysisStep value) {
++    step = value;
++    _busy = false;
++    notifyListeners();
++  }
++
++  static String _message(Object error) => error is GarmentAnalysisException ? error.message : 'Analyse impossible';
++  static bool _equal(Object? a, Object? b) => a.toString() == b.toString();
++  static Map<String, String> _stringValues(Map<String, Object?> values) => {for (final e in values.entries) if (e.value != null) e.key: e.value.toString()};
++  static Map<String, Object?> _currentValues(Garment g) => {'name': g.name, 'category': g.category, 'color': g.color, 'material': g.material, 'season': g.season, 'brand': g.brand, 'composition': g.composition, 'style': g.resumeStylistique};
++  static Map<String, Object?> _snapshotValues(Map<String, Object?> raw) => {'name': raw['suggestedName'], 'category': raw['category'], 'color': raw['primaryColor'], 'material': raw['material'], 'season': raw['season'], 'brand': raw['visibleBrand'], 'composition': _composition(raw['compositions']), 'style': raw['styleSummary']};
++  static Map<String, Object?> _suggestedValues(GarmentAnalysisResult r) => {'name': r.suggestedName, 'category': r.category, 'color': r.primaryColor, 'material': r.material, 'season': r.season, 'brand': r.visibleBrand, 'composition': r.compositions.map((e) => '${e.material}${e.percentage == null ? '' : ' ${e.percentage!.round()} %'}').join(', '), 'style': r.styleSummary}..removeWhere((_, value) => value == null || value == '');
++  static Object? _composition(Object? value) => value is List ? value.map((e) => e is Map ? '${e['material']}${e['percentage'] == null ? '' : ' ${(e['percentage'] as num).round()} %'}' : '$e').join(', ') : value;
++
++  static Garment _applyValues(Garment g, Map<String, Object?> v) => g.copyWith(
++    name: v['name'] as String?, category: v['category'] as String?, color: v['color'] as String?,
++    couleurPrincipale: v['color'] as String?, material: v['material'] as String?, matierePrincipale: v['material'] as String?,
++    season: v['season'] as String?, brand: v['brand'] as String?, composition: v['composition'] as String?,
++    resumeStylistique: v['style'] as String?,
++  );
++}
+diff --git a/lib/features/wardrobe/garment_detail_screen.dart b/lib/features/wardrobe/garment_detail_screen.dart
+index 841e27e8aade7f7a2849ac91f19728a25d549138..99396609ed0e61381958eaea277d1e675d7b14a1 100644
+--- a/lib/features/wardrobe/garment_detail_screen.dart
++++ b/lib/features/wardrobe/garment_detail_screen.dart
+@@ -1,82 +1,212 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../data/database_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/outfit.dart';
+ import '../../models/wear_history.dart';
+ import '../../widgets/garment_image.dart';
+ import '../outfits/outfit_form_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import 'garment_form_screen.dart';
+ import 'wardrobe_controller.dart';
++import 'ai_reanalysis_controller.dart';
+ 
+ String? _cleanDisplayText(String? value) {
+   final trimmed = value?.trim();
+   if (trimmed == null || trimmed.isEmpty) return null;
+   final normalized = trimmed.toLowerCase();
+   if (normalized == 'null' ||
+       normalized == 'n/a' ||
+       normalized == 'vide' ||
+       normalized == 'inconnu' ||
+       normalized == 'inconnue') {
+     return null;
+   }
+   return trimmed;
+ }
+ 
+ List<String> _cleanDisplayList(Iterable<String>? values) =>
+     (values ?? const <String>[])
+         .map(_cleanDisplayText)
+         .whereType<String>()
+         .toSet()
+         .toList(growable: false);
+ 
++String _stepLabel(AiReanalysisStep step) => switch (step) {
++  AiReanalysisStep.preparing => 'Préparation…',
++  AiReanalysisStep.analyzing => 'Analyse…',
++  AiReanalysisStep.comparing => 'Comparaison…',
++  AiReanalysisStep.completed => 'Terminé',
++  AiReanalysisStep.idle => '',
++};
++
++String _fieldLabel(String field) => const {
++  'name': 'Nom', 'category': 'Catégorie', 'color': 'Couleur',
++  'material': 'Matière', 'season': 'Saison', 'brand': 'Marque',
++  'composition': 'Composition', 'style': 'Style',
++}[field] ?? field;
++
++class _AiComparisonDialog extends StatefulWidget {
++  final AiReanalysisPreview preview;
++  const _AiComparisonDialog({required this.preview});
++
++  @override
++  State<_AiComparisonDialog> createState() => _AiComparisonDialogState();
++}
++
++class _AiComparisonDialogState extends State<_AiComparisonDialog> {
++  final Set<String> accepted = {};
++
++  @override
++  Widget build(BuildContext context) => AlertDialog(
++    title: const Text('Comparer les modifications'),
++    content: SizedBox(
++      width: 560,
++      child: widget.preview.differences.isEmpty
++          ? const Text('L’IA ne propose aucune modification.')
++          : ListView(
++              shrinkWrap: true,
++              children: [
++                if (widget.preview.differences.any((item) => item.userConflict))
++                  const Card(
++                    color: Color(0xFFFFF3CD),
++                    child: Padding(
++                      padding: EdgeInsets.all(12),
++                      child: Text('⚠️ Conflit utilisateur : ces valeurs ont été corrigées manuellement et restent conservées par défaut.'),
++                    ),
++                  ),
++                for (final difference in widget.preview.differences)
++                  Card(
++                    child: Padding(
++                      padding: const EdgeInsets.all(12),
++                      child: Column(
++                        crossAxisAlignment: CrossAxisAlignment.start,
++                        children: [
++                          Text(_fieldLabel(difference.field), style: const TextStyle(fontWeight: FontWeight.w900)),
++                          if (difference.userConflict) const Text('Conflit avec une modification utilisateur', style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold)),
++                          RadioListTile<bool>(
++                            value: false,
++                            groupValue: accepted.contains(difference.field),
++                            onChanged: (_) => setState(() => accepted.remove(difference.field)),
++                            title: const Text('Conserver ma valeur'),
++                            subtitle: Text('${difference.currentValue ?? '—'}'),
++                          ),
++                          RadioListTile<bool>(
++                            value: true,
++                            groupValue: accepted.contains(difference.field),
++                            onChanged: (_) => setState(() => accepted.add(difference.field)),
++                            title: const Text('Accepter la proposition IA'),
++                            subtitle: Text('${difference.suggestedValue ?? '—'}'),
++                          ),
++                        ],
++                      ),
++                    ),
++                  ),
++              ],
++            ),
++    ),
++    actions: [
++      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
++      TextButton(onPressed: () => setState(() => accepted.clear()), child: const Text('Conserver toutes mes modifications')),
++      TextButton(
++        onPressed: () => setState(() {
++          accepted
++            ..clear()
++            ..addAll(widget.preview.differences.where((item) => !item.userConflict).map((item) => item.field));
++        }),
++        child: const Text('Accepter tout sans conflit'),
++      ),
++      FilledButton(onPressed: () => Navigator.pop(context, accepted), child: const Text('Appliquer')),
++    ],
++  );
++}
++
+ String? _firstDisplayText(String? preferred, String? fallback) =>
+     _cleanDisplayText(preferred) ?? _cleanDisplayText(fallback);
+ 
+ class GarmentDetailScreen extends StatefulWidget {
+   final WardrobeController controller;
+   final Garment garment;
++  final AiReanalysisController reanalysisController;
+ 
+   const GarmentDetailScreen({
+     super.key,
+     required this.controller,
+     required this.garment,
++    required this.reanalysisController,
+   });
+ 
+   @override
+   State<GarmentDetailScreen> createState() => _GarmentDetailScreenState();
+ }
+ 
+ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+   late Garment garment;
+   bool _recordingWear = false;
+   late Future<List<WearHistory>> _wearHistoryFuture;
+   late Future<WearHistory?> _firstWearFuture;
+   late Future<List<Outfit>> _outfitsFuture;
+ 
++  Future<void> _reanalyze() async {
++    if (widget.reanalysisController.busy) return;
++    try {
++      final preview = await widget.reanalysisController.prepare(garment);
++      if (!mounted) {
++        widget.reanalysisController.cancel();
++        return;
++      }
++      final accepted = await showDialog<Set<String>>(
++        context: context,
++        barrierDismissible: false,
++        builder: (_) => _AiComparisonDialog(preview: preview),
++      );
++      if (accepted == null) {
++        widget.reanalysisController.cancel();
++        if (mounted) _showReanalysisMessage('Réanalyse annulée. Aucune donnée n’a été modifiée.');
++        return;
++      }
++      await widget.reanalysisController.apply(preview, accepted);
++      await widget.controller.load();
++      _refreshGarment();
++      if (mounted) _showReanalysisMessage('Réanalyse terminée. La fiche est à jour.');
++    } catch (error) {
++      if (mounted) _showReanalysisMessage(error is Exception ? _friendlyReanalysisError(error) : 'Analyse impossible. Tes données sont intactes.');
++    }
++  }
++
++  String _friendlyReanalysisError(Exception error) {
++    final text = error.toString();
++    if (text.contains('photo') || text.contains('Photo')) return 'Photos manquantes ou illisibles. Tes données sont intactes.';
++    if (text.contains('annul')) return 'Réanalyse annulée. Aucune donnée n’a été modifiée.';
++    return 'Erreur IA : analyse impossible pour le moment. Tes données sont intactes.';
++  }
++
++  void _showReanalysisMessage(String message) => ScaffoldMessenger.of(context)
++    ..hideCurrentSnackBar()
++    ..showSnackBar(SnackBar(content: Text(message)));
++
+   @override
+   void initState() {
+     super.initState();
+     garment = widget.garment;
+     _wearHistoryFuture = _loadWearHistory();
+     _firstWearFuture = _loadFirstWear();
+     _outfitsFuture = DatabaseService.instance.getOutfitsContainingGarment(
+       garment.id,
+     );
+   }
+ 
+   Future<void> edit() async {
+     final changed = await Navigator.push<bool>(
+       context,
+       MaterialPageRoute(
+         builder:
+             (_) => GarmentFormScreen(
+               controller: widget.controller,
+               garment: garment,
+             ),
+       ),
+     );
+     if (changed == true) _refreshGarment();
+   }
+ 
+@@ -422,50 +552,70 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+                         garment.brand!,
+                         style: Theme.of(context).textTheme.titleMedium,
+                       ),
+                     ],
+                   ],
+                 ),
+               ),
+               IconButton.filledTonal(
+                 tooltip:
+                     garment.isFavorite
+                         ? 'Retirer des favoris'
+                         : 'Ajouter aux favoris',
+                 onPressed: toggleFavorite,
+                 icon: Icon(
+                   garment.isFavorite ? Icons.favorite : Icons.favorite_border,
+                 ),
+               ),
+             ],
+           ),
+           const SizedBox(height: 14),
+           FilledButton.icon(
+             onPressed: edit,
+             icon: const Icon(Icons.edit_outlined),
+             label: const Text('Modifier cette pièce'),
+           ),
++          const SizedBox(height: 8),
++          AnimatedBuilder(
++            animation: widget.reanalysisController,
++            builder: (context, _) {
++              final controller = widget.reanalysisController;
++              return Column(
++                crossAxisAlignment: CrossAxisAlignment.stretch,
++                children: [
++                  OutlinedButton.icon(
++                    onPressed: controller.busy ? null : _reanalyze,
++                    icon: controller.busy
++                        ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
++                        : const Icon(Icons.auto_awesome),
++                    label: const Text('Réanalyser avec l’IA'),
++                  ),
++                  if (controller.busy) Text(_stepLabel(controller.step), textAlign: TextAlign.center),
++                ],
++              );
++            },
++          ),
+           if (identityChips.isNotEmpty) ...[
+             const SizedBox(height: 17),
+             Wrap(
+               spacing: 8,
+               runSpacing: 8,
+               children:
+                   identityChips
+                       .map((value) => Chip(label: Text(value)))
+                       .toList(),
+             ),
+           ],
+           _AiGarmentDetails(garment: garment),
+           const SizedBox(height: 26),
+           const _SectionTitle('Utilisé dans'),
+           const SizedBox(height: 10),
+           FutureBuilder<List<Outfit>>(
+             future: _outfitsFuture,
+             builder: (context, snapshot) {
+               if (snapshot.connectionState == ConnectionState.waiting) {
+                 return const Card(
+                   child: Padding(
+                     padding: EdgeInsets.all(18),
+                     child: Center(child: CircularProgressIndicator()),
+                   ),
+                 );
+diff --git a/lib/features/wardrobe/wardrobe_screen.dart b/lib/features/wardrobe/wardrobe_screen.dart
+index 039dc2f4f732968e1b0619d87b7b6ffea005916c..be3b7cad1f4226570c7e6bfc1cbeed5747b53233 100644
+--- a/lib/features/wardrobe/wardrobe_screen.dart
++++ b/lib/features/wardrobe/wardrobe_screen.dart
+@@ -1,36 +1,38 @@
+ import 'package:flutter/material.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../models/garment.dart';
+ import '../../widgets/garment_image.dart';
+ import '../scanner/scanner_screen.dart';
+ import 'garment_detail_screen.dart';
+ import 'garment_form_screen.dart';
+ import 'wardrobe_controller.dart';
++import 'ai_reanalysis_controller.dart';
+ 
+ class WardrobeScreen extends StatefulWidget {
+-  const WardrobeScreen({super.key});
++  final AiReanalysisController reanalysisController;
++  const WardrobeScreen({super.key, required this.reanalysisController});
+ 
+   @override
+   State<WardrobeScreen> createState() => _WardrobeScreenState();
+ }
+ 
+ class _WardrobeScreenState extends State<WardrobeScreen> {
+   final controller = WardrobeController();
+   final searchController = TextEditingController();
+ 
+   static const seasons = [
+     'Printemps',
+     'Été',
+     'Automne',
+     'Hiver',
+     'Toute saison',
+   ];
+ 
+   final categories = const [
+     'Tout',
+     'Hauts',
+     'Chemises',
+     'Vestes',
+     'Bas',
+     'Chaussures',
+     'Accessoires',
+@@ -104,51 +106,51 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
+                     },
+                   ),
+                 ],
+               ),
+             ),
+           ),
+     );
+   }
+ 
+   Future<void> _openForm([Garment? garment]) async {
+     await Navigator.push(
+       context,
+       MaterialPageRoute(
+         builder:
+             (_) => GarmentFormScreen(controller: controller, garment: garment),
+       ),
+     );
+   }
+ 
+   Future<void> _openDetail(Garment garment) async {
+     await Navigator.push(
+       context,
+       MaterialPageRoute(
+         builder:
+             (_) =>
+-                GarmentDetailScreen(controller: controller, garment: garment),
++                GarmentDetailScreen(controller: controller, garment: garment, reanalysisController: widget.reanalysisController),
+       ),
+     );
+   }
+ 
+   Future<void> _showAdvancedFilters() async {
+     String selectedSeason = controller.season;
+     final brand = TextEditingController(text: controller.brand);
+     final color = TextEditingController(text: controller.color);
+     final material = TextEditingController(text: controller.material);
+     final style = TextEditingController(text: controller.style);
+     final occasion = TextEditingController(text: controller.occasion);
+ 
+     final action = await showModalBottomSheet<_FilterAction>(
+       context: context,
+       isScrollControlled: true,
+       showDragHandle: true,
+       useSafeArea: true,
+       builder:
+           (sheetContext) => StatefulBuilder(
+             builder:
+                 (context, setSheetState) => AnimatedPadding(
+                   duration: const Duration(milliseconds: 150),
+                   padding: EdgeInsets.only(
+                     bottom: MediaQuery.viewInsetsOf(context).bottom,
+                   ),
