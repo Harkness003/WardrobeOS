@@ -39,4 +39,32 @@ void main() {
     expect(find.text('Style souhaité'), findsOneWidget);
     expect(find.text('Enregistrer'), findsOneWidget);
   });
+
+  testWidgets('reste lisible avec un titre long et une grande taille de texte', (tester) async {
+    final now = DateTime(2026, 8, 4);
+    final garments = List.generate(8, (index) => Garment(
+      id: 'item-$index',
+      name: 'Pièce numéro $index au nom volontairement très long',
+      category: 'Accessoires',
+      createdAt: now,
+      updatedAt: now,
+    ));
+    final proposal = OutfitGenerationProposal(
+      outfit: Outfit(id: 'long', name: 'Une tenue au titre extrêmement long qui doit rester lisible',
+        createdAt: now, updatedAt: now,
+        garments: {OutfitCategory.accessory: garments}),
+      score: .75,
+      reasons: const ['Adaptée à la demande.'],
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: MediaQuery(data: const MediaQueryData(size: Size(320, 800), textScaler: TextScaler.linear(2)),
+        child: Scaffold(body: SingleChildScrollView(child: OutfitProposalCard(
+          proposal: proposal, onSave: () {}, onSelect: () {})))),
+    ));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Enregistrer'), findsOneWidget);
+    expect(find.text('Choisir'), findsOneWidget);
+  });
 }

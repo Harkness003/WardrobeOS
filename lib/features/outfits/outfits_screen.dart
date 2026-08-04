@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/outfit.dart';
 import '../../widgets/garment_image.dart';
 import '../../widgets/outfit_proposal_card.dart';
+import '../../widgets/content_state.dart';
 import 'outfit_form_screen.dart';
 import 'outfits_controller.dart';
 
@@ -95,16 +96,17 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
 
   Widget _body() {
     if (controller.loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: ContentState.loading(
+        title: 'Chargement des tenues',
+        message: 'Les tenues enregistrées arrivent dans un instant.',
+      ));
     }
     if (controller.error != null) {
-      return Center(
-        child: FilledButton.icon(
-          onPressed: controller.load,
-          icon: const Icon(Icons.refresh),
-          label: const Text('Réessayer'),
-        ),
-      );
+      return Center(child: ContentState.error(
+        title: 'Impossible de charger les tenues',
+        message: 'Les données sont conservées. Vérifie le stockage puis réessaie.',
+        onAction: controller.load,
+      ));
     }
     return RefreshIndicator(
       onRefresh: controller.load,
@@ -131,8 +133,10 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
           ),
           const SizedBox(height: 8),
           if (controller.outfits.isEmpty)
-            const Padding(padding: EdgeInsets.symmetric(vertical: 32), child: Center(
-              child: Text('Aucune tenue enregistrée. Générez votre première proposition.')))
+            const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: ContentState.empty(
+              title: 'Aucune tenue enregistrée',
+              message: 'Génère une proposition à partir du dressing ou crée ta première tenue.',
+            ))
           else ...controller.outfits.map(_outfitCard),
         ],
       ),

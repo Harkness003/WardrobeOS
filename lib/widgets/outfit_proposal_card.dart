@@ -18,25 +18,29 @@ class OutfitProposalCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SizedBox(height: 88, child: ListView.separated(
+          Semantics(label: 'Photos des ${garments.length} pièces', child: SizedBox(height: 88, child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: garments.length,
             separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (_, index) => SizedBox(width: 88, child: GarmentImage(
+            itemBuilder: (_, index) => Semantics(label: garments[index].name,
+              child: SizedBox(width: 88, child: GarmentImage(
               imagePath: garments[index].effectivePhotos.firstOrNull?.path,
               borderRadius: BorderRadius.circular(8),
-            )),
-          )),
+            ))),
+          ))),
           const SizedBox(height: 10),
           Row(children: [
-            Expanded(child: Text(proposal.outfit.name,
+            Expanded(child: Text(proposal.outfit.name, maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
+            const SizedBox(width: 8),
             Text('${(proposal.score * 100).round()} %'),
           ]),
           const SizedBox(height: 6),
           ...garments.map((item) => Padding(
             padding: const EdgeInsets.only(bottom: 3),
-            child: Text('${item.name} · ${item.category}'),
+            child: Text('${item.name} · ${item.category}', maxLines: 2,
+              overflow: TextOverflow.ellipsis),
           )),
           if (proposal.reasons.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -52,7 +56,7 @@ class OutfitProposalCard extends StatelessWidget {
           ],
           if (onSave != null || onSelect != null) ...[
             const SizedBox(height: 10),
-            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+            Wrap(alignment: WrapAlignment.end, spacing: 8, runSpacing: 8, children: [
               if (onSelect != null) TextButton(onPressed: onSelect, child: const Text('Choisir')),
               if (onSave != null) FilledButton.icon(onPressed: onSave,
                 icon: const Icon(Icons.bookmark_add_outlined), label: const Text('Enregistrer')),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/outfit_generation/outfit_generation_engine.dart';
 import '../../widgets/outfit_proposal_card.dart';
+import '../../widgets/content_state.dart';
 import '../../weather/services/weather_service.dart';
 import '../daily_brief/daily_brief_models.dart';
 import '../daily_brief/daily_brief_service.dart';
@@ -187,28 +188,19 @@ class _DailyStateBanner extends StatelessWidget {
 class _BriefLoading extends StatelessWidget {
   const _BriefLoading();
   @override
-  Widget build(BuildContext context) => const Card(child: Padding(
-    padding: EdgeInsets.all(24),
-    child: Row(children: [
-      SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
-      SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-        children: [Text('Chargement du dressing…', style: TextStyle(fontWeight: FontWeight.w800)),
-          SizedBox(height: 4), Text('La page est prête, la tenue arrive dans un instant.')]))
-    ]),
-  ));
+  Widget build(BuildContext context) => const ContentState.loading(
+    title: 'Préparation du Daily Brief',
+    message: 'Le dressing, la météo et la tenue du jour arrivent dans un instant.',
+  );
 }
 
 class _BriefError extends StatelessWidget {
   final VoidCallback onRetry;
   const _BriefError({required this.onRetry});
   @override
-  Widget build(BuildContext context) => Card(child: Padding(
-    padding: const EdgeInsets.all(24),
-    child: Column(children: [
-      const Icon(Icons.error_outline, size: 40), const SizedBox(height: 10),
-      const Text('Impossible de préparer le Daily Brief', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 6), const Text('Le chargement du dressing ou le moteur de tenue a échoué. La météo est signalée séparément.'),
-      const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Réessayer')),
-    ]),
-  ));
+  Widget build(BuildContext context) => ContentState.error(
+    title: 'Impossible de préparer le Daily Brief',
+    message: 'Le dressing ou les propositions n’ont pas pu être chargés. La météo est signalée séparément.',
+    onAction: onRetry,
+  );
 }

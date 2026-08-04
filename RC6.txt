@@ -1,0 +1,517 @@
+diff --git a/lib/features/dashboard/dashboard_screen.dart b/lib/features/dashboard/dashboard_screen.dart
+index fb0081be6f83fa4a9c174e32fc5861b343408c38..6043f4196c1c94f145aeb3b987976e7db62f28ca 100644
+--- a/lib/features/dashboard/dashboard_screen.dart
++++ b/lib/features/dashboard/dashboard_screen.dart
+@@ -1,30 +1,31 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../core/theme/app_theme.dart';
+ import '../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../widgets/outfit_proposal_card.dart';
++import '../../widgets/content_state.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../daily_brief/daily_brief_models.dart';
+ import '../daily_brief/daily_brief_service.dart';
+ 
+ class DashboardScreen extends StatefulWidget {
+   final VoidCallback openWardrobe;
+   final VoidCallback openAssistant;
+   final VoidCallback openOutfits;
+   final VoidCallback openScanner;
+   final WeatherService weatherService;
+   final DailyBriefService dailyBriefService;
+ 
+   const DashboardScreen({
+     super.key,
+     required this.openWardrobe,
+     required this.openAssistant,
+     required this.openOutfits,
+     required this.openScanner,
+     required this.weatherService,
+     required this.dailyBriefService,
+   });
+ 
+   @override
+   State<DashboardScreen> createState() => _DashboardScreenState();
+ }
+@@ -165,50 +166,41 @@ class _BriefStateMessage extends StatelessWidget {
+     Icon(icon, size: 42), const SizedBox(height: 12),
+     Text(title, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+     const SizedBox(height: 7), Text(detail, textAlign: TextAlign.center),
+     if (action != null) ...[const SizedBox(height: 14), FilledButton(onPressed: action, child: Text(actionLabel!))],
+   ])));
+ }
+ 
+ class _DailyStateBanner extends StatelessWidget {
+   final DailyBriefState state; final String? detail;
+   const _DailyStateBanner({required this.state, this.detail});
+   @override Widget build(BuildContext context) {
+     final (title, message) = switch (state) {
+       DailyBriefState.insufficientWardrobe => ('Dressing encore réduit', 'La proposition utilise toutes les catégories disponibles. Ajoute des pièces pour obtenir une tenue plus complète.'),
+       DailyBriefState.noProposal => ('Aucune proposition possible', 'Le moteur ne trouve aucune combinaison cohérente avec les pièces disponibles.'),
+       DailyBriefState.weatherError => ('Météo indisponible', detail ?? 'La tenue est proposée sans contrainte météo.'),
+       _ => ('', ''),
+     };
+     if (title.isEmpty) return const SizedBox.shrink();
+     return _BriefStateMessage(icon: Icons.info_outline, title: title, detail: message);
+   }
+ }
+ 
+ class _BriefLoading extends StatelessWidget {
+   const _BriefLoading();
+   @override
+-  Widget build(BuildContext context) => const Card(child: Padding(
+-    padding: EdgeInsets.all(24),
+-    child: Row(children: [
+-      SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+-      SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+-        children: [Text('Chargement du dressing…', style: TextStyle(fontWeight: FontWeight.w800)),
+-          SizedBox(height: 4), Text('La page est prête, la tenue arrive dans un instant.')]))
+-    ]),
+-  ));
++  Widget build(BuildContext context) => const ContentState.loading(
++    title: 'Préparation du Daily Brief',
++    message: 'Le dressing, la météo et la tenue du jour arrivent dans un instant.',
++  );
+ }
+ 
+ class _BriefError extends StatelessWidget {
+   final VoidCallback onRetry;
+   const _BriefError({required this.onRetry});
+   @override
+-  Widget build(BuildContext context) => Card(child: Padding(
+-    padding: const EdgeInsets.all(24),
+-    child: Column(children: [
+-      const Icon(Icons.error_outline, size: 40), const SizedBox(height: 10),
+-      const Text('Impossible de préparer le Daily Brief', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+-      const SizedBox(height: 6), const Text('Le chargement du dressing ou le moteur de tenue a échoué. La météo est signalée séparément.'),
+-      const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Réessayer')),
+-    ]),
+-  ));
++  Widget build(BuildContext context) => ContentState.error(
++    title: 'Impossible de préparer le Daily Brief',
++    message: 'Le dressing ou les propositions n’ont pas pu être chargés. La météo est signalée séparément.',
++    onAction: onRetry,
++  );
+ }
+diff --git a/lib/features/outfits/outfits_screen.dart b/lib/features/outfits/outfits_screen.dart
+index 40cf17109263dd24d39530d1b658b8f40a68a50d..009d388e11f2cfc3a0657281b0ae09859ff603ea 100644
+--- a/lib/features/outfits/outfits_screen.dart
++++ b/lib/features/outfits/outfits_screen.dart
+@@ -1,31 +1,32 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../core/theme/app_theme.dart';
+ import '../../models/outfit.dart';
+ import '../../widgets/garment_image.dart';
+ import '../../widgets/outfit_proposal_card.dart';
++import '../../widgets/content_state.dart';
+ import 'outfit_form_screen.dart';
+ import 'outfits_controller.dart';
+ 
+ class OutfitsScreen extends StatefulWidget {
+   const OutfitsScreen({super.key});
+ 
+   @override
+   State<OutfitsScreen> createState() => _OutfitsScreenState();
+ }
+ 
+ class _OutfitsScreenState extends State<OutfitsScreen> {
+   final controller = OutfitsController();
+ 
+   @override
+   void initState() {
+     super.initState();
+     controller.addListener(_refresh);
+     controller.load();
+   }
+ 
+   void _refresh() {
+     if (mounted) setState(() {});
+   }
+ 
+   @override
+@@ -73,88 +74,91 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
+                   ),
+                   const SizedBox(height: 3),
+                   Text(
+                     '${controller.outfits.length} tenue${controller.outfits.length > 1 ? 's' : ''}',
+                   ),
+                   const SizedBox(height: 12),
+                   FilledButton.icon(
+                     onPressed: controller.generating ? null : controller.generate,
+                     icon: controller.generating
+                         ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                         : const Icon(Icons.auto_awesome),
+                     label: const Text('Générer une tenue'),
+                   ),
+                 ],
+               ),
+             ),
+             Expanded(child: _body()),
+           ],
+         ),
+       ),
+     );
+   }
+ 
+   Widget _body() {
+     if (controller.loading) {
+-      return const Center(child: CircularProgressIndicator());
++      return const Center(child: ContentState.loading(
++        title: 'Chargement des tenues',
++        message: 'Les tenues enregistrées arrivent dans un instant.',
++      ));
+     }
+     if (controller.error != null) {
+-      return Center(
+-        child: FilledButton.icon(
+-          onPressed: controller.load,
+-          icon: const Icon(Icons.refresh),
+-          label: const Text('Réessayer'),
+-        ),
+-      );
++      return Center(child: ContentState.error(
++        title: 'Impossible de charger les tenues',
++        message: 'Les données sont conservées. Vérifie le stockage puis réessaie.',
++        onAction: controller.load,
++      ));
+     }
+     return RefreshIndicator(
+       onRefresh: controller.load,
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 0, 18, 100),
+         children: [
+           if (controller.proposals.isNotEmpty) ...[
+             const Text('Propositions calculées',
+               style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+             const SizedBox(height: 8),
+             ...controller.proposals.map((proposal) => OutfitProposalCard(
+               proposal: proposal,
+               onSave: () async {
+                 await controller.saveProposal(proposal);
+                 if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                   const SnackBar(content: Text('Tenue enregistrée.')));
+               },
+             )),
+             const SizedBox(height: 14),
+           ],
+           const Text(
+             'Toutes les tenues',
+             style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
+           ),
+           const SizedBox(height: 8),
+           if (controller.outfits.isEmpty)
+-            const Padding(padding: EdgeInsets.symmetric(vertical: 32), child: Center(
+-              child: Text('Aucune tenue enregistrée. Générez votre première proposition.')))
++            const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: ContentState.empty(
++              title: 'Aucune tenue enregistrée',
++              message: 'Génère une proposition à partir du dressing ou crée ta première tenue.',
++            ))
+           else ...controller.outfits.map(_outfitCard),
+         ],
+       ),
+     );
+   }
+ 
+   Widget _outfitCard(Outfit outfit) {
+     final garments = controller.garmentsByOutfit[outfit.id] ?? [];
+     return Card(
+       clipBehavior: Clip.antiAlias,
+       margin: const EdgeInsets.only(bottom: 10),
+       child: InkWell(
+         onTap: () => _open(outfit),
+         child: Padding(
+           padding: const EdgeInsets.all(14),
+           child: Row(
+             children: [
+               _ThumbnailGrid(paths: garments.map((g) => g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path).toList()),
+               const SizedBox(width: 14),
+               Expanded(
+                 child: Column(
+                   crossAxisAlignment: CrossAxisAlignment.start,
+                   children: [
+                     Row(
+                       children: [
+diff --git a/lib/widgets/content_state.dart b/lib/widgets/content_state.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e8b23e400129c35d93d77850d52d1cae1b7e87b9
+--- /dev/null
++++ b/lib/widgets/content_state.dart
+@@ -0,0 +1,96 @@
++import 'package:flutter/material.dart';
++
++/// Presentation shared by screens while their content is not yet available.
++///
++/// Keeping these states in one place gives loading, empty and error messages
++/// the same hierarchy and guarantees a useful explanation and action.
++enum ContentStateKind { loading, empty, error, success }
++
++class ContentState extends StatelessWidget {
++  final ContentStateKind kind;
++  final String title;
++  final String message;
++  final String? actionLabel;
++  final VoidCallback? onAction;
++  final Widget? child;
++
++  const ContentState({
++    super.key,
++    required this.kind,
++    required this.title,
++    required this.message,
++    this.actionLabel,
++    this.onAction,
++    this.child,
++  });
++
++  const ContentState.loading({super.key, required this.title, required this.message})
++      : kind = ContentStateKind.loading,
++        actionLabel = null,
++        onAction = null,
++        child = null;
++
++  const ContentState.empty({
++    super.key,
++    required this.title,
++    required this.message,
++    this.actionLabel,
++    this.onAction,
++  })  : kind = ContentStateKind.empty,
++        child = null;
++
++  const ContentState.error({
++    super.key,
++    required this.title,
++    required this.message,
++    this.actionLabel = 'Réessayer',
++    this.onAction,
++  })  : kind = ContentStateKind.error,
++        child = null;
++
++  const ContentState.success({super.key, required this.child})
++      : kind = ContentStateKind.success,
++        title = '',
++        message = '',
++        actionLabel = null,
++        onAction = null;
++
++  @override
++  Widget build(BuildContext context) {
++    if (kind == ContentStateKind.success) return child!;
++    final isLoading = kind == ContentStateKind.loading;
++    final icon = kind == ContentStateKind.error
++        ? Icons.error_outline
++        : Icons.inbox_outlined;
++    return Semantics(
++      liveRegion: true,
++      label: '$title. $message',
++      child: Card(
++        child: Padding(
++          padding: const EdgeInsets.all(24),
++          child: Column(mainAxisSize: MainAxisSize.min, children: [
++            if (isLoading)
++              const SizedBox.square(
++                dimension: 32,
++                child: CircularProgressIndicator(strokeWidth: 3),
++              )
++            else
++              Icon(icon, size: 42),
++            const SizedBox(height: 12),
++            Text(title,
++                textAlign: TextAlign.center,
++                style: Theme.of(context).textTheme.titleLarge?.copyWith(
++                      fontWeight: FontWeight.w900,
++                    )),
++            const SizedBox(height: 7),
++            Text(message, textAlign: TextAlign.center),
++            if (onAction != null && actionLabel != null) ...[
++              const SizedBox(height: 16),
++              FilledButton(onPressed: onAction, child: Text(actionLabel!)),
++            ],
++          ]),
++        ),
++      ),
++    );
++  }
++}
+diff --git a/lib/widgets/outfit_proposal_card.dart b/lib/widgets/outfit_proposal_card.dart
+index 7f3f6d4cbd605c49fcbe7b52f88aa043d9a78312..81501abeffcc741ce38807460e95ee7df7120e2d 100644
+--- a/lib/widgets/outfit_proposal_card.dart
++++ b/lib/widgets/outfit_proposal_card.dart
+@@ -1,65 +1,69 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../core/outfit_generation/outfit_generation_engine.dart';
+ import 'garment_image.dart';
+ 
+ /// Canonical presentation of a generated outfit, shared by every feature.
+ class OutfitProposalCard extends StatelessWidget {
+   final OutfitGenerationProposal proposal;
+   final VoidCallback? onSave;
+   final VoidCallback? onSelect;
+ 
+   const OutfitProposalCard({super.key, required this.proposal, this.onSave, this.onSelect});
+ 
+   @override
+   Widget build(BuildContext context) {
+     final garments = proposal.outfit.allGarments;
+     return Card(
+       child: Padding(
+         padding: const EdgeInsets.all(14),
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+-          SizedBox(height: 88, child: ListView.separated(
++          Semantics(label: 'Photos des ${garments.length} pièces', child: SizedBox(height: 88, child: ListView.separated(
+             scrollDirection: Axis.horizontal,
+             itemCount: garments.length,
+             separatorBuilder: (_, __) => const SizedBox(width: 8),
+-            itemBuilder: (_, index) => SizedBox(width: 88, child: GarmentImage(
++            itemBuilder: (_, index) => Semantics(label: garments[index].name,
++              child: SizedBox(width: 88, child: GarmentImage(
+               imagePath: garments[index].effectivePhotos.firstOrNull?.path,
+               borderRadius: BorderRadius.circular(8),
+-            )),
+-          )),
++            ))),
++          ))),
+           const SizedBox(height: 10),
+           Row(children: [
+-            Expanded(child: Text(proposal.outfit.name,
++            Expanded(child: Text(proposal.outfit.name, maxLines: 2,
++              overflow: TextOverflow.ellipsis,
+               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
++            const SizedBox(width: 8),
+             Text('${(proposal.score * 100).round()} %'),
+           ]),
+           const SizedBox(height: 6),
+           ...garments.map((item) => Padding(
+             padding: const EdgeInsets.only(bottom: 3),
+-            child: Text('${item.name} · ${item.category}'),
++            child: Text('${item.name} · ${item.category}', maxLines: 2,
++              overflow: TextOverflow.ellipsis),
+           )),
+           if (proposal.reasons.isNotEmpty) ...[
+             const SizedBox(height: 8),
+             const Text('Pourquoi cette tenue', style: TextStyle(fontWeight: FontWeight.w800)),
+             ...proposal.reasons.map((reason) => Text('• $reason')),
+           ],
+           if (proposal.respectedConstraints.isNotEmpty) ...[
+             const SizedBox(height: 8),
+             const Text('Contraintes respectées', style: TextStyle(fontWeight: FontWeight.w800)),
+             Wrap(spacing: 6, runSpacing: 2, children: proposal.respectedConstraints
+               .map((constraint) => Chip(label: Text(constraint), visualDensity: VisualDensity.compact))
+               .toList()),
+           ],
+           if (onSave != null || onSelect != null) ...[
+             const SizedBox(height: 10),
+-            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
++            Wrap(alignment: WrapAlignment.end, spacing: 8, runSpacing: 8, children: [
+               if (onSelect != null) TextButton(onPressed: onSelect, child: const Text('Choisir')),
+               if (onSave != null) FilledButton.icon(onPressed: onSave,
+                 icon: const Icon(Icons.bookmark_add_outlined), label: const Text('Enregistrer')),
+             ]),
+           ],
+         ]),
+       ),
+     );
+   }
+ }
+diff --git a/test/widgets/content_state_test.dart b/test/widgets/content_state_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..1d2e09e10d362ad86ca89b57bbf77a16ed1f1c78
+--- /dev/null
++++ b/test/widgets/content_state_test.dart
+@@ -0,0 +1,34 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/widgets/content_state.dart';
++
++void main() {
++  testWidgets('présente un chargement explicite et accessible', (tester) async {
++    await tester.pumpWidget(const MaterialApp(home: Scaffold(
++      body: ContentState.loading(title: 'Chargement', message: 'Patiente un instant.'),
++    )));
++    expect(find.byType(CircularProgressIndicator), findsOneWidget);
++    expect(find.text('Chargement'), findsOneWidget);
++    expect(find.text('Patiente un instant.'), findsOneWidget);
++  });
++
++  testWidgets('présente une erreur avec une action', (tester) async {
++    var retried = false;
++    await tester.pumpWidget(MaterialApp(home: Scaffold(body: ContentState.error(
++      title: 'Échec', message: 'Une cause compréhensible.', onAction: () => retried = true,
++    ))));
++    await tester.tap(find.text('Réessayer'));
++    expect(retried, isTrue);
++  });
++
++  testWidgets('supporte une grande taille de texte sur écran étroit', (tester) async {
++    await tester.pumpWidget(const MaterialApp(home: MediaQuery(
++      data: MediaQueryData(size: Size(320, 640), textScaler: TextScaler.linear(2)),
++      child: Scaffold(body: SingleChildScrollView(child: ContentState.empty(
++        title: 'Aucun contenu disponible',
++        message: 'Ajoute un premier élément pour commencer.',
++      ))),
++    )));
++    expect(tester.takeException(), isNull);
++  });
++}
+diff --git a/test/widgets/outfit_proposal_card_test.dart b/test/widgets/outfit_proposal_card_test.dart
+index db8ceb1c5e9ea8a777fbc62cba087c4fca95e7f7..ab4dca31688042c64c065990788b3433d54b7246 100644
+--- a/test/widgets/outfit_proposal_card_test.dart
++++ b/test/widgets/outfit_proposal_card_test.dart
+@@ -17,26 +17,54 @@ void main() {
+     );
+     final proposal = OutfitGenerationProposal(
+       outfit: Outfit(
+         id: 'proposal',
+         name: 'Tenue recommandée',
+         createdAt: now,
+         updatedAt: now,
+         garments: {OutfitCategory.top: [garment]},
+       ),
+       score: .87,
+       reasons: const ['Couleurs et styles harmonieux.'],
+       respectedConstraints: const ['Style souhaité'],
+     );
+ 
+     await tester.pumpWidget(MaterialApp(
+       home: Scaffold(body: OutfitProposalCard(proposal: proposal, onSave: () {})),
+     ));
+ 
+     expect(find.text('Tenue recommandée'), findsOneWidget);
+     expect(find.text('Chemise bleue · Hauts'), findsOneWidget);
+     expect(find.text('87 %'), findsOneWidget);
+     expect(find.text('• Couleurs et styles harmonieux.'), findsOneWidget);
+     expect(find.text('Style souhaité'), findsOneWidget);
+     expect(find.text('Enregistrer'), findsOneWidget);
+   });
++
++  testWidgets('reste lisible avec un titre long et une grande taille de texte', (tester) async {
++    final now = DateTime(2026, 8, 4);
++    final garments = List.generate(8, (index) => Garment(
++      id: 'item-$index',
++      name: 'Pièce numéro $index au nom volontairement très long',
++      category: 'Accessoires',
++      createdAt: now,
++      updatedAt: now,
++    ));
++    final proposal = OutfitGenerationProposal(
++      outfit: Outfit(id: 'long', name: 'Une tenue au titre extrêmement long qui doit rester lisible',
++        createdAt: now, updatedAt: now,
++        garments: {OutfitCategory.accessory: garments}),
++      score: .75,
++      reasons: const ['Adaptée à la demande.'],
++    );
++
++    await tester.pumpWidget(MaterialApp(
++      home: MediaQuery(data: const MediaQueryData(size: Size(320, 800), textScaler: TextScaler.linear(2)),
++        child: Scaffold(body: SingleChildScrollView(child: OutfitProposalCard(
++          proposal: proposal, onSave: () {}, onSelect: () {})))),
++    ));
++
++    expect(tester.takeException(), isNull);
++    expect(find.text('Enregistrer'), findsOneWidget);
++    expect(find.text('Choisir'), findsOneWidget);
++  });
+ }
