@@ -318,7 +318,7 @@ class _BackupSettings extends StatelessWidget {
                     : ContentState(kind: ContentStateKind.success, title: '', message: '',
                         child: Semantics(liveRegion: true, child: Card(child: ListTile(
                           leading: const Icon(Icons.check_circle_outline), title: const Text('Opération terminée'),
-                          subtitle: Text(controller.result!)))),
+                          subtitle: Text(controller.result!))))),
                 ],
               ],
             ),

@@ -1,0 +1,57 @@
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index c73e8f113bb044b7132d014955d76887a3dfa9ae..d130fcc1e81586dddfdebde8cf9db892c8f7aee7 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -296,51 +296,51 @@ class _BackupSettings extends StatelessWidget {
+                         'Vêtements : ${controller.lastBackup!.garmentCount}\n'
+                         'Photos : ${controller.lastBackup!.photoCount}\n'
+                         'Emplacement : ${controller.lastLocation}',
+                 ),
+                 const SizedBox(height: 12),
+                 FilledButton.icon(
+                   onPressed: controller.busy ? null : controller.createBackup,
+                   icon: const Icon(Icons.save_alt),
+                   label: const Text('Créer une sauvegarde'),
+                 ),
+                 OutlinedButton.icon(
+                   onPressed:
+                       controller.busy ? null : () => _confirmRestore(context),
+                   icon: const Icon(Icons.settings_backup_restore),
+                   label: const Text('Restaurer une sauvegarde'),
+                 ),
+                 if (controller.busy) const ContentState.loading(
+                   title: 'Opération en cours', message: 'Lecture et vérification des données de sauvegarde…'),
+                 if (controller.result != null) ...[
+                   const SizedBox(height: 8),
+                   controller.result!.startsWith('Échec')
+                     ? ContentState.error(title: 'Opération impossible', message: controller.result!, actionLabel: null)
+                     : ContentState(kind: ContentStateKind.success, title: '', message: '',
+                         child: Semantics(liveRegion: true, child: Card(child: ListTile(
+                           leading: const Icon(Icons.check_circle_outline), title: const Text('Opération terminée'),
+-                          subtitle: Text(controller.result!)))),
++                          subtitle: Text(controller.result!))))),
+                 ],
+               ],
+             ),
+           ),
+         ),
+   );
+ }
+ 
+ class _WardrobeGptSettings extends StatefulWidget {
+   final AiSettingsController controller;
+ 
+   const _WardrobeGptSettings({required this.controller});
+ 
+   @override
+   State<_WardrobeGptSettings> createState() => _WardrobeGptSettingsState();
+ }
+ 
+ class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
+   final _apiKeyController = TextEditingController();
+   bool _obscureKey = true;
+ 
+   @override
+   void dispose() {
+     _apiKeyController.dispose();
+     super.dispose();
