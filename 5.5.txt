@@ -1,0 +1,413 @@
+diff --git a/lib/features/scanner/ai/analysis_foundations.dart b/lib/features/scanner/ai/analysis_foundations.dart
+index 48b4eecda16f1b608ee95326e170db0b062294bd..2217304909154dc50cdf0de762f0d06b272df18b 100644
+--- a/lib/features/scanner/ai/analysis_foundations.dart
++++ b/lib/features/scanner/ai/analysis_foundations.dart
+@@ -1,38 +1,44 @@
+ import 'dart:convert';
+ 
+ /// Persisted input/output pair used by a future comparison UI.
+ class GarmentAnalysisSnapshot {
+   final String version;
++  final String pipelineVersion;
+   final DateTime analyzedAt;
++  final String reanalysisType;
++  final List<String> photoIds;
+   final Map<String, Object?> values;
+ 
+-  const GarmentAnalysisSnapshot({required this.version, required this.analyzedAt, required this.values});
+-  Map<String, Object?> toJson() => {'version': version, 'analyzedAt': analyzedAt.toIso8601String(), 'values': values};
++  const GarmentAnalysisSnapshot({required this.version, this.pipelineVersion = 'legacy', required this.analyzedAt, this.reanalysisType = 'complete', this.photoIds = const [], required this.values});
++  Map<String, Object?> toJson() => {'version': version, 'pipelineVersion': pipelineVersion, 'analyzedAt': analyzedAt.toIso8601String(), 'reanalysisType': reanalysisType, 'photoIds': photoIds, 'values': values};
+   factory GarmentAnalysisSnapshot.fromJson(Map<String, Object?> json) => GarmentAnalysisSnapshot(
+     version: json['version']?.toString() ?? 'legacy',
++    pipelineVersion: json['pipelineVersion']?.toString() ?? 'legacy',
+     analyzedAt: DateTime.tryParse(json['analyzedAt']?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
++    reanalysisType: json['reanalysisType']?.toString() ?? 'complete',
++    photoIds: (json['photoIds'] as List?)?.map((value) => value.toString()).toList() ?? const [],
+     values: (json['values'] as Map?)?.cast<String, Object?>() ?? const {},
+   );
+   static String? encode(GarmentAnalysisSnapshot? value) => value == null ? null : jsonEncode(value.toJson());
+   static GarmentAnalysisSnapshot? decode(Object? value) {
+     if (value is! String || value.isEmpty) return null;
+     try { return GarmentAnalysisSnapshot.fromJson((jsonDecode(value) as Map).cast<String, Object?>()); } catch (_) { return null; }
+   }
+ }
+ 
+ /// Keeps user-owned fields when applying a later AI enrichment.
+ class AnalysisMergePolicy {
+   const AnalysisMergePolicy();
+   Map<String, Object?> merge({required Map<String, Object?> current, required Map<String, Object?> analysis, required Set<String> userModifiedFields}) => {
+     ...current,
+     for (final entry in analysis.entries)
+       if (!userModifiedFields.contains(entry.key)) entry.key: entry.value,
+   };
+ }
+ 
+ /// Headless concurrency primitive for scanner/enrichment flows. A photo or a
+ /// user edit arriving during a slow request is retained for the next merge.
+ class AnalysisSession {
+   final List<String> _photoPaths = [];
+   final Set<String> _userModifiedFields = {};
+   int _revision = 0;
+diff --git a/lib/features/scanner/ai/garment_analysis_request.dart b/lib/features/scanner/ai/garment_analysis_request.dart
+index 3bd72be43eb4889e93d956ddaa5179cc9012021a..2ae04d174c2955532690aec28469405c9b6fe250 100644
+--- a/lib/features/scanner/ai/garment_analysis_request.dart
++++ b/lib/features/scanner/ai/garment_analysis_request.dart
+@@ -1,32 +1,34 @@
+ import 'dart:typed_data';
+ 
+ class GarmentAnalysisRequest {
+   final Uint8List imageBytes;
+   final String mimeType;
+   final String? fileName;
+   final String language;
+   final List<String> allowedCategories;
+   final List<String> allowedColors;
+   final List<String> allowedMaterials;
+   final List<String> allowedSeasons;
+   final Map<String, String> existingValues;
+   final List<Uint8List> previousImageBytes;
+   final Map<String, Object?>? previousAnalysis;
++  final Set<String> requestedFields;
+ 
+   const GarmentAnalysisRequest({
+     required this.imageBytes,
+     required this.mimeType,
+     this.fileName,
+     this.language = 'français',
+     required this.allowedCategories,
+     required this.allowedColors,
+     required this.allowedMaterials,
+     required this.allowedSeasons,
+     this.existingValues = const {},
+     this.previousImageBytes = const [],
+     this.previousAnalysis,
++    this.requestedFields = const {},
+   });
+ 
+   GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType, List<Uint8List>? previousImageBytes}) =>
+-      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes ?? this.previousImageBytes, previousAnalysis: previousAnalysis);
++      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes ?? this.previousImageBytes, previousAnalysis: previousAnalysis, requestedFields: requestedFields);
+ }
+diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+index 43c27d5704adf870df5bd78346f8e3c8cc7ea340..f764a24b058a36f35a9ddf4ffec1834c83676d9b 100644
+--- a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+@@ -161,50 +161,51 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
+           }),
+           {
+             'type': 'input_image',
+             'image_url':
+                 'data:${request.mimeType};base64,${base64Encode(request.imageBytes)}',
+           },
+         ],
+       },
+     ],
+     'text': {
+       'format': {
+         'type': 'json_schema',
+         'name': 'garment_analysis',
+         'strict': true,
+         'schema': _schema,
+       },
+     },
+   };
+ 
+   String _prompt(GarmentAnalysisRequest request) => '''
+ Tu analyses uniquement le vêtement principal visible. Ignore la personne, le
+ visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne.
+ Réponds en ${request.language} et uniquement selon le schéma JSON. N'invente
+ jamais une marque ou une matière : utilise null lorsque ce n'est pas clairement
+ observable. Distingue une photo utilisable, imparfaite et inutilisable. Un léger
++${request.requestedFields.isEmpty ? '' : 'Cette réanalyse est ciblée. Réévalue uniquement ces champs métier : ${jsonEncode(request.requestedFields.toList())}. Conserve les autres valeurs.'}
+ défaut produit un avertissement ; un vêtement minuscule ou plusieurs vêtements
+ principaux indissociables produisent un rejet. N'identifie personne, ne déduis
+ ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
+ l'étiquette reste prioritaire. Pour une étiquette, retranscris d'abord le texte
+ par OCR. Ne déduis jamais une composition depuis l'apparence et ne demande une
+ photo plus nette que si le texte est réellement illisible. Baisse la confiance si texture, couleur ou logo
+ sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
+ Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
+ Combine toutes les images : une nouvelle photo complète l'analyse précédente et
+ ne la remplace jamais. Réévalue chaque champ et sa confiance. La plupart des
+ pièces doivent être finalisées avec une seule photo. Mets needsMorePhotos à true
+ uniquement si une photo ciblée peut améliorer de façon importante un champ
+ encore incertain. Ne demande qu'une seule photo à la fois, explique précisément
+ pourquoi elle est utile et indique les champs visés. Ne redemande jamais une vue
+ déjà fournie. Sinon mets needsMorePhotos à false et requestedPhoto à null.
+ Adapte la demande au vêtement : semelle, intérieur ou usure pour des chaussures ;
+ étiquette, col ou poignets pour une chemise ; doublure, fermeture ou rembourrage
+ pour un manteau. Explique toujours le bénéfice concret de la photo.
+ Dans compositions, conserve toutes les fibres et pourcentages lus, séparés en
+ main, lining et padding. Utilise la source ocr pour le texte lu et visual
+ seulement pour une matière directement observable. Ne crée aucune valeur incertaine.
+ « category » est la catégorie générale, choisie uniquement parmi les catégories
+ autorisées ci-dessous. « preciseType » est le type concret et précis observé
+ (par exemple chemise Oxford, blazer croisé, jean droit, pantalon cargo,
+ cardigan, trench ou baskets basses). Utilise null si l'image ne permet pas de
+diff --git a/lib/features/wardrobe/reanalysis/garment_reanalysis_comparison.dart b/lib/features/wardrobe/reanalysis/garment_reanalysis_comparison.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..062ceb5153f73b3db8742eb1e9787c696b26a672
+--- /dev/null
++++ b/lib/features/wardrobe/reanalysis/garment_reanalysis_comparison.dart
+@@ -0,0 +1,31 @@
++import 'package:flutter/material.dart';
++import 'garment_reanalysis_models.dart';
++
++class GarmentReanalysisComparison extends StatefulWidget {
++  final GarmentReanalysisProposal proposal;
++  final Future<void> Function(Set<String> acceptedFields) onApply;
++  const GarmentReanalysisComparison({super.key, required this.proposal, required this.onApply});
++  @override State<GarmentReanalysisComparison> createState() => _GarmentReanalysisComparisonState();
++}
++
++class _GarmentReanalysisComparisonState extends State<GarmentReanalysisComparison> {
++  final Set<String> accepted = {};
++  bool saving = false;
++  @override Widget build(BuildContext context) => Scaffold(
++    appBar: AppBar(title: const Text('Proposition de réanalyse')),
++    body: ListView(padding: const EdgeInsets.all(16), children: [
++      Text('${widget.proposal.changes.length} champ(s) modifié(s)', style: Theme.of(context).textTheme.titleMedium),
++      const SizedBox(height: 12),
++      for (final change in widget.proposal.changes) Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++        Row(children: [Expanded(child: Text(change.field, style: const TextStyle(fontWeight: FontWeight.bold))), if (change.conflict) const Chip(label: Text('Conflit'))]),
++        Text('Ancienne analyse : ${change.oldAnalysis ?? '—'}'), Text('Valeur actuelle : ${change.currentValue ?? '—'}'), Text('Proposition IA : ${change.proposedValue ?? '—'}'),
++        Row(children: [Expanded(child: RadioListTile<bool>(value: false, groupValue: accepted.contains(change.field), onChanged: (value) => setState(() => accepted.remove(change.field)), title: const Text('Conserver ma valeur'))), Expanded(child: RadioListTile<bool>(value: true, groupValue: accepted.contains(change.field), onChanged: (value) => setState(() => accepted.add(change.field)), title: const Text('Accepter l’IA')))]),
++      ]))),
++      Wrap(spacing: 8, children: [
++        OutlinedButton(onPressed: () => setState(accepted.clear), child: const Text('Conserver toutes mes modifications')),
++        FilledButton.tonal(onPressed: () => setState(() { accepted.clear(); accepted.addAll(widget.proposal.nonConflicting.map((c) => c.field)); }), child: const Text('Accepter toutes sans conflit')),
++      ]),
++      const SizedBox(height: 12), FilledButton(onPressed: saving ? null : () async { setState(() => saving = true); try { await widget.onApply(Set.unmodifiable(accepted)); if (mounted) Navigator.pop(context, true); } finally { if (mounted) setState(() => saving = false); } }, child: Text(saving ? 'Enregistrement…' : 'Appliquer la sélection')),
++    ]),
++  );
++}
+diff --git a/lib/features/wardrobe/reanalysis/garment_reanalysis_models.dart b/lib/features/wardrobe/reanalysis/garment_reanalysis_models.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..f1cfc859c0d69a401b614a938de178dc00c5f49b
+--- /dev/null
++++ b/lib/features/wardrobe/reanalysis/garment_reanalysis_models.dart
+@@ -0,0 +1,50 @@
++import '../../../models/garment.dart';
++import '../../../models/garment_photo.dart';
++import '../../scanner/ai/analysis_foundations.dart';
++
++enum GarmentReanalysisType { complete, composition, style, thermal, category }
++
++class GarmentReanalysisVersions {
++  final String aiModel;
++  final String pipeline;
++  final String styleTaxonomy;
++  final String thermalEngine;
++  const GarmentReanalysisVersions({required this.aiModel, required this.pipeline, required this.styleTaxonomy, required this.thermalEngine});
++}
++
++class GarmentReanalysisChange {
++  final String field;
++  final Object? oldAnalysis;
++  final Object? currentValue;
++  final Object? proposedValue;
++  final bool conflict;
++  const GarmentReanalysisChange({required this.field, this.oldAnalysis, this.currentValue, this.proposedValue, required this.conflict});
++}
++
++class GarmentReanalysisProposal {
++  final Garment garment;
++  final GarmentReanalysisType type;
++  final List<GarmentPhoto> photos;
++  final GarmentAnalysisSnapshot snapshot;
++  final List<GarmentReanalysisChange> changes;
++  const GarmentReanalysisProposal({required this.garment, required this.type, required this.photos, required this.snapshot, required this.changes});
++  Iterable<GarmentReanalysisChange> get nonConflicting => changes.where((change) => !change.conflict);
++}
++
++enum ReanalysisStaleReason { legacy, pipeline, model, styleTaxonomy, thermalEngine, photos }
++
++class ReanalysisCandidatePolicy {
++  const ReanalysisCandidatePolicy();
++  Set<ReanalysisStaleReason> reasons(Garment garment, GarmentReanalysisVersions versions) {
++    final snapshot = garment.currentAnalysis;
++    if (snapshot == null || garment.aiAnalysisVersion == null) return {ReanalysisStaleReason.legacy};
++    final reasons = <ReanalysisStaleReason>{};
++    if (snapshot.pipelineVersion != versions.pipeline) reasons.add(ReanalysisStaleReason.pipeline);
++    if (snapshot.version != versions.aiModel) reasons.add(ReanalysisStaleReason.model);
++    if (snapshot.values['_styleTaxonomyVersion'] != versions.styleTaxonomy) reasons.add(ReanalysisStaleReason.styleTaxonomy);
++    if (snapshot.values['_thermalEngineVersion'] != versions.thermalEngine) reasons.add(ReanalysisStaleReason.thermalEngine);
++    final recorded = snapshot.photoIds.toSet();
++    if (garment.effectivePhotos.any((photo) => !recorded.contains(photo.id))) reasons.add(ReanalysisStaleReason.photos);
++    return reasons;
++  }
++}
+diff --git a/lib/features/wardrobe/reanalysis/garment_reanalysis_service.dart b/lib/features/wardrobe/reanalysis/garment_reanalysis_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..926727cb8bc68cc733d8f3c9bf1a8857b0b97898
+--- /dev/null
++++ b/lib/features/wardrobe/reanalysis/garment_reanalysis_service.dart
+@@ -0,0 +1,78 @@
++import 'dart:typed_data';
++
++import '../../../core/ai_context/ai_reanalysis_policy.dart';
++import '../../../models/garment.dart';
++import '../../../models/garment_photo.dart';
++import '../../scanner/ai/analysis_foundations.dart';
++import '../../scanner/ai/garment_analysis_request.dart';
++import '../../scanner/ai/garment_analysis_result.dart';
++import '../../scanner/ai/garment_vision_analyzer.dart';
++import 'garment_reanalysis_models.dart';
++
++abstract interface class GarmentReanalysisRepository {
++  Future<Garment?> findById(String id);
++  Future<List<Garment>> findAll();
++  Future<void> save(Garment garment);
++}
++
++typedef GarmentPhotoLoader = Future<Uint8List> Function(String path);
++
++class GarmentReanalysisService {
++  final GarmentReanalysisRepository repository;
++  final GarmentVisionAnalyzer analyzer;
++  final GarmentPhotoLoader loadPhoto;
++  final GarmentReanalysisVersions versions;
++  final DateTime Function() now;
++  final Set<String> _running = {};
++  const GarmentReanalysisService({required this.repository, required this.analyzer, required this.loadPhoto, required this.versions, this.now = DateTime.now});
++
++  Future<GarmentReanalysisProposal> propose(String garmentId, GarmentReanalysisType type) async {
++    if (!_running.add(garmentId)) throw StateError('Une réanalyse est déjà en cours pour ce vêtement.');
++    try {
++      final garment = await repository.findById(garmentId);
++      if (garment == null) throw StateError('Vêtement introuvable: $garmentId');
++      final photos = garment.effectivePhotos;
++      if (photos.isEmpty) throw StateError('Aucune photo enregistrée.');
++      final bytes = <Uint8List>[];
++      for (final photo in photos) { bytes.add(await loadPhoto(photo.path)); }
++      final current = _values(garment);
++      final result = await analyzer.analyze(GarmentAnalysisRequest(
++        imageBytes: bytes.first, mimeType: _mime(photos.first.path), fileName: photos.first.path,
++        allowedCategories: const [], allowedColors: const [], allowedMaterials: const [], allowedSeasons: Garment.availableSeasons,
++        existingValues: current.map((key, value) => MapEntry(key, value?.toString() ?? '')),
++        previousImageBytes: bytes.skip(1).toList(), previousAnalysis: garment.currentAnalysis?.values,
++        requestedFields: _fields(type),
++      ));
++      final suggested = _restrict(_resultValues(result), type);
++      final baseline = garment.currentAnalysis?.values ?? current;
++      final decision = const AiReanalysisPolicy().compare(baseline: baseline, current: current, suggested: suggested);
++      final changes = <GarmentReanalysisChange>[];
++      for (final entry in suggested.entries) {
++        if (entry.value == current[entry.key]) continue;
++        changes.add(GarmentReanalysisChange(field: entry.key, oldAnalysis: baseline[entry.key], currentValue: current[entry.key], proposedValue: entry.value, conflict: decision.protectedUserValues.containsKey(entry.key) || garment.userModifiedFields.contains(entry.key)));
++      }
++      final at = now();
++      return GarmentReanalysisProposal(garment: garment, type: type, photos: photos, changes: changes, snapshot: GarmentAnalysisSnapshot(
++        version: versions.aiModel, pipelineVersion: versions.pipeline, analyzedAt: at, reanalysisType: type.name,
++        photoIds: photos.map((photo) => photo.id).toList(), values: {...current, ...suggested, '_styleTaxonomyVersion': versions.styleTaxonomy, '_thermalEngineVersion': versions.thermalEngine},
++      ));
++    } finally { _running.remove(garmentId); }
++  }
++
++  Future<void> apply(GarmentReanalysisProposal proposal, Set<String> acceptedFields) async {
++    final latest = await repository.findById(proposal.garment.id);
++    if (latest == null) throw StateError('Vêtement supprimé pendant la réanalyse.');
++    final latestValues = _values(latest);
++    final allowed = proposal.changes.where((c) => acceptedFields.contains(c.field) && latestValues[c.field] == c.currentValue).map((c) => c.field).toSet();
++    var updated = latest;
++    for (final change in proposal.changes.where((c) => allowed.contains(c.field))) { updated = _applyField(updated, change.field, change.proposedValue); }
++    await repository.save(updated.copyWith(previousAnalysis: latest.currentAnalysis, currentAnalysis: proposal.snapshot, aiAnalysisVersion: versions.aiModel, lastAnalyzedAt: proposal.snapshot.analyzedAt, updatedAt: now()));
++  }
++
++  Map<String, Object?> _values(Garment g) => {'name': g.name, 'category': g.category, 'sousCategorie': g.sousCategorie, 'material': g.material, 'composition': g.composition, 'style': g.style, 'season': g.season, 'temperatureMinimum': g.temperatureMinimum, 'temperatureMaximum': g.temperatureMaximum};
++  Map<String, Object?> _resultValues(GarmentAnalysisResult r) => {'name': r.suggestedName, 'category': r.category, 'sousCategorie': r.preciseType, 'material': r.material, 'style': r.styleSummary, 'season': r.season}..removeWhere((_, value) => value == null);
++  Map<String, Object?> _restrict(Map<String, Object?> values, GarmentReanalysisType type) { if (type == GarmentReanalysisType.complete) return values; final fields = switch(type) { GarmentReanalysisType.composition => {'material','composition'}, GarmentReanalysisType.style => {'style'}, GarmentReanalysisType.thermal => {'season','temperatureMinimum','temperatureMaximum'}, GarmentReanalysisType.category => {'category','sousCategorie'}, _ => values.keys.toSet() }; return Map.fromEntries(values.entries.where((e) => fields.contains(e.key))); }
++  Set<String> _fields(GarmentReanalysisType type) => _restrict({'name': null, 'category': null, 'sousCategorie': null, 'material': null, 'composition': null, 'style': null, 'season': null, 'temperatureMinimum': null, 'temperatureMaximum': null}, type).keys.toSet();
++  Garment _applyField(Garment g, String field, Object? value) => switch(field) { 'name' => g.copyWith(name: value.toString()), 'category' => g.copyWith(category: value.toString()), 'sousCategorie' => g.copyWith(sousCategorie: value?.toString()), 'material' => g.copyWith(material: value?.toString()), 'composition' => g.copyWith(composition: value?.toString()), 'style' => g.copyWith(style: value?.toString()), 'season' => g.copyWith(season: value?.toString()), 'temperatureMinimum' => g.copyWith(temperatureMinimum: value as double?), 'temperatureMaximum' => g.copyWith(temperatureMaximum: value as double?), _ => g };
++  String _mime(String path) => path.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
++}
+diff --git a/lib/features/wardrobe/reanalysis/wardrobe_reanalysis_service.dart b/lib/features/wardrobe/reanalysis/wardrobe_reanalysis_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..89d9985b43046d9b301e658fd330721fbd931378
+--- /dev/null
++++ b/lib/features/wardrobe/reanalysis/wardrobe_reanalysis_service.dart
+@@ -0,0 +1,44 @@
++import 'garment_reanalysis_models.dart';
++import 'garment_reanalysis_service.dart';
++import '../../../models/garment.dart';
++
++class WardrobeReanalysisEstimate {
++  final int garments;
++  final int aiAnalyses;
++  const WardrobeReanalysisEstimate(this.garments, this.aiAnalyses);
++}
++
++class WardrobeReanalysisSummary {
++  final int total;
++  final List<GarmentReanalysisProposal> proposals;
++  final Map<String, Object> failures;
++  const WardrobeReanalysisSummary({required this.total, required this.proposals, required this.failures});
++}
++
++class WardrobeReanalysisService {
++  final GarmentReanalysisRepository repository;
++  final GarmentReanalysisService reanalysis;
++  final ReanalysisCandidatePolicy candidatePolicy;
++  final GarmentReanalysisVersions versions;
++  const WardrobeReanalysisService({required this.repository, required this.reanalysis, required this.versions, this.candidatePolicy = const ReanalysisCandidatePolicy()});
++
++  Future<WardrobeReanalysisEstimate> estimate({required GarmentReanalysisType type, bool staleOnly = false}) async {
++    final selected = await _selected(staleOnly);
++    return WardrobeReanalysisEstimate(selected.length, selected.length);
++  }
++
++  Future<WardrobeReanalysisSummary> run({required GarmentReanalysisType type, bool staleOnly = false}) async {
++    final selected = await _selected(staleOnly);
++    final proposals = <GarmentReanalysisProposal>[];
++    final failures = <String, Object>{};
++    for (final garment in selected) {
++      try { proposals.add(await reanalysis.propose(garment.id, type)); } catch (error) { failures[garment.id] = error; }
++    }
++    return WardrobeReanalysisSummary(total: selected.length, proposals: List.unmodifiable(proposals), failures: Map.unmodifiable(failures));
++  }
++
++  Future<List<Garment>> _selected(bool staleOnly) async {
++    final garments = await repository.findAll();
++    return staleOnly ? garments.where((g) => candidatePolicy.reasons(g, versions).isNotEmpty).toList() : garments;
++  }
++}
+diff --git a/test/features/wardrobe/garment_reanalysis_test.dart b/test/features/wardrobe/garment_reanalysis_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..a64845a7f5c81dc3ef1b29ffcca501b7fb429ab1
+--- /dev/null
++++ b/test/features/wardrobe/garment_reanalysis_test.dart
+@@ -0,0 +1,33 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/scanner/ai/analysis_foundations.dart';
++import 'package:wardrobeos/features/wardrobe/reanalysis/garment_reanalysis_models.dart';
++import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/models/garment_photo.dart';
++
++Garment garment({GarmentAnalysisSnapshot? snapshot, String? version, List<GarmentPhoto> photos = const []}) => Garment(
++  id: 'g1', name: 'Pull', category: 'Hauts', photos: photos, aiAnalysisVersion: version,
++  currentAnalysis: snapshot, createdAt: DateTime(2025), updatedAt: DateTime(2025),
++);
++
++void main() {
++  const versions = GarmentReanalysisVersions(aiModel: 'model-2', pipeline: 'pipeline-2', styleTaxonomy: 'styles-2', thermalEngine: 'thermal-2');
++  const policy = ReanalysisCandidatePolicy();
++
++  test('une ancienne fiche sans version est candidate', () {
++    expect(policy.reasons(garment(), versions), {ReanalysisStaleReason.legacy});
++  });
++
++  test('les versions et nouvelles photos invalident uniquement les bons moteurs', () {
++    final photo = GarmentPhoto(id: 'p2', path: '/detail.jpg', type: GarmentPhotoType.detail, createdAt: DateTime(2025));
++    final snapshot = GarmentAnalysisSnapshot(version: 'model-1', pipelineVersion: 'pipeline-1', analyzedAt: DateTime(2025), photoIds: const ['p1'], values: const {'_styleTaxonomyVersion': 'styles-1', '_thermalEngineVersion': 'thermal-1'});
++    expect(policy.reasons(garment(snapshot: snapshot, version: 'model-1', photos: [photo]), versions), containsAll(ReanalysisStaleReason.values.where((reason) => reason != ReanalysisStaleReason.legacy)));
++  });
++
++  test('un snapshot versionné conserve type, pipeline et photos', () {
++    final snapshot = GarmentAnalysisSnapshot(version: 'model-2', pipelineVersion: 'pipeline-2', analyzedAt: DateTime(2025), reanalysisType: 'style', photoIds: const ['main', 'other'], values: const {'style': 'minimaliste'});
++    final restored = GarmentAnalysisSnapshot.fromJson(snapshot.toJson());
++    expect(restored.pipelineVersion, 'pipeline-2');
++    expect(restored.reanalysisType, 'style');
++    expect(restored.photoIds, ['main', 'other']);
++  });
++}

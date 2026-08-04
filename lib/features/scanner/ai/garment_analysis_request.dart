@@ -12,6 +12,7 @@ class GarmentAnalysisRequest {
   final Map<String, String> existingValues;
   final List<Uint8List> previousImageBytes;
   final Map<String, Object?>? previousAnalysis;
+  final Set<String> requestedFields;
 
   const GarmentAnalysisRequest({
     required this.imageBytes,
@@ -25,8 +26,9 @@ class GarmentAnalysisRequest {
     this.existingValues = const {},
     this.previousImageBytes = const [],
     this.previousAnalysis,
+    this.requestedFields = const {},
   });
 
   GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType, List<Uint8List>? previousImageBytes}) =>
-      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes ?? this.previousImageBytes, previousAnalysis: previousAnalysis);
+      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes ?? this.previousImageBytes, previousAnalysis: previousAnalysis, requestedFields: requestedFields);
 }

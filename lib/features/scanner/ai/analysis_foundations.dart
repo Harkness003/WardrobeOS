@@ -3,14 +3,20 @@ import 'dart:convert';
 /// Persisted input/output pair used by a future comparison UI.
 class GarmentAnalysisSnapshot {
   final String version;
+  final String pipelineVersion;
   final DateTime analyzedAt;
+  final String reanalysisType;
+  final List<String> photoIds;
   final Map<String, Object?> values;
 
-  const GarmentAnalysisSnapshot({required this.version, required this.analyzedAt, required this.values});
-  Map<String, Object?> toJson() => {'version': version, 'analyzedAt': analyzedAt.toIso8601String(), 'values': values};
+  const GarmentAnalysisSnapshot({required this.version, this.pipelineVersion = 'legacy', required this.analyzedAt, this.reanalysisType = 'complete', this.photoIds = const [], required this.values});
+  Map<String, Object?> toJson() => {'version': version, 'pipelineVersion': pipelineVersion, 'analyzedAt': analyzedAt.toIso8601String(), 'reanalysisType': reanalysisType, 'photoIds': photoIds, 'values': values};
   factory GarmentAnalysisSnapshot.fromJson(Map<String, Object?> json) => GarmentAnalysisSnapshot(
     version: json['version']?.toString() ?? 'legacy',
+    pipelineVersion: json['pipelineVersion']?.toString() ?? 'legacy',
     analyzedAt: DateTime.tryParse(json['analyzedAt']?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+    reanalysisType: json['reanalysisType']?.toString() ?? 'complete',
+    photoIds: (json['photoIds'] as List?)?.map((value) => value.toString()).toList() ?? const [],
     values: (json['values'] as Map?)?.cast<String, Object?>() ?? const {},
   );
   static String? encode(GarmentAnalysisSnapshot? value) => value == null ? null : jsonEncode(value.toJson());

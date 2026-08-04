@@ -183,6 +183,7 @@ visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne
 Réponds en ${request.language} et uniquement selon le schéma JSON. N'invente
 jamais une marque ou une matière : utilise null lorsque ce n'est pas clairement
 observable. Distingue une photo utilisable, imparfaite et inutilisable. Un léger
+${request.requestedFields.isEmpty ? '' : 'Cette réanalyse est ciblée. Réévalue uniquement ces champs métier : ${jsonEncode(request.requestedFields.toList())}. Conserve les autres valeurs.'}
 défaut produit un avertissement ; un vêtement minuscule ou plusieurs vêtements
 principaux indissociables produisent un rejet. N'identifie personne, ne déduis
 ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
