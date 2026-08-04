@@ -229,6 +229,7 @@ class _BackupSettings extends StatelessWidget {
             title: const Text('Confirmer la restauration'),
             content: Text(
               'Date : ${manifest.createdAt.toLocal()}\n'
+              'Fichier : ${controller.pendingPath}\n'
               'Version : ${manifest.appVersion}\n'
               'Schéma : ${manifest.schemaVersion}\n\n'
               'Contenu :\n${content.isEmpty ? 'Aucune donnée' : content}\n\n'

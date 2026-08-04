@@ -53,14 +53,27 @@ class GarmentPhoto {
       jsonEncode(photos.map((photo) => photo.toJson()).toList());
 
   static List<GarmentPhoto> decode(Object? value) {
-    if (value is! String || value.isEmpty) return const [];
     try {
-      final decoded = jsonDecode(value);
-      if (decoded is! List) return const [];
-      return List.unmodifiable(decoded.whereType<Map>().map((item) =>
-          GarmentPhoto.fromJson(item.cast<String, Object?>())));
+      return decodeStrict(value);
     } on FormatException {
       return const [];
+    }
+  }
+
+  /// Decodes persisted canonical photos without accepting malformed or legacy
+  /// representations. Backup/restore uses this variant to prevent data loss.
+  static List<GarmentPhoto> decodeStrict(Object? value) {
+    if (value is! String) throw const FormatException('photos must be JSON');
+    if (value.isEmpty) throw const FormatException('photos must not be empty');
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is! List || decoded.any((item) => item is! Map)) {
+        throw const FormatException('photos must be a list of objects');
+      }
+      return List.unmodifiable(decoded.cast<Map>().map((item) =>
+          GarmentPhoto.fromJson(item.cast<String, Object?>())));
+    } on JsonUnsupportedObjectError {
+      throw const FormatException('photos are invalid');
     }
   }
 }

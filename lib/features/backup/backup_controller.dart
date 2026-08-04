@@ -6,9 +6,11 @@ import 'restore_service.dart';
 
 class BackupController extends ChangeNotifier {
   final BackupService backupService; final RestoreService restoreService;
+  final Future<void> Function()? afterRestore;
   bool busy = false; BackupManifest? lastBackup; String? lastLocation; String? result;
   String? pendingPath; BackupArchive? pendingRestore;
-  BackupController({required this.backupService, required this.restoreService});
+  BackupController({required this.backupService, required this.restoreService,
+    this.afterRestore});
 
   static String defaultFileName(DateTime now) {
     String two(int n) => n.toString().padLeft(2, '0');
@@ -30,6 +32,7 @@ class BackupController extends ChangeNotifier {
   }
   Future<void> confirmRestore() async { final archive = pendingRestore; if (archive == null) return;
     await _run(() async { final report = await restoreService.restore(archive);
+      await afterRestore?.call();
       final total = report.restored.values.fold<int>(0, (a, b) => a + b);
       result = '$total éléments restaurés (${report.manifest.garmentCount} vêtements, ${report.manifest.photoCount} photos).'
         '${report.warnings.isEmpty ? '' : ' Avertissements : ${report.warnings.join(' ')}'}'; pendingRestore = null; pendingPath = null; }); }

@@ -10,7 +10,8 @@ class BackupFormatException implements Exception {
 /// Public metadata stored in `manifest.json`, so an archive can be inspected
 /// and confirmed without modifying application data.
 class BackupManifest {
-  static const currentSchemaVersion = 3;
+  static const formatName = 'WardrobeOS Backup';
+  static const currentSchemaVersion = 4;
   final String appVersion;
   final int schemaVersion;
   final DateTime createdAt;
@@ -24,7 +25,7 @@ class BackupManifest {
     required this.content, this.checksums = const {}});
 
   Map<String, Object?> toJson() => {
-    'format': 'WardrobeOS Backup', 'appVersion': appVersion,
+    'format': formatName, 'appVersion': appVersion,
     'schemaVersion': schemaVersion, 'createdAt': createdAt.toUtc().toIso8601String(),
     'garmentCount': garmentCount, 'photoCount': photoCount,
     'content': content, 'checksums': checksums,
@@ -33,7 +34,9 @@ class BackupManifest {
   factory BackupManifest.fromJson(Map<String, Object?> json) {
     final schema = json['schemaVersion'];
     final date = DateTime.tryParse(json['createdAt']?.toString() ?? '');
-    if (json['format'] != 'WardrobeOS Backup' || schema is! int || date == null) {
+    if (json['format'] != formatName || schema is! int || date == null ||
+        json['appVersion'] is! String || json['content'] is! Map ||
+        json['checksums'] is! Map) {
       throw const BackupFormatException('Le manifeste WardrobeOS est invalide.');
     }
     if (schema != currentSchemaVersion) {
@@ -43,11 +46,16 @@ class BackupManifest {
         ? value.map((k, v) => MapEntry(k.toString(), v is int ? v : 0)) : {};
     Map<String, String> hashes(Object? value) => value is Map
         ? value.map((k, v) => MapEntry(k.toString(), v.toString())) : {};
-    return BackupManifest(appVersion: json['appVersion']?.toString() ?? 'inconnue',
+    final content = counts(json['content']);
+    final checksums = hashes(json['checksums']);
+    if (checksums.isEmpty) {
+      throw const BackupFormatException('Le manifeste ne contient aucun contrôle d’intégrité.');
+    }
+    return BackupManifest(appVersion: json['appVersion'] as String,
       schemaVersion: schema, createdAt: date,
       garmentCount: json['garmentCount'] as int? ?? 0,
       photoCount: json['photoCount'] as int? ?? 0,
-      content: counts(json['content']), checksums: hashes(json['checksums']));
+      content: content, checksums: checksums);
   }
 }
 

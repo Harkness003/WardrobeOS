@@ -97,6 +97,14 @@ class _MainShellState extends State<MainShell> {
   late final _backupController = BackupController(
     backupService: BackupService(repository: _backupRepository),
     restoreService: RestoreService(repository: _backupRepository),
+    afterRestore: () async {
+      await Future.wait([
+        _assistantWardrobe.load(),
+        _assistantOutfits.load(),
+        _agendaController.load(),
+      ]);
+      if (mounted) setState(() {});
+    },
   );
   late final _assistantService = AssistantService(
     contextBuilder: AssistantContextBuilder(

@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as p;
 import '../../data/database_service.dart';
+import '../../models/garment_photo.dart';
 import 'backup_file.dart';
 
 abstract interface class BackupRepository {
@@ -27,29 +29,35 @@ class BackupService {
     final photos = <String, List<int>>{};
     final garments = (data['garments'] ?? const []).map((source) => Map<String, Object?>.from(source)).toList();
     for (final garment in garments) {
-      final descriptors = <Map<String, Object?>>[];
-      final rawPhotos = garment['photos'];
-      if (rawPhotos is String) {
-        try {
-          descriptors.addAll((jsonDecode(rawPhotos) as List)
-              .whereType<Map>()
-              .map((item) => item.cast<String, Object?>()));
-        } catch (_) {}
+      final List<GarmentPhoto> garmentPhotos;
+      try {
+        garmentPhotos = GarmentPhoto.decodeStrict(garment['photos']);
+      } on FormatException {
+        throw BackupFormatException('Photos canoniques invalides pour le vêtement ${garment['id']}.');
       }
-      final archivedDescriptors = <Map<String, Object?>>[];
-      for (final descriptor in descriptors) {
-        final path = descriptor['path']?.toString();
-        if (path == null || path.isEmpty) continue;
+      final archivedPhotos = <GarmentPhoto>[];
+      for (final photo in garmentPhotos) {
+        final path = photo.path;
+        if (path.isEmpty) {
+          throw BackupFormatException('Chemin vide pour la photo ${photo.id} du vêtement ${garment['id']}.');
+        }
         try {
           final file = File(path);
-          if (await file.exists()) {
-            final name = 'photos/${garment['id']}_${archivedDescriptors.length}_${file.uri.pathSegments.last}';
-            photos[name] = await file.readAsBytes();
-            archivedDescriptors.add({...descriptor, 'path': name});
+          if (!await file.exists()) {
+            throw BackupFormatException('Photo introuvable : $path.');
           }
-        } on FileSystemException { /* Reported by the photo count difference. */ }
+          final name = 'photos/${garment['id']}/${photo.id}_${p.basename(path)}';
+          if (photos.containsKey(name)) {
+            throw BackupFormatException('Identifiant de photo dupliqué : ${photo.id}.');
+          }
+          photos[name] = await file.readAsBytes();
+          archivedPhotos.add(GarmentPhoto(id: photo.id, path: name, type: photo.type,
+            createdAt: photo.createdAt, semanticType: photo.semanticType));
+        } on FileSystemException catch (error) {
+          throw BackupFormatException('Photo illisible : $path (${error.message}).');
+        }
       }
-      garment['photos'] = jsonEncode(archivedDescriptors);
+      garment['photos'] = GarmentPhoto.encode(archivedPhotos);
     }
     data['garments'] = garments;
     final counts = {for (final entry in data.entries) entry.key: entry.value.length};
