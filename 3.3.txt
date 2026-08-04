@@ -1,0 +1,906 @@
+diff --git a/lib/core/ai_context/ai_context.dart b/lib/core/ai_context/ai_context.dart
+index 5c9aeca9d40627be9a7f452297588f3013d6ec89..12ff515aa7db226d94051a2d45a925b6837bbb4a 100644
+--- a/lib/core/ai_context/ai_context.dart
++++ b/lib/core/ai_context/ai_context.dart
+@@ -22,59 +22,61 @@ class AiContextValue<T> {
+ /// AI payloads but remains an internal implementation detail in the UI.
+ class AiGarmentContext {
+   final String id;
+   final Map<String, AiContextValue<Object>> fields;
+ 
+   AiGarmentContext._({required this.id, required Map<String, AiContextValue<Object>> fields})
+       : fields = Map.unmodifiable(fields);
+ 
+   factory AiGarmentContext.fromGarment(Garment garment) {
+     final values = <String, AiContextValue<Object>>{};
+     void add(String key, Object? value, AiDataSource source) {
+       if (value == null || value == '' || value is List && value.isEmpty) return;
+       values[key] = AiContextValue<Object>(value, source);
+     }
+ 
+     // Editable form values are authoritative user data, even when initially
+     // suggested by AI: once the user saves the sheet, later analysis must not
+     // silently replace them.
+     add('name', garment.name, AiDataSource.user);
+     add('category', garment.category, AiDataSource.user);
+     add('subcategory', garment.sousCategorie, AiDataSource.user);
+     add('color', garment.couleurPrincipale ?? garment.color, AiDataSource.user);
+     add('secondaryColors', garment.couleursSecondaires, AiDataSource.aiAnalysis);
+     add('material', garment.matierePrincipale ?? garment.material, AiDataSource.user);
+     add('secondaryMaterials', garment.matieresSecondaires, AiDataSource.aiAnalysis);
+-    add('style', garment.stylePrincipal ?? garment.style, AiDataSource.user);
+-    add('secondaryStyles', garment.stylesSecondaires, AiDataSource.user);
++    final style = garment.effectiveStyleAnalysis;
++    final thermal = garment.effectiveThermalProfile;
++    add('styleRegister', style.register,
++        style.userRegister != null ? AiDataSource.user : AiDataSource.aiAnalysis);
++    add('secondaryStyles', style.secondaryStyles,
++        style.userSecondaryStyles != null ? AiDataSource.user : AiDataSource.aiAnalysis);
++    add('styleCharacteristics', style.characteristics,
++        style.userCharacteristics != null ? AiDataSource.user : AiDataSource.aiAnalysis);
+     add('seasons', garment.effectiveSeasons, AiDataSource.user);
+     add('occasions', garment.effectiveOccasions, AiDataSource.user);
+-    add('temperatureMinimum', garment.temperatureMinimum, AiDataSource.calculated);
+-    add('temperatureMaximum', garment.temperatureMaximum, AiDataSource.calculated);
+-    add('rainCompatible', garment.compatiblePluie, AiDataSource.calculated);
+-    add('heatCompatible', garment.compatibleChaleur, AiDataSource.calculated);
+-    add('layerType', garment.layerType, AiDataSource.calculated);
++    add('thermalProfile', thermal.toJson(), AiDataSource.calculated);
+     add('description', garment.descriptionIA, AiDataSource.aiAnalysis);
+     add('wearCount', garment.wearCount, AiDataSource.calculated);
+     add('lastWorn', garment.lastWorn?.toIso8601String(), AiDataSource.calculated);
+     return AiGarmentContext._(id: garment.id, fields: values);
+   }
+ 
+   Map<String, Object?> toMap() => {
+     'id': id,
+     'fields': fields.map((key, value) => MapEntry(key, value.toMap())),
+   };
+ }
+ 
+ /// A fresh snapshot shared by all intelligent features.
+ class WardrobeAiContext {
+   final DateTime generatedAt;
+   final List<Garment> garments;
+   final List<AiGarmentContext> aiGarments;
+   final PersonalizationSnapshot? personalization;
+ 
+   WardrobeAiContext({
+     required this.generatedAt,
+     required List<Garment> garments,
+     required this.personalization,
+   })  : garments = List.unmodifiable(garments),
+         aiGarments = List.unmodifiable(garments.map(AiGarmentContext.fromGarment));
+diff --git a/lib/core/outfit/outfit_engine.dart b/lib/core/outfit/outfit_engine.dart
+index 328b9c4489d1f293bfc141b47c2db8ad8680ba59..87911529b81a0d50920b6ffc78ba3200514be921 100644
+--- a/lib/core/outfit/outfit_engine.dart
++++ b/lib/core/outfit/outfit_engine.dart
+@@ -147,46 +147,47 @@ class OutfitEngine {
+       overallConfidence: OutfitCriterionScore(value: confidence.clamp(0, 1).toDouble(), explanation: 'Moyenne des confiances issues de l’analyse des vêtements.'),
+     );
+   }
+ 
+   List<String> explainOutfit(Outfit outfit, {OutfitScore? score}) {
+     final result = score ?? outfit.score ?? scoreOutfit(outfit);
+     return List.unmodifiable([
+       if (result.styleCoherence.value >= .6) 'Les couleurs et les styles sont harmonieux.',
+       if (result.formality.value >= .6) 'Les niveaux de formalité sont cohérents.',
+       if (result.temperatureSuitability.value >= .6) 'La température prévue est adaptée.',
+       if (result.weatherSuitability.value < .6) 'Certains éléments sont moins adaptés à la météo prévue.',
+     ]);
+   }
+ 
+   OutfitValidation validateOutfit(Outfit outfit) {
+     final issues = <String>[];
+     if (outfit.allGarments.isEmpty) issues.add('La tenue ne contient aucun vêtement.');
+     if (outfit.itemsFor(OutfitCategory.top).isEmpty &&
+         outfit.itemsFor(OutfitCategory.otherLayer).isEmpty) {
+       issues.add('La tenue ne contient ni haut ni autre couche.');
+     }
+     return OutfitValidation(isValid: issues.isEmpty, issues: issues);
+   }
+ 
+   static OutfitCategory categoryFor(Garment garment) {
+-    final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.layerType ?? ''}'.toLowerCase();
++    final value = '${garment.category} ${garment.sousCategorie ?? ''} '
++        '${garment.effectiveThermalProfile.primaryRole.name}'.toLowerCase();
+     if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) return OutfitCategory.shoes;
+     if (value.contains('pantal') || value.contains('jupe') || value.contains('short') || value.contains('bas')) return OutfitCategory.bottom;
+     if (value.contains('manteau') || value.contains('parka')) return OutfitCategory.coat;
+     if (value.contains('veste') || value.contains('blazer')) return OutfitCategory.jacket;
+     if (value.contains('sac')) return OutfitCategory.bag;
+     if (value.contains('bijou') || value.contains('collier') || value.contains('bracelet')) return OutfitCategory.jewelry;
+     if (value.contains('access')) return OutfitCategory.accessory;
+     if (value.contains('haut') || value.contains('chemise') || value.contains('pull') || value.contains('t-shirt')) return OutfitCategory.top;
+     return OutfitCategory.otherLayer;
+   }
+ 
+   static Map<OutfitCategory, List<Garment>> _freeze(Map<OutfitCategory, List<Garment>> source) =>
+       Map.unmodifiable(source.map((key, value) => MapEntry(key, List.unmodifiable(value))));
+ 
+   static String _label(OutfitCategory category) => category.name;
+ }
+ 
+ extension<T> on Iterable<T> {
+   T? get firstOrNull => isEmpty ? null : first;
+ }
+diff --git a/lib/core/recommendation/recommendation_context.dart b/lib/core/recommendation/recommendation_context.dart
+index f668095d9932a244695ca4b03d1934d188813190..d3869b3a233de61e168ad73ebd5feda8ab2795d1 100644
+--- a/lib/core/recommendation/recommendation_context.dart
++++ b/lib/core/recommendation/recommendation_context.dart
+@@ -1,34 +1,36 @@
+ class RecommendationWeather {
+   final double? temperature;
+   final bool? isRaining;
+   final String? condition;
++  final double? windSpeed;
+ 
+   const RecommendationWeather({
+     this.temperature,
+     this.isRaining,
+     this.condition,
++    this.windSpeed,
+   });
+ }
+ 
+ /// Contexte indépendant de toute interface, extensible par [metadata] pour les
+ /// futurs agenda, voyage, packing list, achats et notifications.
+ class RecommendationContext {
+   final String? season;
+   final String? occasion;
+   final String? desiredStyle;
+   final RecommendationWeather? weather;
+   final bool isTravel;
+   final Map<String, Object?> metadata;
+ 
+   const RecommendationContext({
+     this.season,
+     this.occasion,
+     this.desiredStyle,
+     this.weather,
+     this.isTravel = false,
+     this.metadata = const {},
+   });
+ }
+ 
+ class RecommendationPreferences {
+   final Set<String> preferredStyles;
+diff --git a/lib/core/recommendation/recommendation_engine.dart b/lib/core/recommendation/recommendation_engine.dart
+index 02167dd8afd6511a29935ea96382dca15bf2390a..11d81103588786b9743a46e999e6e4b126b35d96 100644
+--- a/lib/core/recommendation/recommendation_engine.dart
++++ b/lib/core/recommendation/recommendation_engine.dart
+@@ -1,26 +1,27 @@
+ import '../../models/garment.dart';
++import '../../models/thermal_profile.dart';
+ import 'recommendation_context.dart';
+ import 'recommendation_result.dart';
+ import 'recommendation_rotation_policy.dart';
+ import 'recommendation_weights.dart';
+ 
+ class RecommendationEngine {
+   final RecommendationWeights weights;
+   final RecommendationRotationPolicy rotationPolicy;
+ 
+   const RecommendationEngine({
+     this.weights = const RecommendationWeights(),
+     this.rotationPolicy = const NoRecommendationRotation(),
+   });
+ 
+   RecommendationResult recommend({
+     required Iterable<Garment> wardrobe,
+     Garment? anchor,
+     RecommendationContext context = const RecommendationContext(),
+     RecommendationPreferences preferences = const RecommendationPreferences(),
+     Iterable<GarmentRecommendationCorrection> corrections = const [],
+     int alternativeCount = 3,
+   }) {
+     assert(alternativeCount >= 0);
+     final correctionById = {
+       for (final correction in corrections) correction.garmentId: correction,
+@@ -45,184 +46,214 @@ class RecommendationEngine {
+             ? scoreOrder
+             : left.garment.name.compareTo(right.garment.name);
+       });
+     final choices = ranked.take(alternativeCount + 1).toList();
+     return RecommendationResult(
+       choices: choices,
+       explanation: choices.isEmpty
+           ? 'Aucun vêtement disponible ne permet de formuler une recommandation.'
+           : 'Les choix sont classés selon leur compatibilité stylistique et le contexte disponible.',
+     );
+   }
+ 
+   RankedGarmentRecommendation _evaluate(
+     Garment garment, {
+     required Garment? anchor,
+     required RecommendationContext context,
+     required RecommendationPreferences preferences,
+     required GarmentRecommendationCorrection? correction,
+     required GarmentRecommendationCorrection? anchorCorrection,
+   }) {
+     final candidate = _Profile(garment, correction);
+     final base = anchor == null ? null : _Profile(anchor, anchorCorrection);
+     final details = <RecommendationCriterionScore>[
+       _detail('style', weights.style, _style(candidate, base, context, preferences)),
+       _detail('formalité', weights.formality, _same(candidate.formality, base?.formality)),
++      // Season remains a low-confidence compatibility fallback for legacy
++      // records; thermal data drives weather decisions.
+       _detail('saison', weights.season, _season(candidate, context)),
+       _detail('température', weights.temperature, _temperature(candidate, context)),
+       _detail('couleurs', weights.color, _color(candidate, base, preferences)),
+       _detail('matières', weights.material, _material(candidate, base, preferences)),
+       _detail('superposition', weights.layering, _layering(candidate, base)),
+       _detail('occasion', weights.occasion, _occasion(candidate, context)),
+     ];
+     final weighted = details.fold<double>(
+       0,
+       (sum, detail) => sum + detail.score * detail.weight,
+     );
+     final raw = weights.total == 0 ? 0 : weighted / weights.total;
+     final adjusted = raw + rotationPolicy.scoreAdjustment(garment, context);
+     final score = (adjusted * 100).round().clamp(0, 100).toInt();
+     return RankedGarmentRecommendation(
+       garment: garment,
+       score: score,
+       explanation: _explain(candidate, base, context, details, score),
+       details: details,
+     );
+   }
+ 
+   RecommendationCriterionScore _detail(String name, double weight, double score) =>
+       RecommendationCriterionScore(criterion: name, score: score, weight: weight);
+ 
+   double _style(_Profile item, _Profile? anchor, RecommendationContext context,
+       RecommendationPreferences preferences) {
+     final desired = _normalize(context.desiredStyle);
+     if (desired.isNotEmpty) return item.styles.contains(desired) ? 1 : .35;
+     if (anchor != null && item.styles.intersection(anchor.styles).isNotEmpty) return 1;
+     if (item.styles.any(preferences.preferredStyles.map(_normalize).contains)) return .85;
+     return item.styles.isEmpty ? .65 : .55;
+   }
+ 
+   double _same(String? left, String? right) {
+     final a = _normalize(left);
+     final b = _normalize(right);
+     if (a.isEmpty || b.isEmpty) return .65;
+     return a == b ? 1 : .3;
+   }
+ 
+   double _season(_Profile item, RecommendationContext context) {
+     final season = _normalize(context.season);
+     if (season.isEmpty || item.seasons.isEmpty) return .7;
+     return item.seasons.contains(season) ? 1 : .15;
+   }
+ 
+   double _temperature(_Profile item, RecommendationContext context) {
+     final temperature = context.weather?.temperature;
+     if (temperature == null) return .7;
+-    if (item.minimumTemperature != null && temperature < item.minimumTemperature!) {
+-      return (1 - (item.minimumTemperature! - temperature) / 15)
++    final thermal = item.thermal;
++    if (temperature < thermal.standaloneMinC) {
++      return (1 - (thermal.standaloneMinC - temperature) / 15)
+           .clamp(0, 1)
+           .toDouble();
+     }
+-    if (item.maximumTemperature != null && temperature > item.maximumTemperature!) {
+-      return (1 - (temperature - item.maximumTemperature!) / 15)
++    if (temperature > thermal.standaloneMaxC) {
++      return (1 - (temperature - thermal.standaloneMaxC) / 15)
+           .clamp(0, 1)
+           .toDouble();
+     }
+-    if (context.weather?.isRaining == true && item.rainCompatible == false) return .2;
++    if (context.weather?.isRaining == true &&
++        thermal.rainCompatibility == WeatherProtection.none) return .2;
++    if ((context.weather?.windSpeed ?? 0) >= 30 &&
++        thermal.windProtection == WeatherProtection.none) return .35;
++    if (temperature >= 25 && thermal.breathability == BreathabilityLevel.low) return .45;
+     return 1;
+   }
+ 
+   double _color(_Profile item, _Profile? anchor, RecommendationPreferences preferences) {
+     if (preferences.preferredColors.map(_normalize).contains(item.color)) return 1;
+     if (anchor == null || item.color.isEmpty || anchor.color.isEmpty) return .7;
+     if (item.compatibleColors.contains(anchor.color) ||
+         anchor.compatibleColors.contains(item.color)) return 1;
+     if (item.incompatibleColors.contains(anchor.color)) return .15;
+     const neutrals = {'noir', 'blanc', 'gris', 'beige', 'marine', 'bleu marine'};
+     return neutrals.contains(item.color) || neutrals.contains(anchor.color) ? .9 : .6;
+   }
+ 
+   double _material(_Profile item, _Profile? anchor, RecommendationPreferences preferences) {
+     if (preferences.avoidedMaterials.map(_normalize).contains(item.material)) return 0;
+     if (anchor == null || item.material.isEmpty || anchor.material.isEmpty) return .7;
+     return item.material == anchor.material ? .85 : .75;
+   }
+ 
+   double _layering(_Profile item, _Profile? anchor) {
+-    if (anchor == null) return item.layerable == false ? .6 : .8;
+-    if (item.layerType.isEmpty || anchor.layerType.isEmpty) return .65;
+-    if (item.layerType == anchor.layerType) return .35;
+-    return item.layerable == false && anchor.layerable == false ? .35 : 1;
++    if (anchor == null) return .8;
++    final itemThermal = item.thermal;
++    final anchorThermal = anchor.thermal;
++    if (itemThermal.primaryRole == anchorThermal.primaryRole) return .3;
++    final itemOverAnchor = itemThermal.acceptsUnder.contains(anchorThermal.primaryRole) &&
++        anchorThermal.acceptsOver.contains(itemThermal.primaryRole);
++    final anchorOverItem = anchorThermal.acceptsUnder.contains(itemThermal.primaryRole) &&
++        itemThermal.acceptsOver.contains(anchorThermal.primaryRole);
++    return itemOverAnchor || anchorOverItem ? 1 : .4;
+   }
+ 
+   double _occasion(_Profile item, RecommendationContext context) {
+     final occasion = _normalize(context.occasion);
+     if (occasion.isEmpty || item.occasions.isEmpty) return .7;
+     if (item.discouragedOccasions.contains(occasion)) return 0;
+     return item.occasions.contains(occasion) ? 1 : .3;
+   }
+ 
+   String _explain(_Profile item, _Profile? anchor, RecommendationContext context,
+       List<RecommendationCriterionScore> details, int score) {
+     final temperature = context.weather?.temperature;
+-    if (temperature != null && item.maximumTemperature != null &&
+-        temperature > item.maximumTemperature! + 5) {
++    if (temperature != null && temperature > item.thermal.standaloneMaxC + 5) {
+       return '${item.garment.name} est déconseillé car la température prévue dépasse largement sa plage idéale.';
+     }
+-    if (context.weather?.isRaining == true && item.rainCompatible == false) {
++    if (context.weather?.isRaining == true &&
++        item.thermal.rainCompatibility == WeatherProtection.none) {
+       return '${item.garment.name} est peu conseillé sous la pluie car il n’est pas déclaré compatible.';
+     }
+     final best = details.reduce((a, b) => a.score > b.score ? a : b);
+     if (anchor != null && item.styles.intersection(anchor.styles).isNotEmpty) {
+       final style = item.styles.intersection(anchor.styles).first;
+       return '${item.garment.name} fonctionne avec ${anchor.garment.name} : ils partagent le registre ${_label(style)} (score $score %).';
+     }
+     return '${item.garment.name} obtient $score % grâce principalement à sa compatibilité ${best.criterion} avec le contexte disponible.';
+   }
+ 
+   static String _normalize(String? value) => (value ?? '')
+       .trim().toLowerCase()
+       .replaceAll(RegExp(r'[àáâä]'), 'a')
+       .replaceAll(RegExp(r'[éèêë]'), 'e')
+       .replaceAll(RegExp(r'[îï]'), 'i')
+       .replaceAll(RegExp(r'[ôö]'), 'o')
+       .replaceAll(RegExp(r'[ùûü]'), 'u')
+       .replaceAll('ç', 'c');
+ 
+   static String _label(String value) => value
+       .split(' ')
+       .map((word) => word.isEmpty ? word : '${word[0].toUpperCase()}${word.substring(1)}')
+       .join(' ');
+ }
+ 
+ class _Profile {
+   final Garment garment;
+   final GarmentRecommendationCorrection? correction;
+   _Profile(this.garment, this.correction);
+ 
+   Set<String> get styles => {
+     correction?.style,
+-    if (correction?.style == null) garment.stylePrincipal,
+-    if (correction?.style == null) garment.style,
+-    if (correction?.style == null) ...?garment.stylesSecondaires,
++    if (correction?.style == null) garment.effectiveStyleAnalysis.register,
++    if (correction?.style == null) ...garment.effectiveStyleAnalysis.secondaryStyles,
++    if (correction?.style == null) ...garment.effectiveStyleAnalysis.characteristics,
+   }.map(RecommendationEngine._normalize).where((value) => value.isNotEmpty).toSet();
+   String? get formality => correction?.formality ?? garment.niveauFormalite;
+   Set<String> get seasons => (correction?.seasons ?? garment.effectiveSeasons)
+       .map(RecommendationEngine._normalize).toSet();
+   Set<String> get occasions => (correction?.occasions ?? garment.effectiveOccasions)
+       .map(RecommendationEngine._normalize).toSet();
+   String get color => RecommendationEngine._normalize(
+       correction?.color ?? garment.couleurPrincipale ?? garment.color);
+   String get material => RecommendationEngine._normalize(
+       correction?.material ?? garment.matierePrincipale ?? garment.material);
+   Set<String> get compatibleColors => (garment.couleursCompatibles ?? const [])
+       .map(RecommendationEngine._normalize).toSet();
+   Set<String> get incompatibleColors => (garment.couleursMoinsAdaptees ?? const [])
+       .map(RecommendationEngine._normalize).toSet();
+   Set<String> get discouragedOccasions => (garment.occasionsDeconseillees ?? const [])
+       .map(RecommendationEngine._normalize).toSet();
+-  double? get minimumTemperature => correction?.minimumTemperature ?? garment.temperatureMinimum;
+-  double? get maximumTemperature => correction?.maximumTemperature ?? garment.temperatureMaximum;
+-  bool? get rainCompatible => correction?.rainCompatible ?? garment.compatiblePluie;
+-  bool? get layerable => correction?.layerable ?? garment.superposable;
+-  String get layerType => RecommendationEngine._normalize(garment.layerType);
++  ThermalProfile get thermal {
++    final current = garment.effectiveThermalProfile;
++    if (correction?.minimumTemperature == null &&
++        correction?.maximumTemperature == null && correction?.rainCompatible == null) {
++      return current;
++    }
++    final minimum = correction?.minimumTemperature ?? current.standaloneMinC;
++    final requestedMaximum = correction?.maximumTemperature ?? current.standaloneMaxC;
++    return ThermalProfile(
++      standaloneMinC: minimum,
++      standaloneMaxC: requestedMaximum < minimum ? minimum : requestedMaximum,
++      layeredMinC: current.layeredMinC, layeredMaxC: current.layeredMaxC,
++      level: current.level, breathability: current.breathability,
++      windProtection: current.windProtection,
++      rainCompatibility: correction?.rainCompatible == null
++          ? current.rainCompatibility
++          : correction!.rainCompatible! ? WeatherProtection.limited : WeatherProtection.none,
++      primaryRole: current.primaryRole, acceptsUnder: current.acceptsUnder,
++      acceptsOver: current.acceptsOver, inputFingerprint: current.inputFingerprint,
++      calculatedAt: current.calculatedAt, confidence: current.confidence,
++      extensions: current.extensions,
++    );
++  }
+ }
+diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart
+index c1b5df07f6cc477542c52aaf95db4bc7a0e29b2a..bb4c80ea71e456277e6804523ac876ad92e490f9 100644
+--- a/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart
++++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart
+@@ -27,92 +27,94 @@ class WardrobeIntelligenceEngine {
+       categories: categories,
+       colors: colors,
+       seasons: seasons,
+       duplicates: duplicates,
+     );
+     final gaps = rules.map((rule) => rule.evaluate(context)).whereType<WardrobeGap>().toList(growable: false);
+     final underused = _underused(garments);
+     final balance = _balance(garments, categories, colors, seasons, gaps, duplicates);
+     return WardrobeIntelligenceReport(
+       generatedAt: _clock(),
+       garmentCount: garments.length,
+       categories: categories,
+       colors: colors,
+       styles: styles,
+       seasons: seasons,
+       materials: materials,
+       underusedGarments: underused,
+       duplicateGroups: duplicates,
+       gaps: gaps,
+       balance: balance,
+       insights: _insights(garments, styles, seasons, underused, gaps, duplicates),
+     );
+   }
+ 
+   static Iterable<String?> _styles(Garment item) => [
+-    item.stylePrincipal ?? item.style,
+-    ...?item.stylesSecondaires,
++    item.effectiveStyleAnalysis.register,
++    ...item.effectiveStyleAnalysis.secondaryStyles,
++    ...item.effectiveStyleAnalysis.characteristics,
+   ];
+ 
+   static Iterable<String?> _materials(Garment item) => [
+     item.matierePrincipale ?? item.material,
+     ...?item.matieresSecondaires,
+   ];
+ 
+   static WardrobeDistribution _distribution(Iterable<String?> values) {
+     final counts = <String, int>{};
+     var unknown = 0;
+     for (final raw in values) {
+       final value = GarmentNormalizer.value(raw);
+       if (value == null) {
+         unknown++;
+       } else {
+         counts.update(value, (count) => count + 1, ifAbsent: () => 1);
+       }
+     }
+     final sorted = counts.entries.toList()
+       ..sort((a, b) => b.value.compareTo(a.value) != 0
+           ? b.value.compareTo(a.value) : a.key.compareTo(b.key));
+     return WardrobeDistribution(
+       knownCount: counts.values.fold(0, (sum, count) => sum + count),
+       unknownCount: unknown,
+       counts: Map.unmodifiable(Map.fromEntries(sorted)),
+     );
+   }
+ 
+   static List<Garment> _underused(List<Garment> garments) {
+     if (!garments.any((item) => item.wearCount > 0 || item.lastWorn != null)) return const [];
+     final used = garments.where((item) => item.wearCount > 0).map((item) => item.wearCount).toList()..sort();
+     final threshold = used.isEmpty ? 0 : used[(used.length - 1) ~/ 4];
+     return List.unmodifiable(garments.where((item) => item.wearCount <= threshold));
+   }
+ 
+   static List<WardrobeDuplicateGroup> _duplicates(List<Garment> garments) {
+     final groups = <String, List<Garment>>{};
+     for (final item in garments) {
+       final parts = [item.category, item.sousCategorie, item.typePrecis,
+-        item.couleurPrincipale ?? item.color, item.stylePrincipal ?? item.style]
++        item.couleurPrincipale ?? item.color,
++        item.effectiveStyleAnalysis.register]
+           .map(_key).where((value) => value.isNotEmpty).toList();
+       if (parts.length < 3) continue;
+       groups.putIfAbsent(parts.join('|'), () => []).add(item);
+     }
+     return List.unmodifiable(groups.entries
+         .where((entry) => entry.value.length >= 2)
+         .map((entry) => WardrobeDuplicateGroup(
+           role: entry.key.replaceAll('|', ' · '),
+           garments: List.unmodifiable(entry.value),
+         )));
+   }
+ 
+   static WardrobeBalanceScore _balance(
+     List<Garment> garments,
+     WardrobeDistribution categories,
+     WardrobeDistribution colors,
+     WardrobeDistribution seasons,
+     List<WardrobeGap> gaps,
+     List<WardrobeDuplicateGroup> duplicates,
+   ) {
+     if (garments.isEmpty) return const WardrobeBalanceScore(value: 0, components: []);
+     double diversity(WardrobeDistribution value, int target) =>
+         (value.counts.length / target).clamp(0, 1);
+     final components = <WardrobeBalanceComponent>[
+       WardrobeBalanceComponent(code: 'category_diversity', label: 'Diversité des catégories', score: diversity(categories, 6) * 100, weight: .25, explanation: '${categories.counts.length} catégories représentées.'),
+@@ -141,37 +143,41 @@ class WardrobeIntelligenceEngine {
+         code: 'dominant_style', type: WardrobeInsightType.dominant,
+         severity: WardrobeInsightSeverity.info, title: 'Style dominant',
+         message: 'Votre dressing est principalement ${dominant.key}.',
+         evidence: {'style': dominant.key, 'count': dominant.value, 'share': styles.shareOf(dominant.key)},
+       ));
+     }
+     for (final gap in gaps) {
+       result.add(WardrobeInsight(code: gap.code, type: WardrobeInsightType.gap,
+         severity: gap.impact >= .75 ? WardrobeInsightSeverity.warning : WardrobeInsightSeverity.recommendation,
+         title: gap.label, message: gap.explanation, evidence: gap.evidence));
+     }
+     for (final group in duplicates) {
+       result.add(WardrobeInsight(code: 'duplicate_role', type: WardrobeInsightType.duplicate,
+         severity: WardrobeInsightSeverity.recommendation, title: 'Rôle en double',
+         message: '${group.garments.length} pièces remplissent un rôle très similaire.',
+         evidence: {'role': group.role, 'count': group.garments.length},
+         garmentIds: group.garments.map((item) => item.id).toList(growable: false)));
+     }
+     if (underused.isNotEmpty) result.add(WardrobeInsight(
+       code: 'underused_items', type: WardrobeInsightType.usage,
+       severity: WardrobeInsightSeverity.info, title: 'Pièces peu portées',
+       message: '${underused.length} pièce(s) sont peu portées par rapport au dressing.',
+       evidence: {'count': underused.length},
+       garmentIds: underused.map((item) => item.id).toList(growable: false),
+     ));
+-    final hotWeather = garments.where((item) => item.compatibleChaleur == true).length;
++    final hotWeather = garments.where((item) {
++      final thermal = item.effectiveThermalProfile;
++      return thermal.standaloneMaxC >= 25 &&
++          thermal.breathability.name != 'low';
++    }).length;
+     if (garments.length >= 5 && hotWeather / garments.length < .15) result.add(WardrobeInsight(
+       code: 'low_hot_weather_coverage', type: WardrobeInsightType.gap,
+       severity: WardrobeInsightSeverity.recommendation, title: 'Fortes chaleurs',
+       message: 'Vous disposez de peu de vêtements explicitement adaptés aux fortes chaleurs.',
+       evidence: {'count': hotWeather, 'total': garments.length},
+     ));
+     return List.unmodifiable(result);
+   }
+ 
+   static String _key(String? value) => (value ?? '').trim().toLowerCase();
+ }
+diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence_rules.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence_rules.dart
+index dd35f7b181d7f523e4b1ffb5b7dfcf5e1c42af75..27ee705d2a70b5b1ac421cd14d2d8b50d54940cb 100644
+--- a/lib/core/wardrobe_intelligence/wardrobe_intelligence_rules.dart
++++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence_rules.dart
+@@ -1,85 +1,92 @@
+ import '../../models/garment.dart';
++import '../../models/thermal_profile.dart';
+ import 'wardrobe_intelligence_models.dart';
+ 
+ class WardrobeRuleContext {
+   final List<Garment> garments;
+   final WardrobeDistribution categories;
+   final WardrobeDistribution colors;
+   final WardrobeDistribution seasons;
+   final List<WardrobeDuplicateGroup> duplicates;
+ 
+   const WardrobeRuleContext({
+     required this.garments,
+     required this.categories,
+     required this.colors,
+     required this.seasons,
+     required this.duplicates,
+   });
+ }
+ 
+ abstract interface class WardrobeGapRule {
+   String get code;
+   WardrobeGap? evaluate(WardrobeRuleContext context);
+ }
+ 
+ class MissingRainwearRule implements WardrobeGapRule {
+   const MissingRainwearRule();
+   @override
+   String get code => 'missing_rainwear';
+ 
+   @override
+   WardrobeGap? evaluate(WardrobeRuleContext context) {
+     if (context.garments.isEmpty ||
+-        context.garments.any((item) => item.compatiblePluie == true)) {
++        context.garments.any((item) => item.effectiveThermalProfile
++            .rainCompatibility != WeatherProtection.none)) {
+       return null;
+     }
+     return const WardrobeGap(
+       code: 'missing_rainwear',
+       label: 'Pièce imperméable',
+       explanation: 'Aucun vêtement n’est identifié comme compatible avec la pluie.',
+       impact: .9,
+     );
+   }
+ }
+ 
+ class InsufficientWinterRule implements WardrobeGapRule {
+   final double minimumShare;
+   const InsufficientWinterRule({this.minimumShare = .2});
+   @override
+   String get code => 'insufficient_winter';
+ 
+   @override
+   WardrobeGap? evaluate(WardrobeRuleContext context) {
+-    if (context.garments.length < 5 ||
+-        context.seasons.shareOf('Hiver') >= minimumShare) return null;
++    final winterShare = context.garments.where((item) {
++      final thermal = item.effectiveThermalProfile;
++      return thermal.standaloneMinC <= 8 ||
++          thermal.level == ThermalLevel.warm ||
++          thermal.level == ThermalLevel.veryWarm;
++    }).length / context.garments.length;
++    if (context.garments.length < 5 || winterShare >= minimumShare) return null;
+     return WardrobeGap(
+       code: code,
+       label: 'Vêtements d’hiver',
+       explanation: 'La part de vêtements adaptés à l’hiver est inférieure au seuil attendu.',
+       impact: .75,
+-      evidence: {'share': context.seasons.shareOf('Hiver'), 'minimumShare': minimumShare},
++      evidence: {'share': winterShare, 'minimumShare': minimumShare},
+     );
+   }
+ }
+ 
+ class MissingFormalShoesRule implements WardrobeGapRule {
+   const MissingFormalShoesRule();
+   @override
+   String get code => 'missing_formal_shoes';
+ 
+   @override
+   WardrobeGap? evaluate(WardrobeRuleContext context) {
+     if (context.garments.isEmpty) return null;
+     final hasFormalShoes = context.garments.any((item) {
+       final category = _text(item.category);
+       final type = _text('${item.sousCategorie ?? ''} ${item.typePrecis ?? ''}');
+       final formality = _text(item.niveauFormalite);
+       return category.contains('chauss') &&
+           (formality.contains('formel') || formality.contains('habill') ||
+               type.contains('richelieu') || type.contains('derby') ||
+               type.contains('mocassin') || type.contains('escarpin'));
+     });
+     return hasFormalShoes ? null : const WardrobeGap(
+       code: 'missing_formal_shoes',
+       label: 'Chaussures habillées',
+       explanation: 'Aucune chaussure habillée n’a été identifiée.',
+diff --git a/lib/features/agenda/agenda_service.dart b/lib/features/agenda/agenda_service.dart
+index 1166f8f06ed5fe68bd89e790c0924718fcb12731..f695e1f03a04f5e31f44de02108bc5065e8d3c4d 100644
+--- a/lib/features/agenda/agenda_service.dart
++++ b/lib/features/agenda/agenda_service.dart
+@@ -58,51 +58,53 @@ class AgendaService {
+     final recorded = await database.recordOutfitWear(value.outfitId, wornAt: wornAt);
+     if (!recorded) throw StateError('La tenue ne contient plus de vêtements disponibles.');
+     final updated = value.copyWith(status: PlannedOutfitStatus.worn,
+       wearRecordedAt: clock(), updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit> _setStatus(PlannedOutfit value, PlannedOutfitStatus status) async {
+     final updated = value.copyWith(status: status, updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit?> proposeDay(DateTime date, AgendaPreferences preferences,
+       {List<PlannedOutfit> previous = const []}) async {
+     final outfits = await _loadOutfits();
+     final wardrobe = aiContextService == null
+         ? await database.getGarments()
+         : (await aiContextService!.build()).garments;
+     final event = await _optionalEvent(date);
+     final weather = await _optionalWeather();
+     final context = RecommendationContext(
+       occasion: event?.formality.label,
+       weather: weather == null ? null : RecommendationWeather(
+-        temperature: weather.temperature, condition: weather.description),
++        temperature: weather.temperature, condition: weather.description,
++        windSpeed: weather.windSpeed,
++        isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
+     );
+     Outfit? choice;
+     OutfitReuseKind reuse = OutfitReuseKind.none;
+     final last = previous.isEmpty ? null : previous.last;
+     final repeated = last == null ? 0 : _consecutive(previous, last.outfitId);
+     if (preferences.allowCompleteOutfitReuse && last?.outfit != null &&
+         (preferences.strategy == PlanningStrategy.minimal || preferences.strategy == PlanningStrategy.professional) &&
+         repeated < preferences.maximumConsecutiveDays) {
+       choice = last!.outfit;
+       reuse = OutfitReuseKind.complete;
+     } else if (last?.outfit != null && preferences.strategy == PlanningStrategy.economical) {
+       choice = _partialVariant(last!.outfit!, wardrobe, context, preferences);
+       reuse = choice == null ? OutfitReuseKind.none : OutfitReuseKind.partial;
+     }
+     choice ??= _chooseSaved(outfits, previous, preferences, date);
+     choice ??= outfitEngine.generateBestOutfit(wardrobe: wardrobe, context: context);
+     if (choice == null) return null;
+     if (choice.id.startsWith('generated-') || reuse == OutfitReuseKind.partial) {
+       choice = _cloneWithId(choice, 'agenda-${date.microsecondsSinceEpoch}');
+     }
+     await _ensureStored(choice);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+diff --git a/lib/features/assistant/recommendation/outfit_recommendation_engine.dart b/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
+index 4519dbd7a891814a7116ddfa6137809065d4ec0b..d9ec11ded081a963668b094436d76a3a3c0824a0 100644
+--- a/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
++++ b/lib/features/assistant/recommendation/outfit_recommendation_engine.dart
+@@ -19,56 +19,50 @@ class OutfitRecommendationEngine {
+   final int maximumCandidates;
+ 
+   OutfitRecommendationEngine({
+     required OutfitCandidateSource candidateSource,
+     RecommendationClock clock = DateTime.now,
+     RecommendationEngine engine = const RecommendationEngine(),
+     this.maximumCandidates = 12,
+     Duration recentWearWindow = const Duration(days: 2),
+   }) : _candidateSource = candidateSource,
+        _engine = engine,
+        _outfitEngine = OutfitEngine(recommendationEngine: engine),
+        assert(maximumCandidates >= 0),
+        assert(!recentWearWindow.isNegative);
+ 
+   Future<OutfitRecommendationResult> recommend(
+     OutfitRecommendationRequest request,
+   ) async {
+     final candidates = (await _candidateSource())
+         .where((candidate) => candidate.isAvailable)
+         .where(
+           (candidate) => request.requestedCategory == null ||
+               _normalize(candidate.category).contains(
+                 _normalize(request.requestedCategory!),
+               ),
+         )
+-        .where(
+-          (candidate) => request.season == null ||
+-              candidate.season == null ||
+-              _normalize(candidate.season!).contains('toute') ||
+-              _normalize(candidate.season!).contains(_normalize(request.season!)),
+-        )
+         .toList();
+     final byId = {for (final candidate in candidates) candidate.id: candidate};
+     final result = _engine.recommend(
+       wardrobe: candidates.map((candidate) => candidate.garment),
+       context: RecommendationContext(
+         season: request.season,
+         occasion: request.occasion,
+         desiredStyle: request.desiredStyle,
+         weather: request.weather == null
+             ? null
+             : RecommendationWeather(
+                 temperature: request.weather!.temperature,
+                 condition: request.weather!.condition,
+                 isRaining: _isRain(request.weather!.condition),
+               ),
+         isTravel: _normalize(request.userIntent).contains('voyage'),
+         metadata: request.metadata,
+       ),
+       alternativeCount: maximumCandidates == 0 ? 0 : maximumCandidates - 1,
+     );
+     return OutfitRecommendationResult(
+       request: request,
+       candidates: result.choices
+           .map((choice) => byId[choice.garment.id])
+           .whereType<OutfitCandidate>(),
+diff --git a/lib/features/daily_brief/daily_brief_service.dart b/lib/features/daily_brief/daily_brief_service.dart
+index 2a5f436fc8c5b31c3e58e198f6327f4fac8cfece..a188de88693ddb99533971b723b258f4105af40c 100644
+--- a/lib/features/daily_brief/daily_brief_service.dart
++++ b/lib/features/daily_brief/daily_brief_service.dart
+@@ -28,50 +28,51 @@ class DailyBriefService {
+     required this.memoryService,
+     required this.assistantService,
+     this.recommendationEngine = const RecommendationEngine(),
+     WardrobeIntelligenceEngine? intelligenceEngine,
+     DateTime Function()? clock,
+     this.aiContextService,
+   }) : intelligenceEngine = intelligenceEngine ?? WardrobeIntelligenceEngine(),
+        _clock = clock ?? DateTime.now;
+ 
+   Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
+     final liveContext = await aiContextService?.build();
+     final garments = liveContext?.garments ?? List<Garment>.unmodifiable(wardrobe);
+     final weather = await _optionalWeather();
+     final memory = liveContext?.personalization ?? await memoryService.loadSnapshot();
+     final report = intelligenceEngine.analyze(garments);
+     final recommendation = recommendationEngine.recommend(
+       wardrobe: garments,
+       context: RecommendationContext(
+         season: _season(_clock()),
+         weather: weather == null
+             ? null
+             : RecommendationWeather(
+                 temperature: weather.temperature,
+                 isRaining: _isRaining(weather),
+                 condition: weather.description,
++                windSpeed: weather.windSpeed,
+               ),
+       ),
+       alternativeCount: 8,
+     );
+     final proposals = <DailyOutfitBrief>[];
+     for (var start = 0; start < recommendation.choices.length; start += 3) {
+       final choices = recommendation.choices.skip(start).take(3).toList();
+       if (choices.isEmpty) continue;
+       proposals.add(DailyOutfitBrief(
+         garments: choices.map((choice) => choice.garment).toList(growable: false),
+         explanation: choices.first.explanation,
+         confidence: (choices.fold<int>(0, (sum, item) => sum + item.score) / choices.length).round(),
+       ));
+     }
+ 
+     final cards = <DailyBriefCard<Object>>[];
+     if (proposals.isNotEmpty) {
+       cards.add(DailyBriefCard(type: DailyBriefCardType.outfit, priority: 0, data: proposals.first));
+     }
+     if (weather != null) {
+       cards.add(DailyBriefCard(
+         type: DailyBriefCardType.weather,
+         priority: 1,
+         data: DailyWeatherBrief(weather: weather, impact: _weatherImpact(weather), isRaining: _isRaining(weather)),
+       ));
+diff --git a/test/core/ai_context/wardrobe_ai_context_service_test.dart b/test/core/ai_context/wardrobe_ai_context_service_test.dart
+index 2f621874ee93eb80891bb4cbbab2039c39f293ad..2a309827b14ad903d2755bb1a631571f560b0de3 100644
+--- a/test/core/ai_context/wardrobe_ai_context_service_test.dart
++++ b/test/core/ai_context/wardrobe_ai_context_service_test.dart
+@@ -22,40 +22,44 @@ void main() {
+     var name = 'Avant';
+     var calls = 0;
+     final service = WardrobeAiContextService(
+       loadCurrentGarments: () async {
+         calls++;
+         return [garment(name)];
+       },
+       clock: () => DateTime.utc(2026, 8, 4),
+     );
+ 
+     final before = await service.build();
+     name = 'Après correction';
+     final after = await service.build();
+ 
+     expect(calls, 2);
+     expect(before.garments.single.name, 'Avant');
+     expect(after.garments.single.name, 'Après correction');
+     expect(after.aiGarments.single.id, 'stable-id');
+     expect(after.toMap()['wardrobeSource'], 'live_database');
+   });
+ 
+   test('étiquette séparément saisie, analyse et calcul', () async {
+     final context = AiGarmentContext.fromGarment(garment('T-shirt bleu'));
+ 
+     expect(context.fields['name']?.source, AiDataSource.user);
+-    expect(context.fields['temperatureMinimum']?.source, AiDataSource.calculated);
++    expect(context.fields['thermalProfile']?.source, AiDataSource.calculated);
++    expect(context.fields['temperatureMinimum'], isNull);
++    expect(context.fields['styleRegister']?.source, AiDataSource.aiAnalysis);
++    expect(context.fields['styleCharacteristics']?.source,
++        AiDataSource.aiAnalysis);
+     expect(context.fields['subcategory']?.source, AiDataSource.user);
+   });
+ 
+   test('une réanalyse protège une correction postérieure', () {
+     final decision = const AiReanalysisPolicy().compare(
+       baseline: const {'color': 'Bleu', 'material': 'Coton'},
+       current: const {'color': 'Vert', 'material': 'Coton'},
+       suggested: const {'color': 'Rouge', 'material': 'Lin'},
+     );
+ 
+     expect(decision.protectedUserValues, {'color': 'Vert'});
+     expect(decision.applicable, {'material': 'Lin'});
+   });
+ }

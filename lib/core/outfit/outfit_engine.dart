@@ -169,7 +169,8 @@ class OutfitEngine {
   }
 
   static OutfitCategory categoryFor(Garment garment) {
-    final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.layerType ?? ''}'.toLowerCase();
+    final value = '${garment.category} ${garment.sousCategorie ?? ''} '
+        '${garment.effectiveThermalProfile.primaryRole.name}'.toLowerCase();
     if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) return OutfitCategory.shoes;
     if (value.contains('pantal') || value.contains('jupe') || value.contains('short') || value.contains('bas')) return OutfitCategory.bottom;
     if (value.contains('manteau') || value.contains('parka')) return OutfitCategory.coat;

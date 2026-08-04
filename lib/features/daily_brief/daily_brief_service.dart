@@ -50,6 +50,7 @@ class DailyBriefService {
                 temperature: weather.temperature,
                 isRaining: _isRaining(weather),
                 condition: weather.description,
+                windSpeed: weather.windSpeed,
               ),
       ),
       alternativeCount: 8,

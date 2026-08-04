@@ -80,7 +80,9 @@ class AgendaService {
     final context = RecommendationContext(
       occasion: event?.formality.label,
       weather: weather == null ? null : RecommendationWeather(
-        temperature: weather.temperature, condition: weather.description),
+        temperature: weather.temperature, condition: weather.description,
+        windSpeed: weather.windSpeed,
+        isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
     );
     Outfit? choice;
     OutfitReuseKind reuse = OutfitReuseKind.none;

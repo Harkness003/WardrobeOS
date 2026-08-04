@@ -44,7 +44,11 @@ void main() {
     final context = AiGarmentContext.fromGarment(garment('T-shirt bleu'));
 
     expect(context.fields['name']?.source, AiDataSource.user);
-    expect(context.fields['temperatureMinimum']?.source, AiDataSource.calculated);
+    expect(context.fields['thermalProfile']?.source, AiDataSource.calculated);
+    expect(context.fields['temperatureMinimum'], isNull);
+    expect(context.fields['styleRegister']?.source, AiDataSource.aiAnalysis);
+    expect(context.fields['styleCharacteristics']?.source,
+        AiDataSource.aiAnalysis);
     expect(context.fields['subcategory']?.source, AiDataSource.user);
   });
 

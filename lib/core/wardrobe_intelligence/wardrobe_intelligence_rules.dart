@@ -1,4 +1,5 @@
 import '../../models/garment.dart';
+import '../../models/thermal_profile.dart';
 import 'wardrobe_intelligence_models.dart';
 
 class WardrobeRuleContext {
@@ -30,7 +31,8 @@ class MissingRainwearRule implements WardrobeGapRule {
   @override
   WardrobeGap? evaluate(WardrobeRuleContext context) {
     if (context.garments.isEmpty ||
-        context.garments.any((item) => item.compatiblePluie == true)) {
+        context.garments.any((item) => item.effectiveThermalProfile
+            .rainCompatibility != WeatherProtection.none)) {
       return null;
     }
     return const WardrobeGap(
@@ -50,14 +52,19 @@ class InsufficientWinterRule implements WardrobeGapRule {
 
   @override
   WardrobeGap? evaluate(WardrobeRuleContext context) {
-    if (context.garments.length < 5 ||
-        context.seasons.shareOf('Hiver') >= minimumShare) return null;
+    final winterShare = context.garments.where((item) {
+      final thermal = item.effectiveThermalProfile;
+      return thermal.standaloneMinC <= 8 ||
+          thermal.level == ThermalLevel.warm ||
+          thermal.level == ThermalLevel.veryWarm;
+    }).length / context.garments.length;
+    if (context.garments.length < 5 || winterShare >= minimumShare) return null;
     return WardrobeGap(
       code: code,
       label: 'Vêtements d’hiver',
       explanation: 'La part de vêtements adaptés à l’hiver est inférieure au seuil attendu.',
       impact: .75,
-      evidence: {'share': context.seasons.shareOf('Hiver'), 'minimumShare': minimumShare},
+      evidence: {'share': winterShare, 'minimumShare': minimumShare},
     );
   }
 }

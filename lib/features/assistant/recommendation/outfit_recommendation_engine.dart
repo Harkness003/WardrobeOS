@@ -41,12 +41,6 @@ class OutfitRecommendationEngine {
                 _normalize(request.requestedCategory!),
               ),
         )
-        .where(
-          (candidate) => request.season == null ||
-              candidate.season == null ||
-              _normalize(candidate.season!).contains('toute') ||
-              _normalize(candidate.season!).contains(_normalize(request.season!)),
-        )
         .toList();
     final byId = {for (final candidate in candidates) candidate.id: candidate};
     final result = _engine.recommend(

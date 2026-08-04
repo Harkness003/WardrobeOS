@@ -2,11 +2,13 @@ class RecommendationWeather {
   final double? temperature;
   final bool? isRaining;
   final String? condition;
+  final double? windSpeed;
 
   const RecommendationWeather({
     this.temperature,
     this.isRaining,
     this.condition,
+    this.windSpeed,
   });
 }
 
