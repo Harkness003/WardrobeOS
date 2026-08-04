@@ -7,6 +7,7 @@ import '../../weather/location/unified_location_service.dart';
 import '../styles/style_library_screen.dart';
 import '../styles/style_repository.dart';
 import '../styles/style_enrichment_service.dart';
+import '../../widgets/content_state.dart';
 
 class ProfileScreen extends StatelessWidget {
   final AppSettings settings;
@@ -165,6 +166,16 @@ class _LocationSettingsState extends State<_LocationSettings> {
                 groupValue: service.mode,
                 onChanged: (_) => service.useGps(),
               ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(service.mode == LocationMode.gps ? Icons.gps_fixed : Icons.location_city),
+                title: Text(service.mode == LocationMode.gps
+                    ? 'Source utilisée : position GPS'
+                    : manual == null ? 'Source utilisée : ville manuelle non définie' : 'Ville utilisée : ${manual.city}'),
+                subtitle: Text(service.mode == LocationMode.gps
+                    ? 'La ville sera résolue depuis la position actuelle lors de la météo.'
+                    : manual == null ? 'Sélectionne une ville ci-dessous.' : 'Sélection manuelle'),
+              ),
               RadioListTile<LocationMode>(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Choisir une ville manuellement'),
@@ -298,10 +309,16 @@ class _BackupSettings extends StatelessWidget {
                   icon: const Icon(Icons.settings_backup_restore),
                   label: const Text('Restaurer une sauvegarde'),
                 ),
-                if (controller.busy) const LinearProgressIndicator(),
+                if (controller.busy) const ContentState.loading(
+                  title: 'Opération en cours', message: 'Lecture et vérification des données de sauvegarde…'),
                 if (controller.result != null) ...[
                   const SizedBox(height: 8),
-                  Text(controller.result!),
+                  controller.result!.startsWith('Échec')
+                    ? ContentState.error(title: 'Opération impossible', message: controller.result!, actionLabel: null)
+                    : ContentState(kind: ContentStateKind.success, title: '', message: '',
+                        child: Semantics(liveRegion: true, child: Card(child: ListTile(
+                          leading: const Icon(Icons.check_circle_outline), title: const Text('Opération terminée'),
+                          subtitle: Text(controller.result!)))),
                 ],
               ],
             ),

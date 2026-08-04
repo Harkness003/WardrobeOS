@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'services/assistant_service.dart';
 import '../../widgets/outfit_proposal_card.dart';
+import '../../widgets/content_state.dart';
 
 class AssistantScreen extends StatefulWidget {
   final AssistantService service;
@@ -17,6 +18,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   final _controller = TextEditingController();
   String? _message;
   bool _isLoading = false;
+  bool _hasError = false;
   StreamSubscription<String>? _generation;
 
   @override
@@ -29,8 +31,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
   Future<void> _send() async {
     final userMessage = _controller.text.trim();
     if (userMessage.isEmpty) return;
-    setState(() => _isLoading = true);
     setState(() {
+      _isLoading = true;
+      _hasError = false;
       _message = '';
     });
     _generation = widget.service
@@ -43,6 +46,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
             if (!mounted) return;
             setState(() {
               _message = 'WardrobeGPT est momentanément indisponible. Réessayez dans un instant.';
+              _hasError = true;
               _isLoading = false;
             });
           },
@@ -91,8 +95,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     height: 220,
                     child: Center(
                       child:
-                          _isLoading && (_message?.isEmpty ?? true)
-                              ? const CircularProgressIndicator()
+                          _hasError
+                              ? ContentState.error(title: 'Réponse indisponible', message: _message!, onAction: _send)
+                          : _isLoading && (_message?.isEmpty ?? true)
+                              ? const ContentState.loading(title: 'WardrobeGPT réfléchit', message: 'Analyse de la demande et préparation d’une réponse structurée…')
                               : Text(
                                 _message ?? 'WardrobeGPT est prêt. Demandez une tenue, un conseil de style ou une idée adaptée à votre journée.',
                                 textAlign: TextAlign.start,
@@ -115,6 +121,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            if (_isLoading && !(_message?.isEmpty ?? true))
+              const Padding(padding: EdgeInsets.only(bottom: 8), child: LinearProgressIndicator(semanticsLabel: 'Réponse en cours de génération')),
             FilledButton.icon(
               onPressed: _isLoading ? _stop : _send,
               icon: Icon(_isLoading ? Icons.stop : Icons.send),

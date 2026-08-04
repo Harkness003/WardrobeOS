@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/outfit_generation/outfit_generation_engine.dart';
 import '../../widgets/outfit_proposal_card.dart';
+import '../../widgets/content_state.dart';
 import '../outfits/outfits_controller.dart';
 import 'agenda_controller.dart';
 import 'agenda_models.dart';
@@ -30,13 +31,17 @@ class _AgendaScreenState extends State<AgendaScreen> {
             items: PlanningStrategy.values.map((v) => DropdownMenuItem(value: v, child: Text(v.label))).toList(), onChanged: (v) { if (v != null) c.setStrategy(v); })),
             const SizedBox(width: 8), FilledButton.icon(onPressed: c.loading ? null : c.proposeWeek,
               icon: const Icon(Icons.auto_awesome, size: 18), label: const Text('Proposer ma semaine'))]),
-          if (!c.calendarAvailable) Padding(padding: const EdgeInsets.only(top: 8), child: Text(
-            'Calendrier indisponible : les propositions ne tiennent pas compte de tes événements.',
-            style: TextStyle(color: Theme.of(context).colorScheme.error))),
-          if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(
-            'Échec du chargement de l’agenda : ${c.error}', style: TextStyle(color: Theme.of(context).colorScheme.error))),
+          if (!c.calendarAvailable) const Padding(padding: EdgeInsets.only(top: 8), child: ContentState.error(
+            title: 'Calendrier indisponible',
+            message: 'Les journées restent visibles, mais leurs événements ne peuvent pas être pris en compte.',
+            actionLabel: null)),
+          if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: ContentState.error(
+            title: 'Impossible de charger cette semaine',
+            message: 'L’agenda n’a pas pu être actualisé. Vérifie l’accès au calendrier puis réessaie.',
+            onAction: c.load)),
         ])),
-        if (c.loading) const LinearProgressIndicator(),
+        if (c.loading) const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: ContentState.loading(
+          title: 'Chargement de l’agenda', message: 'Préparation des événements et des tenues de la semaine…')),
         Expanded(child: ListView.builder(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), itemCount: 7, itemBuilder: (_, i) {
           final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day,
             plan: c.forDay(day), state: c.stateFor(day),
@@ -101,7 +106,12 @@ class _DayCard extends StatelessWidget {
       const SizedBox(height: 6),
       Text(_summary, maxLines: 1, overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontWeight: FontWeight.w600)),
-      if (failure != null) Text(failure!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+      if (failure != null) ContentState.error(
+        title: 'Proposition impossible pour cette journée',
+        message: failure!, actionLabel: 'Réessayer', onAction: () => onAction('another')),
+      if (failure == null && plan == null && state == AgendaDayState.noOutfit)
+        const ContentState.empty(title: 'Journée sans tenue',
+          message: 'Aucune tenue n’est encore planifiée. Tu peux demander une proposition.'),
       if (plan != null) Row(children: [
         Expanded(child: Text('${plan!.outfit?.allGarments.length ?? 0} pièces · Toucher pour les détails',
           maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)),

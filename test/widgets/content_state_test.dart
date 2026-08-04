@@ -31,4 +31,24 @@ void main() {
     )));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('présente un état vide avec une action contextuelle', (tester) async {
+    var created = false;
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: ContentState.empty(
+      title: 'Bibliothèque vide',
+      message: 'Crée un premier élément.',
+      actionLabel: 'Créer',
+      onAction: () => created = true,
+    ))));
+    await tester.tap(find.text('Créer'));
+    expect(created, isTrue);
+  });
+
+  testWidgets('annonce un succès détaillé fourni par l’écran', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ContentState.success(
+      child: Text('12 vêtements et 24 photos restaurés.'),
+    ))));
+    expect(find.text('12 vêtements et 24 photos restaurés.'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
 }

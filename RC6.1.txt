@@ -1,0 +1,643 @@
+diff --git a/lib/features/agenda/agenda_screen.dart b/lib/features/agenda/agenda_screen.dart
+index 347022202152507c1c16d4148492d0db82d2876a..90aeb37d0318bb6cca94f83b711d2831c48b4914 100644
+--- a/lib/features/agenda/agenda_screen.dart
++++ b/lib/features/agenda/agenda_screen.dart
+@@ -1,64 +1,69 @@
+ import 'package:flutter/material.dart';
+ import '../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../widgets/outfit_proposal_card.dart';
++import '../../widgets/content_state.dart';
+ import '../outfits/outfits_controller.dart';
+ import 'agenda_controller.dart';
+ import 'agenda_models.dart';
+ 
+ class AgendaScreen extends StatefulWidget {
+   final AgendaController controller;
+   final OutfitsController outfitsController;
+   const AgendaScreen({super.key, required this.controller, required this.outfitsController});
+   @override State<AgendaScreen> createState() => _AgendaScreenState();
+ }
+ 
+ class _AgendaScreenState extends State<AgendaScreen> {
+   @override void initState() { super.initState(); widget.controller.addListener(_refresh); widget.controller.load(); widget.outfitsController.load(); }
+   void _refresh() { if (mounted) setState(() {}); }
+   @override void dispose() { widget.controller.removeListener(_refresh); super.dispose(); }
+ 
+   @override Widget build(BuildContext context) {
+     final c = widget.controller;
+     return Scaffold(appBar: AppBar(title: const Text('Agenda vestimentaire')),
+       body: SafeArea(child: Column(children: [
+         Padding(padding: const EdgeInsets.fromLTRB(12, 4, 12, 8), child: Column(children: [
+           Row(children: [IconButton(onPressed: c.loading ? null : () => c.changeWeek(-1), icon: const Icon(Icons.chevron_left)),
+             Expanded(child: Text('${_date(c.weekStart)} — ${_date(c.weekStart.add(const Duration(days: 6)))}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium)),
+             IconButton(onPressed: c.loading ? null : () => c.changeWeek(1), icon: const Icon(Icons.chevron_right))]),
+           Row(children: [Expanded(child: DropdownButtonFormField<PlanningStrategy>(value: c.preferences.strategy,
+             decoration: const InputDecoration(labelText: 'Stratégie', isDense: true),
+             items: PlanningStrategy.values.map((v) => DropdownMenuItem(value: v, child: Text(v.label))).toList(), onChanged: (v) { if (v != null) c.setStrategy(v); })),
+             const SizedBox(width: 8), FilledButton.icon(onPressed: c.loading ? null : c.proposeWeek,
+               icon: const Icon(Icons.auto_awesome, size: 18), label: const Text('Proposer ma semaine'))]),
+-          if (!c.calendarAvailable) Padding(padding: const EdgeInsets.only(top: 8), child: Text(
+-            'Calendrier indisponible : les propositions ne tiennent pas compte de tes événements.',
+-            style: TextStyle(color: Theme.of(context).colorScheme.error))),
+-          if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(
+-            'Échec du chargement de l’agenda : ${c.error}', style: TextStyle(color: Theme.of(context).colorScheme.error))),
++          if (!c.calendarAvailable) const Padding(padding: EdgeInsets.only(top: 8), child: ContentState.error(
++            title: 'Calendrier indisponible',
++            message: 'Les journées restent visibles, mais leurs événements ne peuvent pas être pris en compte.',
++            actionLabel: null)),
++          if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: ContentState.error(
++            title: 'Impossible de charger cette semaine',
++            message: 'L’agenda n’a pas pu être actualisé. Vérifie l’accès au calendrier puis réessaie.',
++            onAction: c.load)),
+         ])),
+-        if (c.loading) const LinearProgressIndicator(),
++        if (c.loading) const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: ContentState.loading(
++          title: 'Chargement de l’agenda', message: 'Préparation des événements et des tenues de la semaine…')),
+         Expanded(child: ListView.builder(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), itemCount: 7, itemBuilder: (_, i) {
+           final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day,
+             plan: c.forDay(day), state: c.stateFor(day),
+             failure: c.dayErrors[DateTime(day.year, day.month, day.day)],
+             onDetails: () => _showDetails(c.forDay(day)),
+             onAction: (action) => _act(day, c.forDay(day), action));
+         })),
+       ])));
+   }
+ 
+   Future<void> _showDetails(PlannedOutfit? plan) async {
+     if (plan == null) return;
+     await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+       builder: (context) => SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+           if (plan.outfit case final outfit?)
+             OutfitProposalCard(proposal: OutfitGenerationProposal(
+               outfit: outfit,
+               score: outfit.score?.overallConfidence.value ?? 0,
+               reasons: plan.justification.isEmpty ? outfit.justification : [plan.justification],
+             )),
+           if (plan.outfit == null)
+             Text('Tenue indisponible', style: Theme.of(context).textTheme.titleLarge),
+           if (plan.event != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.event_outlined), title: Text(plan.event!.title)),
+           if (plan.weather != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.cloud_outlined), title: Text('${plan.weather!.temperature.round()}° · ${plan.weather!.description}')),
+@@ -79,51 +84,56 @@ class _AgendaScreenState extends State<AgendaScreen> {
+         return;
+       case 'another': await widget.controller.another(day, plan); return;
+       case 'confirm': if (plan != null) await widget.controller.confirm(plan); return;
+       case 'worn': if (plan != null) await widget.controller.markWorn(plan); return;
+       case 'delete': if (plan != null) await widget.controller.remove(plan); return;
+     }
+   }
+   static String _date(DateTime d) => '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+ }
+ 
+ class _DayCard extends StatelessWidget {
+   final DateTime date; final PlannedOutfit? plan; final AgendaDayState state;
+   final String? failure;
+   final ValueChanged<String> onAction; final VoidCallback onDetails;
+   const _DayCard({required this.date, required this.plan, required this.state, this.failure,
+     required this.onAction, required this.onDetails});
+   @override Widget build(BuildContext context) {
+     final localeDays = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
+     return Card(clipBehavior: Clip.antiAlias, child: InkWell(onTap: plan == null ? null : onDetails,
+       child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+       Row(children: [Expanded(child: Text('${localeDays[date.weekday - 1]} ${date.day}', style: Theme.of(context).textTheme.titleMedium)),
+         _StateBadge(state: state, status: plan?.status)]),
+       const SizedBox(height: 6),
+       Text(_summary, maxLines: 1, overflow: TextOverflow.ellipsis,
+         style: const TextStyle(fontWeight: FontWeight.w600)),
+-      if (failure != null) Text(failure!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
++      if (failure != null) ContentState.error(
++        title: 'Proposition impossible pour cette journée',
++        message: failure!, actionLabel: 'Réessayer', onAction: () => onAction('another')),
++      if (failure == null && plan == null && state == AgendaDayState.noOutfit)
++        const ContentState.empty(title: 'Journée sans tenue',
++          message: 'Aucune tenue n’est encore planifiée. Tu peux demander une proposition.'),
+       if (plan != null) Row(children: [
+         Expanded(child: Text('${plan!.outfit?.allGarments.length ?? 0} pièces · Toucher pour les détails',
+           maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)),
+         PopupMenuButton<String>(tooltip: 'Actions', onSelected: onAction, itemBuilder: (_) => [
+           const PopupMenuItem(value: 'another', child: Text('Autre proposition')),
+           const PopupMenuItem(value: 'replace', child: Text('Choisir une tenue enregistrée')),
+           if (plan!.status == PlannedOutfitStatus.proposed) const PopupMenuItem(value: 'confirm', child: Text('Confirmer')),
+           if (plan!.status != PlannedOutfitStatus.worn) const PopupMenuItem(value: 'worn', child: Text('Marquer portée')),
+           const PopupMenuItem(value: 'delete', child: Text('Supprimer')),
+         ]),
+       ]) else if (state != AgendaDayState.generating) Align(alignment: Alignment.centerRight,
+         child: TextButton(onPressed: () => onAction('another'), child: const Text('Réessayer'))),
+     ]))));
+   }
+   String get _summary => switch (state) {
+     AgendaDayState.generating => 'Génération en cours…',
+     AgendaDayState.noOutfit => 'Aucune tenue planifiée',
+     AgendaDayState.error => 'Erreur de génération',
+     AgendaDayState.generated => plan?.outfit?.name ?? 'Tenue générée',
+     AgendaDayState.planned => plan?.outfit?.name ?? 'Tenue planifiée',
+   };
+   static String _status(PlannedOutfitStatus value) => switch(value) { PlannedOutfitStatus.proposed => 'Proposée', PlannedOutfitStatus.confirmed => 'Confirmée', PlannedOutfitStatus.worn => 'Portée', PlannedOutfitStatus.ignored => 'Ignorée', PlannedOutfitStatus.cancelled => 'Annulée' };
+ }
+ 
+ class _StateBadge extends StatelessWidget {
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index 6c4fe5bfb5053a6c3921390081c4f6fe07f98572..1127f27cc1330f54b669480a71d34be7723a6b17 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,128 +1,136 @@
+ import 'dart:async';
+ import 'package:flutter/material.dart';
+ 
+ import 'services/assistant_service.dart';
+ import '../../widgets/outfit_proposal_card.dart';
++import '../../widgets/content_state.dart';
+ 
+ class AssistantScreen extends StatefulWidget {
+   final AssistantService service;
+ 
+   const AssistantScreen({super.key, required this.service});
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
+   final _controller = TextEditingController();
+   String? _message;
+   bool _isLoading = false;
++  bool _hasError = false;
+   StreamSubscription<String>? _generation;
+ 
+   @override
+   void dispose() {
+     _generation?.cancel();
+     _controller.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> _send() async {
+     final userMessage = _controller.text.trim();
+     if (userMessage.isEmpty) return;
+-    setState(() => _isLoading = true);
+     setState(() {
++      _isLoading = true;
++      _hasError = false;
+       _message = '';
+     });
+     _generation = widget.service
+         .generateMessageStream(userMessage: userMessage)
+         .listen(
+           (chunk) {
+             if (mounted) setState(() => _message = '${_message ?? ''}$chunk');
+           },
+           onError: (_) {
+             if (!mounted) return;
+             setState(() {
+               _message = 'WardrobeGPT est momentanément indisponible. Réessayez dans un instant.';
++              _hasError = true;
+               _isLoading = false;
+             });
+           },
+           onDone: _finishGeneration,
+         );
+   }
+ 
+   void _finishGeneration() {
+     if (!mounted) return;
+     setState(() {
+       _isLoading = false;
+     });
+   }
+ 
+   Future<void> _stop() async {
+     await _generation?.cancel();
+     _finishGeneration();
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.stretch,
+           children: [
+             const Row(
+               children: [
+                 Expanded(
+                   child: Text(
+                     'WardrobeGPT',
+                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 CircleAvatar(child: Icon(Icons.auto_awesome)),
+               ],
+             ),
+             const SizedBox(height: 32),
+             Expanded(
+               child: ListView(
+                 children: [
+                   for (final proposal in widget.service.lastOutfitProposals)
+                     OutfitProposalCard(proposal: proposal),
+                   SizedBox(
+                     height: 220,
+                     child: Center(
+                       child:
+-                          _isLoading && (_message?.isEmpty ?? true)
+-                              ? const CircularProgressIndicator()
++                          _hasError
++                              ? ContentState.error(title: 'Réponse indisponible', message: _message!, onAction: _send)
++                          : _isLoading && (_message?.isEmpty ?? true)
++                              ? const ContentState.loading(title: 'WardrobeGPT réfléchit', message: 'Analyse de la demande et préparation d’une réponse structurée…')
+                               : Text(
+                                 _message ?? 'WardrobeGPT est prêt. Demandez une tenue, un conseil de style ou une idée adaptée à votre journée.',
+                                 textAlign: TextAlign.start,
+                                 style: Theme.of(context).textTheme.titleMedium,
+                               ),
+                     ),
+                   ),
+                 ],
+               ),
+             ),
+             TextField(
+               controller: _controller,
+               enabled: !_isLoading,
+               textInputAction: TextInputAction.send,
+               onSubmitted: (_) => _send(),
+               decoration: const InputDecoration(
+                 labelText: 'Votre demande',
+                 hintText: "Que mettre aujourd'hui ?",
+                 border: OutlineInputBorder(),
+               ),
+             ),
+             const SizedBox(height: 12),
++            if (_isLoading && !(_message?.isEmpty ?? true))
++              const Padding(padding: EdgeInsets.only(bottom: 8), child: LinearProgressIndicator(semanticsLabel: 'Réponse en cours de génération')),
+             FilledButton.icon(
+               onPressed: _isLoading ? _stop : _send,
+               icon: Icon(_isLoading ? Icons.stop : Icons.send),
+               label: Text(_isLoading ? 'Arrêter' : 'Envoyer'),
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+ }
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index 317dbf8dbfde1119063c249795216f9172fa8211..c73e8f113bb044b7132d014955d76887a3dfa9ae 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -1,34 +1,35 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../backup/backup_controller.dart';
+ import '../../weather/location/location_service.dart';
+ import '../../weather/location/unified_location_service.dart';
+ import '../styles/style_library_screen.dart';
+ import '../styles/style_repository.dart';
+ import '../styles/style_enrichment_service.dart';
++import '../../widgets/content_state.dart';
+ 
+ class ProfileScreen extends StatelessWidget {
+   final AppSettings settings;
+   final AiSettingsController aiSettings;
+   final BackupController backupController;
+   final UnifiedLocationService locationService;
+   final StyleRepository styleRepository;
+   final StyleEnrichmentService styleEnrichment;
+   const ProfileScreen({
+     super.key,
+     required this.settings,
+     required this.aiSettings,
+     required this.backupController,
+     required this.locationService,
+     required this.styleRepository,
+     required this.styleEnrichment,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
+         children: [
+           const Text(
+@@ -143,50 +144,60 @@ class _LocationSettingsState extends State<_LocationSettings> {
+       if (mounted) setState(() => _searching = false);
+     }
+   }
+ 
+   @override
+   Widget build(BuildContext context) => AnimatedBuilder(
+     animation: widget.service,
+     builder: (context, _) {
+       final service = widget.service;
+       final manual = service.manualLocation;
+       return Card(
+         margin: const EdgeInsets.only(bottom: 10),
+         child: Padding(
+           padding: const EdgeInsets.all(16),
+           child: Column(
+             crossAxisAlignment: CrossAxisAlignment.stretch,
+             children: [
+               const Text('📍 Localisation', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+               RadioListTile<LocationMode>(
+                 contentPadding: EdgeInsets.zero,
+                 title: const Text('Utiliser ma position actuelle'),
+                 value: LocationMode.gps,
+                 groupValue: service.mode,
+                 onChanged: (_) => service.useGps(),
+               ),
++              ListTile(
++                contentPadding: EdgeInsets.zero,
++                leading: Icon(service.mode == LocationMode.gps ? Icons.gps_fixed : Icons.location_city),
++                title: Text(service.mode == LocationMode.gps
++                    ? 'Source utilisée : position GPS'
++                    : manual == null ? 'Source utilisée : ville manuelle non définie' : 'Ville utilisée : ${manual.city}'),
++                subtitle: Text(service.mode == LocationMode.gps
++                    ? 'La ville sera résolue depuis la position actuelle lors de la météo.'
++                    : manual == null ? 'Sélectionne une ville ci-dessous.' : 'Sélection manuelle'),
++              ),
+               RadioListTile<LocationMode>(
+                 contentPadding: EdgeInsets.zero,
+                 title: const Text('Choisir une ville manuellement'),
+                 value: LocationMode.manual,
+                 groupValue: service.mode,
+                 onChanged: (_) => service.useManualMode(),
+               ),
+               if (service.mode == LocationMode.manual) ...[
+                 TextField(
+                   controller: _cityController,
+                   textInputAction: TextInputAction.search,
+                   onSubmitted: (_) => _search(),
+                   decoration: InputDecoration(
+                     labelText: 'Rechercher une ville',
+                     suffixIcon: IconButton(onPressed: _searching ? null : _search, icon: const Icon(Icons.search)),
+                   ),
+                 ),
+                 if (_searching) const LinearProgressIndicator(),
+                 if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!)),
+                 for (final result in _results)
+                   ListTile(
+                     contentPadding: EdgeInsets.zero,
+                     leading: const Icon(Icons.location_city),
+                     title: Text(result.city),
+                     subtitle: Text('${result.latitude.toStringAsFixed(3)}, ${result.longitude.toStringAsFixed(3)}'),
+@@ -276,54 +287,60 @@ class _BackupSettings extends StatelessWidget {
+                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                 ),
+                 const SizedBox(height: 8),
+                 Text(
+                   controller.lastBackup == null
+                       ? 'Dernière sauvegarde : aucune'
+                       : 'Dernière sauvegarde\n'
+                         'Date : ${controller.lastBackup!.createdAt.toLocal()}\n'
+                         'Version : ${controller.lastBackup!.appVersion}\n'
+                         'Vêtements : ${controller.lastBackup!.garmentCount}\n'
+                         'Photos : ${controller.lastBackup!.photoCount}\n'
+                         'Emplacement : ${controller.lastLocation}',
+                 ),
+                 const SizedBox(height: 12),
+                 FilledButton.icon(
+                   onPressed: controller.busy ? null : controller.createBackup,
+                   icon: const Icon(Icons.save_alt),
+                   label: const Text('Créer une sauvegarde'),
+                 ),
+                 OutlinedButton.icon(
+                   onPressed:
+                       controller.busy ? null : () => _confirmRestore(context),
+                   icon: const Icon(Icons.settings_backup_restore),
+                   label: const Text('Restaurer une sauvegarde'),
+                 ),
+-                if (controller.busy) const LinearProgressIndicator(),
++                if (controller.busy) const ContentState.loading(
++                  title: 'Opération en cours', message: 'Lecture et vérification des données de sauvegarde…'),
+                 if (controller.result != null) ...[
+                   const SizedBox(height: 8),
+-                  Text(controller.result!),
++                  controller.result!.startsWith('Échec')
++                    ? ContentState.error(title: 'Opération impossible', message: controller.result!, actionLabel: null)
++                    : ContentState(kind: ContentStateKind.success, title: '', message: '',
++                        child: Semantics(liveRegion: true, child: Card(child: ListTile(
++                          leading: const Icon(Icons.check_circle_outline), title: const Text('Opération terminée'),
++                          subtitle: Text(controller.result!)))),
+                 ],
+               ],
+             ),
+           ),
+         ),
+   );
+ }
+ 
+ class _WardrobeGptSettings extends StatefulWidget {
+   final AiSettingsController controller;
+ 
+   const _WardrobeGptSettings({required this.controller});
+ 
+   @override
+   State<_WardrobeGptSettings> createState() => _WardrobeGptSettingsState();
+ }
+ 
+ class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
+   final _apiKeyController = TextEditingController();
+   bool _obscureKey = true;
+ 
+   @override
+   void dispose() {
+     _apiKeyController.dispose();
+     super.dispose();
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index 9e27404b54aa9b273573a82f4bb62bb475439c90..ce5fe595b882bef98e2d05fbdb92e999b13d18c7 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -817,59 +817,60 @@ class _PhotoArea extends StatelessWidget {
+                     SizedBox(height: 18),
+                     Text(
+                       'Import de la photo…',
+                       style: TextStyle(
+                         color: Colors.white,
+                         fontWeight: FontWeight.w900,
+                       ),
+                     ),
+                   ],
+                 ),
+               ),
+             ),
+           if (analyzing)
+             Positioned.fill(
+               child: Container(
+                 decoration: BoxDecoration(
+                   color: Colors.black.withValues(alpha: .58),
+                   borderRadius: BorderRadius.circular(32),
+                 ),
+                 child: const Column(
+                   mainAxisAlignment: MainAxisAlignment.center,
+                   children: [
+                     CircularProgressIndicator(color: AppTheme.gold),
+                     SizedBox(height: 18),
+                     Text(
+-                      'Analyse en cours…',
++                      'Étape actuelle : analyse IA…',
+                       style: TextStyle(
+                         color: Colors.white,
+                         fontWeight: FontWeight.w900,
+                       ),
+                     ),
+                     SizedBox(height: 5),
+                     Text(
+-                      'Catégorie · couleur · matière · saison',
++                      'Déjà détecté : photo importée\nRecherche : catégorie · couleur · matière · saison\nTu pourras corriger chaque donnée avant l’enregistrement.',
++                      textAlign: TextAlign.center,
+                       style: TextStyle(color: Colors.white70),
+                     ),
+                   ],
+                 ),
+               ),
+             ),
+         ],
+       ),
+     );
+   }
+ }
+ 
+ class _IntroCard extends StatelessWidget {
+   const _IntroCard();
+ 
+   @override
+   Widget build(BuildContext context) {
+     return const Card(
+       child: Padding(
+         padding: EdgeInsets.all(19),
+         child: Column(
+           children: [
+             Row(
+               children: [
+                 Icon(Icons.auto_awesome, color: AppTheme.gold),
+diff --git a/lib/features/styles/style_library_screen.dart b/lib/features/styles/style_library_screen.dart
+index cc4e75fc69620d989a9d28f719c6a806cde19651..6db460ad58f649073631490617e2035262055936 100644
+--- a/lib/features/styles/style_library_screen.dart
++++ b/lib/features/styles/style_library_screen.dart
+@@ -1,56 +1,68 @@
+ import 'package:flutter/material.dart';
+ import 'style_detail_screen.dart';
+ import 'personal_style_form_screen.dart';
+ import 'style_repository.dart';
+ import 'style_enrichment_service.dart';
+ import '../../models/personal_style.dart';
++import '../../widgets/content_state.dart';
+ 
+ class StyleLibraryScreen extends StatefulWidget {
+   final StyleRepository repository;
+   final StyleEnrichmentService? enrichment;
+   const StyleLibraryScreen({super.key, required this.repository, this.enrichment});
+   @override State<StyleLibraryScreen> createState() => _StyleLibraryScreenState();
+ }
+ class _StyleLibraryScreenState extends State<StyleLibraryScreen> {
+   String query = '';
++  late Future<List<LibraryStyle>> _styles;
++  @override void initState() { super.initState(); _reload(); }
++  void _reload() => _styles = widget.repository.all();
++  void _refresh() => setState(_reload);
+   Future<void> open(LibraryStyle style) async => Navigator.push(context,
+     MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: widget.repository)));
+   Future<void> create() async { await Navigator.push(context, MaterialPageRoute(
+-    builder: (_) => PersonalStyleFormScreen(repository: widget.repository, enrichment: widget.enrichment))); setState(() {}); }
++    builder: (_) => PersonalStyleFormScreen(repository: widget.repository, enrichment: widget.enrichment))); _refresh(); }
+   Future<void> edit(LibraryStyle style) async {
+     final value = PersonalStyle(id: style.id, name: style.name,
+       description: style.description, examples: style.examples,
+       characteristics: style.characteristics, colors: style.colors,
+       materials: style.materials, occasions: style.occasions,
+       typicalPieces: style.typicalPieces);
+     await Navigator.push(context, MaterialPageRoute(builder: (_) =>
+       PersonalStyleFormScreen(repository: widget.repository, initial: value,
+         enrichment: widget.enrichment)));
+-    setState(() {});
++    _refresh();
+   }
+   Future<void> remove(LibraryStyle style) async {
+     final confirmed = await showDialog<bool>(context: context, builder: (_) => AlertDialog(
+       title: const Text('Supprimer ce style ?'), content: Text('« ${style.name} » sera supprimé définitivement.'),
+       actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+         FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Supprimer'))]));
+-    if (confirmed == true) { await widget.repository.delete(style.id); setState(() {}); }
++    if (confirmed == true) { await widget.repository.delete(style.id); _refresh(); }
+   }
+   @override Widget build(BuildContext context) => Scaffold(
+     appBar: AppBar(title: const Text('Bibliothèque des styles')),
+     floatingActionButton: FloatingActionButton.extended(onPressed: create, icon: const Icon(Icons.add), label: const Text('Style personnel')),
+     body: Column(children: [Padding(padding: const EdgeInsets.all(16), child: SearchBar(
+       hintText: 'Nom, synonyme, définition…', leading: const Icon(Icons.search), onChanged: (v) => setState(() => query = v))),
+-      Expanded(child: FutureBuilder<List<LibraryStyle>>(future: widget.repository.all(), builder: (_, snapshot) {
+-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
++      Expanded(child: FutureBuilder<List<LibraryStyle>>(future: _styles, builder: (_, snapshot) {
++        if (snapshot.connectionState != ConnectionState.done) return const Center(child: ContentState.loading(
++          title: 'Chargement des styles', message: 'Préparation du catalogue et de ses définitions…'));
++        if (snapshot.hasError) return Center(child: ContentState.error(
++          title: 'Catalogue indisponible', message: 'Les styles n’ont pas pu être chargés.', onAction: _refresh));
+         final values = snapshot.data!.where((e) => StyleCatalog.matches(e, query)).toList();
+-        if (values.isEmpty) return const Center(child: Text('Aucun style trouvé.'));
++        if (values.isEmpty) return Center(child: ContentState.empty(
++          title: query.trim().isEmpty ? 'Bibliothèque vide' : 'Aucun style trouvé',
++          message: query.trim().isEmpty ? 'Crée ton premier style personnel pour commencer.' : 'Essaie un autre nom, synonyme ou mot de la définition.',
++          actionLabel: query.trim().isEmpty ? 'Créer un style' : 'Effacer la recherche',
++          onAction: query.trim().isEmpty ? create : () => setState(() => query = '')));
+         return ListView.builder(itemCount: values.length, itemBuilder: (_, index) { final style = values[index];
+           return ListTile(key: Key('style-${style.id}'), title: Text(style.name), subtitle: Text(style.definition, maxLines: 2),
+             leading: Icon(style.isSystem ? Icons.lock_outline : Icons.person_outline), onTap: () => open(style),
+             trailing: style.isSystem ? null : PopupMenuButton<String>(onSelected: (action) async {
+               if (action == 'edit') await edit(style);
+               if (action == 'delete') await remove(style);
+             }, itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Modifier')),
+               PopupMenuItem(value: 'delete', child: Text('Supprimer'))])); });
+       }))]));
+ }
+diff --git a/test/widgets/content_state_test.dart b/test/widgets/content_state_test.dart
+index 1d2e09e10d362ad86ca89b57bbf77a16ed1f1c78..dfb072a39fc26ceacae6c4cd23de9a34929bc2cf 100644
+--- a/test/widgets/content_state_test.dart
++++ b/test/widgets/content_state_test.dart
+@@ -9,26 +9,46 @@ void main() {
+     )));
+     expect(find.byType(CircularProgressIndicator), findsOneWidget);
+     expect(find.text('Chargement'), findsOneWidget);
+     expect(find.text('Patiente un instant.'), findsOneWidget);
+   });
+ 
+   testWidgets('présente une erreur avec une action', (tester) async {
+     var retried = false;
+     await tester.pumpWidget(MaterialApp(home: Scaffold(body: ContentState.error(
+       title: 'Échec', message: 'Une cause compréhensible.', onAction: () => retried = true,
+     ))));
+     await tester.tap(find.text('Réessayer'));
+     expect(retried, isTrue);
+   });
+ 
+   testWidgets('supporte une grande taille de texte sur écran étroit', (tester) async {
+     await tester.pumpWidget(const MaterialApp(home: MediaQuery(
+       data: MediaQueryData(size: Size(320, 640), textScaler: TextScaler.linear(2)),
+       child: Scaffold(body: SingleChildScrollView(child: ContentState.empty(
+         title: 'Aucun contenu disponible',
+         message: 'Ajoute un premier élément pour commencer.',
+       ))),
+     )));
+     expect(tester.takeException(), isNull);
+   });
++
++  testWidgets('présente un état vide avec une action contextuelle', (tester) async {
++    var created = false;
++    await tester.pumpWidget(MaterialApp(home: Scaffold(body: ContentState.empty(
++      title: 'Bibliothèque vide',
++      message: 'Crée un premier élément.',
++      actionLabel: 'Créer',
++      onAction: () => created = true,
++    ))));
++    await tester.tap(find.text('Créer'));
++    expect(created, isTrue);
++  });
++
++  testWidgets('annonce un succès détaillé fourni par l’écran', (tester) async {
++    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ContentState.success(
++      child: Text('12 vêtements et 24 photos restaurés.'),
++    ))));
++    expect(find.text('12 vêtements et 24 photos restaurés.'), findsOneWidget);
++    expect(find.byType(CircularProgressIndicator), findsNothing);
++  });
+ }

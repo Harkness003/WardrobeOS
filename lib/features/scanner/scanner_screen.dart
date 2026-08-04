@@ -839,7 +839,7 @@ class _PhotoArea extends StatelessWidget {
                     CircularProgressIndicator(color: AppTheme.gold),
                     SizedBox(height: 18),
                     Text(
-                      'Analyse en cours…',
+                      'Étape actuelle : analyse IA…',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
@@ -847,7 +847,8 @@ class _PhotoArea extends StatelessWidget {
                     ),
                     SizedBox(height: 5),
                     Text(
-                      'Catégorie · couleur · matière · saison',
+                      'Déjà détecté : photo importée\nRecherche : catégorie · couleur · matière · saison\nTu pourras corriger chaque donnée avant l’enregistrement.',
+                      textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white70),
                     ),
                   ],
