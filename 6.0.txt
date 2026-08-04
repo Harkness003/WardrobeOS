@@ -1,0 +1,480 @@
+diff --git a/lib/core/theme/app_theme.dart b/lib/core/theme/app_theme.dart
+index 567f3fe6d4734cd27bb356ec17e30e19185b53e5..ad5dbca00ff6c8a4a0945a09d0bc89fd5276e978 100644
+--- a/lib/core/theme/app_theme.dart
++++ b/lib/core/theme/app_theme.dart
+@@ -67,40 +67,56 @@ class AppTheme {
+           vertical: 17,
+         ),
+         border: OutlineInputBorder(
+           borderRadius: BorderRadius.circular(20),
+           borderSide: BorderSide.none,
+         ),
+         enabledBorder: OutlineInputBorder(
+           borderRadius: BorderRadius.circular(20),
+           borderSide: BorderSide(
+             color:
+                 isDark ? Colors.white10 : Colors.black.withValues(alpha: .04),
+           ),
+         ),
+       ),
+       filledButtonTheme: FilledButtonThemeData(
+         style: FilledButton.styleFrom(
+           backgroundColor: gold,
+           foregroundColor: ink,
+           minimumSize: const Size.fromHeight(54),
+           shape: RoundedRectangleBorder(
+             borderRadius: BorderRadius.circular(19),
+           ),
+           textStyle: const TextStyle(fontWeight: FontWeight.w900),
+         ),
+       ),
++      outlinedButtonTheme: OutlinedButtonThemeData(
++        style: OutlinedButton.styleFrom(
++          minimumSize: const Size.fromHeight(52),
++          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(19)),
++          textStyle: const TextStyle(fontWeight: FontWeight.w800),
++        ),
++      ),
++      textButtonTheme: TextButtonThemeData(
++        style: TextButton.styleFrom(
++          minimumSize: const Size(48, 48),
++          textStyle: const TextStyle(fontWeight: FontWeight.w700),
++        ),
++      ),
++      iconButtonTheme: IconButtonThemeData(
++        style: IconButton.styleFrom(minimumSize: const Size.square(48)),
++      ),
+       floatingActionButtonTheme: const FloatingActionButtonThemeData(
+         backgroundColor: gold,
+         foregroundColor: ink,
+       ),
+       chipTheme: ChipThemeData(
+         side: BorderSide.none,
+         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+       ),
+       snackBarTheme: SnackBarThemeData(
+         behavior: SnackBarBehavior.floating,
+         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+       ),
+     );
+   }
+ }
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index 8a8bc0e3af6ede983250a1f5f613ae34a2c51ebe..44793700ba94e3e4d383d2138fb748ce6899984b 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,183 +1,125 @@
+ import 'dart:async';
+-import 'dart:convert';
+-
+ import 'package:flutter/material.dart';
+ 
+ import 'services/assistant_service.dart';
+ 
+ class AssistantScreen extends StatefulWidget {
+   final AssistantService service;
+ 
+   const AssistantScreen({super.key, required this.service});
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
+   final _controller = TextEditingController();
+   String? _message;
+   bool _isLoading = false;
+-  Map<String, Object?> _toolContext = const {};
+-  List<({String name, String category})> _candidates = const [];
+   StreamSubscription<String>? _generation;
+ 
+   @override
+   void dispose() {
+     _generation?.cancel();
+     _controller.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> _send() async {
+     final userMessage = _controller.text.trim();
+     if (userMessage.isEmpty) return;
+     setState(() => _isLoading = true);
+     setState(() {
+       _message = '';
+     });
+     _generation = widget.service
+         .generateMessageStream(userMessage: userMessage)
+         .listen(
+           (chunk) {
+             if (mounted) setState(() => _message = '${_message ?? ''}$chunk');
+           },
++          onError: (_) {
++            if (!mounted) return;
++            setState(() {
++              _message = 'WardrobeGPT est momentanément indisponible. Réessayez dans un instant.';
++              _isLoading = false;
++            });
++          },
+           onDone: _finishGeneration,
+         );
+   }
+ 
+   void _finishGeneration() {
+     if (!mounted) return;
+     setState(() {
+-      _toolContext = widget.service.lastToolContext;
+-      _candidates = widget.service.lastRecommendationCandidates
+-          .map((item) => (name: item.name, category: item.category))
+-          .toList(growable: false);
+       _isLoading = false;
+     });
+   }
+ 
+   Future<void> _stop() async {
+     await _generation?.cancel();
+     _finishGeneration();
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.stretch,
+           children: [
+             const Row(
+               children: [
+                 Expanded(
+                   child: Text(
+                     'WardrobeGPT',
+                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+                   ),
+                 ),
+                 CircleAvatar(child: Icon(Icons.auto_awesome)),
+               ],
+             ),
+             const SizedBox(height: 32),
+-            if (widget.service.lastIntent case final intent?)
+-              Padding(
+-                padding: const EdgeInsets.only(bottom: 12),
+-                child: Text(
+-                  'Intention détectée : ${intent.type.label}',
+-                  key: const Key('detected-intent'),
+-                  style: Theme.of(context).textTheme.labelLarge,
+-                ),
+-              ),
+             Expanded(
+               child: ListView(
+                 children: [
+                   SizedBox(
+                     height: 220,
+                     child: Center(
+                       child:
+                           _isLoading && (_message?.isEmpty ?? true)
+                               ? const CircularProgressIndicator()
+                               : Text(
+-                                _message ?? 'WardrobeGPT est prêt.',
++                                _message ?? 'WardrobeGPT est prêt. Demandez une tenue, un conseil de style ou une idée adaptée à votre journée.',
+                                 textAlign: TextAlign.start,
+                                 style: Theme.of(context).textTheme.titleMedium,
+                               ),
+                     ),
+                   ),
+-                  if (_toolContext.isNotEmpty)
+-                    ExpansionTile(
+-                      title: const Text('Données utilisées par WardrobeGPT'),
+-                      children: [
+-                        _DebugData(
+-                          title: 'Météo utilisée',
+-                          value: _toolContext['weather'],
+-                        ),
+-                        if (_toolContext['calendar'] != null)
+-                          _DebugData(
+-                            title: 'Événement pris en compte',
+-                            value: _toolContext['calendar'],
+-                          ),
+-                        _DebugData(
+-                          title: 'Informations dressing',
+-                          value: _toolContext['wardrobe'],
+-                        ),
+-                        _DebugData(
+-                          title: 'Statistiques utilisées',
+-                          value: _toolContext['statistics'],
+-                        ),
+-                      ],
+-                    ),
+-                  if (_candidates.isNotEmpty)
+-                    ExpansionTile(
+-                      title: const Text('Candidats utilisés'),
+-                      children: _candidates
+-                          .map(
+-                            (item) => ListTile(
+-                              title: Text(item.name),
+-                              subtitle: Text(item.category),
+-                            ),
+-                          )
+-                          .toList(growable: false),
+-                    ),
+                 ],
+               ),
+             ),
+             TextField(
+               controller: _controller,
+               enabled: !_isLoading,
+               textInputAction: TextInputAction.send,
+               onSubmitted: (_) => _send(),
+               decoration: const InputDecoration(
+                 labelText: 'Votre demande',
+                 hintText: "Que mettre aujourd'hui ?",
+                 border: OutlineInputBorder(),
+               ),
+             ),
+             const SizedBox(height: 12),
+             FilledButton.icon(
+               onPressed: _isLoading ? _stop : _send,
+               icon: Icon(_isLoading ? Icons.stop : Icons.send),
+               label: Text(_isLoading ? 'Arrêter' : 'Envoyer'),
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+ }
+-
+-class _DebugData extends StatelessWidget {
+-  final String title;
+-  final Object? value;
+-
+-  const _DebugData({required this.title, required this.value});
+-
+-  @override
+-  Widget build(BuildContext context) => ListTile(
+-    title: Text(title),
+-    subtitle: SelectableText(const JsonEncoder.withIndent('  ').convert(value)),
+-  );
+-}
+diff --git a/lib/features/wardrobe/garment_form_screen.dart b/lib/features/wardrobe/garment_form_screen.dart
+index 061692c0db672c05211c3389f67ac0d77d15c5c6..952f9bcd0d27c49223d828902e1a6ca248cc1332 100644
+--- a/lib/features/wardrobe/garment_form_screen.dart
++++ b/lib/features/wardrobe/garment_form_screen.dart
+@@ -37,98 +37,125 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+   static const categories = ['Hauts', 'Chemises', 'Vestes', 'Bas', 'Chaussures', 'Accessoires', 'Autre'];
+   static const subCategories = <String, List<String>>{
+     'Hauts': ['T-shirt', 'Polo', 'Pull', 'Sweat', 'Cardigan', 'Débardeur'],
+     'Chemises': ['Chemise habillée', 'Chemise casual', 'Surchemise', 'Blouse'],
+     'Vestes': ['Blazer', 'Manteau', 'Parka', 'Imperméable', 'Doudoune', 'Veste légère'],
+     'Bas': ['Jean', 'Pantalon', 'Short', 'Jupe', 'Legging'],
+     'Chaussures': ['Baskets', 'Boots', 'Chaussures habillées', 'Sandales', 'Randonnée'],
+     'Accessoires': ['Sac', 'Ceinture', 'Écharpe', 'Bonnet', 'Chapeau', 'Gants'],
+     'Autre': ['Autre'],
+   };
+   static const materials = ['Coton', 'Laine', 'Mérinos', 'Cachemire', 'Lin', 'Polyester', 'Viscose', 'Denim', 'Cuir', 'Daim', 'Nylon', 'Soie', 'Mélange', 'Autre...'];
+   static const styles = ['Casual', 'Smart Casual', 'Business', 'Business Casual', 'Chic', 'Streetwear', 'Workwear', 'Sport', 'Outdoor', 'Vintage', 'Minimaliste', 'Preppy', 'Classique', 'Élégant'];
+   static const uses = ['Quotidien', 'Travail', 'Soirée', 'Sport', 'Voyage', 'Randonnée', 'Maison', 'Vacances', 'Autre...'];
+   static const seasons = Garment.availableSeasons;
+ 
+   @override
+   void initState() {
+     super.initState();
+     final g = widget.garment;
+     _name = TextEditingController(text: g?.name ?? '');
+     _brand = TextEditingController(text: g?.brand ?? '');
+     _color = TextEditingController(text: g?.couleurPrincipale ?? g?.color ?? '');
+     _size = TextEditingController(text: g?.size ?? '');
+     _notes = TextEditingController(text: g?.notes ?? '');
+     _composition = TextEditingController(text: g?.composition ?? '');
+-    _otherCategory = TextEditingController(text: g?.category == 'Autre' ? '' : '');
+-    _otherSubCategory = TextEditingController(text: g?.category == 'Autre' && g?.sousCategorie != 'Autre' ? g?.sousCategorie ?? '' : '');
++    final hasCustomCategory = g != null && !categories.contains(g.category);
++    _otherCategory = TextEditingController(text: hasCustomCategory ? g.category : '');
++    _otherSubCategory = TextEditingController(text: hasCustomCategory ? g.sousCategorie ?? '' : '');
+     _minTemp = TextEditingController(text: g?.temperatureMinimum?.toString() ?? '');
+     _maxTemp = TextEditingController(text: g?.temperatureMaximum?.toString() ?? '');
+-    _category = categories.contains(g?.category) ? g!.category : categories.first;
++    _category = hasCustomCategory ? 'Autre' : (categories.contains(g?.category) ? g!.category : categories.first);
+     _subCategory = _choice(g?.sousCategorie, subCategories[_category]!);
+     final existingMaterial = g?.matierePrincipale ?? g?.material;
+     _material = _choice(existingMaterial, materials);
+     _otherMaterial = TextEditingController(text: _material == null ? existingMaterial ?? '' : '');
+     final existingUses = g?.effectiveOccasions ?? const <String>[];
+     _uses = existingUses.where(uses.contains).toSet();
+     final customUses = existingUses.where((value) => !uses.contains(value)).toList();
+     if (customUses.isNotEmpty) _uses.add('Autre...');
+     _otherUse = TextEditingController(text: customUses.join(', '));
+     _styles = {...?g?.stylesSecondaires, if (g?.stylePrincipal != null) g!.stylePrincipal!, if (g?.style != null) g!.style!}.where(styles.contains).toSet();
+     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
+     _rain = g?.compatiblePluie;
+     _heat = g?.compatibleChaleur;
+     _imagePath = g?.imagePath;
+   }
+ 
+   static String? _choice(String? value, List<String> values) => values.contains(value) ? value : null;
+   String? _text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
+   double? _number(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '.'));
+ 
+   @override
+   void dispose() {
+     for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _otherCategory, _otherSubCategory, _composition, _minTemp, _maxTemp, _notes]) { c.dispose(); }
+     super.dispose();
+   }
+ 
+   Future<void> _chooseImage(ImageSource source) async {
+     final picked = await _picker.pickImage(source: source, imageQuality: 88, maxWidth: 1800);
+     if (picked == null) return;
+     final path = await ImageStorageService.persist(picked.path);
+     if (_imagePath != null && _imagePath != widget.garment?.imagePath) await ImageStorageService.remove(_imagePath);
+     if (mounted) setState(() => _imagePath = path);
+   }
+ 
+   Future<void> _imageActions() => showModalBottomSheet<void>(
+     context: context, showDragHandle: true,
+     builder: (context) => SafeArea(child: Wrap(children: [
+       ListTile(leading: const Icon(Icons.camera_alt_outlined), title: const Text('Prendre une photo'), onTap: () { Navigator.pop(context); _chooseImage(ImageSource.camera); }),
+       ListTile(leading: const Icon(Icons.photo_library_outlined), title: const Text('Changer la photo'), onTap: () { Navigator.pop(context); _chooseImage(ImageSource.gallery); }),
+       if (_imagePath != null) ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Supprimer la photo'), onTap: () async { Navigator.pop(context); if (_imagePath != widget.garment?.imagePath) await ImageStorageService.remove(_imagePath); if (mounted) setState(() => _imagePath = null); }),
+     ])),
+   );
+ 
++  Future<void> _showHelp() => showModalBottomSheet<void>(
++    context: context,
++    showDragHandle: true,
++    useSafeArea: true,
++    isScrollControlled: true,
++    builder: (context) => DraggableScrollableSheet(
++      expand: false,
++      initialChildSize: .72,
++      maxChildSize: .92,
++      builder: (context, scrollController) => ListView(
++        controller: scrollController,
++        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
++        children: [
++          Text('Aide à la saisie', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
++          const SizedBox(height: 8),
++          const Text('Retrouvez ici les repères utilisés dans les fiches. Vous pouvez toujours choisir « Autre… » pour saisir votre propre valeur.'),
++          const SizedBox(height: 16),
++          _HelpSection(title: 'Styles', icon: Icons.style_outlined, values: styles, description: 'L’esthétique générale de la pièce, par exemple Casual, Business ou Streetwear.'),
++          _HelpSection(title: 'Matières', icon: Icons.texture_outlined, values: materials.where((value) => value != 'Autre...').toList(), description: 'La fibre ou le textile principal. Consultez l’étiquette de composition en cas de doute.'),
++          _HelpSection(title: 'Formalités', icon: Icons.business_center_outlined, values: const ['Casual', 'Smart Casual', 'Business', 'Formel', 'Sport'], description: 'Le niveau de tenue attendu, du plus décontracté au plus habillé.'),
++          _HelpSection(title: 'Occasions', icon: Icons.event_available_outlined, values: uses.where((value) => value != 'Autre...').toList(), description: 'Les contextes dans lesquels vous porteriez naturellement cette pièce.'),
++        ],
++      ),
++    ),
++  );
++
+ 
+ 
+   Future<void> _save() async {
+     if (!_formKey.currentState!.validate()) return;
+     final min = _number(_minTemp), max = _number(_maxTemp);
+     if (min != null && max != null && min > max) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La température minimale doit être inférieure au maximum.'))); return; }
+     setState(() => _saving = true);
+     final old = widget.garment;
+     final now = DateTime.now();
+     final material = _material == 'Autre...' ? _text(_otherMaterial) : _material;
+     final selectedUses = _uses.where((value) => value != 'Autre...').toList();
+     if (_uses.contains('Autre...')) {
+       selectedUses.addAll(
+         _otherUse.text
+             .split(',')
+             .map((value) => value.trim())
+             .where((value) => value.isNotEmpty),
+       );
+     }
+     final uniqueUses = selectedUses.toSet().toList();
+     final composition = _text(_composition);
+     final thermalInput = ThermalProfileInput(
+       category: _category == 'Autre' ? (_text(_otherCategory) ?? 'Autre') : _category,
+       subcategory: _subCategory == 'Autre' ? _text(_otherSubCategory) : _subCategory,
+       material: material,
+@@ -167,66 +194,84 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+         'outer' => 'Couche extérieure',
+         _ => 'Couche intermédiaire',
+       },
+       thermalProfile: thermalProfile,
+       descriptionIA: old?.descriptionIA, couleursSecondaires: old?.couleursSecondaires, motif: old?.motif, texture: old?.texture,
+       logoVisible: old?.logoVisible, niveauFormalite: old?.niveauFormalite, coupe: old?.coupe, longueur: old?.longueur,
+       longueurManches: old?.longueurManches, typeCol: old?.typeCol, typeFermeture: old?.typeFermeture,
+       matieresSecondaires: old?.matieresSecondaires, confianceMatiere: old?.confianceMatiere, etatVisuel: old?.etatVisuel,
+       usureVisible: old?.usureVisible, defautsVisibles: old?.defautsVisibles, confianceGlobale: old?.confianceGlobale,
+       avertissementsIA: old?.avertissementsIA, resumeStylistique: old?.resumeStylistique, pointsForts: old?.pointsForts,
+       pointsFaibles: old?.pointsFaibles, conseils: old?.conseils, verdict: old?.verdict, couleursCompatibles: old?.couleursCompatibles,
+       couleursMoinsAdaptees: old?.couleursMoinsAdaptees, basCompatibles: old?.basCompatibles, chaussuresCompatibles: old?.chaussuresCompatibles,
+       explicationPolyvalence: old?.explicationPolyvalence, occasionsDeconseillees: old?.occasionsDeconseillees,
+       compositionEstimee: old?.compositionEstimee, lavage: old?.lavage, sechage: old?.sechage, repassage: old?.repassage,
+       nettoyage: old?.nettoyage, boulochage: old?.boulochage, taches: old?.taches, limitesAnalyse: old?.limitesAnalyse,
+       condition: old?.condition, purchasePrice: old?.purchasePrice, purchaseDate: old?.purchaseDate, lastWorn: old?.lastWorn,
+       fit: old?.fit, composition: composition, wearCount: old?.wearCount ?? 0, isFavorite: old?.isFavorite ?? false,
+       createdAt: old?.createdAt ?? now, updatedAt: now,
+     );
+     try { await widget.controller.save(garment, isNew: old == null || widget.isDraft); if (mounted) Navigator.pop(context, true); }
+     catch (e) { if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Impossible d'enregistrer : $e"))); } }
+   }
+ 
+   @override
+   Widget build(BuildContext context) => Scaffold(
+-    appBar: AppBar(title: Text(widget.garment == null || widget.isDraft ? 'Valider la fiche' : 'Modifier la pièce')),
++    appBar: AppBar(
++      title: Text(widget.garment == null || widget.isDraft ? 'Valider la fiche' : 'Modifier la pièce'),
++      actions: [IconButton(onPressed: _showHelp, tooltip: 'Aide sur les champs', icon: const Icon(Icons.help_outline))],
++    ),
+     body: Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
+       GestureDetector(onTap: _imageActions, child: Stack(children: [GarmentImage(imagePath: _imagePath, width: double.infinity, height: 270, borderRadius: BorderRadius.circular(26)), Positioned(right: 12, bottom: 12, child: FilledButton.tonalIcon(onPressed: _imageActions, icon: const Icon(Icons.camera_alt_outlined), label: Text(_imagePath == null ? 'Ajouter' : 'Actions photo')))])),
+       const SizedBox(height: 18),
+       TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Nom *', helperText: 'Proposé par l’IA · corrigez seulement si nécessaire'), validator: (v) => v == null || v.trim().isEmpty ? 'Le nom est obligatoire' : null),
+       const SizedBox(height: 10), TextFormField(controller: _brand, decoration: const InputDecoration(labelText: 'Marque')),
+       const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory = null; })),
+-      if (_category == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherCategory, decoration: const InputDecoration(labelText: 'Autre catégorie'))],
++      if (_category == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherCategory, decoration: const InputDecoration(labelText: 'Votre catégorie *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la catégorie' : null)],
+       const SizedBox(height: 10), DropdownButtonFormField<String>(value: _subCategory, decoration: const InputDecoration(labelText: 'Sous-catégorie'), items: subCategories[_category]!.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _subCategory = v)),
+-      if (_subCategory == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherSubCategory, decoration: const InputDecoration(labelText: 'Autre sous-catégorie'))],
++      if (_subCategory == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherSubCategory, decoration: const InputDecoration(labelText: 'Votre sous-catégorie *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la sous-catégorie' : null)],
+       const SizedBox(height: 10), TextFormField(controller: _color, decoration: const InputDecoration(labelText: 'Couleur')),
+       const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _material = v)),
+-      if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Autre matière'))],
++      if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Votre matière *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la matière' : null)],
+       const SizedBox(height: 10), TextFormField(controller: _composition, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Composition textile', helperText: 'Tissu principal, doublure et rembourrage · pourcentages modifiables')),
+       const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: styles, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
+       const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() => _seasons = v)),
+       const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() => _uses = v)),
+-      if (_uses.contains('Autre...')) ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Autre utilisation', helperText: 'Séparez plusieurs utilisations par des virgules'))],
++      if (_uses.contains('Autre...')) ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Vos occasions *', helperText: 'Séparez plusieurs occasions par des virgules'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez au moins une occasion' : null)],
+       const SizedBox(height: 10), TextFormField(controller: _size, decoration: const InputDecoration(labelText: 'Taille (facultative)', helperText: 'Jamais estimée par l’IA')),
+       const SizedBox(height: 18), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'Temp. min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'Temp. max'))]),
+       const SizedBox(height: 10), _TriState(label: 'Compatible pluie', value: _rain, onChanged: (v) => setState(() => _rain = v)),
+       _TriState(label: 'Compatible chaleur', value: _heat, onChanged: (v) => setState(() => _heat = v)),
+       const SizedBox(height: 10), TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
+       const SizedBox(height: 24), FilledButton.icon(style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(58)), onPressed: _saving ? null : _save, icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check), label: const Text('Enregistrer la fiche')),
+     ])),
+   );
+ }
+ 
++class _HelpSection extends StatelessWidget {
++  final String title, description;
++  final IconData icon;
++  final List<String> values;
++  const _HelpSection({required this.title, required this.icon, required this.values, required this.description});
++
++  @override
++  Widget build(BuildContext context) => ExpansionTile(
++    leading: Icon(icon),
++    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
++    subtitle: Text(description),
++    children: [Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), child: Wrap(spacing: 8, runSpacing: 8, children: values.map((value) => Chip(label: Text(value))).toList()))],
++  );
++}
++
+ class _MultiChoice extends StatelessWidget {
+   final String label; final List<String> values; final Set<String> selected; final ValueChanged<Set<String>> onChanged;
+   const _MultiChoice({required this.label, required this.values, required this.selected, required this.onChanged});
+   @override Widget build(BuildContext context) => InputDecorator(decoration: InputDecoration(labelText: label, helperText: 'Suggestions IA · sélection modifiable'), child: Wrap(spacing: 7, children: values.map((v) => FilterChip(label: Text(v), selected: selected.contains(v), onSelected: (yes) { final next = {...selected}; yes ? next.add(v) : next.remove(v); onChanged(next); })).toList()));
+ }
+ class _Temperature extends StatelessWidget {
+   final TextEditingController controller; final String label; const _Temperature({required this.controller, required this.label});
+   @override Widget build(BuildContext context) => TextFormField(controller: controller, keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[-0-9,.]'))], decoration: InputDecoration(labelText: label, suffixText: '°C', helperText: 'Calcul IA'));
+ }
+ class _TriState extends StatelessWidget {
+   final String label; final bool? value; final ValueChanged<bool?> onChanged; const _TriState({required this.label, required this.value, required this.onChanged});
+   @override Widget build(BuildContext context) => DropdownButtonFormField<bool?>(value: value, decoration: InputDecoration(labelText: label, helperText: 'Calcul IA · modifiable'), items: const [DropdownMenuItem(value: null, child: Text('À calculer')), DropdownMenuItem(value: true, child: Text('Oui')), DropdownMenuItem(value: false, child: Text('Non'))], onChanged: onChanged);
+ }

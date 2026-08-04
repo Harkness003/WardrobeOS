@@ -89,6 +89,22 @@ class AppTheme {
           textStyle: const TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(52),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(19)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(minimumSize: const Size.square(48)),
+      ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: gold,
         foregroundColor: ink,

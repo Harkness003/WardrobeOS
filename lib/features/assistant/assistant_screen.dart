@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import 'services/assistant_service.dart';
@@ -18,8 +16,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
   final _controller = TextEditingController();
   String? _message;
   bool _isLoading = false;
-  Map<String, Object?> _toolContext = const {};
-  List<({String name, String category})> _candidates = const [];
   StreamSubscription<String>? _generation;
 
   @override
@@ -42,6 +38,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
           (chunk) {
             if (mounted) setState(() => _message = '${_message ?? ''}$chunk');
           },
+          onError: (_) {
+            if (!mounted) return;
+            setState(() {
+              _message = 'WardrobeGPT est momentanément indisponible. Réessayez dans un instant.';
+              _isLoading = false;
+            });
+          },
           onDone: _finishGeneration,
         );
   }
@@ -49,10 +52,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
   void _finishGeneration() {
     if (!mounted) return;
     setState(() {
-      _toolContext = widget.service.lastToolContext;
-      _candidates = widget.service.lastRecommendationCandidates
-          .map((item) => (name: item.name, category: item.category))
-          .toList(growable: false);
       _isLoading = false;
     });
   }
@@ -82,15 +81,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
               ],
             ),
             const SizedBox(height: 32),
-            if (widget.service.lastIntent case final intent?)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  'Intention détectée : ${intent.type.label}',
-                  key: const Key('detected-intent'),
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
-              ),
             Expanded(
               child: ListView(
                 children: [
@@ -101,47 +91,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
                           _isLoading && (_message?.isEmpty ?? true)
                               ? const CircularProgressIndicator()
                               : Text(
-                                _message ?? 'WardrobeGPT est prêt.',
+                                _message ?? 'WardrobeGPT est prêt. Demandez une tenue, un conseil de style ou une idée adaptée à votre journée.',
                                 textAlign: TextAlign.start,
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                     ),
                   ),
-                  if (_toolContext.isNotEmpty)
-                    ExpansionTile(
-                      title: const Text('Données utilisées par WardrobeGPT'),
-                      children: [
-                        _DebugData(
-                          title: 'Météo utilisée',
-                          value: _toolContext['weather'],
-                        ),
-                        if (_toolContext['calendar'] != null)
-                          _DebugData(
-                            title: 'Événement pris en compte',
-                            value: _toolContext['calendar'],
-                          ),
-                        _DebugData(
-                          title: 'Informations dressing',
-                          value: _toolContext['wardrobe'],
-                        ),
-                        _DebugData(
-                          title: 'Statistiques utilisées',
-                          value: _toolContext['statistics'],
-                        ),
-                      ],
-                    ),
-                  if (_candidates.isNotEmpty)
-                    ExpansionTile(
-                      title: const Text('Candidats utilisés'),
-                      children: _candidates
-                          .map(
-                            (item) => ListTile(
-                              title: Text(item.name),
-                              subtitle: Text(item.category),
-                            ),
-                          )
-                          .toList(growable: false),
-                    ),
                 ],
               ),
             ),
@@ -167,17 +122,4 @@ class _AssistantScreenState extends State<AssistantScreen> {
       ),
     );
   }
-}
-
-class _DebugData extends StatelessWidget {
-  final String title;
-  final Object? value;
-
-  const _DebugData({required this.title, required this.value});
-
-  @override
-  Widget build(BuildContext context) => ListTile(
-    title: Text(title),
-    subtitle: SelectableText(const JsonEncoder.withIndent('  ').convert(value)),
-  );
 }
