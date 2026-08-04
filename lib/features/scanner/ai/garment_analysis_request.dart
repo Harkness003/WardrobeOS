@@ -27,6 +27,6 @@ class GarmentAnalysisRequest {
     this.previousAnalysis,
   });
 
-  GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType}) =>
-      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes, previousAnalysis: previousAnalysis);
+  GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType, List<Uint8List>? previousImageBytes}) =>
+      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes ?? this.previousImageBytes, previousAnalysis: previousAnalysis);
 }

@@ -11,6 +11,13 @@ import 'garment_analysis_result.dart';
 import 'garment_vision_analyzer.dart';
 import 'garment_image_processing.dart';
 
+class GarmentAnalysisTimings {
+  final Duration imagePreparation;
+  final Duration aiCall;
+  final Duration parsing;
+  const GarmentAnalysisTimings({required this.imagePreparation, required this.aiCall, required this.parsing});
+}
+
 class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
   static final Uri endpoint = Uri.parse('https://api.openai.com/v1/responses');
   static const defaultModel = 'gpt-4.1-mini';
@@ -23,6 +30,7 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
   final GarmentImagePreprocessor preprocessor;
   final int maxRetries;
   final bool _ownsClient;
+  GarmentAnalysisTimings? lastTimings;
 
   OpenAiGarmentVisionAnalyzer({
     required this.apiKeyStorage,
@@ -61,12 +69,18 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
       );
     }
 
+    final preparationWatch = Stopwatch()..start();
     final prepared = preprocessor.prepareBytes(request.imageBytes, mimeType: request.mimeType);
-    final preparedRequest = request.copyWith(imageBytes: prepared.bytes, mimeType: prepared.mimeType);
+    final previous = request.previousImageBytes.map((bytes) => preprocessor.prepareBytes(
+      bytes, mimeType: GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
+    ).bytes).toList(growable: false);
+    final preparedRequest = request.copyWith(imageBytes: prepared.bytes, mimeType: prepared.mimeType, previousImageBytes: previous);
+    preparationWatch.stop();
     final body = _requestBody(preparedRequest);
     var attempt = 0;
     while (true) {
       try {
+        final aiWatch = Stopwatch()..start();
         final response = await client.post(
           endpoint,
           headers: {
@@ -83,6 +97,8 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
           }
           throw exception;
         }
+        aiWatch.stop();
+        final parsingWatch = Stopwatch()..start();
         final responseBody = _decodeObject(response.body);
         final output = _outputText(responseBody);
         if (output == null || output.trim().isEmpty) {
@@ -91,7 +107,10 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
             'OpenAI a renvoyé une réponse vide.',
           );
         }
-        return GarmentAnalysisResult.fromJsonString(output);
+        final result = GarmentAnalysisResult.fromJsonString(output);
+        parsingWatch.stop();
+        lastTimings = GarmentAnalysisTimings(imagePreparation: preparationWatch.elapsed, aiCall: aiWatch.elapsed, parsing: parsingWatch.elapsed);
+        return result;
       } on GarmentAnalysisException {
         rethrow;
       } on TimeoutException {
@@ -161,7 +180,9 @@ observable. Distingue une photo utilisable, imparfaite et inutilisable. Un lége
 défaut produit un avertissement ; un vêtement minuscule ou plusieurs vêtements
 principaux indissociables produisent un rejet. N'identifie personne, ne déduis
 ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
-l'étiquette reste prioritaire. Baisse la confiance si texture, couleur ou logo
+l'étiquette reste prioritaire. Pour une étiquette, retranscris d'abord le texte
+par OCR. Ne déduis jamais une composition depuis l'apparence et ne demande une
+photo plus nette que si le texte est réellement illisible. Baisse la confiance si texture, couleur ou logo
 sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
 Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
 Combine toutes les images : une nouvelle photo complète l'analyse précédente et
@@ -171,6 +192,12 @@ uniquement si une photo ciblée peut améliorer de façon importante un champ
 encore incertain. Ne demande qu'une seule photo à la fois, explique précisément
 pourquoi elle est utile et indique les champs visés. Ne redemande jamais une vue
 déjà fournie. Sinon mets needsMorePhotos à false et requestedPhoto à null.
+Adapte la demande au vêtement : semelle, intérieur ou usure pour des chaussures ;
+étiquette, col ou poignets pour une chemise ; doublure, fermeture ou rembourrage
+pour un manteau. Explique toujours le bénéfice concret de la photo.
+Dans compositions, conserve toutes les fibres et pourcentages lus, séparés en
+main, lining et padding. Utilise la source ocr pour le texte lu et visual
+seulement pour une matière directement observable. Ne crée aucune valeur incertaine.
 « category » est la catégorie générale, choisie uniquement parmi les catégories
 autorisées ci-dessous. « preciseType » est le type concret et précis observé
 (par exemple chemise Oxford, blazer croisé, jean droit, pantalon cargo,
@@ -207,6 +234,7 @@ Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}
       'preciseType',
       'primaryColor',
       'material',
+      'compositions',
       'season',
       'visibleBrand',
       'globalConfidence',
@@ -230,6 +258,19 @@ Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}
       'preciseType': _nullableString,
       'primaryColor': _nullableString,
       'material': _nullableString,
+      'compositions': {
+        'type': 'array',
+        'items': {
+          'type': 'object', 'additionalProperties': false,
+          'required': ['section', 'material', 'percentage', 'source'],
+          'properties': {
+            'section': {'type': 'string', 'enum': ['main', 'lining', 'padding']},
+            'material': {'type': 'string'},
+            'percentage': {'type': ['number', 'null'], 'minimum': 0, 'maximum': 100},
+            'source': {'type': 'string', 'enum': ['ocr', 'visual']},
+          },
+        },
+      },
       'season': _nullableString,
       'visibleBrand': _nullableString,
       'globalConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
@@ -284,7 +325,8 @@ Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}
           'type': {
             'type': 'string',
             'enum': ['composition_label', 'back', 'fabric_close_up', 'collar',
-              'cuffs', 'lining', 'buttons', 'zipper', 'logo', 'other'],
+              'cuffs', 'lining', 'buttons', 'zipper', 'sole', 'interior',
+              'wear', 'padding', 'logo', 'other'],
           },
           'instruction': {'type': 'string'},
           'reason': {'type': 'string'},

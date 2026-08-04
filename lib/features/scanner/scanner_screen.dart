@@ -14,6 +14,7 @@ import '../wardrobe/garment_form_screen.dart';
 import '../assistant/settings/api_key_storage.dart';
 import 'ai/garment_analysis_exception.dart';
 import 'ai/garment_analysis_mapper.dart';
+import 'ai/garment_analysis_normalizer.dart';
 import 'ai/garment_analysis_request.dart';
 import 'ai/garment_analysis_result.dart';
 import 'ai/garment_analysis_validator.dart';
@@ -122,7 +123,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
         return;
       }
 
-      final isAdditional = result != null && conversation?.requestedPhoto != null;
+      final isAdditional = result != null;
       final previousPath = imagePath;
       setState(() {
         imagePath = persisted;
@@ -145,8 +146,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
       if (mounted) setState(() => importing = false);
     }
 
-    // L'analyse reste une action explicite afin d'éviter tout appel coûteux
-    // involontaire après un simple changement de photo.
+    // Toute photo ajoutée enrichit automatiquement l'analyse cumulée. `busy`
+    // empêche deux appels concurrents.
+    if (mounted && imagePath != null) await analyze();
   }
 
   Future<void> chooseSource() async {
@@ -237,12 +239,13 @@ class _ScannerScreenState extends State<ScannerScreen> {
           previousAnalysis: result?.toJson(),
         ),
       );
-      final validated = GarmentAnalysisValidator(
+      final parsingWatch = Stopwatch()..start();
+      final validated = const GarmentAnalysisNormalizer().normalize(GarmentAnalysisValidator(
         categoryNormalizer: const GarmentValueNormalizer(categories),
         colorNormalizer: const GarmentValueNormalizer(colors),
         materialNormalizer: const GarmentValueNormalizer(materials),
         seasonNormalizer: const GarmentValueNormalizer(seasons),
-      ).validate(raw).analysis;
+      ).validate(raw).analysis);
       if (!validated.isUsableImage) {
         throw GarmentAnalysisException(
           GarmentAnalysisError.rejectedImage,
@@ -250,6 +253,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
               'La photo ne permet pas d’identifier clairement un vêtement.',
         );
       }
+      parsingWatch.stop();
+      final mergeWatch = Stopwatch()..start();
       final mapped = const GarmentAnalysisMapper(
         categories: categories,
         colors: colors,
@@ -278,6 +283,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
         if (mapped.category.isNotEmpty) category = mapped.category;
         if (mapped.season.isNotEmpty) season = mapped.season;
       });
+      mergeWatch.stop();
+      assert(() {
+        final timings = scanner.lastTimings;
+        debugPrint('scanner timings: images=${timings?.imagePreparation.inMilliseconds ?? 0}ms, ai=${timings?.aiCall.inMilliseconds ?? 0}ms, parsing=${(timings?.parsing ?? Duration.zero).inMilliseconds + parsingWatch.elapsedMilliseconds}ms, fusion=${mergeWatch.elapsedMilliseconds}ms');
+        return true;
+      }());
       setState(() => analyzing = false);
       if (decision.canFinishAutomatically) await _openFullForm();
     } on GarmentAnalysisException catch (error) {
@@ -332,6 +343,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
       couleurPrincipale: color.text.trim().isEmpty ? null : color.text.trim(),
       matierePrincipale:
           material.text.trim().isEmpty ? null : material.text.trim(),
+      matieresSecondaires: result?.compositions
+          .where((value) => value.section == 'main')
+          .map((value) => value.material)
+          .skip(1)
+          .toList(growable: false),
+      composition: _formattedComposition(result?.compositions ?? const []),
       saisons: switch (result?.season) {
         final value? => [value],
         null => null,
@@ -391,6 +408,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
     } finally {
       if (mounted) setState(() => saving = false);
     }
+  }
+
+  String? _formattedComposition(List<TextileComposition> values) {
+    if (values.isEmpty) return null;
+    const labels = {'main': 'Tissu principal', 'lining': 'Doublure', 'padding': 'Rembourrage'};
+    final sections = <String, List<TextileComposition>>{};
+    for (final value in values) {
+      (sections[value.section] ??= []).add(value);
+    }
+    return sections.entries.map((entry) => '${labels[entry.key] ?? entry.key} : ${entry.value.map((value) => '${value.material}${value.percentage == null ? '' : ' ${value.percentage!.toStringAsFixed(value.percentage! % 1 == 0 ? 0 : 1)} %'}').join(', ')}').join('\n');
   }
 
   (double, double) _estimateClimate(String category, String material, String season) {
@@ -536,9 +563,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
               if (result != null &&
                   conversation?.canFinishAutomatically == false) ...[
                 const SizedBox(height: 8),
-                TextButton(
+                FilledButton.icon(
                   onPressed: busy ? null : _openFullForm,
-                  child: const Text('Ignorer et terminer avec cette analyse'),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Ouvrir et compléter la fiche'),
+                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
                 ),
               ],
             ],

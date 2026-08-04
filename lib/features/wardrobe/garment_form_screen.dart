@@ -24,7 +24,8 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _picker = ImagePicker();
   late final TextEditingController _name, _brand, _color, _size, _otherMaterial,
-      _otherUse, _minTemp, _maxTemp, _notes;
+      _otherUse, _otherCategory, _otherSubCategory, _composition,
+      _minTemp, _maxTemp, _notes;
   late String _category;
   String? _subCategory, _material;
   late Set<String> _styles, _seasons, _uses;
@@ -56,6 +57,9 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     _color = TextEditingController(text: g?.couleurPrincipale ?? g?.color ?? '');
     _size = TextEditingController(text: g?.size ?? '');
     _notes = TextEditingController(text: g?.notes ?? '');
+    _composition = TextEditingController(text: g?.composition ?? '');
+    _otherCategory = TextEditingController(text: g?.category == 'Autre' ? '' : '');
+    _otherSubCategory = TextEditingController(text: g?.category == 'Autre' && g?.sousCategorie != 'Autre' ? g?.sousCategorie ?? '' : '');
     _minTemp = TextEditingController(text: g?.temperatureMinimum?.toString() ?? '');
     _maxTemp = TextEditingController(text: g?.temperatureMaximum?.toString() ?? '');
     _category = categories.contains(g?.category) ? g!.category : categories.first;
@@ -81,7 +85,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
 
   @override
   void dispose() {
-    for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _minTemp, _maxTemp, _notes]) { c.dispose(); }
+    for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _otherCategory, _otherSubCategory, _composition, _minTemp, _maxTemp, _notes]) { c.dispose(); }
     super.dispose();
   }
 
@@ -127,9 +131,9 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     }
     final uniqueUses = selectedUses.toSet().toList();
     final garment = Garment(
-      id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: _category,
+      id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: _category == 'Autre' ? (_text(_otherCategory) ?? 'Autre') : _category,
       brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes), imagePath: _imagePath,
-      sousCategorie: _subCategory, couleurPrincipale: _text(_color), matierePrincipale: material,
+      sousCategorie: _subCategory == 'Autre' ? _text(_otherSubCategory) : _subCategory, couleurPrincipale: _text(_color), matierePrincipale: material,
       // Legacy-only values remain persisted although they are no longer shown.
       typePrecis: old?.typePrecis, superposable: old?.superposable,
       style: _styles.isEmpty ? null : _styles.first, stylePrincipal: _styles.isEmpty ? null : _styles.first, stylesSecondaires: _styles.toList(),
@@ -151,7 +155,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       compositionEstimee: old?.compositionEstimee, lavage: old?.lavage, sechage: old?.sechage, repassage: old?.repassage,
       nettoyage: old?.nettoyage, boulochage: old?.boulochage, taches: old?.taches, limitesAnalyse: old?.limitesAnalyse,
       condition: old?.condition, purchasePrice: old?.purchasePrice, purchaseDate: old?.purchaseDate, lastWorn: old?.lastWorn,
-      fit: old?.fit, composition: old?.composition, wearCount: old?.wearCount ?? 0, isFavorite: old?.isFavorite ?? false,
+      fit: old?.fit, composition: _text(_composition), wearCount: old?.wearCount ?? 0, isFavorite: old?.isFavorite ?? false,
       createdAt: old?.createdAt ?? now, updatedAt: now,
     );
     try { await widget.controller.save(garment, isNew: old == null || widget.isDraft); if (mounted) Navigator.pop(context, true); }
@@ -167,10 +171,13 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Nom *', helperText: 'Proposé par l’IA · corrigez seulement si nécessaire'), validator: (v) => v == null || v.trim().isEmpty ? 'Le nom est obligatoire' : null),
       const SizedBox(height: 10), TextFormField(controller: _brand, decoration: const InputDecoration(labelText: 'Marque')),
       const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory = null; })),
+      if (_category == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherCategory, decoration: const InputDecoration(labelText: 'Autre catégorie'))],
       const SizedBox(height: 10), DropdownButtonFormField<String>(value: _subCategory, decoration: const InputDecoration(labelText: 'Sous-catégorie'), items: subCategories[_category]!.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _subCategory = v)),
+      if (_subCategory == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherSubCategory, decoration: const InputDecoration(labelText: 'Autre sous-catégorie'))],
       const SizedBox(height: 10), TextFormField(controller: _color, decoration: const InputDecoration(labelText: 'Couleur')),
       const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _material = v)),
       if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Autre matière'))],
+      const SizedBox(height: 10), TextFormField(controller: _composition, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Composition textile', helperText: 'Tissu principal, doublure et rembourrage · pourcentages modifiables')),
       const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: styles, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
       const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() => _seasons = v)),
       const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() => _uses = v)),
@@ -180,7 +187,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       const SizedBox(height: 10), _TriState(label: 'Compatible pluie', value: _rain, onChanged: (v) => setState(() => _rain = v)),
       _TriState(label: 'Compatible chaleur', value: _heat, onChanged: (v) => setState(() => _heat = v)),
       const SizedBox(height: 10), TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
-      const SizedBox(height: 24), FilledButton.icon(onPressed: _saving ? null : _save, icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check), label: const Text('Enregistrer')),
+      const SizedBox(height: 24), FilledButton.icon(style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(58)), onPressed: _saving ? null : _save, icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check), label: const Text('Enregistrer la fiche')),
     ])),
   );
 }

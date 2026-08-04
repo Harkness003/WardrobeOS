@@ -7,6 +7,10 @@ enum RequestedPhotoType {
   lining,
   buttons,
   zipper,
+  sole,
+  interior,
+  wear,
+  padding,
   logo,
   other;
 
@@ -19,6 +23,10 @@ enum RequestedPhotoType {
     'lining' => lining,
     'buttons' => buttons,
     'zipper' => zipper,
+    'sole' => sole,
+    'interior' => interior,
+    'wear' => wear,
+    'padding' => padding,
     'logo' => logo,
     _ => other,
   };

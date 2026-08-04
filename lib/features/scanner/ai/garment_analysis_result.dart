@@ -36,6 +36,7 @@ class GarmentAnalysisResult {
   final String? preciseType;
   final String? primaryColor;
   final String? material;
+  final List<TextileComposition> compositions;
   final String? season;
   final String? visibleBrand;
   final double globalConfidence;
@@ -90,6 +91,7 @@ class GarmentAnalysisResult {
     this.preciseType,
     this.primaryColor,
     this.material,
+    this.compositions = const [],
     this.season,
     this.visibleBrand,
     required this.globalConfidence,
@@ -227,6 +229,7 @@ class GarmentAnalysisResult {
       preciseType: text('preciseType'),
       primaryColor: text('primaryColor'),
       material: text('material'),
+      compositions: TextileComposition.fromJsonList(json['compositions']),
       season: text('season'),
       visibleBrand: text('visibleBrand'),
       globalConfidence: json['globalConfidence'] is num
@@ -281,6 +284,7 @@ class GarmentAnalysisResult {
     'preciseType': preciseType,
     'primaryColor': primaryColor,
     'material': material,
+    'compositions': compositions.map((value) => value.toJson()).toList(),
     'season': season,
     'visibleBrand': visibleBrand,
     'globalConfidence': globalConfidence,
@@ -331,6 +335,7 @@ class GarmentAnalysisResult {
     String? preciseType,
     String? primaryColor,
     String? material,
+    List<TextileComposition>? compositions,
     String? season,
     String? visibleBrand,
     double? globalConfidence,
@@ -347,7 +352,8 @@ class GarmentAnalysisResult {
     suggestedName: suggestedName, category: category,
     preciseType: preciseType ?? this.preciseType,
     primaryColor: primaryColor,
-    material: material, season: season, visibleBrand: visibleBrand,
+    material: material, compositions: compositions ?? this.compositions,
+    season: season, visibleBrand: visibleBrand,
     globalConfidence: globalConfidence ?? this.globalConfidence,
     imageQualityConfidence: imageQualityConfidence, isBlurry: isBlurry,
     isTooDark: isTooDark, isOverexposed: isOverexposed,
@@ -374,4 +380,27 @@ class GarmentAnalysisResult {
     analysisLimitations: analysisLimitations,
     needsMorePhotos: needsMorePhotos, requestedPhoto: requestedPhoto,
   );
+}
+
+class TextileComposition {
+  final String section;
+  final String material;
+  final double? percentage;
+  final String source;
+
+  const TextileComposition({required this.section, required this.material, this.percentage, this.source = 'ocr'});
+
+  static List<TextileComposition> fromJsonList(Object? raw) => raw is List
+      ? List.unmodifiable(raw.whereType<Map>().map((item) {
+          final percentage = item['percentage'];
+          return TextileComposition(
+            section: item['section'] is String ? item['section'] as String : 'main',
+            material: item['material'] is String ? (item['material'] as String).trim() : '',
+            percentage: percentage is num ? percentage.toDouble().clamp(0, 100) : null,
+            source: item['source'] == 'visual' ? 'visual' : 'ocr',
+          );
+        }).where((item) => item.material.isNotEmpty))
+      : const [];
+
+  Map<String, Object?> toJson() => {'section': section, 'material': material, 'percentage': percentage, 'source': source};
 }

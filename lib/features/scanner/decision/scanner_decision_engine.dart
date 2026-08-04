@@ -178,9 +178,10 @@ class ScannerDecisionEngine {
         essentialReady &&
         global >= completionThreshold &&
         bestRule == null;
+    final contextualPhoto = bestRule == null ? null : _contextualPhoto(result, bestRule);
     final photo = canFinish || bestRule == null
         ? null
-        : RequestedPhoto(
+        : contextualPhoto ?? RequestedPhoto(
             type: bestRule.photoType!,
             instruction: bestRule.photoInstruction!,
             reason: bestRule.photoReason!,
@@ -198,6 +199,35 @@ class ScannerDecisionEngine {
       ),
       requestedPhoto: photo,
     );
+  }
+
+  RequestedPhoto? _contextualPhoto(GarmentAnalysisResult result, ScannerFieldRule rule) {
+    final type = '${result.category ?? ''} ${result.preciseType ?? ''} ${result.suggestedName ?? ''}'.toLowerCase();
+    if (type.contains('chauss') || type.contains('basket') || type.contains('boot')) {
+      return const RequestedPhoto(
+        type: RequestedPhotoType.sole,
+        instruction: 'Photographiez la semelle entière et bien éclairée.',
+        reason: 'Une photo de la semelle me permettra d’évaluer l’usure.',
+        targetFields: ['wear'],
+      );
+    }
+    if (type.contains('manteau') || type.contains('doudoune') || type.contains('parka')) {
+      return const RequestedPhoto(
+        type: RequestedPhotoType.lining,
+        instruction: 'Photographiez l’intérieur, la doublure et le rembourrage.',
+        reason: 'Cette vue me permettra de distinguer la doublure et le rembourrage sans les inventer.',
+        targetFields: ['lining', 'padding'],
+      );
+    }
+    if (type.contains('chemise') && rule.field != 'material') {
+      return const RequestedPhoto(
+        type: RequestedPhotoType.collar,
+        instruction: 'Photographiez le col et les poignets de près.',
+        reason: 'Ces détails me permettront de préciser la coupe et l’état de la chemise.',
+        targetFields: ['collar', 'cuffs'],
+      );
+    }
+    return null;
   }
 }
 
