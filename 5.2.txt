@@ -1,719 +1,599 @@
-diff --git a/docs/SPRINT_5_19_DAILY_BRIEF.md b/docs/SPRINT_5_19_DAILY_BRIEF.md
-index ec1c46d7430e3cb8438988df93a9c44929b6bf6a..47463d50945acf8d12e88d96587a87bff892b106 100644
---- a/docs/SPRINT_5_19_DAILY_BRIEF.md
-+++ b/docs/SPRINT_5_19_DAILY_BRIEF.md
-@@ -1,38 +1,70 @@
--# Sprint 5.19 — Daily Brief
-+# Sprint Daily Brief — fiabilité et chargement progressif
+diff --git a/lib/features/agenda/agenda_controller.dart b/lib/features/agenda/agenda_controller.dart
+index 888f14b3ac34a0fbce2cce1615a817b076356f54..7586ccb5d4f475395eb349114b5e9afff5084524 100644
+--- a/lib/features/agenda/agenda_controller.dart
++++ b/lib/features/agenda/agenda_controller.dart
+@@ -1,48 +1,79 @@
+ import 'package:flutter/foundation.dart';
+ import '../../models/outfit.dart';
+ import 'agenda_models.dart';
+ import 'agenda_service.dart';
  
--## Architecture
-+## Périmètre
+ class AgendaController extends ChangeNotifier {
+   final AgendaService service;
+   DateTime weekStart;
+   AgendaPreferences preferences;
+   List<PlannedOutfit> plans = const [];
+   bool loading = false;
+   Object? error;
++  final Map<DateTime, AgendaDayState> dayStates = {};
  
--L'accueil consomme désormais un `DailyBrief`, modèle immuable constitué d'une
--liste ordonnée de cartes typées. Chaque carte porte une priorité et ses données
--de présentation. Cette structure permet de masquer, réordonner ou enregistrer
--de nouveaux types de cartes sans déplacer de logique métier dans les widgets.
-+Ce sprint ne modifie ni WardrobeGPT, ni le scanner, ni l’Agenda. Le Daily Brief
-+ne sollicite plus WardrobeGPT : ses conseils courts sont dérivés localement de
-+la tenue et de la météo facultative.
+   AgendaController({required this.service, AgendaPreferences preferences = const AgendaPreferences(), DateTime? initialDay})
+     : preferences = preferences, weekStart = _monday(initialDay ?? DateTime.now());
  
--`DailyBriefService` est la façade de composition. Elle réutilise :
-+## Fondations et fraîcheur des données
+   Future<void> load() async {
+     loading = true; error = null; notifyListeners();
+-    try { plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); }
++    try {
++      plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
++      _syncStates();
++      final missing = _days.where((day) => forDay(day) == null).toList();
++      if (missing.isNotEmpty) {
++        for (final day in missing) dayStates[_key(day)] = AgendaDayState.generating;
++        notifyListeners();
++        await service.proposePeriod(weekStart, 7, preferences, existing: plans);
++        plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
++        _syncStates();
++      }
++    }
+     catch (value) { error = value; }
+     finally { loading = false; notifyListeners(); }
+   }
  
--- `RecommendationEngine` pour classer les pièces selon la saison et la météo ;
--- `WardrobeIntelligenceEngine` pour choisir une observation quotidienne ;
--- `MemoryService` pour récupérer l'objectif actif ;
--- `AssistantService` / WardrobeGPT pour le conseil personnalisé ;
--- `WeatherService`, dont les erreurs restent non bloquantes.
-+`DailyBriefService` utilise désormais le chemin unique suivant :
+   Future<void> changeWeek(int offset) async { weekStart = weekStart.add(Duration(days: offset * 7)); await load(); }
+   void setStrategy(PlanningStrategy strategy) { preferences = preferences.copyWith(strategy: strategy); notifyListeners(); }
+   PlannedOutfit? forDay(DateTime day) => plans.where((item) => _sameDay(item.date, day)).firstOrNull;
++  AgendaDayState stateFor(DateTime day) => dayStates[_key(day)] ?? AgendaDayState.noOutfit;
  
--Le service limite volontairement le résultat à cinq cartes. L'entretien et
--l'objectif sont conditionnels. L'observation est stable pendant une journée et
--tourne au fil des jours parmi les insights existants.
-+1. `WardrobeAiContextService.build()` relit le dressing courant ;
-+2. le `PersonalizationSnapshot` est converti en `RecommendationPreferences` ;
-+3. `OutfitGenerationEngine` classe les pièces à partir de `StyleAnalysis` et
-+   `effectiveThermalProfile` ;
-+4. la météo, lancée en parallèle, enrichit ensuite le contexte si elle arrive.
+   Future<void> proposeWeek() async {
+     loading = true; error = null; notifyListeners();
+-    try { await service.proposePeriod(weekStart, 7, preferences); plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); }
++    try { await service.proposePeriod(weekStart, 7, preferences, existing: plans); plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); _syncStates(); }
+     catch (value) { error = value; }
+     finally { loading = false; notifyListeners(); }
+   }
  
--## Interface
-+Aucune copie du dressing n’est conservée dans l’écran. Un pull-to-refresh crée
-+un nouveau flux et relit donc immédiatement les ajouts et modifications. Les
-+analyses stylistiques et profils thermiques persistés dans les vêtements sont
-+réutilisés par le moteur ; aucun scan ni recalcul d’analyse n’est déclenché.
+   Future<void> plan(DateTime date, Outfit outfit) async { await service.plan(date: date, outfit: outfit, strategy: preferences.strategy); await load(); }
+   Future<void> replace(PlannedOutfit value, Outfit outfit, {OutfitReuseKind kind = OutfitReuseKind.none}) async { await service.replace(value, outfit, reuseKind: kind); await load(); }
+   Future<void> another(DateTime date, PlannedOutfit? current) async {
+-    if (current != null) await service.remove(current);
+-    await service.proposeDay(date, preferences, previous: plans.where((item) => item.date.isBefore(date)).toList()); await load();
++    dayStates[_key(date)] = AgendaDayState.generating; notifyListeners();
++    try {
++      // The same stable plan id is overwritten only after generation succeeds.
++      await service.proposeDay(date, preferences,
++        previous: plans.where((item) => item.date.isBefore(date)).toList());
++      await load();
++    } catch (value) {
++      error = value; dayStates[_key(date)] = AgendaDayState.error; notifyListeners();
++    }
+   }
+   Future<void> confirm(PlannedOutfit value) async { await service.confirm(value); await load(); }
+   Future<void> markWorn(PlannedOutfit value) async { await service.markWorn(value); await load(); }
+   Future<void> remove(PlannedOutfit value) async { await service.remove(value); await load(); }
  
--Le tableau de bord rend les cartes sans effectuer de calcul métier. La tenue
--expose ses pièces, son score, une justification détaillée et les propositions
--alternatives. Le pull-to-refresh reconstruit le brief. Une indisponibilité météo
--ou WardrobeGPT masque seulement la carte concernée.
-+## Chargement et états
- 
--## Évolutivité
-+La structure et l’état « Chargement du dressing… » sont rendus dès la première
-+frame. Le flux publie ensuite :
- 
--La personnalisation future pourra filtrer et trier `DailyBrief.cards` selon une
--configuration persistée. L'ajout d'une carte se limite à un type, son modèle,
--sa composition dans le service et son rendu indépendant.
-+- une tenue et les observations disponibles dès la lecture du contexte ;
-+- une version enrichie lorsque la météo est disponible ;
-+- aucun second état si la météo échoue.
- 
--## Validation
-+Les quatre issues sont explicites : chargement, tenue disponible, aucune
-+recommandation et erreur avec action de relance. La carte tenue limite le titre,
-+l’explication et les chips à deux lignes/trois pièces ; l’explication complète
-+reste dans la bottom sheet « Pourquoi ? ».
- 
--Conformément aux contraintes du sprint, aucune commande Flutter, aucun build et
--aucun test n'ont été exécutés.
-+## Temps de chargement avant / après
++  Iterable<DateTime> get _days => Iterable.generate(7, (index) => weekStart.add(Duration(days: index)));
++  void _syncStates() {
++    for (final day in _days) {
++      final plan = forDay(day);
++      dayStates[_key(day)] = plan == null ? AgendaDayState.noOutfit
++          : plan.origin == PlanningOrigin.automatic ? AgendaDayState.generated : AgendaDayState.planned;
++    }
++  }
++  static DateTime _key(DateTime value) => DateTime(value.year, value.month, value.day);
 +
-+La comparaison du chemin critique est la suivante :
+   static DateTime _monday(DateTime value) { final day = DateTime(value.year, value.month, value.day); return day.subtract(Duration(days: day.weekday - 1)); }
+   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+ }
++enum AgendaDayState { generating, noOutfit, generated, planned, error }
+ extension<T> on Iterable<T> { T? get firstOrNull => isEmpty ? null : first; }
+diff --git a/lib/features/agenda/agenda_screen.dart b/lib/features/agenda/agenda_screen.dart
+index 144c04829487a7da895d815926dd88196aebe138..a1eac8ed90b094515aba8dd8a470d585d4b0e175 100644
+--- a/lib/features/agenda/agenda_screen.dart
++++ b/lib/features/agenda/agenda_screen.dart
+@@ -10,75 +10,117 @@ class AgendaScreen extends StatefulWidget {
+   @override State<AgendaScreen> createState() => _AgendaScreenState();
+ }
+ 
+ class _AgendaScreenState extends State<AgendaScreen> {
+   @override void initState() { super.initState(); widget.controller.addListener(_refresh); widget.controller.load(); widget.outfitsController.load(); }
+   void _refresh() { if (mounted) setState(() {}); }
+   @override void dispose() { widget.controller.removeListener(_refresh); super.dispose(); }
+ 
+   @override Widget build(BuildContext context) {
+     final c = widget.controller;
+     return Scaffold(appBar: AppBar(title: const Text('Agenda vestimentaire')),
+       body: SafeArea(child: Column(children: [
+         Padding(padding: const EdgeInsets.fromLTRB(12, 4, 12, 8), child: Column(children: [
+           Row(children: [IconButton(onPressed: c.loading ? null : () => c.changeWeek(-1), icon: const Icon(Icons.chevron_left)),
+             Expanded(child: Text('${_date(c.weekStart)} — ${_date(c.weekStart.add(const Duration(days: 6)))}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium)),
+             IconButton(onPressed: c.loading ? null : () => c.changeWeek(1), icon: const Icon(Icons.chevron_right))]),
+           Row(children: [Expanded(child: DropdownButtonFormField<PlanningStrategy>(value: c.preferences.strategy,
+             decoration: const InputDecoration(labelText: 'Stratégie', isDense: true),
+             items: PlanningStrategy.values.map((v) => DropdownMenuItem(value: v, child: Text(v.label))).toList(), onChanged: (v) { if (v != null) c.setStrategy(v); })),
+             const SizedBox(width: 8), FilledButton.icon(onPressed: c.loading ? null : c.proposeWeek,
+               icon: const Icon(Icons.auto_awesome, size: 18), label: const Text('Proposer ma semaine'))]),
+           if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Certaines données sont indisponibles. Vos planifications sont conservées.', style: TextStyle(color: Theme.of(context).colorScheme.error))),
+         ])),
+         if (c.loading) const LinearProgressIndicator(),
+         Expanded(child: ListView.builder(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), itemCount: 7, itemBuilder: (_, i) {
+-          final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day, plan: c.forDay(day), onAction: (action) => _act(day, c.forDay(day), action));
++          final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day,
++            plan: c.forDay(day), state: c.stateFor(day),
++            onDetails: () => _showDetails(c.forDay(day)),
++            onAction: (action) => _act(day, c.forDay(day), action));
+         })),
+       ])));
+   }
+ 
++  Future<void> _showDetails(PlannedOutfit? plan) async {
++    if (plan == null) return;
++    await showModalBottomSheet<void>(context: context, isScrollControlled: true,
++      builder: (context) => SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
++        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
++          Text(plan.outfit?.name ?? 'Tenue indisponible', style: Theme.of(context).textTheme.titleLarge),
++          const SizedBox(height: 12),
++          Text(plan.justification),
++          if (plan.event != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.event_outlined), title: Text(plan.event!.title)),
++          if (plan.weather != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.cloud_outlined), title: Text('${plan.weather!.temperature.round()}° · ${plan.weather!.description}')),
++          const Divider(),
++          for (final garment in plan.outfit?.allGarments ?? const [])
++            ListTile(contentPadding: EdgeInsets.zero, title: Text(garment.name), subtitle: Text(garment.category)),
++        ]))));
++  }
 +
-+| Mesure | Avant | Après |
-+| --- | --- | --- |
-+| Premier rendu utile de la page | après dressing + météo + mémoire + analyse + appel GPT | première frame (structure + état explicite) |
-+| Première tenue | après météo et GPT | après une seule lecture du contexte dressing/mémoire |
-+| Météo indisponible | attente de l’échec avant composition | hors chemin critique, tenue déjà publiée |
-+| Accès dressing au démarrage du Daily | chargement du contrôleur puis nouvelle lecture du contexte | une lecture via `WardrobeAiContextService` |
-+| Appel réseau de conseil | un appel GPT | aucun |
+   Future<void> _act(DateTime day, PlannedOutfit? plan, String action) async {
+     switch (action) {
+       case 'choose': case 'replace':
+         final outfits = widget.outfitsController.outfits;
+         final choice = await showModalBottomSheet(context: context, builder: (_) => SafeArea(child: ListView(shrinkWrap: true, children: [
+           const ListTile(title: Text('Choisir une tenue')),
+           for (final outfit in outfits) ListTile(title: Text(outfit.name), onTap: () => Navigator.pop(context, outfit)),
+           if (outfits.isEmpty) const ListTile(title: Text('Aucune tenue enregistrée'), subtitle: Text('La proposition automatique peut composer une tenue depuis le dressing.')),
+         ])));
+         if (choice == null) return;
+         if (plan == null) await widget.controller.plan(day, choice); else await widget.controller.replace(plan, choice);
+         return;
+       case 'another': await widget.controller.another(day, plan); return;
+       case 'confirm': if (plan != null) await widget.controller.confirm(plan); return;
+       case 'worn': if (plan != null) await widget.controller.markWorn(plan); return;
+       case 'delete': if (plan != null) await widget.controller.remove(plan); return;
+     }
+   }
+   static String _date(DateTime d) => '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+ }
+ 
+ class _DayCard extends StatelessWidget {
+-  final DateTime date; final PlannedOutfit? plan; final ValueChanged<String> onAction;
+-  const _DayCard({required this.date, required this.plan, required this.onAction});
++  final DateTime date; final PlannedOutfit? plan; final AgendaDayState state;
++  final ValueChanged<String> onAction; final VoidCallback onDetails;
++  const _DayCard({required this.date, required this.plan, required this.state,
++    required this.onAction, required this.onDetails});
+   @override Widget build(BuildContext context) {
+     final localeDays = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
+-    return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++    return Card(clipBehavior: Clip.antiAlias, child: InkWell(onTap: plan == null ? null : onDetails,
++      child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+       Row(children: [Expanded(child: Text('${localeDays[date.weekday - 1]} ${date.day}', style: Theme.of(context).textTheme.titleMedium)),
+-        if (plan != null) Chip(label: Text(_status(plan!.status)), visualDensity: VisualDensity.compact)]),
+-      if (plan?.event != null) Text('Événement · ${plan!.event!.title}'),
+-      if (plan?.weather != null) Text('Météo · ${plan!.weather!.temperature.round()}° · ${plan!.weather!.description}')
+-      else if (plan != null) const Text('Météo non utilisée', style: TextStyle(fontSize: 12)),
+-      const SizedBox(height: 6), Text(plan?.outfit?.name ?? 'Aucune tenue planifiée', style: const TextStyle(fontWeight: FontWeight.w600)),
+-      if (plan?.justification.isNotEmpty == true) Padding(padding: const EdgeInsets.only(top: 4), child: Text(plan!.justification)),
+-      Wrap(spacing: 4, children: plan == null ? [TextButton(onPressed: () => onAction('choose'), child: const Text('Planifier')), TextButton(onPressed: () => onAction('another'), child: const Text('Proposer'))] : [
+-        TextButton(onPressed: () => onAction('replace'), child: const Text('Modifier / remplacer')),
+-        TextButton(onPressed: () => onAction('another'), child: const Text('Autre proposition')),
+-        if (plan!.status == PlannedOutfitStatus.proposed) TextButton(onPressed: () => onAction('confirm'), child: const Text('Confirmer')),
+-        if (plan!.status != PlannedOutfitStatus.worn) TextButton(onPressed: () => onAction('worn'), child: const Text('Marquer portée')),
+-        TextButton(onPressed: () => onAction('delete'), child: const Text('Supprimer')),
+-      ])
+-    ])));
++        _StateBadge(state: state, status: plan?.status)]),
++      const SizedBox(height: 6),
++      Text(_summary, maxLines: 1, overflow: TextOverflow.ellipsis,
++        style: const TextStyle(fontWeight: FontWeight.w600)),
++      if (plan != null) Row(children: [
++        Expanded(child: Text('${plan!.outfit?.allGarments.length ?? 0} pièces · Toucher pour les détails',
++          maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)),
++        PopupMenuButton<String>(tooltip: 'Actions', onSelected: onAction, itemBuilder: (_) => [
++          const PopupMenuItem(value: 'another', child: Text('Autre proposition')),
++          const PopupMenuItem(value: 'replace', child: Text('Choisir une tenue enregistrée')),
++          if (plan!.status == PlannedOutfitStatus.proposed) const PopupMenuItem(value: 'confirm', child: Text('Confirmer')),
++          if (plan!.status != PlannedOutfitStatus.worn) const PopupMenuItem(value: 'worn', child: Text('Marquer portée')),
++          const PopupMenuItem(value: 'delete', child: Text('Supprimer')),
++        ]),
++      ]) else if (state != AgendaDayState.generating) Align(alignment: Alignment.centerRight,
++        child: TextButton(onPressed: () => onAction('another'), child: const Text('Réessayer'))),
++    ]))));
+   }
++  String get _summary => switch (state) {
++    AgendaDayState.generating => 'Génération en cours…',
++    AgendaDayState.noOutfit => 'Aucune tenue planifiée',
++    AgendaDayState.error => 'Erreur de génération',
++    AgendaDayState.generated => plan?.outfit?.name ?? 'Tenue générée',
++    AgendaDayState.planned => plan?.outfit?.name ?? 'Tenue planifiée',
++  };
+   static String _status(PlannedOutfitStatus value) => switch(value) { PlannedOutfitStatus.proposed => 'Proposée', PlannedOutfitStatus.confirmed => 'Confirmée', PlannedOutfitStatus.worn => 'Portée', PlannedOutfitStatus.ignored => 'Ignorée', PlannedOutfitStatus.cancelled => 'Annulée' };
+ }
 +
-+Les valeurs en millisecondes doivent être relevées sur appareil cible (base et
-+réseau représentatifs) : le conteneur de validation ne fournit pas de SDK
-+Flutter. Le gain structurel est néanmoins déterministe : la météo et le conseil
-+réseau ont été retirés du chemin critique, et une lecture dressing redondante a
-+été supprimée.
-+
-+## Validation et suite avant le sprint Agenda
-+
-+Les tests automatisés couvrent la météo absente, l’émission progressive et la
-+relecture d’une fiche récemment modifiée. Les dressings vide/réduit sont gérés
-+par un état dédié et le moteur borné en `O(n log n)` reste adapté aux grands
-+dressings.
-+
-+À finaliser avant le sprint Agenda :
-+
-+- relever P50/P95 sur un appareil avec dressing réduit et important ;
-+- ajouter un test widget golden sur petit écran et avec noms très longs ;
-+- décider si occasion et formalité de l’Agenda doivent, au sprint suivant,
-+  compléter `RecommendationContext` sans rendre l’Agenda bloquant ;
-+- observer la pertinence des règles de conversion des souvenirs en matières à
-+  éviter et étendre leur taxonomie avec des champs structurés si nécessaire.
-diff --git a/lib/features/daily_brief/daily_brief_service.dart b/lib/features/daily_brief/daily_brief_service.dart
-index ef7e475a3e55a73a03d867a2ec8d5bd44e2e2da5..fdb70c4e7dc10f36a9d391fce2ed5e7fbaad549a 100644
---- a/lib/features/daily_brief/daily_brief_service.dart
-+++ b/lib/features/daily_brief/daily_brief_service.dart
-@@ -1,143 +1,192 @@
++class _StateBadge extends StatelessWidget {
++  final AgendaDayState state; final PlannedOutfitStatus? status;
++  const _StateBadge({required this.state, required this.status});
++  @override Widget build(BuildContext context) => Chip(label: Text(switch (state) {
++    AgendaDayState.generating => 'Génération', AgendaDayState.noOutfit => 'Vide',
++    AgendaDayState.error => 'Erreur', AgendaDayState.generated => 'Générée',
++    AgendaDayState.planned => _DayCard._status(status!),
++  }), visualDensity: VisualDensity.compact);
++}
+diff --git a/lib/features/agenda/agenda_service.dart b/lib/features/agenda/agenda_service.dart
+index f695e1f03a04f5e31f44de02108bc5065e8d3c4d..5547e0da73f54acf4bdedc601e0feb0b41ea10db 100644
+--- a/lib/features/agenda/agenda_service.dart
++++ b/lib/features/agenda/agenda_service.dart
+@@ -1,215 +1,188 @@
+-import '../../core/outfit/outfit_engine.dart';
 +import '../../core/ai_context/wardrobe_ai_context_service.dart';
- import '../../core/outfit_generation/outfit_generation_engine.dart';
++import '../../core/outfit_generation/outfit_generation_engine.dart';
  import '../../core/recommendation/recommendation_context.dart';
- import '../../core/recommendation/recommendation_engine.dart';
- import '../../core/wardrobe_intelligence/wardrobe_intelligence_engine.dart';
-+import '../../features/assistant/memory/personalization_snapshot.dart';
- import '../../models/garment.dart';
+ import '../../data/database_service.dart';
+-import '../../models/garment.dart';
+ import '../../models/outfit.dart';
  import '../../weather/models/weather_data.dart';
  import '../../weather/services/weather_service.dart';
- import '../assistant/memory/memory_service.dart';
- import '../assistant/memory/personal_goal.dart';
--import '../assistant/services/assistant_service.dart';
- import 'daily_brief_models.dart';
+ import '../calendar/calendar_event.dart';
+ import '../calendar/calendar_service.dart';
+ import 'agenda_models.dart';
 -import '../../core/ai_context/wardrobe_ai_context_service.dart';
  
--/// Adapts the existing intelligence, recommendation, memory and GPT services
--/// into presentation-ready cards. Widgets never calculate recommendations.
-+/// Composes the Daily Brief exclusively from the shared AI context and outfit
-+/// engine. Expensive I/O is performed once and intermediate states are emitted
-+/// as soon as they are useful to the UI.
- class DailyBriefService {
-   static const maxVisibleCards = 5;
+ typedef AgendaClock = DateTime Function();
  
-   final WeatherService weatherService;
-   final MemoryService memoryService;
--  final AssistantService assistantService;
-   final RecommendationEngine recommendationEngine;
-   final WardrobeIntelligenceEngine intelligenceEngine;
-+  final OutfitGenerationEngine outfitEngine;
-   final DateTime Function() _clock;
-   final WardrobeAiContextService? aiContextService;
- 
-   DailyBriefService({
-     required this.weatherService,
-     required this.memoryService,
--    required this.assistantService,
-+    Object? assistantService, // Kept source-compatible; Daily no longer calls GPT.
-     this.recommendationEngine = const RecommendationEngine(),
-     WardrobeIntelligenceEngine? intelligenceEngine,
-+    OutfitGenerationEngine? outfitEngine,
-     DateTime Function()? clock,
-     this.aiContextService,
-   }) : intelligenceEngine = intelligenceEngine ?? WardrobeIntelligenceEngine(),
-+       outfitEngine = outfitEngine ??
-+           OutfitGenerationEngine(recommendationEngine: recommendationEngine),
-        _clock = clock ?? DateTime.now;
- 
-+  /// Emits wardrobe/outfit content first, then weather-enriched content. A
-+  /// weather failure is data, not an error, and never prevents an outfit.
-+  Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
-+    final weatherFuture = _optionalWeather();
-+    try {
-+      final liveContext = await aiContextService?.build();
-+      final garments = liveContext?.garments ??
-+          List<Garment>.unmodifiable(wardrobe);
-+      final memory = liveContext?.personalization ??
-+          await memoryService.loadSnapshot();
++/// Selection policy kept separate from generation so future work/weekend/travel
++/// planners can select among central-engine proposals without duplicating it.
++abstract interface class AgendaProposalSelector {
++  OutfitGenerationProposal? select({
++    required DateTime date,
++    required OutfitGenerationResult result,
++    required List<PlannedOutfit> previous,
++    required AgendaPreferences preferences,
++  });
++}
 +
-+      var brief = _compose(garments, memory, weather: null);
-+      yield brief;
++class DefaultAgendaProposalSelector implements AgendaProposalSelector {
++  const DefaultAgendaProposalSelector();
 +
-+      final weather = await weatherFuture;
-+      if (weather != null) {
-+        brief = _compose(garments, memory, weather: weather);
-+        yield brief;
-+      }
-+    } catch (_) {
-+      // Stream errors are converted into an explicit UI state by the screen.
-+      rethrow;
-+    }
++  @override
++  OutfitGenerationProposal? select({required DateTime date,
++      required OutfitGenerationResult result, required List<PlannedOutfit> previous,
++      required AgendaPreferences preferences}) {
++    if (result.proposals.isEmpty) return null;
++    final used = previous.map((plan) => _signature(plan.outfit)).whereType<String>().toSet();
++    return result.proposals.where((proposal) => !used.contains(_signature(proposal.outfit))).firstOrNull
++        ?? result.proposals.first;
 +  }
 +
-+  /// Compatibility API for non-progressive consumers.
-   Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
--    final liveContext = await aiContextService?.build();
--    final garments = liveContext?.garments ?? List<Garment>.unmodifiable(wardrobe);
--    final weather = await _optionalWeather();
--    final memory = liveContext?.personalization ?? await memoryService.loadSnapshot();
-+    DailyBrief? latest;
-+    await for (final brief in watch(wardrobe)) {
-+      latest = brief;
-+    }
-+    return latest ?? DailyBrief(generatedAt: _clock(), cards: const [], outfitProposals: const []);
++  static String? _signature(Outfit? outfit) {
++    if (outfit == null) return null;
++    final ids = outfit.allGarments.map((garment) => garment.id).toList()..sort();
++    return ids.join('|');
 +  }
++}
 +
-+  DailyBrief _compose(
-+    List<Garment> garments,
-+    PersonalizationSnapshot memory, {
-+    required WeatherData? weather,
-+  }) {
-+    final preferences = _preferences(memory);
-     final report = intelligenceEngine.analyze(garments);
--    final generation = OutfitGenerationEngine(recommendationEngine: recommendationEngine).generate(
--      OutfitGenerationRequest(
--        wardrobe: garments,
--        proposalCount: 3,
--        context: RecommendationContext(
--          season: _season(_clock()),
--          weather: weather == null
--              ? null
--              : RecommendationWeather(
--                  temperature: weather.temperature,
--                  isRaining: _isRaining(weather),
--                  condition: weather.description,
--                  windSpeed: weather.windSpeed,
--                ),
--        ),
-+    final generation = outfitEngine.generate(OutfitGenerationRequest(
-+      wardrobe: garments,
+ class AgendaService {
+   final DatabaseService database;
+-  final OutfitEngine outfitEngine;
++  final OutfitGenerationEngine outfitGenerationEngine;
++  final AgendaProposalSelector proposalSelector;
+   final CalendarService calendarService;
+   final WeatherService? weatherService;
+   final AgendaClock clock;
+-  final WardrobeAiContextService? aiContextService;
++  final WardrobeAiContextService aiContextService;
+ 
+-  AgendaService({required this.database, required this.calendarService, this.weatherService, this.aiContextService,
+-    this.outfitEngine = const OutfitEngine(), this.clock = DateTime.now});
++  AgendaService({required this.database, required this.calendarService,
++    required this.aiContextService, this.weatherService,
++    this.outfitGenerationEngine = const OutfitGenerationEngine(),
++    this.proposalSelector = const DefaultAgendaProposalSelector(),
++    this.clock = DateTime.now});
+ 
+   Future<List<PlannedOutfit>> loadPeriod(DateTime from, DateTime to) =>
+       database.getPlannedOutfits(_day(from), _day(to));
+ 
+   Future<PlannedOutfit> plan({required DateTime date, required Outfit outfit,
+     PlanningStrategy strategy = PlanningStrategy.rotation,
+     PlanningOrigin origin = PlanningOrigin.manual, String justification = 'Tenue choisie par vous.'}) async {
+     await _ensureStored(outfit);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: outfit.id, outfit: outfit, origin: origin, strategy: strategy,
+       status: origin == PlanningOrigin.manual ? PlannedOutfitStatus.confirmed : PlannedOutfitStatus.proposed,
+       justification: justification, createdAt: now, updatedAt: now);
+     await database.savePlannedOutfit(value);
+     return value;
+   }
+ 
+   Future<PlannedOutfit> replace(PlannedOutfit current, Outfit replacement,
+       {OutfitReuseKind reuseKind = OutfitReuseKind.none, String? justification}) async {
+     await _ensureStored(replacement);
+     final changed = current.copyWith(outfit: replacement, outfitId: replacement.id,
+       status: PlannedOutfitStatus.proposed, reuseKind: reuseKind,
+       justification: justification ?? 'Tenue remplacée selon votre choix.', updatedAt: clock());
+     await database.savePlannedOutfit(changed);
+     return changed;
+   }
+ 
+   Future<void> remove(PlannedOutfit value) => database.deletePlannedOutfit(value.id);
+   Future<PlannedOutfit> confirm(PlannedOutfit value) => _setStatus(value, PlannedOutfitStatus.confirmed);
+ 
+   Future<PlannedOutfit> markWorn(PlannedOutfit value) async {
+     if (value.wearRecordedAt != null || value.status == PlannedOutfitStatus.worn) return value;
+     final wornAt = value.date.isAfter(clock()) ? clock() : value.date;
+     final recorded = await database.recordOutfitWear(value.outfitId, wornAt: wornAt);
+     if (!recorded) throw StateError('La tenue ne contient plus de vêtements disponibles.');
+     final updated = value.copyWith(status: PlannedOutfitStatus.worn,
+       wearRecordedAt: clock(), updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit> _setStatus(PlannedOutfit value, PlannedOutfitStatus status) async {
+     final updated = value.copyWith(status: status, updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit?> proposeDay(DateTime date, AgendaPreferences preferences,
+       {List<PlannedOutfit> previous = const []}) async {
+-    final outfits = await _loadOutfits();
+-    final wardrobe = aiContextService == null
+-        ? await database.getGarments()
+-        : (await aiContextService!.build()).garments;
++    // build() deliberately reloads database garments on every proposal. Never
++    // substitute saved-outfit garments: they may predate a recent edit.
++    final wardrobe = (await aiContextService.build()).garments;
+     final event = await _optionalEvent(date);
+     final weather = await _optionalWeather();
+-    final context = RecommendationContext(
+-      occasion: event?.formality.label,
+-      weather: weather == null ? null : RecommendationWeather(
+-        temperature: weather.temperature, condition: weather.description,
+-        windSpeed: weather.windSpeed,
+-        isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
+-    );
+-    Outfit? choice;
+-    OutfitReuseKind reuse = OutfitReuseKind.none;
+-    final last = previous.isEmpty ? null : previous.last;
+-    final repeated = last == null ? 0 : _consecutive(previous, last.outfitId);
+-    if (preferences.allowCompleteOutfitReuse && last?.outfit != null &&
+-        (preferences.strategy == PlanningStrategy.minimal || preferences.strategy == PlanningStrategy.professional) &&
+-        repeated < preferences.maximumConsecutiveDays) {
+-      choice = last!.outfit;
+-      reuse = OutfitReuseKind.complete;
+-    } else if (last?.outfit != null && preferences.strategy == PlanningStrategy.economical) {
+-      choice = _partialVariant(last!.outfit!, wardrobe, context, preferences);
+-      reuse = choice == null ? OutfitReuseKind.none : OutfitReuseKind.partial;
+-    }
+-    choice ??= _chooseSaved(outfits, previous, preferences, date);
+-    choice ??= outfitEngine.generateBestOutfit(wardrobe: wardrobe, context: context);
+-    if (choice == null) return null;
+-    if (choice.id.startsWith('generated-') || reuse == OutfitReuseKind.partial) {
+-      choice = _cloneWithId(choice, 'agenda-${date.microsecondsSinceEpoch}');
+-    }
++    final context = _recommendationContext(date, event, weather);
++    final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
++      wardrobe: wardrobe,
++      context: context,
++      preferences: _recommendationPreferences(preferences),
 +      proposalCount: 3,
-+      preferences: preferences,
-+      context: RecommendationContext(
-+        season: _season(_clock()),
-+        desiredStyle: preferences.preferredStyles.firstOrNull,
-+        weather: weather == null
-+            ? null
-+            : RecommendationWeather(
-+                temperature: weather.temperature,
-+                isRaining: _isRaining(weather),
-+                condition: weather.description,
-+                windSpeed: weather.windSpeed,
-+              ),
-       ),
--    );
 +    ));
-     final proposals = generation.proposals.map((proposal) => DailyOutfitBrief(
-       garments: proposal.outfit.allGarments,
-       explanation: proposal.reasons.join(' '),
-       confidence: (proposal.score * 100).round(),
-     )).toList(growable: false);
- 
-     final cards = <DailyBriefCard<Object>>[];
-     if (proposals.isNotEmpty) {
-       cards.add(DailyBriefCard(type: DailyBriefCardType.outfit, priority: 0, data: proposals.first));
-     }
-     if (weather != null) {
-       cards.add(DailyBriefCard(
-         type: DailyBriefCardType.weather,
-         priority: 1,
-         data: DailyWeatherBrief(weather: weather, impact: _weatherImpact(weather), isRaining: _isRaining(weather)),
-       ));
-     }
-     if (report.insights.isNotEmpty) {
--      final dayIndex = _clock().difference(DateTime(_clock().year)).inDays;
--      cards.add(DailyBriefCard(
--        type: DailyBriefCardType.observation,
--        priority: 2,
--        data: report.insights[dayIndex % report.insights.length].message,
--      ));
-+      final now = _clock();
-+      final dayIndex = now.difference(DateTime(now.year)).inDays;
-+      cards.add(DailyBriefCard(type: DailyBriefCardType.observation, priority: 2,
-+        data: report.insights[dayIndex % report.insights.length].message));
-     }
--    final advice = await _stylistAdvice();
-+    final advice = _localAdvice(proposals, weather);
-     if (advice != null) {
-       cards.add(DailyBriefCard(type: DailyBriefCardType.stylist, priority: 3, data: advice));
-     }
-     final care = _careMessage(garments);
-     if (care != null) {
-       cards.add(DailyBriefCard(type: DailyBriefCardType.care, priority: 4, data: care));
-     }
-     final goal = memory.goals.where((item) => item.status == PersonalGoalStatus.active).firstOrNull;
-     if (goal != null && proposals.isNotEmpty) {
--      cards.add(DailyBriefCard(
--        type: DailyBriefCardType.goal,
--        priority: 5,
--        data: DailyGoalBrief(title: goal.title, contribution: 'La sélection du jour privilégie des pièces cohérentes avec tes préférences et te permet d’avancer vers cet objectif.'),
--      ));
-+      cards.add(DailyBriefCard(type: DailyBriefCardType.goal, priority: 5,
-+        data: DailyGoalBrief(title: goal.title,
-+          contribution: 'Cette sélection tient compte de tes préférences et de la rotation de ton dressing.'));
-     }
-     cards.sort((a, b) => a.priority.compareTo(b.priority));
--    return DailyBrief(generatedAt: _clock(), cards: List.unmodifiable(cards.take(maxVisibleCards)), outfitProposals: List.unmodifiable(proposals));
-+    return DailyBrief(generatedAt: _clock(),
-+      cards: List.unmodifiable(cards.take(maxVisibleCards)),
-+      outfitProposals: List.unmodifiable(proposals));
-+  }
-+
-+  static RecommendationPreferences _preferences(PersonalizationSnapshot snapshot) {
-+    final profile = snapshot.styleProfile;
-+    final avoidedMaterials = <String>{};
-+    for (final memory in [...snapshot.declarativeMemories, ...snapshot.behavioralObservations]) {
-+      if (memory.confidence < .6) continue;
-+      final topic = memory.topic.toLowerCase();
-+      if (topic.contains('mati') && (topic.contains('evit') || topic.contains('avoid'))) {
-+        avoidedMaterials.add(memory.statement.trim());
-+      }
-+    }
-+    return RecommendationPreferences(
-+      preferredStyles: {...?profile?.favoriteStyles},
-+      preferredColors: {...?profile?.preferredColors},
-+      avoidedMaterials: avoidedMaterials,
-+    );
++    final proposal = proposalSelector.select(date: date, result: result,
++      previous: previous, preferences: preferences);
++    if (proposal == null) return null;
++    final choice = _withAgendaId(proposal.outfit, date);
+     await _ensureStored(choice);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+-      justification: _explanation(preferences.strategy, reuse, weather, event),
+-      weather: weather, event: event, reuseKind: reuse, createdAt: now, updatedAt: now);
++      justification: proposal.reasons.join(' '), weather: weather, event: event,
++      createdAt: now, updatedAt: now);
+     await database.savePlannedOutfit(value);
+     return value;
    }
  
-   Future<WeatherData?> _optionalWeather() async {
-     try { return await weatherService.getCurrentWeather(); } catch (_) { return null; }
-   }
- 
--  Future<String?> _stylistAdvice() async {
--    final value = await assistantService.generateMessage(
--      userMessage: 'Donne mon conseil de styliste personnalisé du jour en 3 phrases maximum.',
--    );
--    final clean = value.trim();
--    if (clean.isEmpty || clean.startsWith('WardrobeGPT est temporairement')) return null;
--    return clean.split(RegExp(r'(?<=[.!?])\s+')).take(3).join(' ');
-+  static String? _localAdvice(List<DailyOutfitBrief> proposals, WeatherData? weather) {
-+    if (proposals.isEmpty) return null;
-+    if (weather == null) return 'La tenue reste modulable : ajoute ou retire une couche selon ton ressenti.';
-+    return _weatherImpact(weather);
-   }
- 
-   static bool _isRaining(WeatherData value) => value.weatherCode >= 51 && value.weatherCode <= 82;
-   static String _weatherImpact(WeatherData value) {
--    if (_isRaining(value)) return 'Privilégie une couche imperméable et des chaussures qui supportent la pluie.';
-+    if (_isRaining(value)) return 'Privilégie une couche imperméable et des chaussures adaptées à la pluie.';
-     if (value.windSpeed >= 30) return 'Le vent invite à choisir une couche extérieure bien fermée.';
-     if (value.temperature <= 10) return 'Ajoute une couche chaude pour rester confortable.';
-     if (value.temperature >= 25) return 'Choisis des matières légères et respirantes.';
-     return 'Les conditions sont douces : une superposition légère suffit.';
-   }
- 
-   static String? _careMessage(List<Garment> garments) {
-     for (final item in garments) {
-       final condition = '${item.condition ?? ''} ${item.etatVisuel ?? ''} ${item.usureVisible ?? ''}'.toLowerCase();
-       if (condition.contains('sale') || condition.contains('tach')) return 'Pense à nettoyer ${item.name} avant sa prochaine sortie.';
-       if (condition.contains('us') || condition.contains('abîm')) return '${item.name} mérite un peu d’entretien avant d’être reporté.';
+-  Future<List<PlannedOutfit>> proposePeriod(DateTime from, int days, AgendaPreferences preferences) async {
++  Future<List<PlannedOutfit>> proposePeriod(DateTime from, int days,
++      AgendaPreferences preferences, {List<PlannedOutfit> existing = const []}) async {
+     final generated = <PlannedOutfit>[];
++    final history = [...existing]..sort((a, b) => a.date.compareTo(b.date));
+     for (var offset = 0; offset < days; offset++) {
++      final date = _day(from).add(Duration(days: offset));
++      if (history.any((item) => _sameDay(item.date, date))) continue;
+       try {
+-        final value = await proposeDay(_day(from).add(Duration(days: offset)), preferences, previous: generated);
+-        if (value != null) generated.add(value);
++        final value = await proposeDay(date, preferences, previous: history);
++        if (value != null) { generated.add(value); history.add(value); }
+       } catch (_) {
+-        // A day is deliberately isolated: saved days and following proposals survive.
++        // Days are isolated so one optional provider cannot erase other plans.
+       }
      }
-     return null;
+     return List.unmodifiable(generated);
    }
  
-   static String _season(DateTime date) => switch (date.month) {
--    12 || 1 || 2 => 'Hiver',
--    3 || 4 || 5 => 'Printemps',
--    6 || 7 || 8 => 'Été',
--    _ => 'Automne',
-+    12 || 1 || 2 => 'Hiver', 3 || 4 || 5 => 'Printemps',
-+    6 || 7 || 8 => 'Été', _ => 'Automne',
-   };
- }
-diff --git a/lib/features/dashboard/dashboard_screen.dart b/lib/features/dashboard/dashboard_screen.dart
-index 68b85e70144074ed563aa81aa90b348a2db55eb8..d0a312729b38dc4e974201ba119bebff6eeed2b3 100644
---- a/lib/features/dashboard/dashboard_screen.dart
-+++ b/lib/features/dashboard/dashboard_screen.dart
-@@ -1,191 +1,219 @@
- import 'package:flutter/material.dart';
+-  Future<List<Outfit>> _loadOutfits() async {
+-    final values = await database.getAllOutfits();
+-    final result = <Outfit>[];
+-    for (final value in values) {
+-      final garments = await database.getGarmentsInOutfit(value.id);
+-      result.add(value.copyWith(garments: _group(garments)));
+-    }
+-    return result;
+-  }
++  RecommendationContext _recommendationContext(DateTime date, CalendarEvent? event,
++      WeatherData? weather) => RecommendationContext(
++    occasion: event?.formality.label,
++    weather: weather == null ? null : RecommendationWeather(
++      temperature: weather.temperature, condition: weather.description,
++      windSpeed: weather.windSpeed,
++      isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
++    metadata: {'planner': 'agenda', 'date': _day(date).toIso8601String()},
++  );
  
- import '../../core/theme/app_theme.dart';
- import '../../weather/services/weather_service.dart';
- import '../daily_brief/daily_brief_models.dart';
- import '../daily_brief/daily_brief_service.dart';
--import '../wardrobe/wardrobe_controller.dart';
- 
- class DashboardScreen extends StatefulWidget {
-   final VoidCallback openWardrobe;
-   final VoidCallback openAssistant;
-   final VoidCallback openOutfits;
-   final VoidCallback openScanner;
-   final WeatherService weatherService;
-   final DailyBriefService dailyBriefService;
- 
-   const DashboardScreen({
-     super.key,
-     required this.openWardrobe,
-     required this.openAssistant,
-     required this.openOutfits,
-     required this.openScanner,
-     required this.weatherService,
-     required this.dailyBriefService,
-   });
- 
-   @override
-   State<DashboardScreen> createState() => _DashboardScreenState();
- }
- 
- class _DashboardScreenState extends State<DashboardScreen> {
--  late final WardrobeController _wardrobe = WardrobeController();
--  Future<DailyBrief>? _brief;
-+  late Stream<DailyBrief> _brief;
-   int _proposal = 0;
- 
-   @override
-   void initState() {
-     super.initState();
--    _load();
-+    _brief = widget.dailyBriefService.watch();
-   }
- 
-   Future<void> _load() async {
--    await _wardrobe.load();
--    if (!mounted) return;
-     setState(() {
-       _proposal = 0;
--      _brief = widget.dailyBriefService.build(_wardrobe.garments);
-+      // watch() always asks WardrobeAiContextService for a fresh database
-+      // snapshot, so recent additions and edits appear after every refresh.
-+      _brief = widget.dailyBriefService.watch();
-     });
-   }
- 
--  @override
--  void dispose() {
--    _wardrobe.dispose();
--    super.dispose();
+-  Outfit? _chooseSaved(List<Outfit> outfits, List<PlannedOutfit> previous,
+-      AgendaPreferences preferences, DateTime date) {
+-    if (outfits.isEmpty) return null;
+-    final used = previous.map((item) => item.outfitId).toSet();
+-    final ranked = [...outfits]..sort((a, b) {
+-      if (preferences.strategy == PlanningStrategy.rotation) {
+-        final ad = a.lastWorn ?? DateTime.fromMillisecondsSinceEpoch(0);
+-        final bd = b.lastWorn ?? DateTime.fromMillisecondsSinceEpoch(0);
+-        return ad.compareTo(bd);
+-      }
+-      if (preferences.strategy == PlanningStrategy.comfort) {
+-        return (b.favorite ? 1 : 0).compareTo(a.favorite ? 1 : 0);
+-      }
+-      if (preferences.strategy == PlanningStrategy.elegance) {
+-        return (b.score?.styleCoherence.value ?? 0).compareTo(a.score?.styleCoherence.value ?? 0);
+-      }
+-      return 0;
+-    });
+-    if (preferences.strategy == PlanningStrategy.variety || preferences.varietyLevel >= .7) {
+-      return ranked.where((item) => !used.contains(item.id)).firstOrNull ?? ranked.first;
+-    }
+-    return ranked.first;
 -  }
 -
-   @override
-   Widget build(BuildContext context) {
-     return SafeArea(
-       child: RefreshIndicator(
-         onRefresh: _load,
-         child: ListView(
-           padding: const EdgeInsets.fromLTRB(18, 18, 18, 32),
-           children: [
-             const Text('Bonjour', style: TextStyle(fontSize: 31, fontWeight: FontWeight.w900, letterSpacing: -1)),
-             const SizedBox(height: 4),
-             Text('Voici ton Daily Brief', style: Theme.of(context).textTheme.titleMedium),
-             const SizedBox(height: 22),
--            if (_brief == null)
--              const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
--            else
--              FutureBuilder<DailyBrief>(
--                future: _brief,
-+              StreamBuilder<DailyBrief>(
-+                stream: _brief,
-                 builder: (context, snapshot) {
-                   if (!snapshot.hasData) {
--                    if (snapshot.hasError) return _EmptyBrief(onRetry: _load);
--                    return const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()));
-+                    if (snapshot.hasError) return _BriefError(onRetry: _load);
-+                    return const _BriefLoading();
-                   }
-                   final brief = snapshot.requireData;
-                   if (brief.cards.isEmpty) return _EmptyBrief(onRetry: widget.openScanner);
-                   return Column(
-                     children: [
-                       for (final card in brief.cards) ...[
-                         _BriefCard(
-                           card: card,
-                           outfit: card.type == DailyBriefCardType.outfit && brief.outfitProposals.isNotEmpty
-                               ? brief.outfitProposals[_proposal.clamp(0, brief.outfitProposals.length - 1)]
-                               : null,
--                          onWhy: () => _showWhy(context, (card.data as DailyOutfitBrief).explanation),
-+                          onWhy: card.type == DailyBriefCardType.outfit
-+                              ? () => _showWhy(context, (card.data as DailyOutfitBrief).explanation)
-+                              : null,
-                           onAlternative: brief.outfitProposals.length < 2 ? null : () => setState(() => _proposal = (_proposal + 1) % brief.outfitProposals.length),
-                         ),
-                         const SizedBox(height: 14),
-                       ],
-                     ],
-                   );
-                 },
-               ),
-           ],
-         ),
-       ),
-     );
+-  Outfit? _partialVariant(Outfit base, List<Garment> wardrobe,
+-      RecommendationContext context, AgendaPreferences preferences) {
+-    final variants = outfitEngine.generateAlternatives(base, wardrobe: wardrobe, context: context, limit: 8);
+-    for (final variant in variants) {
+-      final changed = OutfitCategory.values.where((category) =>
+-        _ids(base.itemsFor(category)).join() != _ids(variant.itemsFor(category)).join()).toSet();
+-      if (changed.isNotEmpty && changed.every((category) => !preferences.reusableCategories.contains(category))) {
+-        return variant;
+-      }
+-    }
+-    return variants.firstOrNull;
+-  }
++  static RecommendationPreferences _recommendationPreferences(AgendaPreferences value) =>
++      const RecommendationPreferences();
+ 
+   Future<void> _ensureStored(Outfit outfit) async {
+     if (await database.getOutfitById(outfit.id) == null) await database.createOutfit(outfit);
+     for (final garment in outfit.allGarments) await database.addGarmentToOutfit(outfit.id, garment.id);
    }
  
-   static void _showWhy(BuildContext context, String explanation) {
-     showModalBottomSheet<void>(context: context, builder: (context) => Padding(
-       padding: const EdgeInsets.all(24),
-       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-         const Text('Pourquoi cette tenue ?', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-         const SizedBox(height: 12), Text(explanation), const SizedBox(height: 12),
-       ]),
-     ));
+   Future<CalendarEvent?> _optionalEvent(DateTime date) async {
+     try { final events = await calendarService.getTodayEvents(day: date); return events.firstOrNull; } catch (_) { return null; }
    }
- }
- 
- class _BriefCard extends StatelessWidget {
-   final DailyBriefCard<Object> card;
-   final DailyOutfitBrief? outfit;
--  final VoidCallback onWhy;
-+  final VoidCallback? onWhy;
-   final VoidCallback? onAlternative;
- 
-   const _BriefCard({required this.card, required this.outfit, required this.onWhy, required this.onAlternative});
- 
-   @override
-   Widget build(BuildContext context) {
-     final (icon, title) = switch (card.type) {
-       DailyBriefCardType.outfit => (Icons.auto_awesome, 'Tenue du jour'),
-       DailyBriefCardType.weather => (Icons.cloud_outlined, 'Météo'),
-       DailyBriefCardType.observation => (Icons.insights_outlined, 'Observation'),
-       DailyBriefCardType.stylist => (Icons.format_quote_rounded, 'Conseil du styliste'),
-       DailyBriefCardType.care => (Icons.cleaning_services_outlined, 'Entretien'),
-       DailyBriefCardType.goal => (Icons.flag_outlined, 'Objectif'),
-     };
-     return Card(
-       clipBehavior: Clip.antiAlias,
-       child: Padding(
-         padding: const EdgeInsets.all(20),
-         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-           Row(children: [Icon(icon, color: AppTheme.gold), const SizedBox(width: 10), Text(title.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.1))]),
-           const SizedBox(height: 16),
-           _content(context),
-         ]),
-       ),
-     );
+   Future<WeatherData?> _optionalWeather() async {
+     try { return await weatherService?.getCurrentWeather(); } catch (_) { return null; }
    }
  
-   Widget _content(BuildContext context) {
-     if (card.type == DailyBriefCardType.outfit && outfit != null) {
-       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
--        Row(children: [Expanded(child: Text(outfit!.garments.map((item) => item.name).join(' · '), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))), _Confidence(value: outfit!.confidence)]),
-+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-+          Expanded(child: Text(outfit!.garments.map((item) => item.name).take(3).join(' · '),
-+            maxLines: 2, overflow: TextOverflow.ellipsis,
-+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
-+          const SizedBox(width: 8), _Confidence(value: outfit!.confidence),
-+        ]),
-         const SizedBox(height: 8), Text(outfit!.explanation, maxLines: 2, overflow: TextOverflow.ellipsis),
--        const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8, children: outfit!.garments.map((item) => Chip(label: Text(item.name))).toList()),
-+        const SizedBox(height: 14), Wrap(spacing: 8, runSpacing: 8,
-+          children: outfit!.garments.take(3).map((item) => Chip(
-+            label: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 150),
-+              child: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis)))).toList()),
-         const SizedBox(height: 12), Row(children: [TextButton(onPressed: onWhy, child: const Text('Pourquoi ?')), const Spacer(), TextButton(onPressed: onAlternative, child: const Text('Autre proposition'))]),
-       ]);
-     }
-     if (card.data is DailyWeatherBrief) {
-       final value = card.data as DailyWeatherBrief;
-       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-         Text('${value.weather.temperature.round()} °C  ·  Pluie ${value.isRaining ? 'prévue' : 'non prévue'}  ·  Vent ${value.weather.windSpeed.round()} km/h', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-         const SizedBox(height: 8), Text(value.impact),
-       ]);
-     }
-     if (card.data is DailyGoalBrief) {
-       final value = card.data as DailyGoalBrief;
-       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(value.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)), const SizedBox(height: 7), Text(value.contribution)]);
-     }
-     return Text(card.data.toString(), style: const TextStyle(fontSize: 16, height: 1.45));
+-  static int _consecutive(List<PlannedOutfit> values, String id) {
+-    var count = 0;
+-    for (final value in values.reversed) { if (value.outfitId != id) break; count++; }
+-    return count;
+-  }
+-  static Set<String> _ids(List<Garment> values) => values.map((item) => item.id).toSet();
+-  static Map<OutfitCategory, List<Garment>> _group(List<Garment> garments) {
+-    final result = <OutfitCategory, List<Garment>>{};
+-    for (final item in garments) { result.putIfAbsent(OutfitEngine.categoryFor(item), () => []).add(item); }
+-    return result;
+-  }
+-  static Outfit _cloneWithId(Outfit source, String id) => Outfit(id: id, name: source.name,
+-    season: source.season, favorite: source.favorite, createdAt: DateTime.now(), updatedAt: DateTime.now(),
+-    garments: source.garments, score: source.score, justification: source.justification);
+-  static String _explanation(PlanningStrategy strategy, OutfitReuseKind reuse,
+-      WeatherData? weather, CalendarEvent? event) {
+-    if (reuse == OutfitReuseKind.complete) return 'Tenue identique conservée conformément à vos préférences du mode ${strategy.label.toLowerCase()}.';
+-    if (reuse == OutfitReuseKind.partial) return 'Certaines pièces réutilisables sont conservées pour limiter les lessives.';
+-    if (strategy == PlanningStrategy.weather && weather != null) return 'Tenue choisie en priorité pour les conditions météo disponibles.';
+-    if (strategy == PlanningStrategy.weather) return 'Météo indisponible : proposition fondée sur les informations du dressing.';
+-    if (event != null) return 'Tenue adaptée à « ${event.title} » et au mode ${strategy.label.toLowerCase()}.';
+-    return 'Proposition fondée sur le mode ${strategy.label.toLowerCase()}, sans événement imposé.';
++  Outfit _withAgendaId(Outfit source, DateTime date) {
++    final now = clock();
++    return Outfit(id: 'agenda-${_day(date).millisecondsSinceEpoch}-${now.microsecondsSinceEpoch}',
++      name: source.name, season: source.season, favorite: source.favorite,
++      createdAt: now, updatedAt: now, garments: source.garments,
++      score: source.score, justification: source.justification);
    }
++  static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+   static DateTime _day(DateTime value) => DateTime(value.year, value.month, value.day);
  }
  
- class _Confidence extends StatelessWidget {
-   final int value;
-   const _Confidence({required this.value});
-   @override
-   Widget build(BuildContext context) => Container(
-     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-     decoration: BoxDecoration(color: AppTheme.gold.withValues(alpha: .16), borderRadius: BorderRadius.circular(20)),
-     child: Text('$value %', style: const TextStyle(fontWeight: FontWeight.w900)),
-   );
- }
- 
- class _EmptyBrief extends StatelessWidget {
-   final VoidCallback onRetry;
-   const _EmptyBrief({required this.onRetry});
-   @override
-   Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
-     const Icon(Icons.checkroom_outlined, size: 42), const SizedBox(height: 12),
-     const Text('Ton brief se prépare', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
-     const SizedBox(height: 7), const Text('Ajoute quelques pièces pour recevoir des recommandations personnalisées.', textAlign: TextAlign.center),
-     const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Continuer')),
-   ])));
- }
-+
-+class _BriefLoading extends StatelessWidget {
-+  const _BriefLoading();
-+  @override
-+  Widget build(BuildContext context) => const Card(child: Padding(
-+    padding: EdgeInsets.all(24),
-+    child: Row(children: [
-+      SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
-+      SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-+        children: [Text('Chargement du dressing…', style: TextStyle(fontWeight: FontWeight.w800)),
-+          SizedBox(height: 4), Text('La page est prête, la tenue arrive dans un instant.')]))
-+    ]),
-+  ));
-+}
-+
-+class _BriefError extends StatelessWidget {
-+  final VoidCallback onRetry;
-+  const _BriefError({required this.onRetry});
-+  @override
-+  Widget build(BuildContext context) => Card(child: Padding(
-+    padding: const EdgeInsets.all(24),
-+    child: Column(children: [
-+      const Icon(Icons.error_outline, size: 40), const SizedBox(height: 10),
-+      const Text('Impossible de préparer le Daily Brief', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-+      const SizedBox(height: 6), const Text('Ton dressing reste intact. Tu peux réessayer maintenant.'),
-+      const SizedBox(height: 14), FilledButton(onPressed: onRetry, child: const Text('Réessayer')),
-+    ]),
-+  ));
-+}
-diff --git a/test/features/daily_brief/daily_brief_service_test.dart b/test/features/daily_brief/daily_brief_service_test.dart
+ extension<T> on Iterable<T> { T? get firstOrNull => isEmpty ? null : first; }
+diff --git a/test/features/agenda/agenda_generation_strategy_test.dart b/test/features/agenda/agenda_generation_strategy_test.dart
 new file mode 100644
-index 0000000000000000000000000000000000000000..be0110514f4cf28922edda5926ccdb2ae22db67d
+index 0000000000000000000000000000000000000000..98c736ea702cdaabf6a0349c5919d0318b9ab3cd
 --- /dev/null
-+++ b/test/features/daily_brief/daily_brief_service_test.dart
-@@ -0,0 +1,115 @@
-+import 'dart:async';
-+
++++ b/test/features/agenda/agenda_generation_strategy_test.dart
+@@ -0,0 +1,62 @@
 +import 'package:flutter_test/flutter_test.dart';
-+import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
-+import 'package:wardrobeos/features/assistant/memory/memory_repository.dart';
-+import 'package:wardrobeos/features/assistant/memory/memory_service.dart';
-+import 'package:wardrobeos/features/assistant/memory/personal_goal.dart';
-+import 'package:wardrobeos/features/assistant/memory/style_profile.dart';
-+import 'package:wardrobeos/features/assistant/memory/user_memory.dart';
-+import 'package:wardrobeos/features/daily_brief/daily_brief_models.dart';
-+import 'package:wardrobeos/features/daily_brief/daily_brief_service.dart';
++import 'package:wardrobeos/core/outfit_generation/outfit_generation_engine.dart';
++import 'package:wardrobeos/features/agenda/agenda_models.dart';
++import 'package:wardrobeos/features/agenda/agenda_service.dart';
 +import 'package:wardrobeos/models/garment.dart';
-+import 'package:wardrobeos/weather/models/weather_data.dart';
-+import 'package:wardrobeos/weather/services/weather_service.dart';
-+
-+Garment _garment(String id, String name, String category) => Garment(
-+  id: id,
-+  name: name,
-+  category: category,
-+  couleurPrincipale: 'Bleu',
-+  matierePrincipale: 'Coton',
-+  temperatureMinimum: 10,
-+  temperatureMaximum: 25,
-+  createdAt: DateTime(2026),
-+  updatedAt: DateTime(2026),
-+);
 +
 +void main() {
-+  test('propose une tenue avant la météo puis enrichit le même brief', () async {
-+    final weather = Completer<WeatherData>();
-+    final service = _service(
-+      wardrobe: [_garment('top', 'Chemise', 'Hauts')],
-+      weather: _Weather(() => weather.future),
++  final now = DateTime(2026, 8, 4);
++
++  Garment garment(String id) => Garment(
++        id: id,
++        name: id,
++        category: 'Hauts',
++        createdAt: now,
++        updatedAt: now,
++      );
++
++  test('le sélecteur évite une proposition déjà utilisée', () {
++    final result = OutfitGenerationEngine(clock: () => now).generate(
++      OutfitGenerationRequest(
++        wardrobe: [garment('a'), garment('b'), garment('c')],
++        proposalCount: 3,
++      ),
 +    );
-+    final events = <DailyBrief>[];
-+    final done = service.watch().listen(events.add).asFuture<void>();
-+
-+    await Future<void>.delayed(Duration.zero);
-+    expect(events, hasLength(1));
-+    expect(events.single.outfitProposals, isNotEmpty);
-+    expect(events.single.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
-+
-+    weather.complete(_weatherData);
-+    await done;
-+    expect(events, hasLength(2));
-+    expect(events.last.cards.any((card) => card.type == DailyBriefCardType.weather), isTrue);
-+  });
-+
-+  test('une météo absente ne bloque jamais la recommandation', () async {
-+    final brief = await _service(
-+      wardrobe: [_garment('top', 'T-shirt', 'Hauts')],
-+      weather: _Weather(() => Future.error(StateError('indisponible'))),
-+    ).build();
-+
-+    expect(brief.outfitProposals, isNotEmpty);
-+    expect(brief.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
-+  });
-+
-+  test('chaque relance relit le dressing actuel', () async {
-+    var name = 'Avant modification';
-+    var reads = 0;
-+    final context = WardrobeAiContextService(loadCurrentGarments: () async {
-+      reads++;
-+      return [_garment('stable', name, 'Hauts')];
-+    });
-+    final service = DailyBriefService(
-+      weatherService: _Weather(() => Future.error(StateError('offline'))),
-+      memoryService: MemoryService(repository: _EmptyMemoryRepository()),
-+      aiContextService: context,
++    final first = result.proposals.first.outfit;
++    final previous = PlannedOutfit(
++      id: 'previous',
++      date: now.subtract(const Duration(days: 1)),
++      outfitId: first.id,
++      outfit: first,
++      createdAt: now,
++      updatedAt: now,
 +    );
 +
-+    final before = await service.build();
-+    name = 'Après modification';
-+    final after = await service.build();
-+
-+    expect(reads, 2);
-+    expect(before.outfitProposals.single.garments.single.name, 'Avant modification');
-+    expect(after.outfitProposals.single.garments.single.name, 'Après modification');
-+  });
-+}
-+
-+DailyBriefService _service({required List<Garment> wardrobe, required WeatherService weather}) =>
-+    DailyBriefService(
-+      weatherService: weather,
-+      memoryService: MemoryService(repository: _EmptyMemoryRepository()),
-+      aiContextService: WardrobeAiContextService(loadCurrentGarments: () async => wardrobe),
++    final selected = const DefaultAgendaProposalSelector().select(
++      date: now,
++      result: result,
++      previous: [previous],
++      preferences: const AgendaPreferences(),
 +    );
 +
-+final _weatherData = WeatherData(
-+  city: 'Paris', latitude: 0, longitude: 0, temperature: 18,
-+  apparentTemperature: 18, humidity: 50, windSpeed: 8, windDirection: 0,
-+  weatherCode: 0, description: 'Clair', measuredAt: DateTime(2026),
-+);
++    expect(selected, isNotNull);
++    expect(selected!.outfit.allGarments.single.id,
++        isNot(first.allGarments.single.id));
++  });
 +
-+class _Weather implements WeatherService {
-+  final Future<WeatherData> Function() loader;
-+  _Weather(this.loader);
-+  @override
-+  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) => loader();
-+  @override
-+  void clearCache() {}
-+}
++  test('le sélecteur exprime explicitement un dressing vide', () {
++    final result = OutfitGenerationEngine(clock: () => now).generate(
++      const OutfitGenerationRequest(wardrobe: []),
++    );
 +
-+class _EmptyMemoryRepository implements MemoryRepository {
-+  @override Future<void> deleteMemory(String id) async {}
-+  @override Future<void> deleteGoal(String id) async {}
-+  @override Future<void> deleteStyleProfile() async {}
-+  @override Future<List<PersonalGoal>> getGoals() async => [];
-+  @override Future<List<UserMemoryRevision>> getMemoryHistory(String memoryId) async => [];
-+  @override Future<List<UserMemory>> getMemories({UserMemoryKind? kind}) async => [];
-+  @override Future<StyleProfile?> getStyleProfile() async => null;
-+  @override Future<void> saveGoal(PersonalGoal goal) async {}
-+  @override Future<void> saveMemory(UserMemory memory, {bool recordRevision = true}) async {}
-+  @override Future<void> saveStyleProfile(StyleProfile profile) async {}
++    expect(
++      const DefaultAgendaProposalSelector().select(
++        date: now,
++        result: result,
++        previous: const [],
++        preferences: const AgendaPreferences(),
++      ),
++      isNull,
++    );
++  });
 +}

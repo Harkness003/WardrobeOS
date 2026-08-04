@@ -32,9 +32,28 @@ class _AgendaScreenState extends State<AgendaScreen> {
         ])),
         if (c.loading) const LinearProgressIndicator(),
         Expanded(child: ListView.builder(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), itemCount: 7, itemBuilder: (_, i) {
-          final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day, plan: c.forDay(day), onAction: (action) => _act(day, c.forDay(day), action));
+          final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day,
+            plan: c.forDay(day), state: c.stateFor(day),
+            onDetails: () => _showDetails(c.forDay(day)),
+            onAction: (action) => _act(day, c.forDay(day), action));
         })),
       ])));
+  }
+
+  Future<void> _showDetails(PlannedOutfit? plan) async {
+    if (plan == null) return;
+    await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+      builder: (context) => SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(plan.outfit?.name ?? 'Tenue indisponible', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          Text(plan.justification),
+          if (plan.event != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.event_outlined), title: Text(plan.event!.title)),
+          if (plan.weather != null) ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.cloud_outlined), title: Text('${plan.weather!.temperature.round()}° · ${plan.weather!.description}')),
+          const Divider(),
+          for (final garment in plan.outfit?.allGarments ?? const [])
+            ListTile(contentPadding: EdgeInsets.zero, title: Text(garment.name), subtitle: Text(garment.category)),
+        ]))));
   }
 
   Future<void> _act(DateTime day, PlannedOutfit? plan, String action) async {
@@ -59,26 +78,49 @@ class _AgendaScreenState extends State<AgendaScreen> {
 }
 
 class _DayCard extends StatelessWidget {
-  final DateTime date; final PlannedOutfit? plan; final ValueChanged<String> onAction;
-  const _DayCard({required this.date, required this.plan, required this.onAction});
+  final DateTime date; final PlannedOutfit? plan; final AgendaDayState state;
+  final ValueChanged<String> onAction; final VoidCallback onDetails;
+  const _DayCard({required this.date, required this.plan, required this.state,
+    required this.onAction, required this.onDetails});
   @override Widget build(BuildContext context) {
     final localeDays = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
-    return Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    return Card(clipBehavior: Clip.antiAlias, child: InkWell(onTap: plan == null ? null : onDetails,
+      child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [Expanded(child: Text('${localeDays[date.weekday - 1]} ${date.day}', style: Theme.of(context).textTheme.titleMedium)),
-        if (plan != null) Chip(label: Text(_status(plan!.status)), visualDensity: VisualDensity.compact)]),
-      if (plan?.event != null) Text('Événement · ${plan!.event!.title}'),
-      if (plan?.weather != null) Text('Météo · ${plan!.weather!.temperature.round()}° · ${plan!.weather!.description}')
-      else if (plan != null) const Text('Météo non utilisée', style: TextStyle(fontSize: 12)),
-      const SizedBox(height: 6), Text(plan?.outfit?.name ?? 'Aucune tenue planifiée', style: const TextStyle(fontWeight: FontWeight.w600)),
-      if (plan?.justification.isNotEmpty == true) Padding(padding: const EdgeInsets.only(top: 4), child: Text(plan!.justification)),
-      Wrap(spacing: 4, children: plan == null ? [TextButton(onPressed: () => onAction('choose'), child: const Text('Planifier')), TextButton(onPressed: () => onAction('another'), child: const Text('Proposer'))] : [
-        TextButton(onPressed: () => onAction('replace'), child: const Text('Modifier / remplacer')),
-        TextButton(onPressed: () => onAction('another'), child: const Text('Autre proposition')),
-        if (plan!.status == PlannedOutfitStatus.proposed) TextButton(onPressed: () => onAction('confirm'), child: const Text('Confirmer')),
-        if (plan!.status != PlannedOutfitStatus.worn) TextButton(onPressed: () => onAction('worn'), child: const Text('Marquer portée')),
-        TextButton(onPressed: () => onAction('delete'), child: const Text('Supprimer')),
-      ])
-    ])));
+        _StateBadge(state: state, status: plan?.status)]),
+      const SizedBox(height: 6),
+      Text(_summary, maxLines: 1, overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w600)),
+      if (plan != null) Row(children: [
+        Expanded(child: Text('${plan!.outfit?.allGarments.length ?? 0} pièces · Toucher pour les détails',
+          maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)),
+        PopupMenuButton<String>(tooltip: 'Actions', onSelected: onAction, itemBuilder: (_) => [
+          const PopupMenuItem(value: 'another', child: Text('Autre proposition')),
+          const PopupMenuItem(value: 'replace', child: Text('Choisir une tenue enregistrée')),
+          if (plan!.status == PlannedOutfitStatus.proposed) const PopupMenuItem(value: 'confirm', child: Text('Confirmer')),
+          if (plan!.status != PlannedOutfitStatus.worn) const PopupMenuItem(value: 'worn', child: Text('Marquer portée')),
+          const PopupMenuItem(value: 'delete', child: Text('Supprimer')),
+        ]),
+      ]) else if (state != AgendaDayState.generating) Align(alignment: Alignment.centerRight,
+        child: TextButton(onPressed: () => onAction('another'), child: const Text('Réessayer'))),
+    ]))));
   }
+  String get _summary => switch (state) {
+    AgendaDayState.generating => 'Génération en cours…',
+    AgendaDayState.noOutfit => 'Aucune tenue planifiée',
+    AgendaDayState.error => 'Erreur de génération',
+    AgendaDayState.generated => plan?.outfit?.name ?? 'Tenue générée',
+    AgendaDayState.planned => plan?.outfit?.name ?? 'Tenue planifiée',
+  };
   static String _status(PlannedOutfitStatus value) => switch(value) { PlannedOutfitStatus.proposed => 'Proposée', PlannedOutfitStatus.confirmed => 'Confirmée', PlannedOutfitStatus.worn => 'Portée', PlannedOutfitStatus.ignored => 'Ignorée', PlannedOutfitStatus.cancelled => 'Annulée' };
+}
+
+class _StateBadge extends StatelessWidget {
+  final AgendaDayState state; final PlannedOutfitStatus? status;
+  const _StateBadge({required this.state, required this.status});
+  @override Widget build(BuildContext context) => Chip(label: Text(switch (state) {
+    AgendaDayState.generating => 'Génération', AgendaDayState.noOutfit => 'Vide',
+    AgendaDayState.error => 'Erreur', AgendaDayState.generated => 'Générée',
+    AgendaDayState.planned => _DayCard._status(status!),
+  }), visualDensity: VisualDensity.compact);
 }
