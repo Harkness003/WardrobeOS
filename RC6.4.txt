@@ -1,0 +1,878 @@
+diff --git a/lib/core/outfit_generation/outfit_generation_engine.dart b/lib/core/outfit_generation/outfit_generation_engine.dart
+index ed6096cf9c4224819f9a1e99b6463ed006c9a19a..53176763446a88de37719b91cfe38dc9a6077594 100644
+--- a/lib/core/outfit_generation/outfit_generation_engine.dart
++++ b/lib/core/outfit_generation/outfit_generation_engine.dart
+@@ -1,27 +1,28 @@
+ import '../../models/garment.dart';
+ import '../../models/outfit.dart';
++import '../../models/thermal_profile.dart';
+ import '../recommendation/recommendation_context.dart';
+ import '../recommendation/recommendation_engine.dart';
+ import '../../features/styles/style_repository.dart';
+ 
+ /// Immutable input snapshot for outfit generation. StyleAnalysis and thermal
+ /// profiles are deliberately read through each garment's `effective*` getters,
+ /// so callers can reuse the profiles already computed by the AI context.
+ class OutfitGenerationRequest {
+   final Iterable<Garment> wardrobe;
+   final RecommendationContext context;
+   final RecommendationPreferences preferences;
+   final Iterable<GarmentRecommendationCorrection> corrections;
+   final int proposalCount;
+ 
+   const OutfitGenerationRequest({
+     required this.wardrobe,
+     this.context = const RecommendationContext(),
+     this.preferences = const RecommendationPreferences(),
+     this.corrections = const [],
+     this.proposalCount = 3,
+   }) : assert(proposalCount >= 0);
+ }
+ 
+ class OutfitGenerationProposal {
+   final Outfit outfit;
+@@ -123,102 +124,150 @@ class OutfitGenerationEngine {
+       });
+     return OutfitGenerationResult._(List.unmodifiable(scored), List.unmodifiable(messages));
+   }
+ 
+   OutfitGenerationProposal _score(Outfit outfit, OutfitGenerationRequest request) {
+     final items = outfit.allGarments;
+     final details = <String, List<double>>{};
+     for (var index = 0; index < items.length; index++) {
+       final evaluated = recommendationEngine.recommend(
+         wardrobe: [items[index]],
+         anchor: index == 0 ? null : items.first,
+         context: request.context,
+         preferences: request.preferences,
+         corrections: request.corrections,
+         alternativeCount: 0,
+       ).bestChoice;
+       for (final detail in evaluated?.details ?? const []) {
+         details.putIfAbsent(detail.criterion, () => []).add(detail.score);
+       }
+     }
+     double average(String key, [double fallback = .7]) {
+       final values = details[key];
+       return values == null || values.isEmpty ? fallback : values.reduce((a, b) => a + b) / values.length;
+     }
+     final style = (average('style') + average('couleurs')) / 2;
+-    final thermal = average('température');
++    final thermal = _outfitThermalScore(items, request.context) ?? average('température');
+     final layering = average('superposition');
+     final formality = average('formalité');
+     final diversity = (items.length / 5).clamp(0, 1).toDouble();
+     final rotation = items.isEmpty
+         ? 0.0
+         : items.map((item) => 1 / (1 + item.wearCount)).reduce((a, b) => a + b) / items.length;
+     final score = style * .25 + thermal * .20 + layering * .15 + formality * .15 +
+         diversity * .10 + rotation * .15;
+     final temperature = request.context.weather?.temperature;
+     final reasons = <String>[
+       if (thermal >= .7 && temperature != null)
+-        'Adaptée à ${temperature.round()} °C${request.context.weather?.isRaining == true ? ' et à la pluie' : ''}.',
++        'Choisie car adaptée à ${temperature.round()} °C${request.context.weather?.isRaining == true ? ' avec pluie légère' : ''}.',
++      if (request.context.weather?.isRaining == true && items.any((item) => _thermal(item).rainCompatibility != WeatherProtection.none))
++        'Ajoutée comme couche extérieure contre la pluie.',
++      if ((request.context.weather?.windSpeed ?? 0) >= 15 && items.any((item) => _thermal(item).windProtection != WeatherProtection.none))
++        'Ajoutée comme couche extérieure contre le vent.',
+       if (thermal >= .7 && request.context.weather == null) 'Bonne compatibilité thermique.',
+       if (style >= .7) 'Couleurs et styles harmonieux.',
+       if (layering >= .7) 'Couches compatibles entre elles.',
+       if (formality >= .7 && request.context.desiredStyle != null)
+         'Adapté au registre ${StyleCatalog.displayName(request.context.desiredStyle!)}.',
+       if (rotation >= .7) 'La sélection privilégie des pièces rarement portées.',
+       if (items.any((item) => item.lastWorn != null) && rotation >= .5)
+         'La rotation évite les pièces portées le plus récemment.',
+       if (diversity >= .6) 'La tenue combine des catégories complémentaires.',
+     ];
+     if (reasons.isEmpty) reasons.add('Meilleur équilibre disponible dans le dressing actuel.');
+     final criterion = OutfitScore(
+       styleCoherence: OutfitCriterionScore(value: style, explanation: 'Cohérence des styles et couleurs.'),
+       weatherSuitability: OutfitCriterionScore(value: thermal, explanation: 'Compatibilité avec la météo disponible.'),
+       temperatureSuitability: OutfitCriterionScore(value: thermal, explanation: 'Compatibilité thermique des profils calculés.'),
+       formality: OutfitCriterionScore(value: formality, explanation: 'Cohérence des niveaux de formalité.'),
+       diversity: OutfitCriterionScore(value: diversity, explanation: 'Diversité des catégories sélectionnées.'),
+       overallConfidence: OutfitCriterionScore(value: score.clamp(0, 1).toDouble(), explanation: 'Score pondéré global incluant superposition et rotation.'),
+     );
+     return OutfitGenerationProposal(
+       outfit: outfit.copyWith(score: criterion, justification: List.unmodifiable(reasons)),
+       score: score,
+       reasons: List.unmodifiable(reasons),
+       respectedConstraints: List.unmodifiable([
+         if (request.context.weather != null) 'Météo',
+         if (request.context.occasion != null) 'Occasion',
+         if (request.context.desiredStyle != null) 'Style souhaité',
+         if (request.context.weather?.temperature != null) 'Température',
+         if (request.context.weather?.isRaining != null) 'Pluie',
+         if (items.any((item) => (item.thermalProfile?.primaryRole.name ?? item.layerType ?? '').isNotEmpty)) 'Rôles de couche',
+         if (request.preferences.preferredColors.isNotEmpty) 'Couleurs préférées',
+         if (request.preferences.preferredStyles.isNotEmpty) 'Styles préférés',
+         if (request.preferences.avoidedMaterials.isNotEmpty) 'Matières évitées',
+       ]),
+     );
+   }
+ 
++  double? _outfitThermalScore(List<Garment> items, RecommendationContext context) {
++    final apparent = context.weather?.apparentTemperature;
++    if (apparent == null || items.isEmpty) return null;
++    final profiles = items.map(_thermal).toList(growable: false);
++    final baseMax = profiles.map((p) => p.standaloneMaxC).reduce((a, b) => a > b ? a : b);
++    final contribution = profiles.fold<double>(0, (sum, p) => sum + p.thermalContributionC);
++    final hasOuter = profiles.any((p) => p.primaryRole == LayerRole.outer);
++    final hasMid = profiles.any((p) => p.primaryRole == LayerRole.mid);
++    final layeredMin = (24 - contribution - (hasOuter && hasMid ? 1.5 : 0)).clamp(-15, baseMax).toDouble();
++    final layeredMax = (baseMax - (profiles.length >= 3 ? 3 : profiles.length == 2 ? 1.5 : 0)).toDouble();
++    var score = apparent < layeredMin
++        ? 1 - (layeredMin - apparent) / 12
++        : apparent > layeredMax
++            ? 1 - (apparent - layeredMax) / 10
++            : 1.0;
++    if (context.weather?.isRaining == true && !profiles.any((p) => p.primaryRole == LayerRole.outer && p.rainCompatibility != WeatherProtection.none)) {
++      score = score > .45 ? .45 : score;
++    }
++    if ((context.weather?.windSpeed ?? 0) >= 15 && !profiles.any((p) => p.primaryRole == LayerRole.outer && p.windProtection != WeatherProtection.none)) {
++      score = score > .6 ? .6 : score;
++    }
++    return score.clamp(0, 1).toDouble();
++  }
++
+   static OutfitCompleteness validateOutfit(Outfit outfit) {
+     final count = outfit.allGarments.length;
+     if (count <= 1) return OutfitCompleteness.incomplete;
+     if (count == 2) return OutfitCompleteness.acceptable;
+     return OutfitCompleteness.recommended;
+   }
+ 
++  static ThermalProfile _thermal(Garment item) => item.thermalProfile ?? _outfitFallbackThermalProfile;
++
+   static OutfitCategory categoryFor(Garment garment) {
+     final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.thermalProfile?.primaryRole.name ?? garment.layerType ?? ''}'.toLowerCase();
+     if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) return OutfitCategory.shoes;
+     if (value.contains('pantal') || value.contains('jupe') || value.contains('short') || value.contains('bas')) return OutfitCategory.bottom;
+-    if (value.contains('manteau') || value.contains('parka')) return OutfitCategory.coat;
+-    if (value.contains('veste') || value.contains('blazer')) return OutfitCategory.jacket;
++    if (value.contains('manteau') || value.contains('parka') || value.contains('doudoune')) return OutfitCategory.coat;
++    if (value.contains('veste') || value.contains('blazer') || value.contains('trench') || value.contains('outer') || value.contains('outerwear')) return OutfitCategory.jacket;
+     if (value.contains('sac')) return OutfitCategory.bag;
+     if (value.contains('bijou') || value.contains('collier') || value.contains('bracelet')) return OutfitCategory.jewelry;
+     if (value.contains('access')) return OutfitCategory.accessory;
+-    if (value.contains('haut') || value.contains('chemise') || value.contains('pull') || value.contains('t-shirt')) return OutfitCategory.top;
++    if (value.contains('haut') || value.contains('top') || value.contains('chemise') || value.contains('pull') || value.contains('polo') || value.contains('t-shirt')) return OutfitCategory.top;
+     return OutfitCategory.otherLayer;
+   }
+ 
+   static String _signature(Outfit value) {
+     final ids = value.allGarments.map((item) => item.id).toList()..sort();
+     return ids.join('|');
+   }
+   static Map<OutfitCategory, List<Garment>> _freeze(Map<OutfitCategory, List<Garment>> source) =>
+       Map.unmodifiable(source.map((key, value) => MapEntry(key, List.unmodifiable(value))));
+ }
++
++final _outfitFallbackThermalProfile = ThermalProfile(
++  standaloneMinC: 12,
++  standaloneMaxC: 24,
++  layeredMinC: 8,
++  layeredMaxC: 22,
++  level: ThermalLevel.moderate,
++  insulation: InsulationLevel.medium,
++  thickness: ThicknessLevel.medium,
++  thermalContributionC: 5,
++  breathability: BreathabilityLevel.medium,
++  windProtection: WeatherProtection.none,
++  rainCompatibility: WeatherProtection.none,
++  primaryRole: LayerRole.mid,
++  inputFingerprint: 'outfit-fallback',
++  calculatedAt: DateTime.fromMillisecondsSinceEpoch(0),
++  confidence: .3,
++);
+diff --git a/lib/core/recommendation/recommendation_context.dart b/lib/core/recommendation/recommendation_context.dart
+index d3869b3a233de61e168ad73ebd5feda8ab2795d1..24829f6720f06dacbaac1ddf78c98c537b3d9eaf 100644
+--- a/lib/core/recommendation/recommendation_context.dart
++++ b/lib/core/recommendation/recommendation_context.dart
+@@ -1,37 +1,47 @@
+ class RecommendationWeather {
+   final double? temperature;
+   final bool? isRaining;
+   final String? condition;
+   final double? windSpeed;
++  final int? humidity;
+ 
+   const RecommendationWeather({
+     this.temperature,
+     this.isRaining,
+     this.condition,
+     this.windSpeed,
++    this.humidity,
+   });
++
++  double? get apparentTemperature {
++    if (temperature == null) return null;
++    final windPenalty = (windSpeed ?? 0) >= 30 ? 3.0 : (windSpeed ?? 0) >= 15 ? 1.5 : 0.0;
++    final rainPenalty = isRaining == true ? 1.5 : 0.0;
++    final humidityPenalty = (humidity ?? 0) >= 80 && temperature! <= 18 ? 1.0 : 0.0;
++    return temperature! - windPenalty - rainPenalty - humidityPenalty;
++  }
+ }
+ 
+ /// Contexte indépendant de toute interface, extensible par [metadata] pour les
+ /// futurs agenda, voyage, packing list, achats et notifications.
+ class RecommendationContext {
+   final String? season;
+   final String? occasion;
+   final String? desiredStyle;
+   final RecommendationWeather? weather;
+   final bool isTravel;
+   final Map<String, Object?> metadata;
+ 
+   const RecommendationContext({
+     this.season,
+     this.occasion,
+     this.desiredStyle,
+     this.weather,
+     this.isTravel = false,
+     this.metadata = const {},
+   });
+ }
+ 
+ class RecommendationPreferences {
+   final Set<String> preferredStyles;
+   final Set<String> preferredColors;
+diff --git a/lib/core/recommendation/recommendation_engine.dart b/lib/core/recommendation/recommendation_engine.dart
+index 5db653150fd73cf63409cf9f387892eec43251d0..becc6a47359eaa164c0be08295c9baf86e1178bf 100644
+--- a/lib/core/recommendation/recommendation_engine.dart
++++ b/lib/core/recommendation/recommendation_engine.dart
+@@ -94,51 +94,51 @@ class RecommendationEngine {
+       RecommendationCriterionScore(criterion: name, score: score, weight: weight);
+ 
+   double _style(_Profile item, _Profile? anchor, RecommendationContext context,
+       RecommendationPreferences preferences) {
+     final desired = _normalize(context.desiredStyle);
+     if (desired.isNotEmpty) return item.styles.contains(desired) ? 1 : .35;
+     if (anchor != null && item.styles.intersection(anchor.styles).isNotEmpty) return 1;
+     if (item.styles.any(preferences.preferredStyles.map(_normalize).contains)) return .85;
+     return item.styles.isEmpty ? .65 : .55;
+   }
+ 
+   double _same(String? left, String? right) {
+     final a = _normalize(left);
+     final b = _normalize(right);
+     if (a.isEmpty || b.isEmpty) return .65;
+     return a == b ? 1 : .3;
+   }
+ 
+   double _season(_Profile item, RecommendationContext context) {
+     final season = _normalize(context.season);
+     if (season.isEmpty || item.seasons.isEmpty) return .7;
+     return item.seasons.contains(season) ? 1 : .15;
+   }
+ 
+   double _temperature(_Profile item, RecommendationContext context) {
+-    final temperature = context.weather?.temperature;
++    final temperature = context.weather?.apparentTemperature;
+     if (temperature == null) return .7;
+     final thermal = item.thermal;
+     if (temperature < thermal.standaloneMinC) {
+       return (1 - (thermal.standaloneMinC - temperature) / 15)
+           .clamp(0, 1)
+           .toDouble();
+     }
+     if (temperature > thermal.standaloneMaxC) {
+       return (1 - (temperature - thermal.standaloneMaxC) / 15)
+           .clamp(0, 1)
+           .toDouble();
+     }
+     if (context.weather?.isRaining == true &&
+         thermal.rainCompatibility == WeatherProtection.none) return .2;
+     if ((context.weather?.windSpeed ?? 0) >= 30 &&
+         thermal.windProtection == WeatherProtection.none) return .35;
+     if (temperature >= 25 && thermal.breathability == BreathabilityLevel.low) return .45;
+     return 1;
+   }
+ 
+   double _color(_Profile item, _Profile? anchor, RecommendationPreferences preferences) {
+     if (preferences.preferredColors.map(_normalize).contains(item.color)) return 1;
+     if (anchor == null || item.color.isEmpty || anchor.color.isEmpty) return .7;
+     if (item.compatibleColors.contains(anchor.color) ||
+         anchor.compatibleColors.contains(item.color)) return 1;
+@@ -152,51 +152,51 @@ class RecommendationEngine {
+     if (anchor == null || item.material.isEmpty || anchor.material.isEmpty) return .7;
+     return item.material == anchor.material ? .85 : .75;
+   }
+ 
+   double _layering(_Profile item, _Profile? anchor) {
+     if (anchor == null) return .8;
+     final itemThermal = item.thermal;
+     final anchorThermal = anchor.thermal;
+     if (itemThermal.primaryRole == anchorThermal.primaryRole) return .3;
+     final itemOverAnchor = itemThermal.acceptsUnder.contains(anchorThermal.primaryRole) &&
+         anchorThermal.acceptsOver.contains(itemThermal.primaryRole);
+     final anchorOverItem = anchorThermal.acceptsUnder.contains(itemThermal.primaryRole) &&
+         itemThermal.acceptsOver.contains(anchorThermal.primaryRole);
+     return itemOverAnchor || anchorOverItem ? 1 : .4;
+   }
+ 
+   double _occasion(_Profile item, RecommendationContext context) {
+     final occasion = _normalize(context.occasion);
+     if (occasion.isEmpty || item.occasions.isEmpty) return .7;
+     if (item.discouragedOccasions.contains(occasion)) return 0;
+     return item.occasions.contains(occasion) ? 1 : .3;
+   }
+ 
+   String _explain(_Profile item, _Profile? anchor, RecommendationContext context,
+       List<RecommendationCriterionScore> details, int score) {
+-    final temperature = context.weather?.temperature;
++    final temperature = context.weather?.apparentTemperature;
+     if (temperature != null && temperature > item.thermal.standaloneMaxC + 5) {
+       return '${item.garment.name} est déconseillé car la température prévue dépasse largement sa plage idéale.';
+     }
+     if (context.weather?.isRaining == true &&
+         item.thermal.rainCompatibility == WeatherProtection.none) {
+       return '${item.garment.name} est peu conseillé sous la pluie car il n’est pas déclaré compatible.';
+     }
+     final best = details.reduce((a, b) => a.score > b.score ? a : b);
+     if (anchor != null && item.styles.intersection(anchor.styles).isNotEmpty) {
+       final style = item.styles.intersection(anchor.styles).first;
+       return '${item.garment.name} fonctionne avec ${anchor.garment.name} : ils partagent le registre ${_label(style)} (score $score %).';
+     }
+     return '${item.garment.name} obtient $score % grâce principalement à sa compatibilité ${best.criterion} avec le contexte disponible.';
+   }
+ 
+   static String _normalize(String? value) => (value ?? '')
+       .trim().toLowerCase()
+       .replaceAll(RegExp(r'[àáâä]'), 'a')
+       .replaceAll(RegExp(r'[éèêë]'), 'e')
+       .replaceAll(RegExp(r'[îï]'), 'i')
+       .replaceAll(RegExp(r'[ôö]'), 'o')
+       .replaceAll(RegExp(r'[ùûü]'), 'u')
+       .replaceAll('ç', 'c');
+ 
+   static String _label(String value) => value
+@@ -236,37 +236,40 @@ class _Profile {
+       .map(RecommendationEngine._normalize).toSet();
+   Set<String> get occasions => (correction?.occasions ?? garment.effectiveOccasions)
+       .map(RecommendationEngine._normalize).toSet();
+   String get color => RecommendationEngine._normalize(
+       correction?.color ?? garment.couleurPrincipale ?? garment.color);
+   String get material => RecommendationEngine._normalize(
+       correction?.material ?? garment.matierePrincipale ?? garment.material);
+   Set<String> get compatibleColors => (garment.couleursCompatibles ?? const [])
+       .map(RecommendationEngine._normalize).toSet();
+   Set<String> get incompatibleColors => (garment.couleursMoinsAdaptees ?? const [])
+       .map(RecommendationEngine._normalize).toSet();
+   Set<String> get discouragedOccasions => (garment.occasionsDeconseillees ?? const [])
+       .map(RecommendationEngine._normalize).toSet();
+   ThermalProfile get thermal {
+     final current = garment.thermalProfile ?? _defaultThermalProfile;
+     if (correction?.minimumTemperature == null &&
+         correction?.maximumTemperature == null && correction?.rainCompatible == null) {
+       return current;
+     }
+     final minimum = correction?.minimumTemperature ?? current.standaloneMinC;
+     final requestedMaximum = correction?.maximumTemperature ?? current.standaloneMaxC;
+     return ThermalProfile(
+       standaloneMinC: minimum,
+       standaloneMaxC: requestedMaximum < minimum ? minimum : requestedMaximum,
+       layeredMinC: current.layeredMinC, layeredMaxC: current.layeredMaxC,
+-      level: current.level, breathability: current.breathability,
++      level: current.level, insulation: current.insulation,
++      thickness: current.thickness,
++      thermalContributionC: current.thermalContributionC,
++      breathability: current.breathability,
+       windProtection: current.windProtection,
+       rainCompatibility: correction?.rainCompatible == null
+           ? current.rainCompatibility
+           : correction!.rainCompatible! ? WeatherProtection.limited : WeatherProtection.none,
+       primaryRole: current.primaryRole, acceptsUnder: current.acceptsUnder,
+       acceptsOver: current.acceptsOver, inputFingerprint: current.inputFingerprint,
+       calculatedAt: current.calculatedAt, confidence: current.confidence,
+       extensions: current.extensions,
+     );
+   }
+ }
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 165c938a3e997273b6671bfcc050834e886ddf10..2be5e13af80b7cc90fc357f5b3748e4262df44e2 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -56,51 +56,51 @@ class MainShell extends StatefulWidget {
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+   late final _assistantOutfits = OutfitsController();
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+   late final _styleCatalog = StyleCatalog();
+   late final _styleEnrichment = StyleEnrichmentService(_openAiProvider);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
+   late final _reanalysisAnalyzer = OpenAiGarmentVisionAnalyzer(apiKeyStorage: _apiKeyStorage);
+   late final _reanalysisRepository = DatabaseGarmentReanalysisRepository(DatabaseService.instance);
+   late final _reanalysisService = GarmentReanalysisService(
+     repository: _reanalysisRepository,
+     analyzer: _reanalysisAnalyzer,
+     loadPhoto: (path) => File(path).readAsBytes(),
+     versions: const GarmentReanalysisVersions(
+       aiModel: 'scanner-v1',
+       pipeline: 'scanner-pipeline-v1',
+       styleTaxonomy: '1',
+-      thermalEngine: '1',
++      thermalEngine: '2',
+     ),
+   );
+   late final _backupRepository = DatabaseBackupRepository(
+     DatabaseService.instance,
+   );
+   late final _memoryService = MemoryService(
+     repository: DatabaseMemoryRepository(DatabaseService.instance),
+   );
+   late final _agendaCalendar = FakeCalendarService();
+   late final _aiContextService = WardrobeAiContextService(
+     loadCurrentGarments: DatabaseService.instance.getGarments,
+     memoryService: _memoryService,
+   );
+   late final _agendaService = AgendaService(
+     database: DatabaseService.instance,
+     calendarService: _agendaCalendar,
+     weatherService: widget.weatherService,
+     aiContextService: _aiContextService,
+   );
+   late final _backupController = BackupController(
+     backupService: BackupService(repository: _backupRepository),
+     restoreService: RestoreService(repository: _backupRepository),
+     afterRestore: () async {
+       await Future.wait([
+         _assistantWardrobe.load(),
+diff --git a/lib/models/thermal_profile.dart b/lib/models/thermal_profile.dart
+index eb5639e115ce3d2c6ac05d2599f192809c415cc1..91713676f72aa5c3654be0cde48e0172a881f3dd 100644
+--- a/lib/models/thermal_profile.dart
++++ b/lib/models/thermal_profile.dart
+@@ -1,110 +1,124 @@
+ import 'dart:convert';
+ 
+ enum ThermalLevel { veryLight, light, moderate, warm, veryWarm }
++enum InsulationLevel { veryLow, low, medium, high, veryHigh }
++enum ThicknessLevel { light, medium, thick, veryThick }
+ enum BreathabilityLevel { low, medium, high }
+ enum WeatherProtection { none, limited, resistant }
+ enum LayerRole { base, mid, outer }
+ 
+ /// Versioned, explainable thermal description. Seasons are deliberately absent
+ /// because they are not estimation inputs.
+ class ThermalProfile {
+-  static const currentModelVersion = 1;
++  static const currentModelVersion = 2;
+ 
+   final double standaloneMinC;
+   final double standaloneMaxC;
+   final double layeredMinC;
+   final double layeredMaxC;
+   final ThermalLevel level;
++  final InsulationLevel insulation;
++  final ThicknessLevel thickness;
++  final double thermalContributionC;
+   final BreathabilityLevel breathability;
+   final WeatherProtection windProtection;
+   final WeatherProtection rainCompatibility;
+   final LayerRole primaryRole;
+   final List<LayerRole> acceptsUnder;
+   final List<LayerRole> acceptsOver;
+   final int modelVersion;
+   final String inputFingerprint;
+   final DateTime calculatedAt;
+   final double confidence;
+   final Map<String, Object?> extensions;
+ 
+   const ThermalProfile({
+     required this.standaloneMinC,
+     required this.standaloneMaxC,
+     required this.layeredMinC,
+     required this.layeredMaxC,
+     required this.level,
++    this.insulation = InsulationLevel.medium,
++    this.thickness = ThicknessLevel.medium,
++    this.thermalContributionC = 0,
+     required this.breathability,
+     required this.windProtection,
+     required this.rainCompatibility,
+     required this.primaryRole,
+     this.acceptsUnder = const [],
+     this.acceptsOver = const [],
+     this.modelVersion = currentModelVersion,
+     required this.inputFingerprint,
+     required this.calculatedAt,
+     this.confidence = .65,
+     this.extensions = const {},
+   }) : assert(standaloneMinC <= standaloneMaxC),
+        assert(layeredMinC <= layeredMaxC),
+        assert(confidence >= 0 && confidence <= 1);
+ 
+   bool isCurrentFor(String fingerprint) =>
+       modelVersion == currentModelVersion && inputFingerprint == fingerprint;
+ 
+   Map<String, Object?> toJson() => {
+     'standaloneMinC': standaloneMinC,
+     'standaloneMaxC': standaloneMaxC,
+     'layeredMinC': layeredMinC,
+     'layeredMaxC': layeredMaxC,
+     'level': level.name,
++    'insulation': insulation.name,
++    'thickness': thickness.name,
++    'thermalContributionC': thermalContributionC,
+     'breathability': breathability.name,
+     'windProtection': windProtection.name,
+     'rainCompatibility': rainCompatibility.name,
+     'primaryRole': primaryRole.name,
+     'acceptsUnder': acceptsUnder.map((value) => value.name).toList(),
+     'acceptsOver': acceptsOver.map((value) => value.name).toList(),
+     'modelVersion': modelVersion,
+     'inputFingerprint': inputFingerprint,
+     'calculatedAt': calculatedAt.toIso8601String(),
+     'confidence': confidence,
+     'extensions': extensions,
+   };
+ 
+   String encode() => jsonEncode(toJson());
+ 
+   static ThermalProfile? decode(Object? source) {
+     if (source == null) return null;
+     try {
+       final value = source is String ? jsonDecode(source) : source;
+       if (value is! Map) return null;
+       final map = Map<String, Object?>.from(value);
+       T enumValue<T extends Enum>(List<T> values, String key, T fallback) =>
+           values.where((value) => value.name == map[key]).firstOrNull ?? fallback;
+       List<LayerRole> roles(String key) => (map[key] as List? ?? const [])
+           .map((item) => LayerRole.values.where((value) => value.name == item).firstOrNull)
+           .whereType<LayerRole>().toList(growable: false);
+       double number(String key) => (map[key] as num).toDouble();
+       return ThermalProfile(
+         standaloneMinC: number('standaloneMinC'),
+         standaloneMaxC: number('standaloneMaxC'),
+         layeredMinC: number('layeredMinC'),
+         layeredMaxC: number('layeredMaxC'),
+         level: enumValue(ThermalLevel.values, 'level', ThermalLevel.moderate),
++        insulation: enumValue(InsulationLevel.values, 'insulation', InsulationLevel.medium),
++        thickness: enumValue(ThicknessLevel.values, 'thickness', ThicknessLevel.medium),
++        thermalContributionC: (map['thermalContributionC'] as num?)?.toDouble() ?? 0,
+         breathability: enumValue(BreathabilityLevel.values, 'breathability', BreathabilityLevel.medium),
+         windProtection: enumValue(WeatherProtection.values, 'windProtection', WeatherProtection.none),
+         rainCompatibility: enumValue(WeatherProtection.values, 'rainCompatibility', WeatherProtection.none),
+         primaryRole: enumValue(LayerRole.values, 'primaryRole', LayerRole.mid),
+         acceptsUnder: roles('acceptsUnder'),
+         acceptsOver: roles('acceptsOver'),
+         modelVersion: (map['modelVersion'] as num?)?.toInt() ?? 1,
+         inputFingerprint: map['inputFingerprint'] as String? ?? 'unknown',
+         calculatedAt: DateTime.tryParse(map['calculatedAt'] as String? ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+         confidence: (map['confidence'] as num?)?.toDouble() ?? .5,
+         extensions: map['extensions'] is Map ? Map<String, Object?>.from(map['extensions'] as Map) : const {},
+       );
+     } catch (_) {
+       return null;
+     }
+   }
+ 
+ }
+diff --git a/lib/models/thermal_profile_calculator.dart b/lib/models/thermal_profile_calculator.dart
+index 6911fa47e9235a669aebbea6a6fd9107b6ffc783..b9d750b328f9d370ce5a59747427f7938a8051b5 100644
+--- a/lib/models/thermal_profile_calculator.dart
++++ b/lib/models/thermal_profile_calculator.dart
+@@ -1,82 +1,87 @@
+ import 'dart:convert';
+ 
+ import 'thermal_profile.dart';
+ 
+ class ThermalProfileInput {
+   final String category;
+   final String? subcategory;
+   final String? composition;
+   final String? material;
+   final String? thickness;
+   final String? lining;
+   final String? fit;
+   final List<String> detectedFeatures;
+ 
+   const ThermalProfileInput({required this.category, this.subcategory, this.composition,
+     this.material, this.thickness, this.lining, this.fit, this.detectedFeatures = const []});
+ 
+   String get evidence => [category, subcategory, composition, material, thickness, lining, fit, ...detectedFeatures]
+       .whereType<String>().join(' ').toLowerCase();
+ 
+   String get fingerprint {
+     final normalized = [category, subcategory, composition, material, thickness, lining, fit,
+       ...detectedFeatures.toList()..sort()].map((value) => value?.trim().toLowerCase()).toList();
+-    // Stable lightweight fingerprint; no cryptographic property is required.
+     var hash = 0xcbf29ce484222325;
+     for (final byte in utf8.encode(jsonEncode(normalized))) {
+       hash = ((hash ^ byte) * 0x100000001b3) & 0x7fffffffffffffff;
+     }
+     return hash.toRadixString(16);
+   }
+ }
+ 
+ class ThermalProfileCalculator {
+   const ThermalProfileCalculator();
+ 
+   ThermalProfile calculate(ThermalProfileInput input, {DateTime? calculatedAt}) {
+-    final text = input.evidence;
+-    var warmth = 2;
+-    if (_has(text, 'lin|soie|léger|fin|mesh')) warmth -= 1;
+-    if (_has(text, 'laine|mérinos|cachemire|polaire|molleton|duvet|rembour')) warmth += 2;
+-    if (_has(text, 'épais|double|doubl|matelass|doudoune|parka')) warmth += 1;
+-    warmth = warmth.clamp(0, 4).toInt();
+-
+-    final role = _has(text, 'manteau|veste|parka|blouson|imperméable|coupe-vent')
+-        ? LayerRole.outer
+-        : _has(text, 't-shirt|débardeur|sous-vêtement|chemise') ? LayerRole.base : LayerRole.mid;
+-    final center = [27.0, 23.0, 18.0, 12.0, 5.0][warmth];
+-    // Narrow ranges are intentional: uncertainty lowers confidence, not precision.
+-    final width = warmth == 0 || warmth == 4 ? 7.0 : 8.0;
+-    final standaloneMin = center - width / 2;
+-    final standaloneMax = center + width / 2;
+-    final layerGain = role == LayerRole.outer ? 6.0 : role == LayerRole.mid ? 5.0 : 3.0;
+-    final breathable = _has(text, 'lin|coton|mérinos|mesh|respir') && !_has(text, 'enduit|nylon|polyester');
+-    final wind = _has(text, 'coupe-vent|parka|manteau|cuir|softshell|tissage serré');
+-    final rain = _has(text, 'imperméable|déperlant|gore-tex|enduit|softshell');
++    final text = _normalize(input.evidence);
++    final rule = _ruleFor(text);
+     final evidenceCount = [input.subcategory, input.composition, input.material, input.thickness,
+       input.lining, input.fit].where((value) => value?.trim().isNotEmpty == true).length + input.detectedFeatures.length;
+ 
+     return ThermalProfile(
+-      standaloneMinC: standaloneMin,
+-      standaloneMaxC: standaloneMax,
+-      layeredMinC: standaloneMin - layerGain,
+-      layeredMaxC: standaloneMax - (role == LayerRole.base ? 1 : 2),
+-      level: ThermalLevel.values[warmth],
+-      breathability: breathable ? BreathabilityLevel.high : _has(text, 'enduit|cuir|nylon') ? BreathabilityLevel.low : BreathabilityLevel.medium,
+-      windProtection: wind ? WeatherProtection.resistant : role == LayerRole.outer ? WeatherProtection.limited : WeatherProtection.none,
+-      rainCompatibility: rain ? WeatherProtection.resistant : _has(text, 'nylon|polyester|cuir') ? WeatherProtection.limited : WeatherProtection.none,
+-      primaryRole: role,
+-      acceptsUnder: role == LayerRole.base ? const [] : role == LayerRole.mid ? const [LayerRole.base] : const [LayerRole.base, LayerRole.mid],
+-      acceptsOver: role == LayerRole.outer ? const [] : role == LayerRole.mid ? const [LayerRole.outer] : const [LayerRole.mid, LayerRole.outer],
++      standaloneMinC: rule.min,
++      standaloneMaxC: rule.max,
++      layeredMinC: rule.min - rule.layerGain,
++      layeredMaxC: rule.max - (rule.role == LayerRole.base ? 1 : 2),
++      level: rule.level,
++      insulation: rule.insulation,
++      thickness: rule.thickness,
++      thermalContributionC: rule.contribution,
++      breathability: rule.breathability,
++      windProtection: rule.wind,
++      rainCompatibility: rule.rain,
++      primaryRole: rule.role,
++      acceptsUnder: rule.role == LayerRole.base ? const [] : rule.role == LayerRole.mid ? const [LayerRole.base] : const [LayerRole.base, LayerRole.mid],
++      acceptsOver: rule.role == LayerRole.outer ? const [] : rule.role == LayerRole.mid ? const [LayerRole.outer] : const [LayerRole.mid, LayerRole.outer],
+       inputFingerprint: input.fingerprint,
+       calculatedAt: calculatedAt ?? DateTime.now().toUtc(),
+-      confidence: (.45 + evidenceCount * .06).clamp(.45, .87).toDouble(),
+-      extensions: const {'estimator': 'deterministic-v1', 'personalAdjustmentReady': true},
++      confidence: (.55 + evidenceCount * .06).clamp(.55, .9).toDouble(),
++      extensions: {'estimator': 'deterministic-thermal-business-v2', 'matchedRule': rule.name, 'personalAdjustmentReady': true},
+     );
+   }
+ 
+   ThermalProfile ensureCurrent(ThermalProfileInput input, ThermalProfile? current, {DateTime? calculatedAt}) =>
+       current?.isCurrentFor(input.fingerprint) == true ? current! : calculate(input, calculatedAt: calculatedAt);
+ 
++  _ThermalRule _ruleFor(String text) {
++    if (_has(text, r'doudoune|down jacket|puffer|duvet|parka')) return const _ThermalRule('doudoune', -10, 8, ThermalLevel.veryWarm, InsulationLevel.veryHigh, ThicknessLevel.veryThick, LayerRole.outer, BreathabilityLevel.low, WeatherProtection.resistant, WeatherProtection.limited, 13, 9);
++    if (_has(text, r'manteau.*laine|laine.*manteau|overcoat|caban')) return const _ThermalRule('manteau-laine', 0, 12, ThermalLevel.veryWarm, InsulationLevel.high, ThicknessLevel.thick, LayerRole.outer, BreathabilityLevel.low, WeatherProtection.resistant, WeatherProtection.limited, 11, 8);
++    if (_has(text, r'trench|gabardine')) return const _ThermalRule('trench', 8, 18, ThermalLevel.moderate, InsulationLevel.medium, ThicknessLevel.medium, LayerRole.outer, BreathabilityLevel.medium, WeatherProtection.resistant, WeatherProtection.resistant, 7, 5);
++    if (_has(text, r'blazer|veste de costume')) return const _ThermalRule('blazer', 15, 22, ThermalLevel.light, InsulationLevel.low, ThicknessLevel.medium, LayerRole.outer, BreathabilityLevel.medium, WeatherProtection.limited, WeatherProtection.none, 4, 3);
++    if (_has(text, r'surchemise|bomber|veste|blouson')) return const _ThermalRule('veste-legere', 10, 20, ThermalLevel.moderate, InsulationLevel.medium, ThicknessLevel.medium, LayerRole.outer, BreathabilityLevel.medium, WeatherProtection.limited, WeatherProtection.limited, 6, 4);
++    if (_has(text, r'sweat|hoodie|molleton')) return const _ThermalRule('sweat', 10, 22, ThermalLevel.warm, InsulationLevel.medium, ThicknessLevel.thick, LayerRole.mid, BreathabilityLevel.medium, WeatherProtection.none, WeatherProtection.none, 6, 5);
++    if (_has(text, r'pull|laine|merinos|cachemire')) return const _ThermalRule('pull-laine', 8, 20, ThermalLevel.warm, InsulationLevel.medium, ThicknessLevel.medium, LayerRole.mid, BreathabilityLevel.medium, WeatherProtection.none, WeatherProtection.none, 6, 5);
++    if (_has(text, r'polo')) return const _ThermalRule('polo', 15, 28, ThermalLevel.light, InsulationLevel.low, ThicknessLevel.light, LayerRole.base, BreathabilityLevel.high, WeatherProtection.none, WeatherProtection.none, 2, 2);
++    if (_has(text, r'chemise')) return const _ThermalRule('chemise-legere', 15, 25, ThermalLevel.light, InsulationLevel.low, ThicknessLevel.light, LayerRole.base, BreathabilityLevel.high, WeatherProtection.none, WeatherProtection.none, 2, 2);
++    if (_has(text, r't-shirt|tee-shirt|debardeur')) return const _ThermalRule('t-shirt', 18, 30, ThermalLevel.veryLight, InsulationLevel.veryLow, ThicknessLevel.light, LayerRole.base, BreathabilityLevel.high, WeatherProtection.none, WeatherProtection.none, 1.5, 2);
++    return const _ThermalRule('fallback-modere', 12, 24, ThermalLevel.moderate, InsulationLevel.medium, ThicknessLevel.medium, LayerRole.mid, BreathabilityLevel.medium, WeatherProtection.none, WeatherProtection.none, 5, 4);
++  }
++
+   bool _has(String value, String expression) => RegExp(expression, caseSensitive: false).hasMatch(value);
++  String _normalize(String value) => value.replaceAll(RegExp(r'[àáâä]'), 'a').replaceAll(RegExp(r'[éèêë]'), 'e');
++}
++
++class _ThermalRule {
++  final String name; final double min; final double max; final ThermalLevel level; final InsulationLevel insulation; final ThicknessLevel thickness; final LayerRole role; final BreathabilityLevel breathability; final WeatherProtection wind; final WeatherProtection rain; final double contribution; final double layerGain;
++  const _ThermalRule(this.name, this.min, this.max, this.level, this.insulation, this.thickness, this.role, this.breathability, this.wind, this.rain, this.contribution, this.layerGain);
+ }
+diff --git a/test/core/outfit_generation/outfit_generation_engine_test.dart b/test/core/outfit_generation/outfit_generation_engine_test.dart
+index 04659c619e00cc88d7450bb4640a99f37b84946a..bc181b759361795eddc9d1e401880b7b0f194945 100644
+--- a/test/core/outfit_generation/outfit_generation_engine_test.dart
++++ b/test/core/outfit_generation/outfit_generation_engine_test.dart
+@@ -1,42 +1,63 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/core/outfit_generation/outfit_generation_engine.dart';
+ import 'package:wardrobeos/core/recommendation/recommendation_context.dart';
+ import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/models/thermal_profile.dart';
+ 
+ void main() {
+   final now = DateTime(2026, 8, 4);
+   Garment garment(String id, String category, {int wearCount = 0}) => Garment(
+     id: id,
+     name: id,
+     category: category,
+     wearCount: wearCount,
+     createdAt: now,
+     updatedAt: now,
+   );
+   OutfitGenerationEngine engine() => OutfitGenerationEngine(clock: () => now);
+ 
++  ThermalProfile thermal({
++    required double min,
++    required double max,
++    required LayerRole role,
++    required double contribution,
++    WeatherProtection rain = WeatherProtection.none,
++    WeatherProtection wind = WeatherProtection.none,
++  }) => ThermalProfile(
++    standaloneMinC: min, standaloneMaxC: max, layeredMinC: min - contribution, layeredMaxC: max - 1,
++    level: ThermalLevel.moderate, insulation: InsulationLevel.medium, thickness: ThicknessLevel.medium,
++    thermalContributionC: contribution, breathability: BreathabilityLevel.medium,
++    windProtection: wind, rainCompatibility: rain, primaryRole: role,
++    acceptsUnder: role == LayerRole.outer ? const [LayerRole.base, LayerRole.mid] : const [],
++    acceptsOver: role == LayerRole.base ? const [LayerRole.mid, LayerRole.outer] : role == LayerRole.mid ? const [LayerRole.outer] : const [],
++    inputFingerprint: 'fixture', calculatedAt: now,
++  );
++
++  Garment thermalGarment(String id, String category, ThermalProfile profile) =>
++      garment(id, category).copyWith(thermalProfile: profile);
++
+   test('gère un dressing très réduit sans inventer de pièce', () {
+     final result = engine().generate(OutfitGenerationRequest(
+       wardrobe: [garment('top', 'Hauts')],
+       proposalCount: 3,
+     ));
+     expect(result.proposals, isEmpty);
+     expect(result.messages, contains(OutfitGenerationResult.incompleteOutfitMessage));
+   });
+ 
+   test('borne la génération pour un dressing important', () {
+     final wardrobe = List.generate(300, (index) =>
+       garment('item-$index', index.isEven ? 'Hauts' : 'Pantalons'));
+     final result = engine().generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       proposalCount: 5,
+     ));
+     expect(result.proposals, hasLength(5));
+     expect(result.proposals.every((item) => item.outfit.allGarments.length == 2), isTrue);
+   });
+ 
+   test('refuse les tenues à une seule pièce', () {
+     final result = engine().generate(OutfitGenerationRequest(
+       wardrobe: List.generate(6, (index) => garment('pull-$index', 'Hauts')),
+       proposalCount: 4,
+     ));
+@@ -71,26 +92,56 @@ void main() {
+     final wardrobe = [
+       for (var i = 0; i < 4; i++) garment('top-$i', 'Hauts'),
+       for (var i = 0; i < 4; i++) garment('bottom-$i', 'Pantalons'),
+     ];
+     expect(engine().generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       proposalCount: 3,
+     )).proposals, hasLength(3));
+   });
+ 
+   test('le classement est stable et favorise la rotation', () {
+     final wardrobe = [
+       garment('often', 'Hauts', wearCount: 20),
+       garment('rare', 'Hauts'),
+       garment('bottom-a', 'Pantalons'),
+       garment('bottom-b', 'Pantalons'),
+     ];
+     List<String> ranking() => engine().generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       context: const RecommendationContext(),
+       proposalCount: 2,
+     )).proposals.map((item) => item.outfit.allGarments.map((g) => g.id).join('|')).toList();
+     expect(ranking(), ranking());
+     expect(ranking().first, contains('rare'));
+   });
++
++  test('rejette le t-shirt seul à 10 °C et favorise le t-shirt à 25 °C', () {
++    final tshirt = thermalGarment('tshirt', 'Hauts', thermal(min: 18, max: 30, role: LayerRole.base, contribution: 1.5));
++    final bottom = garment('bottom', 'Pantalons');
++    final cold = engine().generate(OutfitGenerationRequest(
++      wardrobe: [tshirt, bottom],
++      context: const RecommendationContext(weather: RecommendationWeather(temperature: 10)),
++    )).proposals.single;
++    final warm = engine().generate(OutfitGenerationRequest(
++      wardrobe: [tshirt, bottom],
++      context: const RecommendationContext(weather: RecommendationWeather(temperature: 25)),
++    )).proposals.single;
++    expect(cold.score, lessThan(warm.score));
++  });
++
++  test('superposition pull et trench répond à 10 °C avec pluie et vent', () {
++    final top = thermalGarment('tshirt', 'Hauts', thermal(min: 18, max: 30, role: LayerRole.base, contribution: 1.5));
++    final pull = thermalGarment('pull', 'Pull', thermal(min: 8, max: 20, role: LayerRole.mid, contribution: 6));
++    final trench = thermalGarment('trench', 'Outerwear trench', thermal(
++      min: 8, max: 18, role: LayerRole.outer, contribution: 7,
++      rain: WeatherProtection.resistant, wind: WeatherProtection.resistant,
++    ));
++    final proposal = engine().generate(OutfitGenerationRequest(
++      wardrobe: [top, pull, trench, garment('bottom', 'Pantalons')],
++      context: const RecommendationContext(weather: RecommendationWeather(temperature: 10, isRaining: true, windSpeed: 20)),
++    )).proposals.first;
++    expect(proposal.score, greaterThan(.65));
++    expect(proposal.reasons.join(' '), contains('pluie'));
++    expect(proposal.reasons.join(' '), contains('vent'));
++  });
+ }
+diff --git a/test/models/thermal_profile_business_test.dart b/test/models/thermal_profile_business_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b8bf30c7e9eeeabc8fb97958d12a2f6fe95f3ad
+--- /dev/null
++++ b/test/models/thermal_profile_business_test.dart
+@@ -0,0 +1,42 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/models/thermal_profile.dart';
++import 'package:wardrobeos/models/thermal_profile_calculator.dart';
++
++void main() {
++  const calculator = ThermalProfileCalculator();
++
++  ThermalProfile profile(String category, String subcategory, {String? material}) =>
++      calculator.calculate(ThermalProfileInput(
++        category: category,
++        subcategory: subcategory,
++        material: material,
++      ), calculatedAt: DateTime(2026, 8, 5));
++
++  test('grille métier des vêtements thermiques de référence', () {
++    expect(profile('top', 'T-shirt coton léger', material: 'coton léger').standaloneMinC, 18);
++    expect(profile('top', 'T-shirt coton léger', material: 'coton léger').standaloneMaxC, 30);
++    expect(profile('top', 'Polo bleu', material: 'coton piqué').standaloneMinC, 15);
++    expect(profile('top', 'Polo bleu', material: 'coton piqué').standaloneMaxC, 28);
++    expect(profile('top', 'Chemise légère', material: 'coton fin').standaloneMaxC, 25);
++    expect(profile('top', 'Pull laine', material: 'laine').standaloneMinC, 8);
++    expect(profile('top', 'Sweat', material: 'molleton').standaloneMaxC, 22);
++    expect(profile('outerwear', 'Veste légère').standaloneMinC, 10);
++    expect(profile('outerwear', 'Trench beige gabardine').standaloneMaxC, 18);
++    expect(profile('outerwear', 'Blazer').standaloneMinC, 15);
++    expect(profile('outerwear', 'Manteau laine').standaloneMinC, 0);
++    expect(profile('outerwear', 'Doudoune').standaloneMinC, -10);
++  });
++
++  test('trench et polo gardent une classification thermique métier distincte', () {
++    final trench = profile('outerwear', 'Trench beige gabardine');
++    expect(trench.primaryRole, LayerRole.outer);
++    expect(trench.windProtection, WeatherProtection.resistant);
++    expect(trench.rainCompatibility, WeatherProtection.resistant);
++    expect(trench.level, ThermalLevel.moderate);
++
++    final polo = profile('top', 'Polo bleu', material: 'coton piqué');
++    expect(polo.primaryRole, LayerRole.base);
++    expect(polo.insulation, InsulationLevel.low);
++    expect(polo.thickness, ThicknessLevel.light);
++  });
++}

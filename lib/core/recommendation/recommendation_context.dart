@@ -3,13 +3,23 @@ class RecommendationWeather {
   final bool? isRaining;
   final String? condition;
   final double? windSpeed;
+  final int? humidity;
 
   const RecommendationWeather({
     this.temperature,
     this.isRaining,
     this.condition,
     this.windSpeed,
+    this.humidity,
   });
+
+  double? get apparentTemperature {
+    if (temperature == null) return null;
+    final windPenalty = (windSpeed ?? 0) >= 30 ? 3.0 : (windSpeed ?? 0) >= 15 ? 1.5 : 0.0;
+    final rainPenalty = isRaining == true ? 1.5 : 0.0;
+    final humidityPenalty = (humidity ?? 0) >= 80 && temperature! <= 18 ? 1.0 : 0.0;
+    return temperature! - windPenalty - rainPenalty - humidityPenalty;
+  }
 }
 
 /// Contexte indépendant de toute interface, extensible par [metadata] pour les

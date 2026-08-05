@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 enum ThermalLevel { veryLight, light, moderate, warm, veryWarm }
+enum InsulationLevel { veryLow, low, medium, high, veryHigh }
+enum ThicknessLevel { light, medium, thick, veryThick }
 enum BreathabilityLevel { low, medium, high }
 enum WeatherProtection { none, limited, resistant }
 enum LayerRole { base, mid, outer }
@@ -8,13 +10,16 @@ enum LayerRole { base, mid, outer }
 /// Versioned, explainable thermal description. Seasons are deliberately absent
 /// because they are not estimation inputs.
 class ThermalProfile {
-  static const currentModelVersion = 1;
+  static const currentModelVersion = 2;
 
   final double standaloneMinC;
   final double standaloneMaxC;
   final double layeredMinC;
   final double layeredMaxC;
   final ThermalLevel level;
+  final InsulationLevel insulation;
+  final ThicknessLevel thickness;
+  final double thermalContributionC;
   final BreathabilityLevel breathability;
   final WeatherProtection windProtection;
   final WeatherProtection rainCompatibility;
@@ -33,6 +38,9 @@ class ThermalProfile {
     required this.layeredMinC,
     required this.layeredMaxC,
     required this.level,
+    this.insulation = InsulationLevel.medium,
+    this.thickness = ThicknessLevel.medium,
+    this.thermalContributionC = 0,
     required this.breathability,
     required this.windProtection,
     required this.rainCompatibility,
@@ -57,6 +65,9 @@ class ThermalProfile {
     'layeredMinC': layeredMinC,
     'layeredMaxC': layeredMaxC,
     'level': level.name,
+    'insulation': insulation.name,
+    'thickness': thickness.name,
+    'thermalContributionC': thermalContributionC,
     'breathability': breathability.name,
     'windProtection': windProtection.name,
     'rainCompatibility': rainCompatibility.name,
@@ -90,6 +101,9 @@ class ThermalProfile {
         layeredMinC: number('layeredMinC'),
         layeredMaxC: number('layeredMaxC'),
         level: enumValue(ThermalLevel.values, 'level', ThermalLevel.moderate),
+        insulation: enumValue(InsulationLevel.values, 'insulation', InsulationLevel.medium),
+        thickness: enumValue(ThicknessLevel.values, 'thickness', ThicknessLevel.medium),
+        thermalContributionC: (map['thermalContributionC'] as num?)?.toDouble() ?? 0,
         breathability: enumValue(BreathabilityLevel.values, 'breathability', BreathabilityLevel.medium),
         windProtection: enumValue(WeatherProtection.values, 'windProtection', WeatherProtection.none),
         rainCompatibility: enumValue(WeatherProtection.values, 'rainCompatibility', WeatherProtection.none),

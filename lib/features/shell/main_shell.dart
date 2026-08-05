@@ -78,7 +78,7 @@ class _MainShellState extends State<MainShell> {
       aiModel: 'scanner-v1',
       pipeline: 'scanner-pipeline-v1',
       styleTaxonomy: '1',
-      thermalEngine: '1',
+      thermalEngine: '2',
     ),
   );
   late final _backupRepository = DatabaseBackupRepository(

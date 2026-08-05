@@ -116,7 +116,7 @@ class RecommendationEngine {
   }
 
   double _temperature(_Profile item, RecommendationContext context) {
-    final temperature = context.weather?.temperature;
+    final temperature = context.weather?.apparentTemperature;
     if (temperature == null) return .7;
     final thermal = item.thermal;
     if (temperature < thermal.standaloneMinC) {
@@ -174,7 +174,7 @@ class RecommendationEngine {
 
   String _explain(_Profile item, _Profile? anchor, RecommendationContext context,
       List<RecommendationCriterionScore> details, int score) {
-    final temperature = context.weather?.temperature;
+    final temperature = context.weather?.apparentTemperature;
     if (temperature != null && temperature > item.thermal.standaloneMaxC + 5) {
       return '${item.garment.name} est déconseillé car la température prévue dépasse largement sa plage idéale.';
     }
@@ -258,7 +258,10 @@ class _Profile {
       standaloneMinC: minimum,
       standaloneMaxC: requestedMaximum < minimum ? minimum : requestedMaximum,
       layeredMinC: current.layeredMinC, layeredMaxC: current.layeredMaxC,
-      level: current.level, breathability: current.breathability,
+      level: current.level, insulation: current.insulation,
+      thickness: current.thickness,
+      thermalContributionC: current.thermalContributionC,
+      breathability: current.breathability,
       windProtection: current.windProtection,
       rainCompatibility: correction?.rainCompatible == null
           ? current.rainCompatibility

@@ -1,5 +1,6 @@
 import '../../models/garment.dart';
 import '../../models/outfit.dart';
+import '../../models/thermal_profile.dart';
 import '../recommendation/recommendation_context.dart';
 import '../recommendation/recommendation_engine.dart';
 import '../../features/styles/style_repository.dart';
@@ -145,7 +146,7 @@ class OutfitGenerationEngine {
       return values == null || values.isEmpty ? fallback : values.reduce((a, b) => a + b) / values.length;
     }
     final style = (average('style') + average('couleurs')) / 2;
-    final thermal = average('température');
+    final thermal = _outfitThermalScore(items, request.context) ?? average('température');
     final layering = average('superposition');
     final formality = average('formalité');
     final diversity = (items.length / 5).clamp(0, 1).toDouble();
@@ -157,7 +158,11 @@ class OutfitGenerationEngine {
     final temperature = request.context.weather?.temperature;
     final reasons = <String>[
       if (thermal >= .7 && temperature != null)
-        'Adaptée à ${temperature.round()} °C${request.context.weather?.isRaining == true ? ' et à la pluie' : ''}.',
+        'Choisie car adaptée à ${temperature.round()} °C${request.context.weather?.isRaining == true ? ' avec pluie légère' : ''}.',
+      if (request.context.weather?.isRaining == true && items.any((item) => _thermal(item).rainCompatibility != WeatherProtection.none))
+        'Ajoutée comme couche extérieure contre la pluie.',
+      if ((request.context.weather?.windSpeed ?? 0) >= 15 && items.any((item) => _thermal(item).windProtection != WeatherProtection.none))
+        'Ajoutée comme couche extérieure contre le vent.',
       if (thermal >= .7 && request.context.weather == null) 'Bonne compatibilité thermique.',
       if (style >= .7) 'Couleurs et styles harmonieux.',
       if (layering >= .7) 'Couches compatibles entre elles.',
@@ -195,6 +200,30 @@ class OutfitGenerationEngine {
     );
   }
 
+  double? _outfitThermalScore(List<Garment> items, RecommendationContext context) {
+    final apparent = context.weather?.apparentTemperature;
+    if (apparent == null || items.isEmpty) return null;
+    final profiles = items.map(_thermal).toList(growable: false);
+    final baseMax = profiles.map((p) => p.standaloneMaxC).reduce((a, b) => a > b ? a : b);
+    final contribution = profiles.fold<double>(0, (sum, p) => sum + p.thermalContributionC);
+    final hasOuter = profiles.any((p) => p.primaryRole == LayerRole.outer);
+    final hasMid = profiles.any((p) => p.primaryRole == LayerRole.mid);
+    final layeredMin = (24 - contribution - (hasOuter && hasMid ? 1.5 : 0)).clamp(-15, baseMax).toDouble();
+    final layeredMax = (baseMax - (profiles.length >= 3 ? 3 : profiles.length == 2 ? 1.5 : 0)).toDouble();
+    var score = apparent < layeredMin
+        ? 1 - (layeredMin - apparent) / 12
+        : apparent > layeredMax
+            ? 1 - (apparent - layeredMax) / 10
+            : 1.0;
+    if (context.weather?.isRaining == true && !profiles.any((p) => p.primaryRole == LayerRole.outer && p.rainCompatibility != WeatherProtection.none)) {
+      score = score > .45 ? .45 : score;
+    }
+    if ((context.weather?.windSpeed ?? 0) >= 15 && !profiles.any((p) => p.primaryRole == LayerRole.outer && p.windProtection != WeatherProtection.none)) {
+      score = score > .6 ? .6 : score;
+    }
+    return score.clamp(0, 1).toDouble();
+  }
+
   static OutfitCompleteness validateOutfit(Outfit outfit) {
     final count = outfit.allGarments.length;
     if (count <= 1) return OutfitCompleteness.incomplete;
@@ -202,16 +231,18 @@ class OutfitGenerationEngine {
     return OutfitCompleteness.recommended;
   }
 
+  static ThermalProfile _thermal(Garment item) => item.thermalProfile ?? _outfitFallbackThermalProfile;
+
   static OutfitCategory categoryFor(Garment garment) {
     final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.thermalProfile?.primaryRole.name ?? garment.layerType ?? ''}'.toLowerCase();
     if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) return OutfitCategory.shoes;
     if (value.contains('pantal') || value.contains('jupe') || value.contains('short') || value.contains('bas')) return OutfitCategory.bottom;
-    if (value.contains('manteau') || value.contains('parka')) return OutfitCategory.coat;
-    if (value.contains('veste') || value.contains('blazer')) return OutfitCategory.jacket;
+    if (value.contains('manteau') || value.contains('parka') || value.contains('doudoune')) return OutfitCategory.coat;
+    if (value.contains('veste') || value.contains('blazer') || value.contains('trench') || value.contains('outer') || value.contains('outerwear')) return OutfitCategory.jacket;
     if (value.contains('sac')) return OutfitCategory.bag;
     if (value.contains('bijou') || value.contains('collier') || value.contains('bracelet')) return OutfitCategory.jewelry;
     if (value.contains('access')) return OutfitCategory.accessory;
-    if (value.contains('haut') || value.contains('chemise') || value.contains('pull') || value.contains('t-shirt')) return OutfitCategory.top;
+    if (value.contains('haut') || value.contains('top') || value.contains('chemise') || value.contains('pull') || value.contains('polo') || value.contains('t-shirt')) return OutfitCategory.top;
     return OutfitCategory.otherLayer;
   }
 
@@ -222,3 +253,21 @@ class OutfitGenerationEngine {
   static Map<OutfitCategory, List<Garment>> _freeze(Map<OutfitCategory, List<Garment>> source) =>
       Map.unmodifiable(source.map((key, value) => MapEntry(key, List.unmodifiable(value))));
 }
+
+final _outfitFallbackThermalProfile = ThermalProfile(
+  standaloneMinC: 12,
+  standaloneMaxC: 24,
+  layeredMinC: 8,
+  layeredMaxC: 22,
+  level: ThermalLevel.moderate,
+  insulation: InsulationLevel.medium,
+  thickness: ThicknessLevel.medium,
+  thermalContributionC: 5,
+  breathability: BreathabilityLevel.medium,
+  windProtection: WeatherProtection.none,
+  rainCompatibility: WeatherProtection.none,
+  primaryRole: LayerRole.mid,
+  inputFingerprint: 'outfit-fallback',
+  calculatedAt: DateTime.fromMillisecondsSinceEpoch(0),
+  confidence: .3,
+);
