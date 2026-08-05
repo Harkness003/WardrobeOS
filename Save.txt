@@ -1,0 +1,550 @@
+diff --git a/lib/features/backup/backup_controller.dart b/lib/features/backup/backup_controller.dart
+index 03ecd594a91909bfd617aad30ffaffa0e11cdf91..16af59429814adee8db6dd48639ded763d3db998 100644
+--- a/lib/features/backup/backup_controller.dart
++++ b/lib/features/backup/backup_controller.dart
+@@ -1,67 +1,151 @@
++import 'dart:io';
++import 'dart:typed_data';
++
+ import 'package:file_picker/file_picker.dart';
+ import 'package:flutter/foundation.dart';
++import 'package:path/path.dart' as p;
++
+ import 'backup_file.dart';
+ import 'backup_service.dart';
+ import 'restore_service.dart';
+ 
++enum BackupSaveFailure { invalidDestination, archiveCreation, export }
++
++class BackupSaveException implements Exception {
++  final BackupSaveFailure failure;
++  final Object? cause;
++  const BackupSaveException(this.failure, [this.cause]);
++  @override
++  String toString() => 'BackupSaveException($failure, $cause)';
++}
++
++class BackupSaveDestination {
++  final String name;
++  final String? location;
++  final bool confirmed;
++  const BackupSaveDestination({required this.name, this.location, required this.confirmed});
++}
++
++abstract interface class BackupDestinationPicker {
++  Future<BackupSaveDestination?> saveZip({required String fileName, required Uint8List bytes});
++}
++
++class FilePickerBackupDestinationPicker implements BackupDestinationPicker {
++  @override
++  Future<BackupSaveDestination?> saveZip({required String fileName, required Uint8List bytes}) async {
++    final selected = await FilePicker.platform.saveFile(
++      dialogTitle: 'Enregistrer la sauvegarde WardrobeOS',
++      fileName: fileName,
++      type: FileType.custom,
++      allowedExtensions: const ['zip'],
++      bytes: bytes,
++    );
++    if (selected == null) return null;
++    if (selected.trim().isEmpty) throw const BackupSaveException(BackupSaveFailure.invalidDestination);
++
++    final displayName = _displayName(selected, fileName);
++    if (_isFilePath(selected)) {
++      final path = _withZipExtension(selected);
++      final file = File(path);
++      if (!await file.exists()) {
++        await file.writeAsBytes(bytes, flush: true);
++      }
++      if (!await file.exists() || await file.length() == 0) {
++        throw const BackupSaveException(BackupSaveFailure.export);
++      }
++      return BackupSaveDestination(name: p.basename(path), location: path, confirmed: true);
++    }
++
++    return BackupSaveDestination(name: displayName, location: selected, confirmed: true);
++  }
++
++  static bool _isFilePath(String value) {
++    if (kIsWeb || Platform.isAndroid || Platform.isIOS) return false;
++    if (value.startsWith('content://') || value.startsWith('file://')) return false;
++    return true;
++  }
++
++  static String _withZipExtension(String value) => value.toLowerCase().endsWith('.zip') ? value : '$value.zip';
++
++  static String _displayName(String selected, String fallback) {
++    final raw = Uri.tryParse(selected)?.pathSegments.lastOrNull ?? p.basename(selected);
++    final name = raw.isEmpty ? fallback : raw;
++    return name.toLowerCase().endsWith('.zip') ? name : '$name.zip';
++  }
++}
++
+ class BackupController extends ChangeNotifier {
+   final BackupService backupService; final RestoreService restoreService;
++  final BackupDestinationPicker destinationPicker;
+   final Future<void> Function()? afterRestore;
+-  bool busy = false; BackupManifest? lastBackup; String? lastLocation; String? result;
++  bool busy = false; bool resultIsError = false; BackupManifest? lastBackup; String? lastLocation; String? result;
+   String? pendingPath; BackupArchive? pendingRestore;
+   BackupController({required this.backupService, required this.restoreService,
+-    this.afterRestore});
++    BackupDestinationPicker? destinationPicker, this.afterRestore})
++      : destinationPicker = destinationPicker ?? FilePickerBackupDestinationPicker();
+ 
+   static String defaultFileName(DateTime now) {
+     String two(int n) => n.toString().padLeft(2, '0');
+     return 'WardrobeOS_backup_${now.year}-${two(now.month)}-${two(now.day)}_${two(now.hour)}-${two(now.minute)}.zip';
+   }
+   Future<void> createBackup() async {
++    if (busy) return;
+     await _run(() async {
+-      final selectedPath = await FilePicker.platform.saveFile(
+-        dialogTitle: 'Enregistrer la sauvegarde WardrobeOS',
++      final BackupArchive archive;
++      final Uint8List bytes;
++      try {
++        archive = await backupService.createBackup();
++        bytes = Uint8List.fromList(backupService.encodeBackup(archive));
++      } catch (error) {
++        throw BackupSaveException(BackupSaveFailure.archiveCreation, error);
++      }
++      final destination = await destinationPicker.saveZip(
+         fileName: defaultFileName(DateTime.now()),
+-        type: FileType.custom,
+-        allowedExtensions: const ['zip'],
++        bytes: bytes,
+       );
+-      if (selectedPath == null) {
++      if (destination == null) {
+         result = 'Sauvegarde annulée.';
+         return;
+       }
+-      final path = selectedPath.toLowerCase().endsWith('.zip') ? selectedPath : '$selectedPath.zip';
+-      final archive = await backupService.createBackup();
+-      lastBackup = await backupService.writeBackup(archive, path);
+-      lastLocation = path;
+-      result = 'Backup créé : ${_fileName(path)}';
++      if (!destination.confirmed) {
++        throw const BackupSaveException(BackupSaveFailure.export);
++      }
++      lastBackup = archive.manifest;
++      lastLocation = destination.location;
++      result = destination.location == null
++        ? 'Sauvegarde créée : ${destination.name}'
++        : 'Sauvegarde créée : ${destination.name}\nEmplacement : ${destination.location}';
+     }, failurePrefix: 'Impossible de créer la sauvegarde');
+   }
+   Future<bool> selectRestore() async {
+     final selection = await FilePicker.platform.pickFiles(dialogTitle: 'Choisir une sauvegarde WardrobeOS',
+       type: FileType.custom, allowedExtensions: const ['zip']);
+     final path = selection?.files.single.path; if (path == null) return false;
+     var ready = false; await _run(() async { pendingRestore = await restoreService.inspectFile(path); pendingPath = path; ready = true; }); return ready;
+   }
+   Future<void> confirmRestore() async { final archive = pendingRestore; if (archive == null) return;
+     await _run(() async { final report = await restoreService.restore(archive);
+       await afterRestore?.call();
+       final total = report.restored.values.fold<int>(0, (a, b) => a + b);
+       result = '$total éléments restaurés (${report.manifest.garmentCount} vêtements, ${report.manifest.photoCount} photos).'
+         '${report.warnings.isEmpty ? '' : ' Avertissements : ${report.warnings.join(' ')}'}'; pendingRestore = null; pendingPath = null; }); }
+-  Future<void> _run(Future<void> Function() operation, {String failurePrefix = 'Échec'}) async { busy = true; result = null; notifyListeners();
+-    try { await operation(); } catch (error) { result = '$failurePrefix : ${_friendlyError(error)}'; } finally { busy = false; notifyListeners(); } }
+-
+-  String _fileName(String path) => path.split(RegExp(r'[\\/]')).last;
++  Future<void> _run(Future<void> Function() operation, {String failurePrefix = 'Échec'}) async { busy = true; result = null; resultIsError = false; notifyListeners();
++    try { await operation(); } catch (error) { debugPrint('$failurePrefix: $error'); resultIsError = true; result = _friendlyError(error); } finally { busy = false; notifyListeners(); } }
+ 
+   String _friendlyError(Object error) {
++    if (error is BackupSaveException) {
++      return switch (error.failure) {
++        BackupSaveFailure.invalidDestination => 'Impossible d’utiliser l’emplacement sélectionné. Choisis un autre emplacement.',
++        BackupSaveFailure.archiveCreation => 'Impossible de créer l’archive de sauvegarde.',
++        BackupSaveFailure.export => 'L’archive a été préparée, mais n’a pas pu être enregistrée à l’emplacement choisi.',
++      };
++    }
+     if (error is BackupFormatException) return error.message;
+     final text = error.toString().toLowerCase();
+-    if (text.contains('cancel')) return 'Opération annulée.';
++    if (text.contains('cancel')) return 'Sauvegarde annulée.';
+     if (text.contains('permission') || text.contains('denied')) {
+-      return 'WardrobeOS n’a pas accès à cet emplacement. Choisis un autre dossier.';
+-    }
+-    if (text.contains('space') || text.contains('no space')) {
+-      return 'Espace de stockage insuffisant pour terminer l’opération.';
++      return 'Impossible d’utiliser l’emplacement sélectionné. Choisis un autre emplacement.';
+     }
+-    return 'Opération impossible. Vérifie le fichier ou l’emplacement choisi, puis réessaie.';
++    return 'Impossible de créer l’archive de sauvegarde.';
+   }
+ }
+diff --git a/lib/features/backup/backup_service.dart b/lib/features/backup/backup_service.dart
+index 56e1fcf900344279dcd6d61eb9edd97da880645a..f9a97052e8276b108bd76c53c0a6b32b19845002 100644
+--- a/lib/features/backup/backup_service.dart
++++ b/lib/features/backup/backup_service.dart
+@@ -45,46 +45,54 @@ class BackupService {
+           final file = File(path);
+           if (!await file.exists()) {
+             throw BackupFormatException('Photo introuvable : $path.');
+           }
+           final name = 'photos/${garment['id']}/${photo.id}_${p.basename(path)}';
+           if (photos.containsKey(name)) {
+             throw BackupFormatException('Identifiant de photo dupliqué : ${photo.id}.');
+           }
+           photos[name] = await file.readAsBytes();
+           archivedPhotos.add(GarmentPhoto(id: photo.id, path: name, type: photo.type,
+             createdAt: photo.createdAt, semanticType: photo.semanticType));
+         } on FileSystemException catch (error) {
+           throw BackupFormatException('Photo illisible : $path (${error.message}).');
+         }
+       }
+       garment['photos'] = GarmentPhoto.encode(archivedPhotos);
+     }
+     data['garments'] = garments;
+     final counts = {for (final entry in data.entries) entry.key: entry.value.length};
+     return BackupArchive(manifest: BackupManifest(appVersion: appVersion,
+       schemaVersion: BackupManifest.currentSchemaVersion, createdAt: now(),
+       garmentCount: garments.length, photoCount: photos.length, content: counts),
+       sections: data, photos: photos);
+   }
+ 
+-  Future<BackupManifest> writeBackup(BackupArchive backup, String path) async {
++  List<int> encodeBackup(BackupArchive backup) {
+     final archive = Archive(); final hashes = <String, String>{};
+     for (final entry in backup.sections.entries) {
+       final name = 'data/${entry.key}.json'; final bytes = utf8.encode(jsonEncode(entry.value));
+       hashes[name] = sha256.convert(bytes).toString(); archive.addFile(ArchiveFile(name, bytes.length, bytes));
+     }
+     for (final entry in backup.photos.entries) {
+       hashes[entry.key] = sha256.convert(entry.value).toString();
+       archive.addFile(ArchiveFile(entry.key, entry.value.length, entry.value));
+     }
+     final manifest = BackupManifest(appVersion: backup.manifest.appVersion,
+       schemaVersion: backup.manifest.schemaVersion, createdAt: backup.manifest.createdAt,
+       garmentCount: backup.manifest.garmentCount, photoCount: backup.manifest.photoCount,
+       content: backup.manifest.content, checksums: hashes);
+     final bytes = utf8.encode(const JsonEncoder.withIndent('  ').convert(manifest.toJson()));
+     archive.addFile(ArchiveFile('manifest.json', bytes.length, bytes));
+-    final zip = ZipEncoder().encode(archive);
++    return ZipEncoder().encode(archive) ?? const [];
++  }
++
++  Future<BackupManifest> writeBackup(BackupArchive backup, String path) async {
++    final zip = encodeBackup(backup);
+     await File(path).writeAsBytes(zip, flush: true);
+-    return manifest;
++    final file = File(path);
++    if (!await file.exists() || await file.length() == 0) {
++      throw const FileSystemException('Backup file was not created');
++    }
++    return backup.manifest;
+   }
+ }
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index 2d4540f80b94653fb7ae21528716be3f73f46244..b325d2e4f5e26c1e90fd47f58ffb6a5b8ba4f84b 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -291,51 +291,51 @@ class _BackupSettings extends StatelessWidget {
+                   controller.lastBackup == null
+                       ? 'Dernière sauvegarde : aucune'
+                       : 'Dernière sauvegarde\n'
+                         'Date : ${controller.lastBackup!.createdAt.toLocal()}\n'
+                         'Version : ${controller.lastBackup!.appVersion}\n'
+                         'Vêtements : ${controller.lastBackup!.garmentCount}\n'
+                         'Photos : ${controller.lastBackup!.photoCount}\n'
+                         'Emplacement : ${controller.lastLocation}',
+                 ),
+                 const SizedBox(height: 12),
+                 FilledButton.icon(
+                   onPressed: controller.busy ? null : controller.createBackup,
+                   icon: const Icon(Icons.save_alt),
+                   label: const Text('Créer une sauvegarde'),
+                 ),
+                 OutlinedButton.icon(
+                   onPressed:
+                       controller.busy ? null : () => _confirmRestore(context),
+                   icon: const Icon(Icons.settings_backup_restore),
+                   label: const Text('Restaurer une sauvegarde'),
+                 ),
+                 if (controller.busy) const ContentState.loading(
+                   title: 'Opération en cours', message: 'Lecture et vérification des données de sauvegarde…'),
+                 if (controller.result != null) ...[
+                   const SizedBox(height: 8),
+-                  controller.result!.startsWith('Échec') || controller.result!.startsWith('Impossible')
++                  controller.resultIsError
+                     ? ContentState.error(title: 'Opération impossible', message: controller.result!, actionLabel: null)
+                     : ContentState(kind: ContentStateKind.success, title: '', message: '',
+                         child: Semantics(liveRegion: true, child: Card(child: ListTile(
+                           leading: const Icon(Icons.check_circle_outline), title: const Text('Opération terminée'),
+                           subtitle: Text(controller.result!))))),
+                 ],
+               ],
+             ),
+           ),
+         ),
+   );
+ }
+ 
+ class _WardrobeGptSettings extends StatefulWidget {
+   final AiSettingsController controller;
+ 
+   const _WardrobeGptSettings({required this.controller});
+ 
+   @override
+   State<_WardrobeGptSettings> createState() => _WardrobeGptSettingsState();
+ }
+ 
+ class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
+   final _apiKeyController = TextEditingController();
+   bool _obscureKey = true;
+diff --git a/test/backup/backup_services_test.dart b/test/backup/backup_services_test.dart
+index 4cca07d3ab9e313d03b6af993619be23ecf2a799..6bb6b90cfda82e0ba383105c5e4465137579a2b3 100644
+--- a/test/backup/backup_services_test.dart
++++ b/test/backup/backup_services_test.dart
+@@ -1,26 +1,28 @@
+ import 'dart:io';
++import 'dart:async';
++import 'dart:typed_data';
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/backup/backup_controller.dart';
+ import 'package:wardrobeos/features/backup/backup_file.dart';
+ import 'package:wardrobeos/features/backup/backup_service.dart';
+ import 'package:wardrobeos/features/backup/restore_service.dart';
+ import 'package:wardrobeos/models/garment_photo.dart';
+ 
+ void main() {
+   late Directory temp;
+   setUp(() async => temp = await Directory.systemTemp.createTemp('wardrobe_backup_test'));
+   tearDown(() async => temp.delete(recursive: true));
+ 
+   test('sauvegarde et restauration conservent toutes les données canoniques', () async {
+     final primary = File('${temp.path}/primary.jpg')..writeAsBytesSync([1, 2, 3]);
+     final detail = File('${temp.path}/detail.jpg')..writeAsBytesSync([4, 5, 6]);
+     final source = _MemoryRepository(_sampleData(primary.path, detail.path));
+     final service = BackupService(repository: source,
+       now: () => DateTime.utc(2026, 8, 4, 12, 30));
+     final path = '${temp.path}/backup.zip';
+     final manifest = await service.writeBackup(await service.createBackup(), path);
+ 
+     expect(manifest.schemaVersion, BackupManifest.currentSchemaVersion);
+     expect(manifest.garmentCount, 1);
+     expect(manifest.photoCount, 2);
+     final target = _MemoryRepository(_emptyData());
+@@ -40,50 +42,146 @@ void main() {
+     expect(photos.map((photo) => photo.id), ['photo-primary', 'photo-detail']);
+     expect(photos.map((photo) => photo.type),
+       [GarmentPhotoType.primary, GarmentPhotoType.detail]);
+     expect(photos.every((photo) => File(photo.path).existsSync()), isTrue);
+   });
+ 
+   test('archive invalide ou incompatible est refusée avant restauration', () {
+     final restore = RestoreService(repository: _MemoryRepository(_emptyData()));
+     expect(() => restore.inspect([1, 2, 3]), throwsA(isA<BackupFormatException>()));
+     expect(() => BackupManifest.fromJson({
+       'format': BackupManifest.formatName,
+       'appVersion': '0.8.0+9',
+       'schemaVersion': BackupManifest.currentSchemaVersion - 1,
+       'createdAt': '2026-08-04T12:30:00Z',
+       'content': <String, int>{},
+       'checksums': <String, String>{'x': 'y'},
+     }), throwsA(isA<BackupFormatException>()));
+   });
+ 
+   test('une photo canonique absente fait échouer la sauvegarde', () async {
+     final service = BackupService(repository: _MemoryRepository(
+       _sampleData('/absente.jpg', null)));
+     await expectLater(service.createBackup(), throwsA(isA<BackupFormatException>()));
+   });
+ 
++
++
++  test('création de sauvegarde annule proprement sans écriture', () async {
++    final repository = _MemoryRepository(_emptyData());
++    final picker = _FakeBackupDestinationPicker();
++    final controller = BackupController(
++      backupService: BackupService(repository: repository),
++      restoreService: RestoreService(repository: repository),
++      destinationPicker: picker,
++    );
++
++    await controller.createBackup();
++
++    expect(picker.calls, 1);
++    expect(picker.writtenBytes, isNotEmpty);
++    expect(controller.result, 'Sauvegarde annulée.');
++    expect(controller.resultIsError, isFalse);
++    expect(controller.busy, isFalse);
++    controller.dispose();
++  });
++
++  test('création de sauvegarde confirme le vrai nom et bloque le double clic', () async {
++    final repository = _MemoryRepository(_emptyData());
++    final picker = _DelayedBackupDestinationPicker(
++      destination: const BackupSaveDestination(
++        name: 'WardrobeOS_backup_2026-08-05_10-30.zip',
++        location: r'C:\Users\me\WardrobeOS_backup_2026-08-05_10-30.zip',
++        confirmed: true,
++      ),
++    );
++    final controller = BackupController(
++      backupService: BackupService(repository: repository),
++      restoreService: RestoreService(repository: repository),
++      destinationPicker: picker,
++    );
++
++    final first = controller.createBackup();
++    final second = controller.createBackup();
++    picker.complete();
++    await Future.wait([first, second]);
++
++    expect(picker.calls, 1);
++    expect(picker.requestedName, endsWith('.zip'));
++    expect(picker.writtenBytes, isNotEmpty);
++    expect(controller.result, contains('Sauvegarde créée : WardrobeOS_backup_2026-08-05_10-30.zip'));
++    expect(controller.result, contains(r'C:\Users\me\WardrobeOS_backup_2026-08-05_10-30.zip'));
++    expect(controller.resultIsError, isFalse);
++    controller.dispose();
++  });
++
++  test('création de sauvegarde distingue destination invalide et export échoué', () async {
++    final repository = _MemoryRepository(_emptyData());
++    final controller = BackupController(
++      backupService: BackupService(repository: repository),
++      restoreService: RestoreService(repository: repository),
++      destinationPicker: _FakeBackupDestinationPicker(
++        error: const BackupSaveException(BackupSaveFailure.invalidDestination),
++      ),
++    );
++
++    await controller.createBackup();
++    expect(controller.result, 'Impossible d’utiliser l’emplacement sélectionné. Choisis un autre emplacement.');
++    expect(controller.resultIsError, isTrue);
++
++    final exportController = BackupController(
++      backupService: BackupService(repository: repository),
++      restoreService: RestoreService(repository: repository),
++      destinationPicker: _FakeBackupDestinationPicker(
++        destination: const BackupSaveDestination(name: 'backup.zip', confirmed: false),
++      ),
++    );
++    await exportController.createBackup();
++    expect(exportController.result, 'L’archive a été préparée, mais n’a pas pu être enregistrée à l’emplacement choisi.');
++    expect(exportController.resultIsError, isTrue);
++    controller.dispose();
++    exportController.dispose();
++  });
++
++  test('création de sauvegarde signale l’échec de création archive avant export', () async {
++    final service = BackupService(repository: _MemoryRepository(_sampleData('/absente.jpg', null)));
++    final picker = _FakeBackupDestinationPicker(
++      destination: const BackupSaveDestination(name: 'backup.zip', confirmed: true),
++    );
++    final controller = BackupController(
++      backupService: service,
++      restoreService: RestoreService(repository: _MemoryRepository(_emptyData())),
++      destinationPicker: picker,
++    );
++
++    await controller.createBackup();
++
++    expect(picker.calls, 0);
++    expect(controller.result, 'Impossible de créer l’archive de sauvegarde.');
++    expect(controller.resultIsError, isTrue);
++    controller.dispose();
++  });
+   test('la restauration reste explicitement confirmée et rafraîchit les caches', () async {
+     var refreshed = false;
+     final repository = _MemoryRepository(_emptyData());
+     final restore = RestoreService(repository: repository,
+       imageDirectory: () async => Directory('${temp.path}/confirmed'));
+     final controller = BackupController(
+       backupService: BackupService(repository: repository),
+       restoreService: restore,
+       afterRestore: () async => refreshed = true,
+     );
+     final archive = BackupArchive(
+       manifest: BackupManifest(appVersion: BackupService.appVersion,
+         schemaVersion: BackupManifest.currentSchemaVersion,
+         createdAt: DateTime.utc(2026), garmentCount: 0, photoCount: 0,
+         content: {for (final key in RestoreService.sections) key: 0}),
+       sections: _emptyData(), photos: const {},
+     );
+     controller.pendingRestore = archive;
+ 
+     expect(repository.restoreCalls, 0);
+     await controller.confirmRestore();
+     expect(repository.restoreCalls, 1);
+     expect(refreshed, isTrue);
+     controller.dispose();
+   });
+@@ -91,37 +189,72 @@ void main() {
+ 
+ Map<String, List<Map<String, Object?>>> _emptyData() =>
+   {for (final key in RestoreService.sections) key: []};
+ 
+ Map<String, List<Map<String, Object?>>> _sampleData(String primary, String? detail) => {
+   ..._emptyData(),
+   'garments': [{
+     'id': 'g1', 'name': 'Chemise', 'category': 'Hauts',
+     'photos': GarmentPhoto.encode([
+       GarmentPhoto(id: 'photo-primary', path: primary,
+         type: GarmentPhotoType.primary, createdAt: DateTime.utc(2026, 1, 1)),
+       if (detail != null) GarmentPhoto(id: 'photo-detail', path: detail,
+         type: GarmentPhotoType.detail, createdAt: DateTime.utc(2026, 1, 2),
+         semanticType: 'boutons'),
+     ]),
+     'thermal_profile': '{"modelVersion":"thermal-v1"}',
+     'style_analysis': '{"modelVersion":"style-v1"}',
+     'created_at': '2026-01-01', 'updated_at': '2026-01-01',
+   }],
+   'outfits': [{'id': 'o1', 'name': 'Bureau'}],
+   'outfitItems': [{'outfit_id': 'o1', 'garment_id': 'g1'}],
+   'plannedOutfits': [{'id': 'p1', 'outfit_id': 'o1'}],
+   'styleProfiles': [{'id': 'default'}],
+ };
+ 
++
++class _DelayedBackupDestinationPicker extends _FakeBackupDestinationPicker {
++  final _completer = Completer<void>();
++
++  _DelayedBackupDestinationPicker({required super.destination});
++
++  void complete() => _completer.complete();
++
++  @override
++  Future<BackupSaveDestination?> saveZip({required String fileName, required Uint8List bytes}) async {
++    await _completer.future;
++    return super.saveZip(fileName: fileName, bytes: bytes);
++  }
++}
++
+ class _MemoryRepository implements BackupRepository {
+   Map<String, List<Map<String, Object?>>> data;
+   int restoreCalls = 0;
+   _MemoryRepository(this.data);
+   @override
+   Future<Map<String, List<Map<String, Object?>>>> exportData() async => data;
+   @override
+   Future<void> restoreData(Map<String, List<Map<String, Object?>>> restored) async {
+     restoreCalls++;
+     data = restored;
+   }
+ }
++
++class _FakeBackupDestinationPicker implements BackupDestinationPicker {
++  BackupSaveDestination? destination;
++  Object? error;
++  int calls = 0;
++  String? requestedName;
++  List<int>? writtenBytes;
++
++  _FakeBackupDestinationPicker({this.destination, this.error});
++
++  @override
++  Future<BackupSaveDestination?> saveZip({required String fileName, required Uint8List bytes}) async {
++    calls++;
++    requestedName = fileName;
++    writtenBytes = List<int>.from(bytes);
++    final thrown = error;
++    if (thrown != null) throw thrown;
++    return destination;
++  }
++}

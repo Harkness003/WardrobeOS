@@ -1,38 +1,120 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+
 import 'backup_file.dart';
 import 'backup_service.dart';
 import 'restore_service.dart';
 
+enum BackupSaveFailure { invalidDestination, archiveCreation, export }
+
+class BackupSaveException implements Exception {
+  final BackupSaveFailure failure;
+  final Object? cause;
+  const BackupSaveException(this.failure, [this.cause]);
+  @override
+  String toString() => 'BackupSaveException($failure, $cause)';
+}
+
+class BackupSaveDestination {
+  final String name;
+  final String? location;
+  final bool confirmed;
+  const BackupSaveDestination({required this.name, this.location, required this.confirmed});
+}
+
+abstract interface class BackupDestinationPicker {
+  Future<BackupSaveDestination?> saveZip({required String fileName, required Uint8List bytes});
+}
+
+class FilePickerBackupDestinationPicker implements BackupDestinationPicker {
+  @override
+  Future<BackupSaveDestination?> saveZip({required String fileName, required Uint8List bytes}) async {
+    final selected = await FilePicker.platform.saveFile(
+      dialogTitle: 'Enregistrer la sauvegarde WardrobeOS',
+      fileName: fileName,
+      type: FileType.custom,
+      allowedExtensions: const ['zip'],
+      bytes: bytes,
+    );
+    if (selected == null) return null;
+    if (selected.trim().isEmpty) throw const BackupSaveException(BackupSaveFailure.invalidDestination);
+
+    final displayName = _displayName(selected, fileName);
+    if (_isFilePath(selected)) {
+      final path = _withZipExtension(selected);
+      final file = File(path);
+      if (!await file.exists()) {
+        await file.writeAsBytes(bytes, flush: true);
+      }
+      if (!await file.exists() || await file.length() == 0) {
+        throw const BackupSaveException(BackupSaveFailure.export);
+      }
+      return BackupSaveDestination(name: p.basename(path), location: path, confirmed: true);
+    }
+
+    return BackupSaveDestination(name: displayName, location: selected, confirmed: true);
+  }
+
+  static bool _isFilePath(String value) {
+    if (kIsWeb || Platform.isAndroid || Platform.isIOS) return false;
+    if (value.startsWith('content://') || value.startsWith('file://')) return false;
+    return true;
+  }
+
+  static String _withZipExtension(String value) => value.toLowerCase().endsWith('.zip') ? value : '$value.zip';
+
+  static String _displayName(String selected, String fallback) {
+    final raw = Uri.tryParse(selected)?.pathSegments.lastOrNull ?? p.basename(selected);
+    final name = raw.isEmpty ? fallback : raw;
+    return name.toLowerCase().endsWith('.zip') ? name : '$name.zip';
+  }
+}
+
 class BackupController extends ChangeNotifier {
   final BackupService backupService; final RestoreService restoreService;
+  final BackupDestinationPicker destinationPicker;
   final Future<void> Function()? afterRestore;
-  bool busy = false; BackupManifest? lastBackup; String? lastLocation; String? result;
+  bool busy = false; bool resultIsError = false; BackupManifest? lastBackup; String? lastLocation; String? result;
   String? pendingPath; BackupArchive? pendingRestore;
   BackupController({required this.backupService, required this.restoreService,
-    this.afterRestore});
+    BackupDestinationPicker? destinationPicker, this.afterRestore})
+      : destinationPicker = destinationPicker ?? FilePickerBackupDestinationPicker();
 
   static String defaultFileName(DateTime now) {
     String two(int n) => n.toString().padLeft(2, '0');
     return 'WardrobeOS_backup_${now.year}-${two(now.month)}-${two(now.day)}_${two(now.hour)}-${two(now.minute)}.zip';
   }
   Future<void> createBackup() async {
+    if (busy) return;
     await _run(() async {
-      final selectedPath = await FilePicker.platform.saveFile(
-        dialogTitle: 'Enregistrer la sauvegarde WardrobeOS',
+      final BackupArchive archive;
+      final Uint8List bytes;
+      try {
+        archive = await backupService.createBackup();
+        bytes = Uint8List.fromList(backupService.encodeBackup(archive));
+      } catch (error) {
+        throw BackupSaveException(BackupSaveFailure.archiveCreation, error);
+      }
+      final destination = await destinationPicker.saveZip(
         fileName: defaultFileName(DateTime.now()),
-        type: FileType.custom,
-        allowedExtensions: const ['zip'],
+        bytes: bytes,
       );
-      if (selectedPath == null) {
+      if (destination == null) {
         result = 'Sauvegarde annulée.';
         return;
       }
-      final path = selectedPath.toLowerCase().endsWith('.zip') ? selectedPath : '$selectedPath.zip';
-      final archive = await backupService.createBackup();
-      lastBackup = await backupService.writeBackup(archive, path);
-      lastLocation = path;
-      result = 'Backup créé : ${_fileName(path)}';
+      if (!destination.confirmed) {
+        throw const BackupSaveException(BackupSaveFailure.export);
+      }
+      lastBackup = archive.manifest;
+      lastLocation = destination.location;
+      result = destination.location == null
+        ? 'Sauvegarde créée : ${destination.name}'
+        : 'Sauvegarde créée : ${destination.name}\nEmplacement : ${destination.location}';
     }, failurePrefix: 'Impossible de créer la sauvegarde');
   }
   Future<bool> selectRestore() async {
@@ -47,21 +129,23 @@ class BackupController extends ChangeNotifier {
       final total = report.restored.values.fold<int>(0, (a, b) => a + b);
       result = '$total éléments restaurés (${report.manifest.garmentCount} vêtements, ${report.manifest.photoCount} photos).'
         '${report.warnings.isEmpty ? '' : ' Avertissements : ${report.warnings.join(' ')}'}'; pendingRestore = null; pendingPath = null; }); }
-  Future<void> _run(Future<void> Function() operation, {String failurePrefix = 'Échec'}) async { busy = true; result = null; notifyListeners();
-    try { await operation(); } catch (error) { result = '$failurePrefix : ${_friendlyError(error)}'; } finally { busy = false; notifyListeners(); } }
-
-  String _fileName(String path) => path.split(RegExp(r'[\\/]')).last;
+  Future<void> _run(Future<void> Function() operation, {String failurePrefix = 'Échec'}) async { busy = true; result = null; resultIsError = false; notifyListeners();
+    try { await operation(); } catch (error) { debugPrint('$failurePrefix: $error'); resultIsError = true; result = _friendlyError(error); } finally { busy = false; notifyListeners(); } }
 
   String _friendlyError(Object error) {
+    if (error is BackupSaveException) {
+      return switch (error.failure) {
+        BackupSaveFailure.invalidDestination => 'Impossible d’utiliser l’emplacement sélectionné. Choisis un autre emplacement.',
+        BackupSaveFailure.archiveCreation => 'Impossible de créer l’archive de sauvegarde.',
+        BackupSaveFailure.export => 'L’archive a été préparée, mais n’a pas pu être enregistrée à l’emplacement choisi.',
+      };
+    }
     if (error is BackupFormatException) return error.message;
     final text = error.toString().toLowerCase();
-    if (text.contains('cancel')) return 'Opération annulée.';
+    if (text.contains('cancel')) return 'Sauvegarde annulée.';
     if (text.contains('permission') || text.contains('denied')) {
-      return 'WardrobeOS n’a pas accès à cet emplacement. Choisis un autre dossier.';
+      return 'Impossible d’utiliser l’emplacement sélectionné. Choisis un autre emplacement.';
     }
-    if (text.contains('space') || text.contains('no space')) {
-      return 'Espace de stockage insuffisant pour terminer l’opération.';
-    }
-    return 'Opération impossible. Vérifie le fichier ou l’emplacement choisi, puis réessaie.';
+    return 'Impossible de créer l’archive de sauvegarde.';
   }
 }

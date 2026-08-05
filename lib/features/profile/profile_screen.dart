@@ -313,7 +313,7 @@ class _BackupSettings extends StatelessWidget {
                   title: 'Opération en cours', message: 'Lecture et vérification des données de sauvegarde…'),
                 if (controller.result != null) ...[
                   const SizedBox(height: 8),
-                  controller.result!.startsWith('Échec') || controller.result!.startsWith('Impossible')
+                  controller.resultIsError
                     ? ContentState.error(title: 'Opération impossible', message: controller.result!, actionLabel: null)
                     : ContentState(kind: ContentStateKind.success, title: '', message: '',
                         child: Semantics(liveRegion: true, child: Card(child: ListTile(

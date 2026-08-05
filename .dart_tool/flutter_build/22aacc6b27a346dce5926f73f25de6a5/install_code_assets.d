@@ -1,0 +1,1 @@
+ C:\\Users\\User\\Desktop\\WardrobeOS\\.dart_tool\\flutter_build\\22aacc6b27a346dce5926f73f25de6a5\\native_assets.json: 

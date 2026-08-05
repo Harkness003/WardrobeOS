@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/features/backup/backup_controller.dart';
 import 'package:wardrobeos/features/backup/backup_file.dart';
@@ -62,6 +64,102 @@ void main() {
     await expectLater(service.createBackup(), throwsA(isA<BackupFormatException>()));
   });
 
+
+
+  test('création de sauvegarde annule proprement sans écriture', () async {
+    final repository = _MemoryRepository(_emptyData());
+    final picker = _FakeBackupDestinationPicker();
+    final controller = BackupController(
+      backupService: BackupService(repository: repository),
+      restoreService: RestoreService(repository: repository),
+      destinationPicker: picker,
+    );
+
+    await controller.createBackup();
+
+    expect(picker.calls, 1);
+    expect(picker.writtenBytes, isNotEmpty);
+    expect(controller.result, 'Sauvegarde annulée.');
+    expect(controller.resultIsError, isFalse);
+    expect(controller.busy, isFalse);
+    controller.dispose();
+  });
+
+  test('création de sauvegarde confirme le vrai nom et bloque le double clic', () async {
+    final repository = _MemoryRepository(_emptyData());
+    final picker = _DelayedBackupDestinationPicker(
+      destination: const BackupSaveDestination(
+        name: 'WardrobeOS_backup_2026-08-05_10-30.zip',
+        location: r'C:\Users\me\WardrobeOS_backup_2026-08-05_10-30.zip',
+        confirmed: true,
+      ),
+    );
+    final controller = BackupController(
+      backupService: BackupService(repository: repository),
+      restoreService: RestoreService(repository: repository),
+      destinationPicker: picker,
+    );
+
+    final first = controller.createBackup();
+    final second = controller.createBackup();
+    picker.complete();
+    await Future.wait([first, second]);
+
+    expect(picker.calls, 1);
+    expect(picker.requestedName, endsWith('.zip'));
+    expect(picker.writtenBytes, isNotEmpty);
+    expect(controller.result, contains('Sauvegarde créée : WardrobeOS_backup_2026-08-05_10-30.zip'));
+    expect(controller.result, contains(r'C:\Users\me\WardrobeOS_backup_2026-08-05_10-30.zip'));
+    expect(controller.resultIsError, isFalse);
+    controller.dispose();
+  });
+
+  test('création de sauvegarde distingue destination invalide et export échoué', () async {
+    final repository = _MemoryRepository(_emptyData());
+    final controller = BackupController(
+      backupService: BackupService(repository: repository),
+      restoreService: RestoreService(repository: repository),
+      destinationPicker: _FakeBackupDestinationPicker(
+        error: const BackupSaveException(BackupSaveFailure.invalidDestination),
+      ),
+    );
+
+    await controller.createBackup();
+    expect(controller.result, 'Impossible d’utiliser l’emplacement sélectionné. Choisis un autre emplacement.');
+    expect(controller.resultIsError, isTrue);
+
+    final exportController = BackupController(
+      backupService: BackupService(repository: repository),
+      restoreService: RestoreService(repository: repository),
+      destinationPicker: _FakeBackupDestinationPicker(
+        destination: const BackupSaveDestination(name: 'backup.zip', confirmed: false),
+      ),
+    );
+    await exportController.createBackup();
+    expect(exportController.result, 'L’archive a été préparée, mais n’a pas pu être enregistrée à l’emplacement choisi.');
+    expect(exportController.resultIsError, isTrue);
+    controller.dispose();
+    exportController.dispose();
+  });
+
+  test('création de sauvegarde signale l’échec de création archive avant export', () async {
+    final service = BackupService(repository: _MemoryRepository(_sampleData('/absente.jpg', null)));
+    final picker = _FakeBackupDestinationPicker(
+      destination: const BackupSaveDestination(name: 'backup.zip', confirmed: true),
+    );
+    final controller = BackupController(
+      backupService: service,
+      restoreService: RestoreService(repository: _MemoryRepository(_emptyData())),
+      destinationPicker: picker,
+    );
+
+    await controller.createBackup();
+
+    expect(picker.calls, 0);
+    expect(controller.result, 'Impossible de créer l’archive de sauvegarde.');
+    expect(controller.resultIsError, isTrue);
+    controller.dispose();
+  });
   test('la restauration reste explicitement confirmée et rafraîchit les caches', () async {
     var refreshed = false;
     final repository = _MemoryRepository(_emptyData());
@@ -113,6 +211,21 @@ Map<String, List<Map<String, Object?>>> _sampleData(String primary, String? deta
   'styleProfiles': [{'id': 'default'}],
 };
 
+
+class _DelayedBackupDestinationPicker extends _FakeBackupDestinationPicker {
+  final _completer = Completer<void>();
+
+  _DelayedBackupDestinationPicker({required super.destination});
+
+  void complete() => _completer.complete();
+
+  @override
+  Future<BackupSaveDestination?> saveZip({required String fileName, required Uint8List bytes}) async {
+    await _completer.future;
+    return super.saveZip(fileName: fileName, bytes: bytes);
+  }
+}
+
 class _MemoryRepository implements BackupRepository {
   Map<String, List<Map<String, Object?>>> data;
   int restoreCalls = 0;
@@ -123,5 +236,25 @@ class _MemoryRepository implements BackupRepository {
   Future<void> restoreData(Map<String, List<Map<String, Object?>>> restored) async {
     restoreCalls++;
     data = restored;
+  }
+}
+
+class _FakeBackupDestinationPicker implements BackupDestinationPicker {
+  BackupSaveDestination? destination;
+  Object? error;
+  int calls = 0;
+  String? requestedName;
+  List<int>? writtenBytes;
+
+  _FakeBackupDestinationPicker({this.destination, this.error});
+
+  @override
+  Future<BackupSaveDestination?> saveZip({required String fileName, required Uint8List bytes}) async {
+    calls++;
+    requestedName = fileName;
+    writtenBytes = List<int>.from(bytes);
+    final thrown = error;
+    if (thrown != null) throw thrown;
+    return destination;
   }
 }

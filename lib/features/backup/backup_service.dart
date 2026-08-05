@@ -67,7 +67,7 @@ class BackupService {
       sections: data, photos: photos);
   }
 
-  Future<BackupManifest> writeBackup(BackupArchive backup, String path) async {
+  List<int> encodeBackup(BackupArchive backup) {
     final archive = Archive(); final hashes = <String, String>{};
     for (final entry in backup.sections.entries) {
       final name = 'data/${entry.key}.json'; final bytes = utf8.encode(jsonEncode(entry.value));
@@ -83,8 +83,16 @@ class BackupService {
       content: backup.manifest.content, checksums: hashes);
     final bytes = utf8.encode(const JsonEncoder.withIndent('  ').convert(manifest.toJson()));
     archive.addFile(ArchiveFile('manifest.json', bytes.length, bytes));
-    final zip = ZipEncoder().encode(archive);
+    return ZipEncoder().encode(archive) ?? const [];
+  }
+
+  Future<BackupManifest> writeBackup(BackupArchive backup, String path) async {
+    final zip = encodeBackup(backup);
     await File(path).writeAsBytes(zip, flush: true);
-    return manifest;
+    final file = File(path);
+    if (!await file.exists() || await file.length() == 0) {
+      throw const FileSystemException('Backup file was not created');
+    }
+    return backup.manifest;
   }
 }
