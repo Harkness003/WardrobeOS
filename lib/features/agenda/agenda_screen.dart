@@ -31,6 +31,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
             items: PlanningStrategy.values.map((v) => DropdownMenuItem(value: v, child: Text(v.label))).toList(), onChanged: (v) { if (v != null) c.setStrategy(v); })),
             const SizedBox(width: 8), FilledButton.icon(onPressed: c.loading ? null : c.proposeWeek,
               icon: const Icon(Icons.auto_awesome, size: 18), label: const Text('Proposer ma semaine'))]),
+          _CalendarSection(controller: c),
           if (!c.calendarAvailable) const Padding(padding: EdgeInsets.only(top: 8), child: ContentState.error(
             title: 'Calendrier indisponible',
             message: 'Les journées restent visibles, mais leurs événements ne peuvent pas être pris en compte.',
@@ -144,4 +145,51 @@ class _StateBadge extends StatelessWidget {
     AgendaDayState.error => 'Erreur', AgendaDayState.generated => 'Générée',
     AgendaDayState.planned => _DayCard._status(status!),
   }), visualDensity: VisualDensity.compact);
+}
+
+
+class _CalendarSection extends StatelessWidget {
+  final AgendaController controller;
+  const _CalendarSection({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final google = controller.googleCalendarService;
+    final state = google?.syncState;
+    final selected = state?.selectedCalendarIds.length ?? 0;
+    final last = state?.lastRefreshAt;
+    final connected = state?.accountEmail != null;
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.event_available_outlined),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Calendrier', style: Theme.of(context).textTheme.titleSmall)),
+            TextButton.icon(
+              onPressed: google == null || controller.loading ? null : controller.refreshCalendar,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Actualiser'),
+            ),
+          ]),
+          Text(connected ? 'Compte connecté : ${state!.accountEmail}' : 'Google Calendar non connecté'),
+          Text(selected == 0 ? 'Aucun calendrier actif sélectionné.' : '$selected calendrier(s) actif(s).'),
+          Text(last == null ? 'Dernière synchronisation : jamais' : 'Dernière synchronisation : ${_dateTime(last)}'),
+          if (state?.userMessage != null) Text(state!.userMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          Wrap(spacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed: null,
+              icon: const Icon(Icons.login, size: 18),
+              label: Text(connected ? 'Google connecté' : 'Connecter Google Calendar'),
+            ),
+            if (connected) TextButton(onPressed: controller.disconnectCalendar, child: const Text('Déconnecter')),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  static String _dateTime(DateTime value) => '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')} ${value.hour.toString().padLeft(2, '0')}h${value.minute.toString().padLeft(2, '0')}';
 }

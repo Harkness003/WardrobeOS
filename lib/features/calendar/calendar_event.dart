@@ -17,6 +17,8 @@ class CalendarEvent {
   final DateTime endsAt;
   final CalendarEventType type;
   final String? location;
+  final String? description;
+  final bool isAllDay;
   final EventFormality formality;
   final Map<String, Object?> metadata;
 
@@ -27,9 +29,29 @@ class CalendarEvent {
     required this.endsAt,
     required this.type,
     this.location,
+    this.description,
+    this.isAllDay = false,
     required this.formality,
     this.metadata = const {},
   }) : assert(!endsAt.isBefore(startsAt));
+
+  CalendarEvent copyWith({
+    CalendarEventType? type,
+    EventFormality? formality,
+    String? description,
+    bool? isAllDay,
+  }) => CalendarEvent(
+    id: id,
+    title: title,
+    startsAt: startsAt,
+    endsAt: endsAt,
+    type: type ?? this.type,
+    location: location,
+    description: description ?? this.description,
+    isAllDay: isAllDay ?? this.isAllDay,
+    formality: formality ?? this.formality,
+    metadata: metadata,
+  );
 }
 
 extension CalendarEventLabels on CalendarEventType {

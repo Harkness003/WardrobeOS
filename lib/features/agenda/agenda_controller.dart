@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../../models/outfit.dart';
+import '../calendar/google_calendar_service.dart';
 import 'agenda_models.dart';
 import 'agenda_service.dart';
 
@@ -13,8 +14,9 @@ class AgendaController extends ChangeNotifier {
   final Map<DateTime, AgendaDayState> dayStates = {};
   final Map<DateTime, String> dayErrors = {};
   bool calendarAvailable = true;
+  GoogleCalendarService? googleCalendarService;
 
-  AgendaController({required this.service, AgendaPreferences preferences = const AgendaPreferences(), DateTime? initialDay})
+  AgendaController({required this.service, this.googleCalendarService, AgendaPreferences preferences = const AgendaPreferences(), DateTime? initialDay})
     : preferences = preferences, weekStart = _monday(initialDay ?? DateTime.now());
 
   Future<void> load() async {
@@ -64,6 +66,23 @@ class AgendaController extends ChangeNotifier {
   Future<void> confirm(PlannedOutfit value) async { await service.confirm(value); await load(); }
   Future<void> markWorn(PlannedOutfit value) async { await service.markWorn(value); await load(); }
   Future<void> remove(PlannedOutfit value) async { await service.remove(value); await load(); }
+
+  Future<void> refreshCalendar() async {
+    final google = googleCalendarService;
+    if (google == null) return;
+    loading = true; error = null; notifyListeners();
+    try { await google.refresh(from: weekStart, to: weekStart.add(const Duration(days: 7))); await load(); }
+    catch (value) { error = value; }
+    finally { loading = false; notifyListeners(); }
+  }
+
+  Future<void> disconnectCalendar() async {
+    final google = googleCalendarService;
+    if (google == null) return;
+    await google.disconnect();
+    calendarAvailable = false;
+    notifyListeners();
+  }
 
   Iterable<DateTime> get _days => Iterable.generate(7, (index) => weekStart.add(Duration(days: index)));
   void _syncStates() {

@@ -7,6 +7,7 @@ import '../../models/garment.dart';
 import '../../weather/models/weather_data.dart';
 import '../../weather/services/weather_service.dart';
 import '../calendar/calendar_event.dart';
+import '../calendar/calendar_event_context_mapper.dart';
 import '../calendar/calendar_service.dart';
 import 'agenda_models.dart';
 
@@ -51,12 +52,14 @@ class AgendaService {
   final WeatherService? weatherService;
   final AgendaClock clock;
   final WardrobeAiContextService aiContextService;
+  final CalendarEventContextMapper calendarEventContextMapper;
   AgendaGenerationReport lastReport = const AgendaGenerationReport();
 
   AgendaService({required this.database, required this.calendarService,
     required this.aiContextService, this.weatherService,
     this.outfitGenerationEngine = const OutfitGenerationEngine(),
     this.proposalSelector = const DefaultAgendaProposalSelector(),
+    this.calendarEventContextMapper = const CalendarEventContextMapper(),
     this.clock = DateTime.now});
 
   Future<List<PlannedOutfit>> loadPeriod(DateTime from, DateTime to) =>
@@ -178,16 +181,13 @@ class AgendaService {
   }
 
   RecommendationContext _recommendationContext(DateTime date, List<CalendarEvent> events,
-      WeatherData? weather) => RecommendationContext(
-    occasion: events.isEmpty ? null : events.map((event) => '${event.type.label} (${event.formality.label})').join(', '),
+      WeatherData? weather) => calendarEventContextMapper.map(
+    date: date,
+    events: events,
     weather: weather == null ? null : RecommendationWeather(
       temperature: weather.temperature, condition: weather.description,
       windSpeed: weather.windSpeed,
       isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
-    metadata: {'planner': 'agenda', 'date': _day(date).toIso8601String(),
-      'events': events.map((event) => {'start': event.startsAt.toIso8601String(),
-        'durationMinutes': event.endsAt.difference(event.startsAt).inMinutes,
-        'context': event.type.label, 'formality': event.formality.label}).toList()},
   );
 
   static RecommendationPreferences _recommendationPreferences(AgendaPreferences value) =>

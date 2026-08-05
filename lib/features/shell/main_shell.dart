@@ -21,7 +21,8 @@ import '../assistant/tools/weather_tool.dart';
 import '../assistant/memory/database_memory_repository.dart';
 import '../assistant/memory/memory_service.dart';
 import '../calendar/calendar_context_builder.dart';
-import '../calendar/fake_calendar_service.dart';
+import '../calendar/google_calendar_auth_store.dart';
+import '../calendar/google_calendar_service.dart';
 import '../../data/database_service.dart';
 import '../backup/backup_controller.dart';
 import '../backup/backup_service.dart';
@@ -87,7 +88,9 @@ class _MainShellState extends State<MainShell> {
   late final _memoryService = MemoryService(
     repository: DatabaseMemoryRepository(DatabaseService.instance),
   );
-  late final _agendaCalendar = FakeCalendarService();
+  late final _agendaCalendar = GoogleCalendarService(
+    authStore: const GoogleCalendarAuthStore(),
+  )..loadConnection();
   late final _aiContextService = WardrobeAiContextService(
     loadCurrentGarments: DatabaseService.instance.getGarments,
     memoryService: _memoryService,
@@ -116,7 +119,7 @@ class _MainShellState extends State<MainShell> {
       wardrobeController: _assistantWardrobe,
       outfitsController: _assistantOutfits,
       calendarContextBuilder: CalendarContextBuilder(
-        service: FakeCalendarService(),
+        service: _agendaCalendar,
       ),
       memoryService: _memoryService,
       aiContextService: _aiContextService,
@@ -137,6 +140,7 @@ class _MainShellState extends State<MainShell> {
   );
   late final _agendaController = AgendaController(
     service: _agendaService,
+    googleCalendarService: _agendaCalendar,
   );
 
   @override

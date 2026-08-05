@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/features/calendar/calendar_context_builder.dart';
 import 'package:wardrobeos/features/calendar/calendar_event.dart';
 import 'package:wardrobeos/features/calendar/fake_calendar_service.dart';
+import 'package:wardrobeos/features/calendar/calendar_event_context_mapper.dart';
 
 void main() {
   final now = DateTime(2026, 7, 18, 12);
@@ -43,5 +44,25 @@ void main() {
           clock: () => now,
         ).build();
     expect(context, isNull);
+  });
+
+  test('mappe réunion, sport et sortie en contraintes de recommandation', () {
+    const mapper = CalendarEventContextMapper();
+    final meeting = mapper.applyInferredConstraints(CalendarEvent(
+    id: 'meeting', title: 'Réunion client', startsAt: now, endsAt: now.add(const Duration(hours: 1)),
+    type: CalendarEventType.other, formality: EventFormality.casual,
+  ));
+    final sport = mapper.applyInferredConstraints(CalendarEvent(
+    id: 'sport', title: 'Sport yoga', startsAt: now, endsAt: now.add(const Duration(hours: 1)),
+    type: CalendarEventType.other, formality: EventFormality.casual,
+  ));
+    final dinner = mapper.applyInferredConstraints(CalendarEvent(
+    id: 'dinner2', title: 'Restaurant', startsAt: now, endsAt: now.add(const Duration(hours: 1)),
+    type: CalendarEventType.other, formality: EventFormality.casual,
+  ));
+
+    expect(meeting.formality, EventFormality.business);
+    expect(sport.type, CalendarEventType.sport);
+    expect(dinner.formality, EventFormality.smartCasual);
   });
 }
