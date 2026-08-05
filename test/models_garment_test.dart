@@ -7,7 +7,7 @@ import 'package:wardrobeos/models/style_analysis.dart';
 import 'package:wardrobeos/models/thermal_profile.dart';
 
 void main() {
-  test('effectiveOccasions preserves multiple uses and supports legacy data', () {
+  test('effectiveOccasions uses only canonical multiple uses', () {
     final now = DateTime(2026);
     final legacy = Garment(
       id: 'legacy',
@@ -27,7 +27,7 @@ void main() {
       updatedAt: now,
     );
 
-    expect(legacy.effectiveOccasions, ['Travail']);
+    expect(legacy.effectiveOccasions, isEmpty);
     expect(multiple.effectiveOccasions, ['Travail', 'Voyage']);
   });
 

@@ -1,5 +1,5 @@
-import 'calendar_event.dart';
-import 'calendar_service.dart';
+import 'package:wardrobeos/features/calendar/calendar_event.dart';
+import 'package:wardrobeos/features/calendar/calendar_service.dart';
 
 typedef CalendarClock = DateTime Function();
 

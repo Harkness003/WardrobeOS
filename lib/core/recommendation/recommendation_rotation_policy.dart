@@ -1,8 +1,9 @@
 import '../../models/garment.dart';
 import 'recommendation_context.dart';
 
-/// Central rotation rule used by outfit generation for both frequency and
-/// recent-wear history.
+/// Secondary rotation rule used after canonical style, occasion, weather and
+/// thermal matching. It only soft-penalizes high frequency or recent wear and
+/// is not a standalone historical suggestion engine.
 abstract interface class RecommendationRotationPolicy {
   double scoreAdjustment(Garment garment, RecommendationContext context);
 }

@@ -1,0 +1,957 @@
+diff --git a/lib/core/outfit_generation/outfit_generation_engine.dart b/lib/core/outfit_generation/outfit_generation_engine.dart
+index 53176763446a88de37719b91cfe38dc9a6077594..073b88da0233354b337fffd4803390de0a9f00d1 100644
+--- a/lib/core/outfit_generation/outfit_generation_engine.dart
++++ b/lib/core/outfit_generation/outfit_generation_engine.dart
+@@ -158,51 +158,51 @@ class OutfitGenerationEngine {
+     final temperature = request.context.weather?.temperature;
+     final reasons = <String>[
+       if (thermal >= .7 && temperature != null)
+         'Choisie car adaptée à ${temperature.round()} °C${request.context.weather?.isRaining == true ? ' avec pluie légère' : ''}.',
+       if (request.context.weather?.isRaining == true && items.any((item) => _thermal(item).rainCompatibility != WeatherProtection.none))
+         'Ajoutée comme couche extérieure contre la pluie.',
+       if ((request.context.weather?.windSpeed ?? 0) >= 15 && items.any((item) => _thermal(item).windProtection != WeatherProtection.none))
+         'Ajoutée comme couche extérieure contre le vent.',
+       if (thermal >= .7 && request.context.weather == null) 'Bonne compatibilité thermique.',
+       if (style >= .7) 'Couleurs et styles harmonieux.',
+       if (layering >= .7) 'Couches compatibles entre elles.',
+       if (formality >= .7 && request.context.desiredStyle != null)
+         'Adapté au registre ${StyleCatalog.displayName(request.context.desiredStyle!)}.',
+       if (rotation >= .7) 'La sélection privilégie des pièces rarement portées.',
+       if (items.any((item) => item.lastWorn != null) && rotation >= .5)
+         'La rotation évite les pièces portées le plus récemment.',
+       if (diversity >= .6) 'La tenue combine des catégories complémentaires.',
+     ];
+     if (reasons.isEmpty) reasons.add('Meilleur équilibre disponible dans le dressing actuel.');
+     final criterion = OutfitScore(
+       styleCoherence: OutfitCriterionScore(value: style, explanation: 'Cohérence des styles et couleurs.'),
+       weatherSuitability: OutfitCriterionScore(value: thermal, explanation: 'Compatibilité avec la météo disponible.'),
+       temperatureSuitability: OutfitCriterionScore(value: thermal, explanation: 'Compatibilité thermique des profils calculés.'),
+       formality: OutfitCriterionScore(value: formality, explanation: 'Cohérence des niveaux de formalité.'),
+       diversity: OutfitCriterionScore(value: diversity, explanation: 'Diversité des catégories sélectionnées.'),
+-      overallConfidence: OutfitCriterionScore(value: score.clamp(0, 1).toDouble(), explanation: 'Score pondéré global incluant superposition et rotation.'),
++      overallConfidence: OutfitCriterionScore(value: score.clamp(0, 1).toDouble(), explanation: 'Score pondéré global; la rotation reste un critère secondaire.'),
+     );
+     return OutfitGenerationProposal(
+       outfit: outfit.copyWith(score: criterion, justification: List.unmodifiable(reasons)),
+       score: score,
+       reasons: List.unmodifiable(reasons),
+       respectedConstraints: List.unmodifiable([
+         if (request.context.weather != null) 'Météo',
+         if (request.context.occasion != null) 'Occasion',
+         if (request.context.desiredStyle != null) 'Style souhaité',
+         if (request.context.weather?.temperature != null) 'Température',
+         if (request.context.weather?.isRaining != null) 'Pluie',
+         if (items.any((item) => (item.thermalProfile?.primaryRole.name ?? item.layerType ?? '').isNotEmpty)) 'Rôles de couche',
+         if (request.preferences.preferredColors.isNotEmpty) 'Couleurs préférées',
+         if (request.preferences.preferredStyles.isNotEmpty) 'Styles préférés',
+         if (request.preferences.avoidedMaterials.isNotEmpty) 'Matières évitées',
+       ]),
+     );
+   }
+ 
+   double? _outfitThermalScore(List<Garment> items, RecommendationContext context) {
+     final apparent = context.weather?.apparentTemperature;
+     if (apparent == null || items.isEmpty) return null;
+     final profiles = items.map(_thermal).toList(growable: false);
+     final baseMax = profiles.map((p) => p.standaloneMaxC).reduce((a, b) => a > b ? a : b);
+     final contribution = profiles.fold<double>(0, (sum, p) => sum + p.thermalContributionC);
+diff --git a/lib/core/recommendation/recommendation_rotation_policy.dart b/lib/core/recommendation/recommendation_rotation_policy.dart
+index dc13a9f81836a4868b7578d7d3104ad0b00c650d..1302a69c3d2a21ffee7b0641570d3bc41d003b94 100644
+--- a/lib/core/recommendation/recommendation_rotation_policy.dart
++++ b/lib/core/recommendation/recommendation_rotation_policy.dart
+@@ -1,29 +1,30 @@
+ import '../../models/garment.dart';
+ import 'recommendation_context.dart';
+ 
+-/// Central rotation rule used by outfit generation for both frequency and
+-/// recent-wear history.
++/// Secondary rotation rule used after canonical style, occasion, weather and
++/// thermal matching. It only soft-penalizes high frequency or recent wear and
++/// is not a standalone historical suggestion engine.
+ abstract interface class RecommendationRotationPolicy {
+   double scoreAdjustment(Garment garment, RecommendationContext context);
+ }
+ 
+ class NoRecommendationRotation implements RecommendationRotationPolicy {
+   const NoRecommendationRotation();
+ 
+   @override
+   double scoreAdjustment(Garment garment, RecommendationContext context) => 0;
+ }
+ 
+ class WardrobeRotationPolicy implements RecommendationRotationPolicy {
+   const WardrobeRotationPolicy();
+ 
+   @override
+   double scoreAdjustment(Garment garment, RecommendationContext context) {
+     final frequencyPenalty = (garment.wearCount.clamp(0, 20) / 20) * .18;
+     final lastWorn = garment.lastWorn;
+     if (lastWorn == null) return .12 - frequencyPenalty;
+     final days = DateTime.now().difference(lastWorn).inDays.clamp(0, 30);
+     final recencyBonus = (days / 30) * .12;
+     return recencyBonus - frequencyPenalty;
+   }
+ }
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index 24c3da6bcb9167f2e775eb3831ecca6a8a0abeaf..b5d372f0578d37cc3bbee786aac78aeb588511a7 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -296,51 +296,51 @@ class DatabaseService {
+   }) async {
+     final db = await database;
+     final where = <String>[];
+     final args = <Object?>[];
+     if (search.trim().isNotEmpty) {
+       where.add(
+         '(name LIKE ? OR brand LIKE ? OR color LIKE ? OR style_analysis LIKE ? OR occasions LIKE ?)',
+       );
+       final q = '%${search.trim()}%';
+       args.addAll([q, q, q, q, q]);
+     }
+     if (category != 'Tout') {
+       where.add('category = ?');
+       args.add(category);
+     }
+     if (favoritesOnly) where.add('is_favorite = 1');
+     if (season.trim().isNotEmpty) {
+       where.add('saisons LIKE ?');
+       args.add('%"${season.trim()}"%');
+     }
+     for (final filter in <(String, String)>[
+       ('brand', brand),
+       ('color', color),
+       ('material', material),
+       ('style_analysis', style),
+-      ('occasion', occasion),
++      ('occasions', occasion),
+     ]) {
+       if (filter.$2.trim().isNotEmpty) {
+         where.add('${filter.$1} LIKE ?');
+         args.add('%${filter.$2.trim()}%');
+       }
+     }
+     final rows = await db.query(
+       'garments',
+       where: where.isEmpty ? null : where.join(' AND '),
+       whereArgs: args,
+       orderBy: 'is_favorite DESC, updated_at DESC',
+     );
+     return rows.map(Garment.fromMap).toList();
+   }
+ 
+   Future<Garment?> getGarmentById(String id) async {
+     final db = await database;
+     final rows = await db.query('garments', where: 'id = ?', whereArgs: [id], limit: 1);
+     return rows.isEmpty ? null : Garment.fromMap(rows.first);
+   }
+ 
+   Future<void> insertGarment(Garment garment) async {
+     final db = await database;
+     await db.insert(
+       'garments',
+diff --git a/lib/features/agenda/agenda_service.dart b/lib/features/agenda/agenda_service.dart
+index 49ecb61c9cc3b7c5fdfc05ed5174258edd39ac8c..d6da7dede4b2bc4fbcc5d425fd43b48f6e5c3b97 100644
+--- a/lib/features/agenda/agenda_service.dart
++++ b/lib/features/agenda/agenda_service.dart
+@@ -93,156 +93,162 @@ class AgendaService {
+ 
+   Future<PlannedOutfit> markWorn(PlannedOutfit value) async {
+     if (value.wearRecordedAt != null || value.status == PlannedOutfitStatus.worn) return value;
+     final wornAt = value.date.isAfter(clock()) ? clock() : value.date;
+     final recorded = await database.recordOutfitWear(value.outfitId, wornAt: wornAt);
+     if (!recorded) throw StateError('La tenue ne contient plus de vêtements disponibles.');
+     final updated = value.copyWith(status: PlannedOutfitStatus.worn,
+       wearRecordedAt: clock(), updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit> _setStatus(PlannedOutfit value, PlannedOutfitStatus status) async {
+     final updated = value.copyWith(status: status, updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit?> proposeDay(DateTime date, AgendaPreferences preferences,
+       {List<PlannedOutfit> previous = const []}) async {
+     // build() deliberately reloads database garments on every proposal. Never
+     // substitute saved-outfit garments: they may predate a recent edit.
+     final wardrobe = (await aiContextService.build()).garments;
+     final calendar = await _events(date);
+     final weather = await _optionalWeather();
+-    if (!calendar.available) {
+-      throw StateError('Aucune source calendrier réelle n’est disponible pour contextualiser cette journée.');
+-    }
+-    final events = calendar.events;
++    final events = calendar.available ? calendar.events : const <CalendarEvent>[];
+     final conflict = _eventConflict(events);
+     if (conflict != null) throw StateError(conflict);
+     final context = _recommendationContext(date, events, weather);
+     final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       context: context,
+       preferences: _recommendationPreferences(preferences),
+       proposalCount: 3,
+     ));
+     final proposal = proposalSelector.select(date: date, result: result,
+       previous: previous, preferences: preferences);
+     if (proposal == null) return null;
+     final choice = _withAgendaId(proposal.outfit, date);
+     await _ensureStored(choice);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+-      justification: proposal.reasons.join(' '), weather: weather, event: events.firstOrNull,
++      justification: _justification(proposal, calendarAvailable: calendar.available), weather: weather, event: events.firstOrNull,
+       createdAt: now, updatedAt: now);
+     await database.savePlannedOutfit(value);
+     return value;
+   }
+ 
+   Future<List<PlannedOutfit>> proposePeriod(DateTime from, int days,
+       AgendaPreferences preferences, {List<PlannedOutfit> existing = const []}) async {
+     final generated = <PlannedOutfit>[];
+     final failures = <AgendaDayFailure>[];
+     var calendarAvailable = true;
+     final history = [...existing]..sort((a, b) => a.date.compareTo(b.date));
+     // One immutable wardrobe snapshot and one weather request per generation.
+     final wardrobe = (await aiContextService.build()).garments;
+     final weather = await _optionalWeather();
+     for (var offset = 0; offset < days; offset++) {
+       final date = _day(from).add(Duration(days: offset));
+       if (history.any((item) => _sameDay(item.date, date))) continue;
+       try {
+         final calendar = await _events(date);
+         calendarAvailable = calendarAvailable && calendar.available;
+-        if (!calendar.available) {
+-          throw StateError('Aucune source calendrier réelle n’est disponible pour contextualiser cette journée.');
+-        }
+-        final conflict = _eventConflict(calendar.events);
++        final events = calendar.available ? calendar.events : const <CalendarEvent>[];
++        final conflict = _eventConflict(events);
+         if (conflict != null) throw StateError(conflict);
+         final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
+-          wardrobe: wardrobe, context: _recommendationContext(date, calendar.events, weather),
++          wardrobe: wardrobe, context: _recommendationContext(date, events, weather),
+           preferences: _recommendationPreferences(preferences), proposalCount: 3));
+         final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
+         if (proposal == null) throw StateError('Dressing insuffisant pour composer une tenue.');
+-        final value = await _saveProposal(date, preferences, proposal, weather, calendar.events.firstOrNull);
++        final value = await _saveProposal(date, preferences, proposal, weather, events.firstOrNull,
++          calendarAvailable: calendar.available);
+         generated.add(value);
+         history.add(value);
+       } catch (error) {
+         failures.add(AgendaDayFailure(date, _errorMessage(error)));
+       }
+     }
+     lastReport = AgendaGenerationReport(generated: List.unmodifiable(generated),
+       failures: List.unmodifiable(failures), calendarAvailable: calendarAvailable);
+     return List.unmodifiable(generated);
+   }
+ 
+   RecommendationContext _recommendationContext(DateTime date, List<CalendarEvent> events,
+       WeatherData? weather) => calendarEventContextMapper.map(
+     date: date,
+     events: events,
+     weather: weather == null ? null : RecommendationWeather(
+       temperature: weather.temperature, condition: weather.description,
+       windSpeed: weather.windSpeed,
+       isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
+   );
+ 
+   static RecommendationPreferences _recommendationPreferences(AgendaPreferences value) =>
+       const RecommendationPreferences();
+ 
+   Future<void> _ensureStored(Outfit outfit) async {
+     if (await database.getOutfitById(outfit.id) == null) await database.createOutfit(outfit);
+     final garments = List<Garment>.from(outfit.allGarments, growable: false);
+     for (final garment in garments) {
+       await database.addGarmentToOutfit(outfit.id, garment.id);
+     }
+   }
+ 
+   Future<({bool available, List<CalendarEvent> events})> _events(DateTime date) async {
+     try { return (events: await calendarService.getTodayEvents(day: date),
+       available: calendarService is! CalendarAvailability ||
+           (calendarService as CalendarAvailability).isCalendarAvailable); }
+     catch (_) { return (events: const <CalendarEvent>[], available: false); }
+   }
+   Future<WeatherData?> _optionalWeather() async {
+     try { return await weatherService?.getCurrentWeather(); } catch (_) { return null; }
+   }
+ 
+   Outfit _withAgendaId(Outfit source, DateTime date) {
+     final now = clock();
+     return Outfit(id: 'agenda-${_day(date).millisecondsSinceEpoch}-${now.microsecondsSinceEpoch}',
+       name: source.name, season: source.season, favorite: source.favorite,
+       createdAt: now, updatedAt: now, garments: source.garments,
+       score: source.score, justification: source.justification);
+   }
+   Future<PlannedOutfit> _saveProposal(DateTime date, AgendaPreferences preferences,
+-      OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event) async {
++      OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event,
++      {required bool calendarAvailable}) async {
+     final choice = _withAgendaId(proposal.outfit, date);
+     await _ensureStored(choice);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+-      justification: proposal.reasons.join(' '), weather: weather, event: event,
++      justification: _justification(proposal, calendarAvailable: calendarAvailable), weather: weather, event: event,
+       createdAt: now, updatedAt: now);
+     await database.savePlannedOutfit(value);
+     return value;
+   }
++  static String _justification(OutfitGenerationProposal proposal, {required bool calendarAvailable}) {
++    final reasons = proposal.reasons.join(' ');
++    if (calendarAvailable) return reasons;
++    return [
++      'Calendrier indisponible, proposition générée sans contexte événement.',
++      if (reasons.trim().isNotEmpty) reasons,
++    ].join(' ');
++  }
++
+   static String? _eventConflict(List<CalendarEvent> events) {
+     final formalities = events.map((event) => event.formality).toSet();
+     if (formalities.contains(EventFormality.sport) &&
+         (formalities.contains(EventFormality.formal) || formalities.contains(EventFormality.business))) {
+       return 'Conflit entre un événement sportif et un événement formel : aucune tenue unique cohérente.';
+     }
+     return null;
+   }
+   static String _errorMessage(Object error) => error is StateError
+       ? error.message.toString() : error.toString();
+   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+   static DateTime _day(DateTime value) => DateTime(value.year, value.month, value.day);
+ }
+ 
+ extension<T> on Iterable<T> { T? get firstOrNull => isEmpty ? null : first; }
+diff --git a/lib/features/calendar/calendar_event_context_mapper.dart b/lib/features/calendar/calendar_event_context_mapper.dart
+index 590bb0a25fe8ac8734169172cc167fa345e7d9f4..5f8b982b062583ddee903b31c5115cfc44d6ebb3 100644
+--- a/lib/features/calendar/calendar_event_context_mapper.dart
++++ b/lib/features/calendar/calendar_event_context_mapper.dart
+@@ -1,79 +1,92 @@
+ import '../../core/recommendation/recommendation_context.dart';
+ import 'calendar_event.dart';
+ 
+ class CalendarEventContextMapper {
+   const CalendarEventContextMapper();
+ 
+   RecommendationContext map({
+     required DateTime date,
+     required List<CalendarEvent> events,
+     RecommendationWeather? weather,
+     Map<String, Object?> metadata = const {},
+   }) {
+-    final primary = events.isEmpty ? null : _classify(events.first);
++    final inferredEvents = events.map(_classify).toList(growable: false);
++    final dominant = inferredEvents.isEmpty ? null :
++        (inferredEvents.toList()..sort((a, b) => b.priority.compareTo(a.priority))).first;
+     return RecommendationContext(
+-      occasion: events.isEmpty ? null : events.map(_occasion).join(', '),
+-      desiredStyle: primary?.style,
++      occasion: dominant?.context,
++      desiredStyle: dominant?.style,
+       weather: weather,
+       isTravel: events.any((event) => event.type == CalendarEventType.travel),
+       metadata: {
+         ...metadata,
+         'planner': 'agenda',
+         'date': DateTime(date.year, date.month, date.day).toIso8601String(),
+         'events': events.map((event) => {
+           'id': event.id,
+           'title': event.title,
+           'start': event.startsAt.toIso8601String(),
+           'end': event.endsAt.toIso8601String(),
+           'durationMinutes': event.endsAt.difference(event.startsAt).inMinutes,
+           'context': event.type.label,
+           'formality': event.formality.label,
+           'allDay': event.isAllDay,
+           if (event.location != null) 'location': event.location,
+         }).toList(),
+-        if (primary != null) ...{
+-          'eventContext': primary.context,
+-          'eventPriority': primary.priority,
++        if (dominant != null) ...{
++          'eventContext': dominant.context,
++          'eventPriority': dominant.priority,
++          'eventScope': 'day',
+         },
+       },
+     );
+   }
+ 
+   CalendarEvent applyInferredConstraints(CalendarEvent event) {
+     final inferred = _classify(event);
+     return event.copyWith(type: inferred.type, formality: inferred.formality);
+   }
+ 
+   String _occasion(CalendarEvent event) {
+     final inferred = _classify(event);
+     return '${inferred.context} (${inferred.formality.label})';
+   }
+ 
+   _InferredEventContext _classify(CalendarEvent event) {
+     final text = '${event.title} ${event.description ?? ''}'.toLowerCase();
+-    if (_containsAny(text, const ['mariage', 'wedding', 'gala', 'cérémonie', 'ceremonie'])) {
+-      return const _InferredEventContext(CalendarEventType.party, EventFormality.formal, 'événement élégant', 'élégant', 95);
++    if (event.formality == EventFormality.business || event.type == CalendarEventType.work ||
++        _containsAny(text, const ['réunion client', 'reunion client', 'client meeting', 'comité', 'comite', 'présentation', 'presentation'])) {
++      return const _InferredEventContext(CalendarEventType.work, EventFormality.business, 'contexte professionnel', 'professionnel', 100);
+     }
+-    if (_containsAny(text, const ['réunion client', 'reunion client', 'client meeting', 'comité', 'comite', 'présentation', 'presentation'])) {
+-      return const _InferredEventContext(CalendarEventType.work, EventFormality.business, 'contexte professionnel', 'professionnel', 85);
++    if (_containsAny(text, const ['mariage', 'wedding', 'gala', 'cérémonie', 'ceremonie'])) {
++      return const _InferredEventContext(CalendarEventType.party, EventFormality.formal, 'événement élégant', 'élégant', 90);
+     }
+     if (_containsAny(text, const ['sport', 'gym', 'running', 'course', 'yoga', 'entraînement', 'entrainement'])) {
+-      return const _InferredEventContext(CalendarEventType.sport, EventFormality.sport, 'activité physique', 'confort', 80);
++      return const _InferredEventContext(CalendarEventType.sport, EventFormality.sport, 'activité physique', 'confort', 60);
+     }
+     if (_containsAny(text, const ['restaurant', 'dîner', 'diner', 'déjeuner', 'dejeuner', 'brunch'])) {
+       return const _InferredEventContext(CalendarEventType.restaurant, EventFormality.smartCasual, 'sortie', 'casual chic', 70);
+     }
++    if (event.type == CalendarEventType.party || event.type == CalendarEventType.travel) {
++      return _InferredEventContext(event.type, event.formality, event.type.label, null, 90);
++    }
++    if (event.type == CalendarEventType.restaurant) {
++      return _InferredEventContext(event.type, event.formality, 'sortie', 'casual chic', 70);
++    }
++    if (event.type == CalendarEventType.sport || event.formality == EventFormality.sport) {
++      return const _InferredEventContext(CalendarEventType.sport, EventFormality.sport, 'activité physique', 'confort', 60);
++    }
+     return _InferredEventContext(event.type, event.formality, event.type.label, null, 10);
+   }
+ 
+   static bool _containsAny(String value, List<String> needles) => needles.any(value.contains);
+ }
+ 
+ class _InferredEventContext {
+   final CalendarEventType type;
+   final EventFormality formality;
+   final String context;
+   final String? style;
+   final int priority;
+   const _InferredEventContext(this.type, this.formality, this.context, this.style, this.priority);
+ }
+diff --git a/lib/features/wardrobe/garment_detail_screen.dart b/lib/features/wardrobe/garment_detail_screen.dart
+index 42fd263ea86d6426ffc0ffbc3dd2474435b941f4..4835a89a625dea0a2a483e8bdf6a4b9e8869d4bf 100644
+--- a/lib/features/wardrobe/garment_detail_screen.dart
++++ b/lib/features/wardrobe/garment_detail_screen.dart
+@@ -496,51 +496,51 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+     await Navigator.push<bool>(
+       context,
+       MaterialPageRoute(
+         builder:
+             (_) => OutfitFormScreen(controller: controller, outfit: outfit),
+       ),
+     );
+     controller.dispose();
+     if (mounted) {
+       setState(() {
+         _outfitsFuture = DatabaseService.instance.getOutfitsContainingGarment(
+           garment.id,
+         );
+       });
+     }
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final identityChips =
+         [
+               garment.category,
+               garment.color,
+               garment.material,
+               ...garment.effectiveSeasons,
+-              garment.occasion,
++              ...garment.effectiveOccasions,
+             ]
+             .whereType<String>()
+             .map(_cleanText)
+             .whereType<String>()
+             .toList();
+ 
+     return Scaffold(
+       appBar: AppBar(
+         title: const Text('Détail de la pièce'),
+         actions: [
+           IconButton(
+             tooltip: 'Modifier',
+             onPressed: edit,
+             icon: const Icon(Icons.edit_outlined),
+           ),
+           PopupMenuButton<String>(
+             onSelected: (value) {
+               if (value == 'delete') remove();
+             },
+             itemBuilder:
+                 (_) => const [
+                   PopupMenuItem(
+                     value: 'delete',
+                     child: Row(
+                       children: [
+diff --git a/lib/features/wardrobe/garment_form_screen.dart b/lib/features/wardrobe/garment_form_screen.dart
+index fcd5cfb11cc2d8e7e8bf17c982119089b383cfc9..72111d299a9585dc7dbadf4e78a64c8ac1754ac7 100644
+--- a/lib/features/wardrobe/garment_form_screen.dart
++++ b/lib/features/wardrobe/garment_form_screen.dart
+@@ -1,113 +1,111 @@
+ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ 
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/garment_photo.dart';
+ import '../../models/garment_normalizer.dart';
++import '../../models/thermal_profile.dart';
+ import '../../models/thermal_profile_calculator.dart';
+ import '../../models/style_analysis.dart';
+ import '../../widgets/garment_image.dart';
+ import 'wardrobe_controller.dart';
+ 
+ /// Complete review sheet used both after AI analysis and when editing a garment.
+ class GarmentFormScreen extends StatefulWidget {
+   final WardrobeController controller;
+   final Garment? garment;
+   /// A populated, not-yet-persisted garment produced by the scanner.
+   final bool isDraft;
+   const GarmentFormScreen({super.key, required this.controller, this.garment, this.isDraft = false});
+ 
+   @override
+   State<GarmentFormScreen> createState() => _GarmentFormScreenState();
+ }
+ 
+ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+   final _formKey = GlobalKey<FormState>();
+   final _picker = ImagePicker();
+   late final TextEditingController _name, _brand, _color, _size, _otherMaterial,
+       _otherUse, _otherCategory, _otherSubCategory, _composition,
+       _minTemp, _maxTemp, _notes;
+   late String _category;
+   String? _subCategory, _material;
+   late Set<String> _styles, _seasons, _uses;
+   late List<String> _styleOptions;
+-  bool? _rain, _heat;
+   String? _imagePath;
+   bool _saving = false;
+ 
+   static const categories = ['Hauts', 'Chemises', 'Vestes', 'Bas', 'Chaussures', 'Accessoires', 'Autre'];
+   static const subCategories = <String, List<String>>{
+     'Hauts': ['T-shirt', 'Polo', 'Pull', 'Sweat', 'Cardigan', 'Débardeur'],
+     'Chemises': ['Chemise habillée', 'Chemise casual', 'Surchemise', 'Blouse'],
+     'Vestes': ['Blazer', 'Manteau', 'Trench', 'Parka', 'Imperméable', 'Doudoune', 'Veste légère'],
+     'Bas': ['Jean', 'Pantalon', 'Short', 'Jupe', 'Legging'],
+     'Chaussures': ['Baskets', 'Boots', 'Chaussures habillées', 'Sandales', 'Randonnée'],
+     'Accessoires': ['Sac', 'Ceinture', 'Écharpe', 'Bonnet', 'Chapeau', 'Gants'],
+     'Autre': ['Autre'],
+   };
+   static const materials = ['Coton', 'Laine', 'Mérinos', 'Cachemire', 'Lin', 'Polyester', 'Viscose', 'Denim', 'Cuir', 'Daim', 'Nylon', 'Soie', 'Mélange', 'Autre...'];
+   static const uses = ['Quotidien', 'Travail', 'Soirée', 'Sport', 'Voyage', 'Randonnée', 'Maison', 'Vacances', 'Autre...'];
+   static const seasons = Garment.availableSeasons;
+ 
+   @override
+   void initState() {
+     super.initState();
+     final g = widget.garment;
+     _name = TextEditingController(text: g?.name ?? '');
+     _brand = TextEditingController(text: g?.brand ?? '');
+     _color = TextEditingController(text: g?.couleurPrincipale ?? g?.color ?? '');
+     _size = TextEditingController(text: g?.size ?? '');
+     _notes = TextEditingController(text: g?.notes ?? '');
+     _composition = TextEditingController(text: g?.composition ?? '');
+     final hasCustomCategory = g != null && !categories.contains(g.category);
+     _otherCategory = TextEditingController(text: hasCustomCategory ? g.category : '');
+     final knownSubcategory = g != null && subCategories[g.category]?.contains(g.sousCategorie) == true;
+     _otherSubCategory = TextEditingController(text: !knownSubcategory ? g?.sousCategorie ?? '' : '');
+     _minTemp = TextEditingController(text: g?.thermalProfile?.standaloneMinC.toString() ?? '');
+     _maxTemp = TextEditingController(text: g?.thermalProfile?.standaloneMaxC.toString() ?? '');
+     _category = hasCustomCategory ? 'Autre' : (categories.contains(g?.category) ? g!.category : categories.first);
+     _subCategory = knownSubcategory ? g.sousCategorie : (g?.sousCategorie == null ? null : 'Autre');
+     final existingMaterial = g?.matierePrincipale ?? g?.material;
+     _material = _choice(existingMaterial, materials) ?? (existingMaterial == null ? null : 'Autre...');
+     _otherMaterial = TextEditingController(text: _material == 'Autre...' ? existingMaterial ?? '' : '');
+     final existingUses = g?.effectiveOccasions ?? const <String>[];
+     _uses = existingUses.where(uses.contains).toSet();
+     final customUses = existingUses.where((value) => !uses.contains(value)).toList();
+     if (customUses.isNotEmpty) _uses.add('Autre...');
+     _otherUse = TextEditingController(text: customUses.join(', '));
+     _styles = g == null ? <String>{} : {
+       g.effectiveStyleAnalysis.register,
+       ...g.effectiveStyleAnalysis.secondaryStyles,
+     };
+     _styleOptions = {...StyleTaxonomy.entries.keys, ..._styles}.toList(growable: false);
+     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
+-    _rain = g?.compatiblePluie;
+-    _heat = g?.compatibleChaleur;
+     _imagePath = g == null || g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path;
+   }
+ 
+   static String? _choice(String? value, List<String> values) => values.contains(value) ? value : null;
+   String? _text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
+   double? _number(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '.'));
+ 
+   @override
+   void dispose() {
+     for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _otherCategory, _otherSubCategory, _composition, _minTemp, _maxTemp, _notes]) { c.dispose(); }
+     super.dispose();
+   }
+ 
+   Future<void> _chooseImage(ImageSource source) async {
+     final picked = await _picker.pickImage(source: source, imageQuality: 88, maxWidth: 1800);
+     if (picked == null) return;
+     final path = await ImageStorageService.persist(picked.path);
+     if (_imagePath != null && _imagePath != (widget.garment == null || widget.garment!.effectivePhotos.isEmpty ? null : widget.garment!.effectivePhotos.first.path)) await ImageStorageService.remove(_imagePath);
+     if (mounted) setState(() => _imagePath = path);
+   }
+ 
+   Future<void> _imageActions() => showModalBottomSheet<void>(
+     context: context, showDragHandle: true,
+     builder: (context) => SafeArea(child: Wrap(children: [
+       ListTile(leading: const Icon(Icons.camera_alt_outlined), title: const Text('Prendre une photo'), onTap: () { Navigator.pop(context); _chooseImage(ImageSource.camera); }),
+@@ -163,55 +161,61 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+             .where((value) => value.isNotEmpty),
+       );
+     }
+     final uniqueUses = selectedUses.toSet().toList();
+     final composition = _text(_composition);
+     final normalizedType = GarmentNormalizer.normalizeType(
+       name: _text(_name),
+       category: _category == 'Autre' ? _text(_otherCategory) : _category,
+       subcategory: _subCategory == 'Autre' ? _text(_otherSubCategory) : _subCategory,
+       preciseType: old?.typePrecis,
+     );
+     final thermalInput = ThermalProfileInput(
+       category: normalizedType.category ?? 'Autre',
+       subcategory: normalizedType.subcategory,
+       material: material,
+       composition: composition,
+       lining: composition?.toLowerCase().contains('doublure') == true ? 'doublure' : null,
+       fit: old?.coupe ?? old?.fit,
+       thickness: old?.texture,
+       detectedFeatures: [
+         if (old?.typePrecis != null) old!.typePrecis!,
+         if (old?.motif != null) old!.motif!,
+         if (old?.typeFermeture != null) old!.typeFermeture!,
+       ],
+     );
+-    final thermalProfile = const ThermalProfileCalculator().ensureCurrent(
++    final calculatedThermalProfile = const ThermalProfileCalculator().ensureCurrent(
+       thermalInput,
+       old?.thermalProfile,
+       calculatedAt: now,
+     );
++    final thermalProfile = _withUserThermalRange(
++      calculatedThermalProfile,
++      standaloneMinC: min,
++      standaloneMaxC: max,
++      calculatedAt: now,
++    );
+     final garment = Garment(
+       id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: normalizedType.category ?? 'Autre',
+       brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes),
+       photos: [
+         if (_imagePath != null) GarmentPhoto(id: old?.effectivePhotos.firstOrNull?.id ?? const Uuid().v4(), path: _imagePath!, type: GarmentPhotoType.primary, createdAt: old?.effectivePhotos.firstOrNull?.createdAt ?? now),
+         ...?old?.effectivePhotos.skip(1),
+       ],
+       sousCategorie: normalizedType.subcategory, couleurPrincipale: _text(_color), matierePrincipale: material,
+       typePrecis: normalizedType.preciseType, superposable: old?.superposable,
+       saisons: _seasons.toList(),
+       occasions: uniqueUses.isEmpty ? null : uniqueUses,
+       compatiblePluie: thermalProfile.rainCompatibility.name != 'none',
+       compatibleChaleur: thermalProfile.breathability.name == 'high',
+       layerType: switch (thermalProfile.primaryRole.name) {
+         'base' => 'Couche de base',
+         'outer' => 'Couche extérieure',
+         _ => 'Couche intermédiaire',
+       },
+       thermalProfile: thermalProfile,
+       styleAnalysis: old?.styleAnalysis?.withUserCorrections(
+         register: _styles.isEmpty ? null : _styles.first,
+         secondaryStyles: _styles.skip(1).toList(growable: false),
+       ),
+       descriptionIA: old?.descriptionIA, couleursSecondaires: old?.couleursSecondaires, motif: old?.motif, texture: old?.texture,
+       logoVisible: old?.logoVisible, niveauFormalite: old?.niveauFormalite, coupe: old?.coupe, longueur: old?.longueur,
+@@ -237,62 +241,75 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+ 
+   @override
+   Widget build(BuildContext context) => Scaffold(
+     appBar: AppBar(
+       title: Text(widget.garment == null || widget.isDraft ? 'Valider la fiche' : 'Modifier la pièce'),
+       actions: [IconButton(onPressed: _showHelp, tooltip: 'Aide sur les champs', icon: const Icon(Icons.help_outline))],
+     ),
+     body: Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
+       GestureDetector(onTap: _imageActions, child: Stack(children: [GarmentImage(imagePath: _imagePath, width: double.infinity, height: 270, borderRadius: BorderRadius.circular(26)), Positioned(right: 12, bottom: 12, child: FilledButton.tonalIcon(onPressed: _imageActions, icon: const Icon(Icons.camera_alt_outlined), label: Text(_imagePath == null ? 'Ajouter' : 'Actions photo')))])),
+       const SizedBox(height: 18),
+       TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Nom *', helperText: 'Proposé par l’IA · corrigez seulement si nécessaire'), validator: (v) => v == null || v.trim().isEmpty ? 'Le nom est obligatoire' : null),
+       const SizedBox(height: 10), TextFormField(controller: _brand, decoration: const InputDecoration(labelText: 'Marque')),
+       const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory = null; })),
+       if (_category == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherCategory, decoration: const InputDecoration(labelText: 'Votre catégorie *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la catégorie' : null)],
+       const SizedBox(height: 10), DropdownButtonFormField<String>(value: _subCategory, decoration: const InputDecoration(labelText: 'Sous-catégorie'), items: subCategories[_category]!.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _subCategory = v)),
+       if (_subCategory == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherSubCategory, decoration: const InputDecoration(labelText: 'Votre sous-catégorie *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la sous-catégorie' : null)],
+       const SizedBox(height: 10), TextFormField(controller: _color, decoration: const InputDecoration(labelText: 'Couleur')),
+       const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _material = v)),
+       if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Votre matière *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la matière' : null)],
+       const SizedBox(height: 10), TextFormField(controller: _composition, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Composition textile', helperText: 'Tissu principal, doublure et rembourrage · pourcentages modifiables')),
+       const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: _styleOptions, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
+       const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() => _seasons = v)),
+       const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() => _uses = v)),
+       if (_uses.contains('Autre...')) ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Vos occasions *', helperText: 'Séparez plusieurs occasions par des virgules'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez au moins une occasion' : null)],
+       const SizedBox(height: 10), TextFormField(controller: _size, decoration: const InputDecoration(labelText: 'Taille (facultative)', helperText: 'Jamais estimée par l’IA')),
+-      const SizedBox(height: 18), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'Temp. min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'Temp. max'))]),
+-      const SizedBox(height: 10), _TriState(label: 'Compatible pluie', value: _rain, onChanged: (v) => setState(() => _rain = v)),
+-      _TriState(label: 'Compatible chaleur', value: _heat, onChanged: (v) => setState(() => _heat = v)),
++      const SizedBox(height: 18), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'ThermalProfile min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'ThermalProfile max'))]),
+       const SizedBox(height: 10), TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
+       const SizedBox(height: 24), FilledButton.icon(style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(58)), onPressed: _saving ? null : _save, icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check), label: const Text('Enregistrer la fiche')),
+     ])),
+   );
+ }
+ 
++ThermalProfile _withUserThermalRange(ThermalProfile source,
++    {required double? standaloneMinC, required double? standaloneMaxC, required DateTime calculatedAt}) {
++  final min = standaloneMinC ?? source.standaloneMinC;
++  final max = standaloneMaxC ?? source.standaloneMaxC;
++  final layeredMinShift = source.standaloneMinC - source.layeredMinC;
++  final layeredMaxShift = source.standaloneMaxC - source.layeredMaxC;
++  return ThermalProfile(
++    standaloneMinC: min, standaloneMaxC: max,
++    layeredMinC: min - layeredMinShift, layeredMaxC: max - layeredMaxShift,
++    level: source.level, insulation: source.insulation, thickness: source.thickness,
++    thermalContributionC: source.thermalContributionC, breathability: source.breathability,
++    windProtection: source.windProtection, rainCompatibility: source.rainCompatibility,
++    primaryRole: source.primaryRole, acceptsUnder: source.acceptsUnder, acceptsOver: source.acceptsOver,
++    modelVersion: source.modelVersion, inputFingerprint: source.inputFingerprint,
++    calculatedAt: calculatedAt, confidence: source.confidence,
++    extensions: {...source.extensions, 'userThermalRange': standaloneMinC != null || standaloneMaxC != null},
++  );
++}
++
+ class _HelpSection extends StatelessWidget {
+   final String title, description;
+   final IconData icon;
+   final List<String> values;
+   const _HelpSection({required this.title, required this.icon, required this.values, required this.description});
+ 
+   @override
+   Widget build(BuildContext context) => ExpansionTile(
+     leading: Icon(icon),
+     title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+     subtitle: Text(description),
+     children: [Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), child: Wrap(spacing: 8, runSpacing: 8, children: values.map((value) => Chip(label: Text(value))).toList()))],
+   );
+ }
+ 
+ class _MultiChoice extends StatelessWidget {
+   final String label; final List<String> values; final Set<String> selected; final ValueChanged<Set<String>> onChanged;
+   const _MultiChoice({required this.label, required this.values, required this.selected, required this.onChanged});
+   @override Widget build(BuildContext context) => InputDecorator(decoration: InputDecoration(labelText: label, helperText: 'Suggestions IA · sélection modifiable'), child: Wrap(spacing: 7, children: values.map((v) => FilterChip(label: Text(v), selected: selected.contains(v), onSelected: (yes) { final next = {...selected}; yes ? next.add(v) : next.remove(v); onChanged(next); })).toList()));
+ }
+ class _Temperature extends StatelessWidget {
+   final TextEditingController controller; final String label; const _Temperature({required this.controller, required this.label});
+   @override Widget build(BuildContext context) => TextFormField(controller: controller, keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[-0-9,.]'))], decoration: InputDecoration(labelText: label, suffixText: '°C', helperText: 'Calcul IA'));
+ }
+-class _TriState extends StatelessWidget {
+-  final String label; final bool? value; final ValueChanged<bool?> onChanged; const _TriState({required this.label, required this.value, required this.onChanged});
+-  @override Widget build(BuildContext context) => DropdownButtonFormField<bool?>(value: value, decoration: InputDecoration(labelText: label, helperText: 'Calcul IA · modifiable'), items: const [DropdownMenuItem(value: null, child: Text('À calculer')), DropdownMenuItem(value: true, child: Text('Oui')), DropdownMenuItem(value: false, child: Text('Non'))], onChanged: onChanged);
+-}
+diff --git a/lib/models/garment.dart b/lib/models/garment.dart
+index cbe821b46a9c35bdcb728aecfad453be697d2989..43998f0cfabee8418fa1aea93a00544efd9d0c75 100644
+--- a/lib/models/garment.dart
++++ b/lib/models/garment.dart
+@@ -156,55 +156,53 @@ class Garment {
+     this.limitesAnalyse,
+     this.wearCount = 0,
+     this.isFavorite = false,
+     required this.createdAt,
+     required this.updatedAt,
+   });
+ 
+   List<GarmentPhoto> get effectivePhotos => photos;
+   bool needsAiReanalysis(String currentVersion) => aiAnalysisVersion == null || aiAnalysisVersion != currentVersion;
+ 
+   List<String> get effectiveSeasons {
+     final source = saisons ?? const <String>[];
+     final expanded = source.expand(
+       (value) => value.trim().toLowerCase() == 'toute saison'
+           ? availableSeasons
+           : [value],
+     );
+     return expanded
+         .map(GarmentNormalizer.value)
+         .whereType<String>()
+         .where(availableSeasons.contains)
+         .toSet()
+         .toList(growable: false);
+   }
+ 
+-  /// Utilisations du vêtement, avec repli sur l'ancien champ unique.
++  /// Utilisations canoniques du vêtement.
+   List<String> get effectiveOccasions {
+-    final source = occasions?.isNotEmpty == true
+-        ? occasions!
+-        : [if (occasion != null) occasion!];
++    final source = occasions ?? const <String>[];
+     return source
+         .map((value) => value.trim())
+         .where((value) => value.isNotEmpty)
+         .toSet()
+         .toList(growable: false);
+   }
+ 
+   ThermalProfile get effectiveThermalProfile => thermalProfile!;
+ 
+   StyleAnalysis get effectiveStyleAnalysis => styleAnalysis!;
+ 
+   StyleInput get styleInput => StyleInput(
+     category: category,
+     subcategory: sousCategorie ?? typePrecis,
+     material: matierePrincipale ?? material ?? composition,
+     fit: coupe ?? fit,
+     color: couleurPrincipale ?? color,
+     pattern: motif,
+     construction: [texture, typeCol, typeFermeture].whereType<String>().join(' '),
+     formality: niveauFormalite,
+     details: [descriptionIA, typePrecis].whereType<String>().join(' '),
+   );
+ 
+   /// Recomputes only the style layer; no image scan is involved.
+   Garment withCurrentStyleAnalysis({StyleClassifier classifier = const StyleClassifier(),
+diff --git a/lib/features/calendar/fake_calendar_service.dart b/test/fakes/fake_calendar_service.dart
+similarity index 91%
+rename from lib/features/calendar/fake_calendar_service.dart
+rename to test/fakes/fake_calendar_service.dart
+index 2b5863c0ec00bc541994b75f68fd864201cc797e..f3d4a0ddc272063a255632ab8886119d515e4f7c 100644
+--- a/lib/features/calendar/fake_calendar_service.dart
++++ b/test/fakes/fake_calendar_service.dart
+@@ -1,27 +1,27 @@
+-import 'calendar_event.dart';
+-import 'calendar_service.dart';
++import 'package:wardrobeos/features/calendar/calendar_event.dart';
++import 'package:wardrobeos/features/calendar/calendar_service.dart';
+ 
+ typedef CalendarClock = DateTime Function();
+ 
+ class FakeCalendarService implements CalendarService, CalendarAvailability {
+   final List<CalendarEvent> _events;
+   final CalendarClock _clock;
+ 
+   FakeCalendarService({
+     List<CalendarEvent> events = const [],
+     CalendarClock clock = DateTime.now,
+   }) : _events = List.unmodifiable(events),
+        _clock = clock;
+ 
+   @override
+   bool get isCalendarAvailable => false;
+ 
+   @override
+   Future<List<CalendarEvent>> getUpcomingEvents({DateTime? from}) async {
+     final start = from ?? _clock();
+     final events =
+         _events.where((event) => !event.endsAt.isBefore(start)).toList()
+           ..sort((a, b) => a.startsAt.compareTo(b.startsAt));
+     return List.unmodifiable(events);
+   }
+ 
+diff --git a/test/features/calendar/calendar_test.dart b/test/features/calendar/calendar_test.dart
+index f3ca3ab3af4bc6b724b35c8a5074cfa863764dd2..a4ccfe25d2144ee810b6bd37932b36816b65e9d1 100644
+--- a/test/features/calendar/calendar_test.dart
++++ b/test/features/calendar/calendar_test.dart
+@@ -1,29 +1,29 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/calendar/calendar_context_builder.dart';
+ import 'package:wardrobeos/features/calendar/calendar_event.dart';
+-import 'package:wardrobeos/features/calendar/fake_calendar_service.dart';
++import '../../fakes/fake_calendar_service.dart';
+ import 'package:wardrobeos/features/calendar/calendar_event_context_mapper.dart';
+ 
+ void main() {
+   final now = DateTime(2026, 7, 18, 12);
+   final event = CalendarEvent(
+     id: 'dinner',
+     title: 'Restaurant',
+     startsAt: DateTime(2026, 7, 18, 20),
+     endsAt: DateTime(2026, 7, 18, 22),
+     type: CalendarEventType.restaurant,
+     location: 'Lyon',
+     formality: EventFormality.smartCasual,
+   );
+ 
+   test('crée un événement extensible', () {
+     expect(event.id, 'dinner');
+     expect(event.type, CalendarEventType.restaurant);
+     expect(event.formality.label, 'élégante décontractée');
+   });
+ 
+   test('récupère le prochain événement important', () async {
+     final service = FakeCalendarService(events: [event], clock: () => now);
+     expect(await service.getNextImportantEvent(), same(event));
+   });
+ 
+diff --git a/test/models_garment_test.dart b/test/models_garment_test.dart
+index efb7a52b42c1d0419ba94b0e1447323952acd54e..e54709cd1d71b51d5f825ee307c98a7f650fa10f 100644
+--- a/test/models_garment_test.dart
++++ b/test/models_garment_test.dart
+@@ -1,55 +1,55 @@
+ import 'dart:convert';
+ 
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/garment_normalizer.dart';
+ import 'package:wardrobeos/models/style_analysis.dart';
+ import 'package:wardrobeos/models/thermal_profile.dart';
+ 
+ void main() {
+-  test('effectiveOccasions preserves multiple uses and supports legacy data', () {
++  test('effectiveOccasions uses only canonical multiple uses', () {
+     final now = DateTime(2026);
+     final legacy = Garment(
+       id: 'legacy',
+       name: 'Chemise',
+       category: 'Chemises',
+       occasion: 'Travail',
+       createdAt: now,
+       updatedAt: now,
+     );
+     final multiple = Garment(
+       id: 'multiple',
+       name: 'Veste',
+       category: 'Vestes',
+       occasion: 'Quotidien',
+       occasions: const ['Travail', 'Voyage', 'Travail'],
+       createdAt: now,
+       updatedAt: now,
+     );
+ 
+-    expect(legacy.effectiveOccasions, ['Travail']);
++    expect(legacy.effectiveOccasions, isEmpty);
+     expect(multiple.effectiveOccasions, ['Travail', 'Voyage']);
+   });
+ 
+   final now = DateTime.utc(2026, 7, 20);
+ 
+   test('supports minimal creation and legacy maps', () {
+     final garment = Garment(
+       id: 'g1',
+       name: 'Chemise',
+       category: 'Chemises',
+       createdAt: now,
+       updatedAt: now,
+     );
+     expect(Garment.fromMap(garment.toMap()), garment);
+     expect(garment.validate(), isNull);
+   });
+ 
+   test('uses multiple canonical seasons', () {
+     final persisted = Garment.fromMap({
+       'id': 'persisted',
+       'name': 'Manteau',
+       'category': 'Vestes',
+       'saisons': jsonEncode(['Hiver']),
+       'created_at': now.toIso8601String(),
+       'updated_at': now.toIso8601String(),

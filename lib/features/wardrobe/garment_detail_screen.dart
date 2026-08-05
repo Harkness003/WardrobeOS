@@ -518,7 +518,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
               garment.color,
               garment.material,
               ...garment.effectiveSeasons,
-              garment.occasion,
+              ...garment.effectiveOccasions,
             ]
             .whereType<String>()
             .map(_cleanText)

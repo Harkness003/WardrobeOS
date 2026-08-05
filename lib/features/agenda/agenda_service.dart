@@ -115,10 +115,7 @@ class AgendaService {
     final wardrobe = (await aiContextService.build()).garments;
     final calendar = await _events(date);
     final weather = await _optionalWeather();
-    if (!calendar.available) {
-      throw StateError('Aucune source calendrier réelle n’est disponible pour contextualiser cette journée.');
-    }
-    final events = calendar.events;
+    final events = calendar.available ? calendar.events : const <CalendarEvent>[];
     final conflict = _eventConflict(events);
     if (conflict != null) throw StateError(conflict);
     final context = _recommendationContext(date, events, weather);
@@ -137,7 +134,7 @@ class AgendaService {
     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
-      justification: proposal.reasons.join(' '), weather: weather, event: events.firstOrNull,
+      justification: _justification(proposal, calendarAvailable: calendar.available), weather: weather, event: events.firstOrNull,
       createdAt: now, updatedAt: now);
     await database.savePlannedOutfit(value);
     return value;
@@ -158,17 +155,16 @@ class AgendaService {
       try {
         final calendar = await _events(date);
         calendarAvailable = calendarAvailable && calendar.available;
-        if (!calendar.available) {
-          throw StateError('Aucune source calendrier réelle n’est disponible pour contextualiser cette journée.');
-        }
-        final conflict = _eventConflict(calendar.events);
+        final events = calendar.available ? calendar.events : const <CalendarEvent>[];
+        final conflict = _eventConflict(events);
         if (conflict != null) throw StateError(conflict);
         final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
-          wardrobe: wardrobe, context: _recommendationContext(date, calendar.events, weather),
+          wardrobe: wardrobe, context: _recommendationContext(date, events, weather),
           preferences: _recommendationPreferences(preferences), proposalCount: 3));
         final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
         if (proposal == null) throw StateError('Dressing insuffisant pour composer une tenue.');
-        final value = await _saveProposal(date, preferences, proposal, weather, calendar.events.firstOrNull);
+        final value = await _saveProposal(date, preferences, proposal, weather, events.firstOrNull,
+          calendarAvailable: calendar.available);
         generated.add(value);
         history.add(value);
       } catch (error) {
@@ -219,18 +215,28 @@ class AgendaService {
       score: source.score, justification: source.justification);
   }
   Future<PlannedOutfit> _saveProposal(DateTime date, AgendaPreferences preferences,
-      OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event) async {
+      OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event,
+      {required bool calendarAvailable}) async {
     final choice = _withAgendaId(proposal.outfit, date);
     await _ensureStored(choice);
     final now = clock();
     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
-      justification: proposal.reasons.join(' '), weather: weather, event: event,
+      justification: _justification(proposal, calendarAvailable: calendarAvailable), weather: weather, event: event,
       createdAt: now, updatedAt: now);
     await database.savePlannedOutfit(value);
     return value;
   }
+  static String _justification(OutfitGenerationProposal proposal, {required bool calendarAvailable}) {
+    final reasons = proposal.reasons.join(' ');
+    if (calendarAvailable) return reasons;
+    return [
+      'Calendrier indisponible, proposition générée sans contexte événement.',
+      if (reasons.trim().isNotEmpty) reasons,
+    ].join(' ');
+  }
+
   static String? _eventConflict(List<CalendarEvent> events) {
     final formalities = events.map((event) => event.formality).toSet();
     if (formalities.contains(EventFormality.sport) &&

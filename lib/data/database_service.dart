@@ -318,7 +318,7 @@ class DatabaseService {
       ('color', color),
       ('material', material),
       ('style_analysis', style),
-      ('occasion', occasion),
+      ('occasions', occasion),
     ]) {
       if (filter.$2.trim().isNotEmpty) {
         where.add('${filter.$1} LIKE ?');

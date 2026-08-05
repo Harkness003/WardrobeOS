@@ -180,7 +180,7 @@ class OutfitGenerationEngine {
       temperatureSuitability: OutfitCriterionScore(value: thermal, explanation: 'Compatibilité thermique des profils calculés.'),
       formality: OutfitCriterionScore(value: formality, explanation: 'Cohérence des niveaux de formalité.'),
       diversity: OutfitCriterionScore(value: diversity, explanation: 'Diversité des catégories sélectionnées.'),
-      overallConfidence: OutfitCriterionScore(value: score.clamp(0, 1).toDouble(), explanation: 'Score pondéré global incluant superposition et rotation.'),
+      overallConfidence: OutfitCriterionScore(value: score.clamp(0, 1).toDouble(), explanation: 'Score pondéré global; la rotation reste un critère secondaire.'),
     );
     return OutfitGenerationProposal(
       outfit: outfit.copyWith(score: criterion, justification: List.unmodifiable(reasons)),

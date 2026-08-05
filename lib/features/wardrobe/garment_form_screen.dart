@@ -7,6 +7,7 @@ import '../../data/image_storage_service.dart';
 import '../../models/garment.dart';
 import '../../models/garment_photo.dart';
 import '../../models/garment_normalizer.dart';
+import '../../models/thermal_profile.dart';
 import '../../models/thermal_profile_calculator.dart';
 import '../../models/style_analysis.dart';
 import '../../widgets/garment_image.dart';
@@ -34,7 +35,6 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
   String? _subCategory, _material;
   late Set<String> _styles, _seasons, _uses;
   late List<String> _styleOptions;
-  bool? _rain, _heat;
   String? _imagePath;
   bool _saving = false;
 
@@ -84,8 +84,6 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     };
     _styleOptions = {...StyleTaxonomy.entries.keys, ..._styles}.toList(growable: false);
     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
-    _rain = g?.compatiblePluie;
-    _heat = g?.compatibleChaleur;
     _imagePath = g == null || g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path;
   }
 
@@ -185,9 +183,15 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
         if (old?.typeFermeture != null) old!.typeFermeture!,
       ],
     );
-    final thermalProfile = const ThermalProfileCalculator().ensureCurrent(
+    final calculatedThermalProfile = const ThermalProfileCalculator().ensureCurrent(
       thermalInput,
       old?.thermalProfile,
+      calculatedAt: now,
+    );
+    final thermalProfile = _withUserThermalRange(
+      calculatedThermalProfile,
+      standaloneMinC: min,
+      standaloneMaxC: max,
       calculatedAt: now,
     );
     final garment = Garment(
@@ -259,12 +263,29 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() => _uses = v)),
       if (_uses.contains('Autre...')) ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Vos occasions *', helperText: 'Séparez plusieurs occasions par des virgules'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez au moins une occasion' : null)],
       const SizedBox(height: 10), TextFormField(controller: _size, decoration: const InputDecoration(labelText: 'Taille (facultative)', helperText: 'Jamais estimée par l’IA')),
-      const SizedBox(height: 18), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'Temp. min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'Temp. max'))]),
-      const SizedBox(height: 10), _TriState(label: 'Compatible pluie', value: _rain, onChanged: (v) => setState(() => _rain = v)),
-      _TriState(label: 'Compatible chaleur', value: _heat, onChanged: (v) => setState(() => _heat = v)),
+      const SizedBox(height: 18), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'ThermalProfile min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'ThermalProfile max'))]),
       const SizedBox(height: 10), TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
       const SizedBox(height: 24), FilledButton.icon(style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(58)), onPressed: _saving ? null : _save, icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check), label: const Text('Enregistrer la fiche')),
     ])),
+  );
+}
+
+ThermalProfile _withUserThermalRange(ThermalProfile source,
+    {required double? standaloneMinC, required double? standaloneMaxC, required DateTime calculatedAt}) {
+  final min = standaloneMinC ?? source.standaloneMinC;
+  final max = standaloneMaxC ?? source.standaloneMaxC;
+  final layeredMinShift = source.standaloneMinC - source.layeredMinC;
+  final layeredMaxShift = source.standaloneMaxC - source.layeredMaxC;
+  return ThermalProfile(
+    standaloneMinC: min, standaloneMaxC: max,
+    layeredMinC: min - layeredMinShift, layeredMaxC: max - layeredMaxShift,
+    level: source.level, insulation: source.insulation, thickness: source.thickness,
+    thermalContributionC: source.thermalContributionC, breathability: source.breathability,
+    windProtection: source.windProtection, rainCompatibility: source.rainCompatibility,
+    primaryRole: source.primaryRole, acceptsUnder: source.acceptsUnder, acceptsOver: source.acceptsOver,
+    modelVersion: source.modelVersion, inputFingerprint: source.inputFingerprint,
+    calculatedAt: calculatedAt, confidence: source.confidence,
+    extensions: {...source.extensions, 'userThermalRange': standaloneMinC != null || standaloneMaxC != null},
   );
 }
 
@@ -291,8 +312,4 @@ class _MultiChoice extends StatelessWidget {
 class _Temperature extends StatelessWidget {
   final TextEditingController controller; final String label; const _Temperature({required this.controller, required this.label});
   @override Widget build(BuildContext context) => TextFormField(controller: controller, keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[-0-9,.]'))], decoration: InputDecoration(labelText: label, suffixText: '°C', helperText: 'Calcul IA'));
-}
-class _TriState extends StatelessWidget {
-  final String label; final bool? value; final ValueChanged<bool?> onChanged; const _TriState({required this.label, required this.value, required this.onChanged});
-  @override Widget build(BuildContext context) => DropdownButtonFormField<bool?>(value: value, decoration: InputDecoration(labelText: label, helperText: 'Calcul IA · modifiable'), items: const [DropdownMenuItem(value: null, child: Text('À calculer')), DropdownMenuItem(value: true, child: Text('Oui')), DropdownMenuItem(value: false, child: Text('Non'))], onChanged: onChanged);
 }

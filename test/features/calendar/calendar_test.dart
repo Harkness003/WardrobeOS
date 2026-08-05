@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/features/calendar/calendar_context_builder.dart';
 import 'package:wardrobeos/features/calendar/calendar_event.dart';
-import 'package:wardrobeos/features/calendar/fake_calendar_service.dart';
+import '../../fakes/fake_calendar_service.dart';
 import 'package:wardrobeos/features/calendar/calendar_event_context_mapper.dart';
 
 void main() {
