@@ -133,10 +133,10 @@ class AssistantService {
       if (first.reasons.isNotEmpty) {
         buffer.write(', notamment ${first.reasons.take(2).join(' et ').toLowerCase()}');
       }
-      final names = first.items.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
+      final names = first.garments.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
       if (names.isNotEmpty) buffer.write('. Proposition concrète : $names');
       if (!hasAlternative && proposals.length > 1) {
-        final altNames = proposals[1].items.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
+        final altNames = proposals[1].garments.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
         if (altNames.isNotEmpty) buffer.write('. Alternative : $altNames');
       }
     } else {
