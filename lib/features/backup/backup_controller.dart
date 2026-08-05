@@ -37,5 +37,18 @@ class BackupController extends ChangeNotifier {
       result = '$total éléments restaurés (${report.manifest.garmentCount} vêtements, ${report.manifest.photoCount} photos).'
         '${report.warnings.isEmpty ? '' : ' Avertissements : ${report.warnings.join(' ')}'}'; pendingRestore = null; pendingPath = null; }); }
   Future<void> _run(Future<void> Function() operation) async { busy = true; result = null; notifyListeners();
-    try { await operation(); } catch (error) { result = 'Échec : $error'; } finally { busy = false; notifyListeners(); } }
+    try { await operation(); } catch (error) { result = 'Échec : ${_friendlyError(error)}'; } finally { busy = false; notifyListeners(); } }
+
+  String _friendlyError(Object error) {
+    if (error is BackupFormatException) return error.message;
+    final text = error.toString().toLowerCase();
+    if (text.contains('cancel')) return 'Opération annulée.';
+    if (text.contains('permission') || text.contains('denied')) {
+      return 'WardrobeOS n’a pas accès à cet emplacement. Choisis un autre dossier.';
+    }
+    if (text.contains('space') || text.contains('no space')) {
+      return 'Espace de stockage insuffisant pour terminer l’opération.';
+    }
+    return 'Opération impossible. Vérifie le fichier ou l’emplacement choisi, puis réessaie.';
+  }
 }

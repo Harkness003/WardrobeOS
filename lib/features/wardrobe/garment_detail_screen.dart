@@ -156,9 +156,11 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     await showModalBottomSheet<void>(context: context, showDragHandle: true,
       builder: (sheetContext) => Padding(padding: const EdgeInsets.all(20), child: Column(
         mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(style.name, style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
-          Text(style.definition), if (style.examples.isNotEmpty) ...[const SizedBox(height: 12), Text('Exemples : ${style.examples.take(3).join(', ')}')],
-          if (style.characteristics.isNotEmpty) ...[const SizedBox(height: 8), Text('Caractéristiques : ${style.characteristics.take(3).join(', ')}')],
+          Text(StyleCatalog.displayName(style.name), style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
+          Text(style.definition),
+          if (style.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('Caractéristiques : ${style.characteristics.take(5).join(', ')}')],
+          if (style.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('Exemples : ${style.examples.take(4).join(', ')}')],
+          if (style.relatedStyleIds.isNotEmpty) ...[const SizedBox(height: 8), Text('Styles proches : ${style.relatedStyleIds.map(StyleCatalog.displayName).take(4).join(', ')}')],
           const SizedBox(height: 12), FilledButton(onPressed: () { Navigator.pop(sheetContext); Navigator.push(context,
             MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: _styles))); }, child: const Text('Voir la fiche complète')),
         ])));
@@ -642,7 +644,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
           ]), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
             for (final style in snapshot.data?.whereType<LibraryStyle>() ?? const <LibraryStyle>[])
               GestureDetector(onLongPress: () => _styleHelp(style.id), child: ActionChip(
-                avatar: const Icon(Icons.info_outline, size: 18), label: Text(style.name), onPressed: () => _styleHelp(style.id))),
+                avatar: const Icon(Icons.info_outline, size: 18), label: Text(StyleCatalog.displayName(style.name)), onPressed: () => _styleHelp(style.id))),
           ])),
           _AiGarmentDetails(garment: garment),
           const SizedBox(height: 26),
@@ -882,7 +884,7 @@ class _AiGarmentDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final styleEntries = <_AiDetailEntry>[
-      _AiDetailEntry.text('Style', garment.effectiveStyleAnalysis.register),
+      _AiDetailEntry.text('Style', StyleCatalog.displayName(garment.effectiveStyleAnalysis.register)),
       _AiDetailEntry.list('Points forts', garment.pointsForts),
       _AiDetailEntry.list('Points faibles', garment.pointsFaibles),
       _AiDetailEntry.list('Conseils', garment.conseils),

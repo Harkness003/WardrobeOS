@@ -99,13 +99,66 @@ class AssistantService {
     return chunks.join();
   }
 
+  String _ensureUsefulResponse(String response) {
+    final trimmed = response.trim();
+    final completion = _qualityCompletion(trimmed);
+    return completion == null ? trimmed : '$trimmed$completion';
+  }
+
+  String? _qualityCompletion(String response) {
+    final text = response.trim();
+    if (text.isEmpty) {
+      return 'Je n’ai pas encore assez d’éléments pour répondre correctement. Reformule ta demande ou précise l’occasion, la météo ou le niveau de style attendu.';
+    }
+    final intent = _lastIntent?.type;
+    final asksAdvice = intent != null && {
+      AssistantIntentType.dailyOutfit,
+      AssistantIntentType.weatherOutfit,
+      AssistantIntentType.eventOutfit,
+      AssistantIntentType.forgottenGarments,
+      AssistantIntentType.wardrobeAnalysis,
+    }.contains(intent);
+    if (!asksAdvice) return null;
+
+    final words = RegExp(r"\S+").allMatches(text).length;
+    final hasReason = RegExp(r'\b(car|parce que|puisque|raison|adapt|cohérent|température|météo|style|therm)', caseSensitive: false).hasMatch(text);
+    final hasAlternative = RegExp(r'\b(alternative|option|sinon|autre|variante)\b', caseSensitive: false).hasMatch(text);
+    final needsSupport = words < 28 || !hasReason;
+    if (!needsSupport) return null;
+
+    final buffer = StringBuffer('\n\nPourquoi : je m’appuie sur les vêtements disponibles dans ton dressing');
+    final proposals = _lastOutfitProposals;
+    if (proposals.isNotEmpty) {
+      final first = proposals.first;
+      if (first.reasons.isNotEmpty) {
+        buffer.write(', notamment ${first.reasons.take(2).join(' et ').toLowerCase()}');
+      }
+      final names = first.items.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
+      if (names.isNotEmpty) buffer.write('. Proposition concrète : $names');
+      if (!hasAlternative && proposals.length > 1) {
+        final altNames = proposals[1].items.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
+        if (altNames.isNotEmpty) buffer.write('. Alternative : $altNames');
+      }
+    } else {
+      buffer.write(', tes préférences connues et le contexte météo ou agenda disponible');
+    }
+    buffer.write('.');
+    return buffer.toString();
+  }
+
   Stream<String> generateMessageStream({String? userMessage}) async* {
     try {
       final prompt = await generatePrompt(userMessage: userMessage);
       if (_llmProvider case final StreamingLlmProvider provider) {
-        yield* provider.generateStream(prompt);
+        final chunks = <String>[];
+        await for (final chunk in provider.generateStream(prompt)) {
+          chunks.add(chunk);
+          yield chunk;
+        }
+        final completion = _qualityCompletion(chunks.join());
+        if (completion != null) yield completion;
       } else {
-        yield await _llmProvider.generate(prompt);
+        yield _ensureUsefulResponse(await _llmProvider.generate(prompt));
       }
     } on LlmException catch (error) {
       yield error.message;
