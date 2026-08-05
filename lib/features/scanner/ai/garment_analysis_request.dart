@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+enum GarmentAnalysisPhase { quick, enrichment }
+
 class GarmentAnalysisRequest {
   final Uint8List imageBytes;
   final String mimeType;
@@ -13,6 +15,7 @@ class GarmentAnalysisRequest {
   final List<Uint8List> previousImageBytes;
   final Map<String, Object?>? previousAnalysis;
   final Set<String> requestedFields;
+  final GarmentAnalysisPhase phase;
 
   const GarmentAnalysisRequest({
     required this.imageBytes,
@@ -27,8 +30,9 @@ class GarmentAnalysisRequest {
     this.previousImageBytes = const [],
     this.previousAnalysis,
     this.requestedFields = const {},
+    this.phase = GarmentAnalysisPhase.enrichment,
   });
 
-  GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType, List<Uint8List>? previousImageBytes}) =>
-      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes ?? this.previousImageBytes, previousAnalysis: previousAnalysis, requestedFields: requestedFields);
+  GarmentAnalysisRequest copyWith({Uint8List? imageBytes, String? mimeType, List<Uint8List>? previousImageBytes, Map<String, Object?>? previousAnalysis, GarmentAnalysisPhase? phase}) =>
+      GarmentAnalysisRequest(imageBytes: imageBytes ?? this.imageBytes, mimeType: mimeType ?? this.mimeType, fileName: fileName, language: language, allowedCategories: allowedCategories, allowedColors: allowedColors, allowedMaterials: allowedMaterials, allowedSeasons: allowedSeasons, existingValues: existingValues, previousImageBytes: previousImageBytes ?? this.previousImageBytes, previousAnalysis: previousAnalysis ?? this.previousAnalysis, requestedFields: requestedFields, phase: phase ?? this.phase);
 }

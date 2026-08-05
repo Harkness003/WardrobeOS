@@ -331,6 +331,7 @@ class GarmentAnalysisResult {
   };
 
   GarmentAnalysisResult copyWith({
+    String? suggestedName,
     String? category,
     String? preciseType,
     String? primaryColor,
@@ -349,11 +350,11 @@ class GarmentAnalysisResult {
     List<String>? warnings,
   }) => GarmentAnalysisResult(
     isUsableImage: isUsableImage, rejectionReason: rejectionReason,
-    suggestedName: suggestedName, category: category,
+    suggestedName: suggestedName ?? this.suggestedName, category: category ?? this.category,
     preciseType: preciseType ?? this.preciseType,
-    primaryColor: primaryColor,
-    material: material, compositions: compositions ?? this.compositions,
-    season: season, visibleBrand: visibleBrand,
+    primaryColor: primaryColor ?? this.primaryColor,
+    material: material ?? this.material, compositions: compositions ?? this.compositions,
+    season: season ?? this.season, visibleBrand: visibleBrand ?? this.visibleBrand,
     globalConfidence: globalConfidence ?? this.globalConfidence,
     imageQualityConfidence: imageQualityConfidence, isBlurry: isBlurry,
     isTooDark: isTooDark, isOverexposed: isOverexposed,

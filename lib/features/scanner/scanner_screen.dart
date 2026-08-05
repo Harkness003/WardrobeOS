@@ -54,6 +54,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
   bool analyzing = false;
   bool saving = false;
   bool imageOwnedByGarment = false;
+  String scanStep = '';
+  String? enrichmentWarning;
+  final scanTimings = <String, Duration>{};
 
   bool get busy => importing || analyzing || saving;
 
@@ -215,7 +218,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
     final initialMaterial = material.text;
     final initialCategory = category;
     final initialSeason = season;
-    setState(() => analyzing = true);
+    var enrichmentStarted = false;
+    setState(() { analyzing = true; scanStep = 'Préparation de la photo…'; enrichmentWarning = null; });
 
     try {
       final validation = await const GarmentImageValidator().validateFile(
@@ -232,8 +236,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
       for (final path in sessionImagePaths.where((path) => path != imagePath)) {
         previousBytes.add(await File(path).readAsBytes());
       }
-      final raw = await scanner.analyze(
-        GarmentAnalysisRequest(
+      final request = GarmentAnalysisRequest(
           imageBytes: bytes,
           mimeType:
               GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
@@ -247,8 +250,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
           },
           previousImageBytes: previousBytes,
           previousAnalysis: result?.toJson(),
-        ),
-      );
+        );
+      setState(() => scanStep = 'Identification du vêtement…');
+      final raw = await scanner.analyzeQuick(request);
       final parsingWatch = Stopwatch()..start();
       final validated = const GarmentAnalysisNormalizer().normalize(GarmentAnalysisValidator(
         categoryNormalizer: const GarmentValueNormalizer(categories),
@@ -294,21 +298,98 @@ class _ScannerScreenState extends State<ScannerScreen> {
         if (mapped.season.isNotEmpty && season == initialSeason) season = mapped.season;
       });
       mergeWatch.stop();
-      assert(() {
-        final timings = scanner.lastTimings;
-        debugPrint('scanner.performance images=${timings?.imagePreparation.inMilliseconds ?? 0}ms, compression=${timings?.compression.inMilliseconds ?? 0}ms, ai=${timings?.aiCall.inMilliseconds ?? 0}ms, parsing=${(timings?.parsing ?? Duration.zero).inMilliseconds + parsingWatch.elapsedMilliseconds}ms, fusion=${mergeWatch.elapsedMilliseconds}ms, total=${(timings?.total ?? Duration.zero).inMilliseconds + parsingWatch.elapsedMilliseconds + mergeWatch.elapsedMilliseconds}ms');
-        return true;
-      }());
-      setState(() => analyzing = false);
-      if (decision.canFinishAutomatically) await _openFullForm();
+      _recordTimings('quick', parsingWatch.elapsed, mergeWatch.elapsed);
+      if (!mounted) return;
+      setState(() => scanStep = 'Analyse stylistique en cours…');
+      enrichmentStarted = true;
+      unawaited(_runEnrichment(request, validated, initialName, initialBrand, initialColor, initialMaterial, initialCategory, initialSeason));
     } on GarmentAnalysisException catch (error) {
       if (!mounted) return;
       _toast(_friendlyAnalysisError(error));
     } catch (_) {
       if (mounted) _toast('Analyse impossible pour le moment. Réessaie.');
     } finally {
+      if (mounted && !enrichmentStarted) setState(() => analyzing = false);
+    }
+  }
+
+
+  Future<void> _runEnrichment(
+    GarmentAnalysisRequest request,
+    GarmentAnalysisResult quickResult,
+    String initialName,
+    String initialBrand,
+    String initialColor,
+    String initialMaterial,
+    String initialCategory,
+    String initialSeason,
+  ) async {
+    try {
+      final raw = await scanner.enrich(request.copyWith(phase: GarmentAnalysisPhase.enrichment));
+      final parsingWatch = Stopwatch()..start();
+      final enriched = const GarmentAnalysisNormalizer().normalize(GarmentAnalysisValidator(
+        categoryNormalizer: const GarmentValueNormalizer(categories),
+        colorNormalizer: const GarmentValueNormalizer(colors),
+        materialNormalizer: const GarmentValueNormalizer(materials),
+        seasonNormalizer: const GarmentValueNormalizer(seasons),
+      ).validate(raw).analysis);
+      parsingWatch.stop();
+      if (!enriched.isUsableImage) throw GarmentAnalysisException(GarmentAnalysisError.rejectedImage, enriched.rejectionReason ?? 'Analyse avancée indisponible.');
+      final mergeWatch = Stopwatch()..start();
+      final merged = _mergeAnalysis(quickResult, enriched);
+      final mapped = const GarmentAnalysisMapper(categories: categories, colors: colors, materials: materials, seasons: seasons).map(
+        merged,
+        current: GarmentFormValues(name: name.text, category: category, color: color.text, material: material.text, season: season, brand: brand.text),
+      );
+      if (!mounted) return;
+      final decision = const ScanConversationPolicy().evaluate(merged);
+      setState(() {
+        result = merged;
+        conversation = decision;
+        enrichmentWarning = null;
+        if (name.text == initialName || name.text.trim().isEmpty) name.text = mapped.name;
+        if (brand.text == initialBrand || brand.text.trim().isEmpty) brand.text = mapped.brand;
+        if (color.text == initialColor || color.text.trim().isEmpty) color.text = mapped.color;
+        if (material.text == initialMaterial || material.text.trim().isEmpty) material.text = mapped.material;
+        if (mapped.category.isNotEmpty && category == initialCategory) category = mapped.category;
+        if (mapped.season.isNotEmpty && season == initialSeason) season = mapped.season;
+        scanStep = 'Analyse complète';
+      });
+      mergeWatch.stop();
+      _recordTimings('enrichment', parsingWatch.elapsed, mergeWatch.elapsed);
+      if (decision.canFinishAutomatically) await _openFullForm();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        enrichmentWarning = 'Analyse avancée indisponible, vous pouvez compléter la fiche.';
+        scanStep = 'Vêtement identifié';
+      });
+    } finally {
       if (mounted) setState(() => analyzing = false);
     }
+  }
+
+  GarmentAnalysisResult _mergeAnalysis(GarmentAnalysisResult quick, GarmentAnalysisResult enriched) => enriched.copyWith(
+    suggestedName: enriched.suggestedName ?? quick.suggestedName,
+    category: enriched.category ?? quick.category,
+    preciseType: enriched.preciseType ?? quick.preciseType,
+    primaryColor: enriched.primaryColor ?? quick.primaryColor,
+    visibleBrand: enriched.visibleBrand ?? quick.visibleBrand,
+    globalConfidence: enriched.globalConfidence == 0 ? quick.globalConfidence : enriched.globalConfidence,
+    fieldConfidences: {...quick.fieldConfidences, ...enriched.fieldConfidences},
+    warnings: {...quick.warnings, ...enriched.warnings}.toList(growable: false),
+  );
+
+  void _recordTimings(String phase, Duration parsing, Duration fusion) {
+    final timings = scanner.lastTimings;
+    setState(() {
+      scanTimings['$phase.imagePreparation'] = timings?.imagePreparation ?? Duration.zero;
+      scanTimings['$phase.compression'] = timings?.compression ?? Duration.zero;
+      scanTimings['$phase.aiCall'] = timings?.aiCall ?? Duration.zero;
+      scanTimings['$phase.parsing'] = (timings?.parsing ?? Duration.zero) + parsing;
+      scanTimings['$phase.fusion'] = fusion;
+      scanTimings['$phase.total'] = (timings?.total ?? Duration.zero) + parsing + fusion;
+    });
   }
 
   String _friendlyAnalysisError(GarmentAnalysisException exception) => switch (
@@ -549,7 +630,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 const SizedBox(height: 14),
               ],
               if (result case final analysis?) ...[
-                _DetectedDataCard(analysis: analysis),
+                _DetectedDataCard(analysis: analysis, analyzing: analyzing, step: scanStep, warning: enrichmentWarning),
                 const SizedBox(height: 14),
               ],
               if (result?.reliabilitySummary.hasDetails == true) ...[
@@ -609,7 +690,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
 class _DetectedDataCard extends StatelessWidget {
   final GarmentAnalysisResult analysis;
-  const _DetectedDataCard({required this.analysis});
+  final bool analyzing;
+  final String step;
+  final String? warning;
+  const _DetectedDataCard({required this.analysis, this.analyzing = false, this.step = '', this.warning});
 
   @override
   Widget build(BuildContext context) {
@@ -641,13 +725,21 @@ class _DetectedDataCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Fiche détectée', style: TextStyle(fontWeight: FontWeight.w900)),
+            Text(step.isEmpty ? 'Fiche détectée' : step, style: const TextStyle(fontWeight: FontWeight.w900)),
             const SizedBox(height: 10),
             for (final row in rows)
               Padding(
                 padding: const EdgeInsets.only(bottom: 5),
                 child: Text('${row.$1} · ${row.$2}'),
               ),
+            if (analyzing) ...const [
+              Divider(height: 20),
+              Text('Encore en analyse : matière · composition · StyleAnalysis · ThermalProfile · occasions'),
+            ],
+            if (warning != null) ...[
+              const Divider(height: 20),
+              Text(warning!, style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.w800)),
+            ],
           ],
         ),
       ),

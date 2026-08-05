@@ -170,14 +170,27 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
     'text': {
       'format': {
         'type': 'json_schema',
-        'name': 'garment_analysis',
+        'name': request.phase == GarmentAnalysisPhase.quick ? 'garment_quick_analysis' : 'garment_analysis',
         'strict': true,
-        'schema': _schema,
+        'schema': request.phase == GarmentAnalysisPhase.quick ? _quickSchema : _schema,
       },
     },
   };
 
-  String _prompt(GarmentAnalysisRequest request) => '''
+  String _prompt(GarmentAnalysisRequest request) => request.phase == GarmentAnalysisPhase.quick ? _quickPrompt(request) : _enrichmentPrompt(request);
+
+  String _quickPrompt(GarmentAnalysisRequest request) => '''
+Tu analyses uniquement le vêtement principal visible. Objectif : identification rapide en quelques secondes.
+Retourne uniquement les champs visuels prioritaires : nom probable, category, preciseType, primaryColor et visibleBrand si clairement lisible.
+N'invente jamais une marque, une matière ou une composition. Pour trench, favorise category=Vestes et preciseType=trench. Pour polo, favorise category=Hauts et preciseType=polo.
+Utilise exclusivement ces valeurs :
+category=${jsonEncode(request.allowedCategories)}
+primaryColor=${jsonEncode(request.allowedColors)}
+Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
+${jsonEncode(request.existingValues)}
+''';
+
+  String _enrichmentPrompt(GarmentAnalysisRequest request) => '''
 Tu analyses uniquement le vêtement principal visible. Ignore la personne, le
 visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne.
 Réponds en ${request.language} et uniquement selon le schéma JSON. N'invente
@@ -230,6 +243,47 @@ Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}
 ''';
 
   static const _nullableString = {'type': ['string', 'null']};
+
+  static const _quickSchema = {
+    'type': 'object',
+    'additionalProperties': false,
+    'required': [
+      'isUsableImage',
+      'rejectionReason',
+      'suggestedName',
+      'category',
+      'preciseType',
+      'primaryColor',
+      'visibleBrand',
+      'globalConfidence',
+      'fieldConfidences',
+      'warnings',
+    ],
+    'properties': {
+      'isUsableImage': {'type': 'boolean'},
+      'rejectionReason': _nullableString,
+      'suggestedName': _nullableString,
+      'category': _nullableString,
+      'preciseType': _nullableString,
+      'primaryColor': _nullableString,
+      'visibleBrand': _nullableString,
+      'globalConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+      'fieldConfidences': {
+        'type': 'array',
+        'items': {
+          'type': 'object',
+          'additionalProperties': false,
+          'required': ['field', 'confidence'],
+          'properties': {
+            'field': {'type': 'string'},
+            'confidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+          },
+        },
+      },
+      'warnings': {'type': 'array', 'items': {'type': 'string'}},
+    },
+  };
+
   static const _schema = {
     'type': 'object',
     'additionalProperties': false,
