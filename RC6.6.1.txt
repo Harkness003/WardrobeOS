@@ -1,0 +1,259 @@
+diff --git a/lib/features/scanner/ai/fake_garment_vision_analyzer.dart b/lib/features/scanner/ai/fake_garment_vision_analyzer.dart
+index ef54dbd62310dbae17d45b7d251924b0acd7b0c3..76db40cde7d92add5c918741c22e897def309d9a 100644
+--- a/lib/features/scanner/ai/fake_garment_vision_analyzer.dart
++++ b/lib/features/scanner/ai/fake_garment_vision_analyzer.dart
+@@ -1,48 +1,76 @@
+ import 'garment_analysis_exception.dart';
+ import 'garment_analysis_request.dart';
+ import 'garment_analysis_result.dart';
+ import 'garment_vision_analyzer.dart';
+ 
+ enum FakeGarmentVisionScenario {
+   highConfidence, mediumConfidence, lowConfidence, blurry, tooDark,
+   multipleGarments, inconsistent, timeout, networkError, quotaExceeded,
+   invalidJson,
+ }
+ 
+ class FakeGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
+   final FakeGarmentVisionScenario scenario;
++  final GarmentAnalysisResult? quickResult;
++  final GarmentAnalysisResult? enrichmentResult;
++  final Object? enrichmentError;
+   final Duration delay;
+ 
+   const FakeGarmentVisionAnalyzer({
+     this.scenario = FakeGarmentVisionScenario.highConfidence,
++    this.quickResult,
++    this.enrichmentResult,
++    this.enrichmentError,
+     this.delay = Duration.zero,
+   });
+ 
+   @override
+   Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
++    return switch (request.phase) {
++      GarmentAnalysisPhase.quick => analyzeQuick(request),
++      GarmentAnalysisPhase.enrichment => enrich(request),
++    };
++  }
++
++  @override
++  Future<GarmentAnalysisResult> analyzeQuick(GarmentAnalysisRequest request) async {
++    if (delay > Duration.zero) await Future<void>.delayed(delay);
++    if (quickResult != null) return quickResult!;
++    return _scenarioResult();
++  }
++
++  @override
++  Future<GarmentAnalysisResult> enrich(GarmentAnalysisRequest request) async {
+     if (delay > Duration.zero) await Future<void>.delayed(delay);
++    final error = enrichmentError;
++    if (error != null) throw error;
++    if (enrichmentResult != null) return enrichmentResult!;
++    return _scenarioResult();
++  }
++
++  GarmentAnalysisResult _scenarioResult() {
+     return switch (scenario) {
+       FakeGarmentVisionScenario.highConfidence => const GarmentAnalysisResult(
+         isUsableImage: true,
+         suggestedName: 'Chemise bleue',
+         category: 'Chemises',
+         primaryColor: 'Bleu',
+         material: 'Coton',
+         season: 'Toute saison',
+         globalConfidence: .91,
+         fieldConfidences: {'category': .96, 'primaryColor': .94, 'material': .84},
+       ),
+       FakeGarmentVisionScenario.mediumConfidence => const GarmentAnalysisResult(isUsableImage: true, category: 'Chemises', primaryColor: 'Bleu', globalConfidence: .67, fieldConfidences: {'category': .72, 'primaryColor': .68}),
+       FakeGarmentVisionScenario.lowConfidence => const GarmentAnalysisResult(
+         isUsableImage: true,
+         category: 'Hauts',
+         globalConfidence: .31,
+         warnings: ['Vêtement partiellement visible.'],
+       ),
+       FakeGarmentVisionScenario.blurry => const GarmentAnalysisResult(isUsableImage: true, globalConfidence: .56, imageQualityConfidence: .45, isBlurry: true, imageQualityWarnings: ['La photo semble floue.']),
+       FakeGarmentVisionScenario.tooDark => const GarmentAnalysisResult(isUsableImage: true, globalConfidence: .52, imageQualityConfidence: .4, isTooDark: true, imageQualityWarnings: ['La photo est trop sombre.']),
+       FakeGarmentVisionScenario.multipleGarments => const GarmentAnalysisResult(isUsableImage: false, rejectionReason: 'Plusieurs vêtements principaux sont indissociables.', globalConfidence: .1, multipleMainGarments: true),
+       FakeGarmentVisionScenario.inconsistent => const GarmentAnalysisResult(isUsableImage: true, category: 'Chaussures', material: 'Inconnu', globalConfidence: 1, fieldConfidences: {'material': .2}),
+       FakeGarmentVisionScenario.timeout => throw const GarmentAnalysisException(GarmentAnalysisError.timeout, 'L’analyse prend trop de temps. Réessayez.'),
+       FakeGarmentVisionScenario.networkError => throw const GarmentAnalysisException(
+         GarmentAnalysisError.network,
+diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+index fc4bef1243622fec38c4fc82263381b95db16d23..8cecc8334e781115999f68e738861dfd8c671642 100644
+--- a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+@@ -29,50 +29,64 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
+   final http.Client client;
+   final Duration timeout;
+   final String model;
+   final GarmentImagePreprocessor preprocessor;
+   final int maxRetries;
+   final bool _ownsClient;
+   GarmentAnalysisTimings? lastTimings;
+ 
+   OpenAiGarmentVisionAnalyzer({
+     required this.apiKeyStorage,
+     http.Client? client,
+     this.timeout = const Duration(seconds: 45),
+     this.model = defaultModel,
+     this.preprocessor = const GarmentImagePreprocessor(),
+     this.maxRetries = 1,
+   }) : client = client ?? http.Client(),
+        _ownsClient = client == null;
+ 
+   /// Releases the HTTP client created by this analyzer.
+   void close() {
+     if (_ownsClient) client.close();
+   }
+ 
+   @override
+   Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
++    return _analyze(request);
++  }
++
++  @override
++  Future<GarmentAnalysisResult> analyzeQuick(GarmentAnalysisRequest request) {
++    return _analyze(request.copyWith(phase: GarmentAnalysisPhase.quick));
++  }
++
++  @override
++  Future<GarmentAnalysisResult> enrich(GarmentAnalysisRequest request) {
++    return _analyze(request.copyWith(phase: GarmentAnalysisPhase.enrichment));
++  }
++
++  Future<GarmentAnalysisResult> _analyze(GarmentAnalysisRequest request) async {
+     final totalWatch = Stopwatch()..start();
+     if (request.imageBytes.isEmpty) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.missingImage,
+         'Aucune image à analyser.',
+       );
+     }
+     if (!supportedMimeTypes.contains(request.mimeType)) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.unsupportedFormat,
+         'Ce format d’image n’est pas pris en charge.',
+       );
+     }
+     final apiKey = await apiKeyStorage.read();
+     if (apiKey == null) {
+       throw const GarmentAnalysisException(
+         GarmentAnalysisError.missingApiKey,
+         'Configurez votre clé OpenAI pour utiliser l’analyse IA.',
+       );
+     }
+ 
+     final preparationWatch = Stopwatch()..start();
+     final compressionWatch = Stopwatch()..start();
+     final prepared = preprocessor.prepareBytes(request.imageBytes, mimeType: request.mimeType);
+     final previous = request.previousImageBytes.map((bytes) => preprocessor.prepareBytes(
+diff --git a/test/features/scanner/garment_analysis_progressive_test.dart b/test/features/scanner/garment_analysis_progressive_test.dart
+index f66494f211ca51d64c699da52c7e04d8544b44ec..fdc084b69db2726c8dac322c227d2fec4694e3b3 100644
+--- a/test/features/scanner/garment_analysis_progressive_test.dart
++++ b/test/features/scanner/garment_analysis_progressive_test.dart
+@@ -1,71 +1,81 @@
+ import 'dart:typed_data';
+ 
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/scanner/ai/garment_analysis_request.dart';
+ import 'package:wardrobeos/features/scanner/ai/garment_analysis_result.dart';
+ import 'package:wardrobeos/features/scanner/ai/garment_vision_analyzer.dart';
+ import 'package:wardrobeos/models/garment_normalizer.dart';
+ import 'package:wardrobeos/models/thermal_profile_calculator.dart';
+ 
+ class _ProgressiveAnalyzer implements GarmentVisionAnalyzer {
+   int quickCalls = 0;
+   int enrichmentCalls = 0;
+   final bool failEnrichment;
+ 
+   _ProgressiveAnalyzer({this.failEnrichment = false});
+ 
+   @override
+   Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
+     switch (request.phase) {
+       case GarmentAnalysisPhase.quick:
+-        quickCalls++;
+-        return const GarmentAnalysisResult(
+-          isUsableImage: true,
+-          suggestedName: 'Polo bleu',
+-          category: 'Hauts',
+-          preciseType: 'polo',
+-          primaryColor: 'Bleu',
+-          globalConfidence: .82,
+-        );
++        return analyzeQuick(request);
+       case GarmentAnalysisPhase.enrichment:
+-        enrichmentCalls++;
+-        if (failEnrichment) throw StateError('advanced unavailable');
+-        return const GarmentAnalysisResult(
+-          isUsableImage: true,
+-          suggestedName: 'Polo bleu',
+-          category: 'Hauts',
+-          preciseType: 'polo',
+-          primaryColor: 'Bleu',
+-          material: 'Coton',
+-          compositions: [TextileComposition(section: 'main', material: 'Coton', percentage: 100)],
+-          styleSummary: 'Polo casual net.',
+-          idealOccasions: ['Quotidien'],
+-          globalConfidence: .91,
+-        );
++        return enrich(request);
+     }
+   }
++
++  @override
++  Future<GarmentAnalysisResult> analyzeQuick(GarmentAnalysisRequest request) async {
++    quickCalls++;
++    return const GarmentAnalysisResult(
++      isUsableImage: true,
++      suggestedName: 'Polo bleu',
++      category: 'Hauts',
++      preciseType: 'polo',
++      primaryColor: 'Bleu',
++      globalConfidence: .82,
++    );
++  }
++
++  @override
++  Future<GarmentAnalysisResult> enrich(GarmentAnalysisRequest request) async {
++    enrichmentCalls++;
++    if (failEnrichment) throw StateError('advanced unavailable');
++    return const GarmentAnalysisResult(
++      isUsableImage: true,
++      suggestedName: 'Polo bleu',
++      category: 'Hauts',
++      preciseType: 'polo',
++      primaryColor: 'Bleu',
++      material: 'Coton',
++      compositions: [TextileComposition(section: 'main', material: 'Coton', percentage: 100)],
++      styleSummary: 'Polo casual net.',
++      idealOccasions: ['Quotidien'],
++      globalConfidence: .91,
++    );
++  }
+ }
+ 
+ void main() {
+   final request = GarmentAnalysisRequest(
+     imageBytes: Uint8List.fromList([1, 2, 3]),
+     mimeType: 'image/jpeg',
+     allowedCategories: ['Hauts', 'Vestes'],
+     allowedColors: ['Bleu', 'Beige'],
+     allowedMaterials: ['Coton'],
+     allowedSeasons: ['Toute saison'],
+   );
+ 
+   test('analyse rapide disponible avant enrichissement tardif', () async {
+     final analyzer = _ProgressiveAnalyzer();
+ 
+     final quick = await analyzer.analyzeQuick(request);
+     expect(quick.suggestedName, 'Polo bleu');
+     expect(quick.category, 'Hauts');
+     expect(quick.preciseType, 'polo');
+     expect(quick.primaryColor, 'Bleu');
+     expect(quick.material, isNull);
+ 
+     final enriched = await analyzer.enrich(request.copyWith(previousAnalysis: quick.toJson()));
+     expect(enriched.material, 'Coton');
+     expect(enriched.styleSummary, isNotNull);

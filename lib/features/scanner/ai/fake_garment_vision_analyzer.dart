@@ -11,16 +11,44 @@ enum FakeGarmentVisionScenario {
 
 class FakeGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
   final FakeGarmentVisionScenario scenario;
+  final GarmentAnalysisResult? quickResult;
+  final GarmentAnalysisResult? enrichmentResult;
+  final Object? enrichmentError;
   final Duration delay;
 
   const FakeGarmentVisionAnalyzer({
     this.scenario = FakeGarmentVisionScenario.highConfidence,
+    this.quickResult,
+    this.enrichmentResult,
+    this.enrichmentError,
     this.delay = Duration.zero,
   });
 
   @override
   Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
+    return switch (request.phase) {
+      GarmentAnalysisPhase.quick => analyzeQuick(request),
+      GarmentAnalysisPhase.enrichment => enrich(request),
+    };
+  }
+
+  @override
+  Future<GarmentAnalysisResult> analyzeQuick(GarmentAnalysisRequest request) async {
     if (delay > Duration.zero) await Future<void>.delayed(delay);
+    if (quickResult != null) return quickResult!;
+    return _scenarioResult();
+  }
+
+  @override
+  Future<GarmentAnalysisResult> enrich(GarmentAnalysisRequest request) async {
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
+    final error = enrichmentError;
+    if (error != null) throw error;
+    if (enrichmentResult != null) return enrichmentResult!;
+    return _scenarioResult();
+  }
+
+  GarmentAnalysisResult _scenarioResult() {
     return switch (scenario) {
       FakeGarmentVisionScenario.highConfidence => const GarmentAnalysisResult(
         isUsableImage: true,

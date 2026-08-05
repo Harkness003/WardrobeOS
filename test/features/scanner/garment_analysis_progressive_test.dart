@@ -18,31 +18,41 @@ class _ProgressiveAnalyzer implements GarmentVisionAnalyzer {
   Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
     switch (request.phase) {
       case GarmentAnalysisPhase.quick:
-        quickCalls++;
-        return const GarmentAnalysisResult(
-          isUsableImage: true,
-          suggestedName: 'Polo bleu',
-          category: 'Hauts',
-          preciseType: 'polo',
-          primaryColor: 'Bleu',
-          globalConfidence: .82,
-        );
+        return analyzeQuick(request);
       case GarmentAnalysisPhase.enrichment:
-        enrichmentCalls++;
-        if (failEnrichment) throw StateError('advanced unavailable');
-        return const GarmentAnalysisResult(
-          isUsableImage: true,
-          suggestedName: 'Polo bleu',
-          category: 'Hauts',
-          preciseType: 'polo',
-          primaryColor: 'Bleu',
-          material: 'Coton',
-          compositions: [TextileComposition(section: 'main', material: 'Coton', percentage: 100)],
-          styleSummary: 'Polo casual net.',
-          idealOccasions: ['Quotidien'],
-          globalConfidence: .91,
-        );
+        return enrich(request);
     }
+  }
+
+  @override
+  Future<GarmentAnalysisResult> analyzeQuick(GarmentAnalysisRequest request) async {
+    quickCalls++;
+    return const GarmentAnalysisResult(
+      isUsableImage: true,
+      suggestedName: 'Polo bleu',
+      category: 'Hauts',
+      preciseType: 'polo',
+      primaryColor: 'Bleu',
+      globalConfidence: .82,
+    );
+  }
+
+  @override
+  Future<GarmentAnalysisResult> enrich(GarmentAnalysisRequest request) async {
+    enrichmentCalls++;
+    if (failEnrichment) throw StateError('advanced unavailable');
+    return const GarmentAnalysisResult(
+      isUsableImage: true,
+      suggestedName: 'Polo bleu',
+      category: 'Hauts',
+      preciseType: 'polo',
+      primaryColor: 'Bleu',
+      material: 'Coton',
+      compositions: [TextileComposition(section: 'main', material: 'Coton', percentage: 100)],
+      styleSummary: 'Polo casual net.',
+      idealOccasions: ['Quotidien'],
+      globalConfidence: .91,
+    );
   }
 }
 

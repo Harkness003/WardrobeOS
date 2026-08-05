@@ -51,6 +51,20 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
 
   @override
   Future<GarmentAnalysisResult> analyze(GarmentAnalysisRequest request) async {
+    return _analyze(request);
+  }
+
+  @override
+  Future<GarmentAnalysisResult> analyzeQuick(GarmentAnalysisRequest request) {
+    return _analyze(request.copyWith(phase: GarmentAnalysisPhase.quick));
+  }
+
+  @override
+  Future<GarmentAnalysisResult> enrich(GarmentAnalysisRequest request) {
+    return _analyze(request.copyWith(phase: GarmentAnalysisPhase.enrichment));
+  }
+
+  Future<GarmentAnalysisResult> _analyze(GarmentAnalysisRequest request) async {
     final totalWatch = Stopwatch()..start();
     if (request.imageBytes.isEmpty) {
       throw const GarmentAnalysisException(
