@@ -17,12 +17,23 @@ class BackupController extends ChangeNotifier {
     return 'WardrobeOS_backup_${now.year}-${two(now.month)}-${two(now.day)}_${two(now.hour)}-${two(now.minute)}.zip';
   }
   Future<void> createBackup() async {
-    final path = await FilePicker.platform.saveFile(dialogTitle: 'Enregistrer la sauvegarde WardrobeOS',
-      fileName: defaultFileName(DateTime.now()), type: FileType.custom, allowedExtensions: const ['zip']);
-    if (path == null) return;
-    await _run(() async { final archive = await backupService.createBackup();
-      lastBackup = await backupService.writeBackup(archive, path); lastLocation = path;
-      result = 'Sauvegarde réussie : ${lastBackup!.garmentCount} vêtements et ${lastBackup!.photoCount} photos exportés.'; });
+    await _run(() async {
+      final selectedPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Enregistrer la sauvegarde WardrobeOS',
+        fileName: defaultFileName(DateTime.now()),
+        type: FileType.custom,
+        allowedExtensions: const ['zip'],
+      );
+      if (selectedPath == null) {
+        result = 'Sauvegarde annulée.';
+        return;
+      }
+      final path = selectedPath.toLowerCase().endsWith('.zip') ? selectedPath : '$selectedPath.zip';
+      final archive = await backupService.createBackup();
+      lastBackup = await backupService.writeBackup(archive, path);
+      lastLocation = path;
+      result = 'Backup créé : ${_fileName(path)}';
+    }, failurePrefix: 'Impossible de créer la sauvegarde');
   }
   Future<bool> selectRestore() async {
     final selection = await FilePicker.platform.pickFiles(dialogTitle: 'Choisir une sauvegarde WardrobeOS',
@@ -36,8 +47,10 @@ class BackupController extends ChangeNotifier {
       final total = report.restored.values.fold<int>(0, (a, b) => a + b);
       result = '$total éléments restaurés (${report.manifest.garmentCount} vêtements, ${report.manifest.photoCount} photos).'
         '${report.warnings.isEmpty ? '' : ' Avertissements : ${report.warnings.join(' ')}'}'; pendingRestore = null; pendingPath = null; }); }
-  Future<void> _run(Future<void> Function() operation) async { busy = true; result = null; notifyListeners();
-    try { await operation(); } catch (error) { result = 'Échec : ${_friendlyError(error)}'; } finally { busy = false; notifyListeners(); } }
+  Future<void> _run(Future<void> Function() operation, {String failurePrefix = 'Échec'}) async { busy = true; result = null; notifyListeners();
+    try { await operation(); } catch (error) { result = '$failurePrefix : ${_friendlyError(error)}'; } finally { busy = false; notifyListeners(); } }
+
+  String _fileName(String path) => path.split(RegExp(r'[\\/]')).last;
 
   String _friendlyError(Object error) {
     if (error is BackupFormatException) return error.message;

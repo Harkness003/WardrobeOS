@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/database_service.dart';
 import '../../models/garment.dart';
+import '../../models/style_analysis.dart';
 import '../../models/outfit.dart';
 import '../../models/wear_history.dart';
 import '../../widgets/garment_image.dart';
@@ -34,6 +35,20 @@ List<String> _cleanDisplayList(Iterable<String>? values) =>
         .whereType<String>()
         .toSet()
         .toList(growable: false);
+
+String _localizeStyleTokens(String value) {
+  var localized = value;
+  for (final id in StyleTaxonomy.entries.keys) {
+    localized = localized.replaceAllMapped(
+      RegExp('(^|[^A-Za-z0-9])' + RegExp.escape(id) + r'(?=[^A-Za-z0-9]|$)', caseSensitive: false),
+      (match) => '${match.group(1) ?? ''}${StyleCatalog.displayName(id)}',
+    );
+  }
+  return StyleCatalog.displayName(localized);
+}
+
+List<String> _localizeStyleList(Iterable<String>? values) =>
+    _cleanDisplayList(values).map(_localizeStyleTokens).toList(growable: false);
 
 
 String _fieldLabel(String field) => const {
@@ -156,10 +171,12 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     await showModalBottomSheet<void>(context: context, showDragHandle: true,
       builder: (sheetContext) => Padding(padding: const EdgeInsets.all(20), child: Column(
         mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(StyleCatalog.displayName(style.name), style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
-          Text(style.definition),
-          if (style.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('Caractéristiques : ${style.characteristics.take(5).join(', ')}')],
-          if (style.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('Exemples : ${style.examples.take(4).join(', ')}')],
+          Text(StyleCatalog.displayName(style.id), style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
+          Text(_cleanDisplayText(style.definition) ?? _cleanDisplayText(style.description) ?? 'Description bientôt disponible.'),
+          if (style.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('Caractéristiques : ${_localizeStyleList(style.characteristics).take(5).join(', ')}')],
+          if (style.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('Exemples de vêtements : ${_localizeStyleList(style.examples).take(4).join(', ')}')],
+          if (style.colors.isNotEmpty) ...[const SizedBox(height: 8), Text('Couleurs associées : ${_localizeStyleList(style.colors).take(5).join(', ')}')],
+          if (style.materials.isNotEmpty) ...[const SizedBox(height: 8), Text('Matières fréquentes : ${_localizeStyleList(style.materials).take(5).join(', ')}')],
           if (style.relatedStyleIds.isNotEmpty) ...[const SizedBox(height: 8), Text('Styles proches : ${style.relatedStyleIds.map(StyleCatalog.displayName).take(4).join(', ')}')],
           const SizedBox(height: 12), FilledButton(onPressed: () { Navigator.pop(sheetContext); Navigator.push(context,
             MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: _styles))); }, child: const Text('Voir la fiche complète')),
@@ -643,8 +660,16 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
             ...garment.effectiveStyleAnalysis.secondaryStyles.map(_styles.find),
           ]), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
             for (final style in snapshot.data?.whereType<LibraryStyle>() ?? const <LibraryStyle>[])
-              GestureDetector(onLongPress: () => _styleHelp(style.id), child: ActionChip(
-                avatar: const Icon(Icons.info_outline, size: 18), label: Text(StyleCatalog.displayName(style.name)), onPressed: () => _styleHelp(style.id))),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onLongPress: () => _styleHelp(style.id),
+                child: ActionChip(
+                  avatar: const Icon(Icons.info_outline, size: 18),
+                  label: Text(StyleCatalog.displayName(style.id)),
+                  tooltip: 'Maintenir pour voir la fiche style',
+                  onPressed: () => _styleHelp(style.id),
+                ),
+              ),
           ])),
           _AiGarmentDetails(garment: garment),
           const SizedBox(height: 26),
@@ -885,6 +910,7 @@ class _AiGarmentDetails extends StatelessWidget {
   Widget build(BuildContext context) {
     final styleEntries = <_AiDetailEntry>[
       _AiDetailEntry.text('Style', StyleCatalog.displayName(garment.effectiveStyleAnalysis.register)),
+      _AiDetailEntry.list('Styles secondaires', garment.effectiveStyleAnalysis.secondaryStyles.map(StyleCatalog.displayName)),
       _AiDetailEntry.list('Points forts', garment.pointsForts),
       _AiDetailEntry.list('Points faibles', garment.pointsFaibles),
       _AiDetailEntry.list('Conseils', garment.conseils),
@@ -1015,10 +1041,10 @@ class _AiDetailEntry {
   final List<String> values;
 
   _AiDetailEntry.text(this.label, String? value)
-    : values = _cleanDisplayList(value == null ? const [] : [value]);
+    : values = _localizeStyleList(value == null ? const [] : [value]);
 
   _AiDetailEntry.list(this.label, Iterable<String>? values)
-    : values = _cleanDisplayList(values);
+    : values = _localizeStyleList(values);
 
   bool get isNotEmpty => values.isNotEmpty;
 }

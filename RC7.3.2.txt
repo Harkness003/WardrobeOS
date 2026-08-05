@@ -1,0 +1,452 @@
+diff --git a/lib/features/backup/backup_controller.dart b/lib/features/backup/backup_controller.dart
+index 048b6d605153a011426624f75f1c3a7901651052..03ecd594a91909bfd617aad30ffaffa0e11cdf91 100644
+--- a/lib/features/backup/backup_controller.dart
++++ b/lib/features/backup/backup_controller.dart
+@@ -1,54 +1,67 @@
+ import 'package:file_picker/file_picker.dart';
+ import 'package:flutter/foundation.dart';
+ import 'backup_file.dart';
+ import 'backup_service.dart';
+ import 'restore_service.dart';
+ 
+ class BackupController extends ChangeNotifier {
+   final BackupService backupService; final RestoreService restoreService;
+   final Future<void> Function()? afterRestore;
+   bool busy = false; BackupManifest? lastBackup; String? lastLocation; String? result;
+   String? pendingPath; BackupArchive? pendingRestore;
+   BackupController({required this.backupService, required this.restoreService,
+     this.afterRestore});
+ 
+   static String defaultFileName(DateTime now) {
+     String two(int n) => n.toString().padLeft(2, '0');
+     return 'WardrobeOS_backup_${now.year}-${two(now.month)}-${two(now.day)}_${two(now.hour)}-${two(now.minute)}.zip';
+   }
+   Future<void> createBackup() async {
+-    final path = await FilePicker.platform.saveFile(dialogTitle: 'Enregistrer la sauvegarde WardrobeOS',
+-      fileName: defaultFileName(DateTime.now()), type: FileType.custom, allowedExtensions: const ['zip']);
+-    if (path == null) return;
+-    await _run(() async { final archive = await backupService.createBackup();
+-      lastBackup = await backupService.writeBackup(archive, path); lastLocation = path;
+-      result = 'Sauvegarde réussie : ${lastBackup!.garmentCount} vêtements et ${lastBackup!.photoCount} photos exportés.'; });
++    await _run(() async {
++      final selectedPath = await FilePicker.platform.saveFile(
++        dialogTitle: 'Enregistrer la sauvegarde WardrobeOS',
++        fileName: defaultFileName(DateTime.now()),
++        type: FileType.custom,
++        allowedExtensions: const ['zip'],
++      );
++      if (selectedPath == null) {
++        result = 'Sauvegarde annulée.';
++        return;
++      }
++      final path = selectedPath.toLowerCase().endsWith('.zip') ? selectedPath : '$selectedPath.zip';
++      final archive = await backupService.createBackup();
++      lastBackup = await backupService.writeBackup(archive, path);
++      lastLocation = path;
++      result = 'Backup créé : ${_fileName(path)}';
++    }, failurePrefix: 'Impossible de créer la sauvegarde');
+   }
+   Future<bool> selectRestore() async {
+     final selection = await FilePicker.platform.pickFiles(dialogTitle: 'Choisir une sauvegarde WardrobeOS',
+       type: FileType.custom, allowedExtensions: const ['zip']);
+     final path = selection?.files.single.path; if (path == null) return false;
+     var ready = false; await _run(() async { pendingRestore = await restoreService.inspectFile(path); pendingPath = path; ready = true; }); return ready;
+   }
+   Future<void> confirmRestore() async { final archive = pendingRestore; if (archive == null) return;
+     await _run(() async { final report = await restoreService.restore(archive);
+       await afterRestore?.call();
+       final total = report.restored.values.fold<int>(0, (a, b) => a + b);
+       result = '$total éléments restaurés (${report.manifest.garmentCount} vêtements, ${report.manifest.photoCount} photos).'
+         '${report.warnings.isEmpty ? '' : ' Avertissements : ${report.warnings.join(' ')}'}'; pendingRestore = null; pendingPath = null; }); }
+-  Future<void> _run(Future<void> Function() operation) async { busy = true; result = null; notifyListeners();
+-    try { await operation(); } catch (error) { result = 'Échec : ${_friendlyError(error)}'; } finally { busy = false; notifyListeners(); } }
++  Future<void> _run(Future<void> Function() operation, {String failurePrefix = 'Échec'}) async { busy = true; result = null; notifyListeners();
++    try { await operation(); } catch (error) { result = '$failurePrefix : ${_friendlyError(error)}'; } finally { busy = false; notifyListeners(); } }
++
++  String _fileName(String path) => path.split(RegExp(r'[\\/]')).last;
+ 
+   String _friendlyError(Object error) {
+     if (error is BackupFormatException) return error.message;
+     final text = error.toString().toLowerCase();
+     if (text.contains('cancel')) return 'Opération annulée.';
+     if (text.contains('permission') || text.contains('denied')) {
+       return 'WardrobeOS n’a pas accès à cet emplacement. Choisis un autre dossier.';
+     }
+     if (text.contains('space') || text.contains('no space')) {
+       return 'Espace de stockage insuffisant pour terminer l’opération.';
+     }
+     return 'Opération impossible. Vérifie le fichier ou l’emplacement choisi, puis réessaie.';
+   }
+ }
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index d130fcc1e81586dddfdebde8cf9db892c8f7aee7..2d4540f80b94653fb7ae21528716be3f73f46244 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -291,51 +291,51 @@ class _BackupSettings extends StatelessWidget {
+                   controller.lastBackup == null
+                       ? 'Dernière sauvegarde : aucune'
+                       : 'Dernière sauvegarde\n'
+                         'Date : ${controller.lastBackup!.createdAt.toLocal()}\n'
+                         'Version : ${controller.lastBackup!.appVersion}\n'
+                         'Vêtements : ${controller.lastBackup!.garmentCount}\n'
+                         'Photos : ${controller.lastBackup!.photoCount}\n'
+                         'Emplacement : ${controller.lastLocation}',
+                 ),
+                 const SizedBox(height: 12),
+                 FilledButton.icon(
+                   onPressed: controller.busy ? null : controller.createBackup,
+                   icon: const Icon(Icons.save_alt),
+                   label: const Text('Créer une sauvegarde'),
+                 ),
+                 OutlinedButton.icon(
+                   onPressed:
+                       controller.busy ? null : () => _confirmRestore(context),
+                   icon: const Icon(Icons.settings_backup_restore),
+                   label: const Text('Restaurer une sauvegarde'),
+                 ),
+                 if (controller.busy) const ContentState.loading(
+                   title: 'Opération en cours', message: 'Lecture et vérification des données de sauvegarde…'),
+                 if (controller.result != null) ...[
+                   const SizedBox(height: 8),
+-                  controller.result!.startsWith('Échec')
++                  controller.result!.startsWith('Échec') || controller.result!.startsWith('Impossible')
+                     ? ContentState.error(title: 'Opération impossible', message: controller.result!, actionLabel: null)
+                     : ContentState(kind: ContentStateKind.success, title: '', message: '',
+                         child: Semantics(liveRegion: true, child: Card(child: ListTile(
+                           leading: const Icon(Icons.check_circle_outline), title: const Text('Opération terminée'),
+                           subtitle: Text(controller.result!))))),
+                 ],
+               ],
+             ),
+           ),
+         ),
+   );
+ }
+ 
+ class _WardrobeGptSettings extends StatefulWidget {
+   final AiSettingsController controller;
+ 
+   const _WardrobeGptSettings({required this.controller});
+ 
+   @override
+   State<_WardrobeGptSettings> createState() => _WardrobeGptSettingsState();
+ }
+ 
+ class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
+   final _apiKeyController = TextEditingController();
+   bool _obscureKey = true;
+diff --git a/lib/features/wardrobe/garment_detail_screen.dart b/lib/features/wardrobe/garment_detail_screen.dart
+index a2183872b608adcd96520764d1052bdaf9e0b7ff..d39069b5b57789b354d05e1b2ef754d59dea9c46 100644
+--- a/lib/features/wardrobe/garment_detail_screen.dart
++++ b/lib/features/wardrobe/garment_detail_screen.dart
+@@ -1,62 +1,77 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../data/database_service.dart';
+ import '../../models/garment.dart';
++import '../../models/style_analysis.dart';
+ import '../../models/outfit.dart';
+ import '../../models/wear_history.dart';
+ import '../../widgets/garment_image.dart';
+ import '../outfits/outfit_form_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import 'garment_form_screen.dart';
+ import 'wardrobe_controller.dart';
+ import 'reanalysis/garment_reanalysis_models.dart';
+ import 'reanalysis/garment_reanalysis_service.dart';
+ import '../styles/style_detail_screen.dart';
+ import '../styles/style_repository.dart';
+ 
+ String? _cleanDisplayText(String? value) {
+   final trimmed = value?.trim();
+   if (trimmed == null || trimmed.isEmpty) return null;
+   final normalized = trimmed.toLowerCase();
+   if (normalized == 'null' ||
+       normalized == 'n/a' ||
+       normalized == 'vide' ||
+       normalized == 'inconnu' ||
+       normalized == 'inconnue') {
+     return null;
+   }
+   return trimmed;
+ }
+ 
+ List<String> _cleanDisplayList(Iterable<String>? values) =>
+     (values ?? const <String>[])
+         .map(_cleanDisplayText)
+         .whereType<String>()
+         .toSet()
+         .toList(growable: false);
+ 
++String _localizeStyleTokens(String value) {
++  var localized = value;
++  for (final id in StyleTaxonomy.entries.keys) {
++    localized = localized.replaceAllMapped(
++      RegExp('(^|[^A-Za-z0-9])' + RegExp.escape(id) + r'(?=[^A-Za-z0-9]|$)', caseSensitive: false),
++      (match) => '${match.group(1) ?? ''}${StyleCatalog.displayName(id)}',
++    );
++  }
++  return StyleCatalog.displayName(localized);
++}
++
++List<String> _localizeStyleList(Iterable<String>? values) =>
++    _cleanDisplayList(values).map(_localizeStyleTokens).toList(growable: false);
++
+ 
+ String _fieldLabel(String field) => const {
+   'name': 'Nom', 'category': 'Catégorie', 'color': 'Couleur',
+   'material': 'Matière', 'season': 'Saison', 'brand': 'Marque',
+   'composition': 'Composition', 'style': 'Style',
+ }[field] ?? field;
+ 
+ class _AiComparisonDialog extends StatefulWidget {
+   final GarmentReanalysisProposal preview;
+   const _AiComparisonDialog({required this.preview});
+ 
+   @override
+   State<_AiComparisonDialog> createState() => _AiComparisonDialogState();
+ }
+ 
+ class _AiComparisonDialogState extends State<_AiComparisonDialog> {
+   final Set<String> accepted = {};
+ 
+   @override
+   Widget build(BuildContext context) => AlertDialog(
+     title: const Text('Comparer les modifications'),
+     content: SizedBox(
+       width: 560,
+       child: widget.preview.changes.isEmpty
+           ? const Text('L’IA ne propose aucune modification.')
+@@ -134,54 +149,56 @@ class GarmentDetailScreen extends StatefulWidget {
+ 
+   @override
+   State<GarmentDetailScreen> createState() => _GarmentDetailScreenState();
+ }
+ 
+ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+   final StyleRepository _styles = StyleCatalog();
+   late Garment garment;
+   bool _recordingWear = false;
+   late Future<List<WearHistory>> _wearHistoryFuture;
+   late Future<WearHistory?> _firstWearFuture;
+   late Future<List<Outfit>> _outfitsFuture;
+ 
+   bool _reanalyzing = false;
+ 
+   Future<void> _styleHelp(String id) async {
+     final style = await _styles.find(id);
+     if (!mounted) return;
+     if (style == null) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ce style n’est pas encore présent dans la bibliothèque.')));
+       return;
+     }
+     await showModalBottomSheet<void>(context: context, showDragHandle: true,
+       builder: (sheetContext) => Padding(padding: const EdgeInsets.all(20), child: Column(
+         mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+-          Text(StyleCatalog.displayName(style.name), style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
+-          Text(style.definition),
+-          if (style.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('Caractéristiques : ${style.characteristics.take(5).join(', ')}')],
+-          if (style.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('Exemples : ${style.examples.take(4).join(', ')}')],
++          Text(StyleCatalog.displayName(style.id), style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
++          Text(_cleanDisplayText(style.definition) ?? _cleanDisplayText(style.description) ?? 'Description bientôt disponible.'),
++          if (style.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('Caractéristiques : ${_localizeStyleList(style.characteristics).take(5).join(', ')}')],
++          if (style.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('Exemples de vêtements : ${_localizeStyleList(style.examples).take(4).join(', ')}')],
++          if (style.colors.isNotEmpty) ...[const SizedBox(height: 8), Text('Couleurs associées : ${_localizeStyleList(style.colors).take(5).join(', ')}')],
++          if (style.materials.isNotEmpty) ...[const SizedBox(height: 8), Text('Matières fréquentes : ${_localizeStyleList(style.materials).take(5).join(', ')}')],
+           if (style.relatedStyleIds.isNotEmpty) ...[const SizedBox(height: 8), Text('Styles proches : ${style.relatedStyleIds.map(StyleCatalog.displayName).take(4).join(', ')}')],
+           const SizedBox(height: 12), FilledButton(onPressed: () { Navigator.pop(sheetContext); Navigator.push(context,
+             MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: _styles))); }, child: const Text('Voir la fiche complète')),
+         ])));
+   }
+ 
+   Future<void> _editStyleAnalysis() async {
+     final all = await _styles.all(); if (!mounted) return;
+     var primary = garment.effectiveStyleAnalysis.register;
+     final secondary = {...garment.effectiveStyleAnalysis.secondaryStyles};
+     final characteristics = TextEditingController(text: garment.effectiveStyleAnalysis.characteristics.join(', '));
+     final saved = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (_, update) => AlertDialog(
+       title: const Text('Corriger l’analyse de style'), content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(children: [
+         DropdownButtonFormField<String>(value: all.any((e) => e.id == primary) ? primary : null,
+           decoration: const InputDecoration(labelText: 'Style principal'), items: all.map((e) => DropdownMenuItem(value: e.id, child: Text(e.name))).toList(), onChanged: (v) => update(() => primary = v ?? primary)),
+         const SizedBox(height: 14), Align(alignment: Alignment.centerLeft, child: Text('Styles secondaires', style: Theme.of(context).textTheme.titleSmall)),
+         ...all.where((e) => e.id != primary).map((e) => CheckboxListTile(dense: true, value: secondary.contains(e.id), title: Text(e.name), onChanged: (v) => update(() { if (v == true) secondary.add(e.id); else secondary.remove(e.id); }))),
+         TextField(controller: characteristics, decoration: const InputDecoration(labelText: 'Caractéristiques (séparées par des virgules)')),
+       ]))), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
+         FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Enregistrer'))])));
+     if (saved != true) return;
+     final corrected = garment.effectiveStyleAnalysis.withUserCorrections(register: primary,
+       secondaryStyles: secondary.toList(), characteristics: characteristics.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList());
+     await widget.controller.save(garment.copyWith(styleAnalysis: corrected, updatedAt: DateTime.now()), isNew: false);
+     _refreshGarment();
+@@ -621,52 +638,60 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+             icon: _reanalyzing
+                 ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                 : const Icon(Icons.auto_awesome),
+             label: const Text('Réanalyser avec l’IA'),
+           ),
+           if (identityChips.isNotEmpty) ...[
+             const SizedBox(height: 17),
+             Wrap(
+               spacing: 8,
+               runSpacing: 8,
+               children:
+                   identityChips
+                       .map((value) => Chip(label: Text(value)))
+                       .toList(),
+             ),
+           ],
+           const SizedBox(height: 18),
+           Row(children: [const Expanded(child: _SectionTitle('Analyse de style')),
+             IconButton(tooltip: 'Corriger les styles', onPressed: _editStyleAnalysis, icon: const Icon(Icons.edit_outlined))]),
+           const SizedBox(height: 8),
+           FutureBuilder<List<LibraryStyle?>>(future: Future.wait([
+             _styles.find(garment.effectiveStyleAnalysis.register),
+             ...garment.effectiveStyleAnalysis.secondaryStyles.map(_styles.find),
+           ]), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
+             for (final style in snapshot.data?.whereType<LibraryStyle>() ?? const <LibraryStyle>[])
+-              GestureDetector(onLongPress: () => _styleHelp(style.id), child: ActionChip(
+-                avatar: const Icon(Icons.info_outline, size: 18), label: Text(StyleCatalog.displayName(style.name)), onPressed: () => _styleHelp(style.id))),
++              GestureDetector(
++                behavior: HitTestBehavior.opaque,
++                onLongPress: () => _styleHelp(style.id),
++                child: ActionChip(
++                  avatar: const Icon(Icons.info_outline, size: 18),
++                  label: Text(StyleCatalog.displayName(style.id)),
++                  tooltip: 'Maintenir pour voir la fiche style',
++                  onPressed: () => _styleHelp(style.id),
++                ),
++              ),
+           ])),
+           _AiGarmentDetails(garment: garment),
+           const SizedBox(height: 26),
+           const _SectionTitle('Utilisé dans'),
+           const SizedBox(height: 10),
+           FutureBuilder<List<Outfit>>(
+             future: _outfitsFuture,
+             builder: (context, snapshot) {
+               if (snapshot.connectionState == ConnectionState.waiting) {
+                 return const Card(
+                   child: Padding(
+                     padding: EdgeInsets.all(18),
+                     child: Center(child: CircularProgressIndicator()),
+                   ),
+                 );
+               }
+               final outfits = snapshot.data ?? [];
+               if (outfits.isEmpty) {
+                 return const Card(
+                   child: ListTile(
+                     leading: Icon(Icons.style_outlined),
+                     title: Text('Aucune tenue'),
+                     subtitle: Text(
+                       'Cette pièce ne fait encore partie d’aucune tenue.',
+                     ),
+@@ -863,50 +888,51 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+ 
+     final months = days ~/ 30;
+     if (months < 12) return months == 1 ? '1 mois' : '$months mois';
+ 
+     final years = days ~/ 365;
+     final remainingMonths = (days % 365) ~/ 30;
+     if (remainingMonths == 0) return years == 1 ? '1 an' : '$years ans';
+     final yearLabel = years == 1 ? '1 an' : '$years ans';
+     final monthLabel =
+         remainingMonths == 1 ? '1 mois' : '$remainingMonths mois';
+     return '$yearLabel $monthLabel';
+   }
+ }
+ 
+ enum _WearDateChoice { today, custom }
+ 
+ class _AiGarmentDetails extends StatelessWidget {
+   final Garment garment;
+ 
+   const _AiGarmentDetails({required this.garment});
+ 
+   @override
+   Widget build(BuildContext context) {
+     final styleEntries = <_AiDetailEntry>[
+       _AiDetailEntry.text('Style', StyleCatalog.displayName(garment.effectiveStyleAnalysis.register)),
++      _AiDetailEntry.list('Styles secondaires', garment.effectiveStyleAnalysis.secondaryStyles.map(StyleCatalog.displayName)),
+       _AiDetailEntry.list('Points forts', garment.pointsForts),
+       _AiDetailEntry.list('Points faibles', garment.pointsFaibles),
+       _AiDetailEntry.list('Conseils', garment.conseils),
+       _AiDetailEntry.text('Verdict', garment.verdict),
+       _AiDetailEntry.text(
+         'Explication de la polyvalence',
+         garment.explicationPolyvalence,
+       ),
+     ];
+     final associations = <_AiDetailEntry>[
+       _AiDetailEntry.list('Couleurs compatibles', garment.couleursCompatibles),
+       _AiDetailEntry.list(
+         'Couleurs moins adaptées',
+         garment.couleursMoinsAdaptees,
+       ),
+       _AiDetailEntry.list('Bas compatibles', garment.basCompatibles),
+       _AiDetailEntry.list(
+         'Chaussures compatibles',
+         garment.chaussuresCompatibles,
+       ),
+     ];
+     final characteristics = <_AiDetailEntry>[
+       _AiDetailEntry.text('Type précis', garment.typePrecis),
+       _AiDetailEntry.text(
+         'Couleur principale',
+@@ -993,54 +1019,54 @@ class _AiGarmentDetails extends StatelessWidget {
+       children: [
+         const SizedBox(height: 26),
+         const _SectionTitle('Analyse IA'),
+         const SizedBox(height: 10),
+         for (var index = 0; index < groups.length; index++) ...[
+           _AiDetailCard(group: groups[index].$1, entries: groups[index].$2),
+           if (index < groups.length - 1) const SizedBox(height: 10),
+         ],
+       ],
+     );
+   }
+ }
+ 
+ class _AiDetailGroup {
+   final String title;
+   final IconData icon;
+ 
+   const _AiDetailGroup(this.title, this.icon);
+ }
+ 
+ class _AiDetailEntry {
+   final String label;
+   final List<String> values;
+ 
+   _AiDetailEntry.text(this.label, String? value)
+-    : values = _cleanDisplayList(value == null ? const [] : [value]);
++    : values = _localizeStyleList(value == null ? const [] : [value]);
+ 
+   _AiDetailEntry.list(this.label, Iterable<String>? values)
+-    : values = _cleanDisplayList(values);
++    : values = _localizeStyleList(values);
+ 
+   bool get isNotEmpty => values.isNotEmpty;
+ }
+ 
+ class _AiDetailCard extends StatelessWidget {
+   final _AiDetailGroup group;
+   final List<_AiDetailEntry> entries;
+ 
+   const _AiDetailCard({required this.group, required this.entries});
+ 
+   @override
+   Widget build(BuildContext context) {
+     return Card(
+       child: Padding(
+         padding: const EdgeInsets.all(17),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.start,
+           children: [
+             Row(
+               children: [
+                 Icon(group.icon, size: 21),
+                 const SizedBox(width: 10),
+                 Text(
+                   group.title,
+                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
