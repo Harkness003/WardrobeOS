@@ -257,7 +257,7 @@ class DatabaseService {
     for (final row in rows) {
       var outfit = await getOutfitById(row['outfit_id'] as String);
       if (outfit != null) {
-        final garments = await getGarmentsInOutfit(outfit.id);
+        final garments = List<Garment>.from(await getGarmentsInOutfit(outfit.id), growable: false);
         final grouped = <OutfitCategory, List<Garment>>{};
         for (final garment in garments) {
           final category = OutfitGenerationEngine.categoryFor(garment);

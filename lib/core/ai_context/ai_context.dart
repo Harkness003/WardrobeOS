@@ -44,17 +44,19 @@ class AiGarmentContext {
     add('secondaryColors', garment.couleursSecondaires, AiDataSource.aiAnalysis);
     add('material', garment.matierePrincipale ?? garment.material, AiDataSource.user);
     add('secondaryMaterials', garment.matieresSecondaires, AiDataSource.aiAnalysis);
-    final style = garment.effectiveStyleAnalysis;
-    final thermal = garment.effectiveThermalProfile;
-    add('styleRegister', style.register,
-        style.userRegister != null ? AiDataSource.user : AiDataSource.aiAnalysis);
-    add('secondaryStyles', style.secondaryStyles,
-        style.userSecondaryStyles != null ? AiDataSource.user : AiDataSource.aiAnalysis);
-    add('styleCharacteristics', style.characteristics,
-        style.userCharacteristics != null ? AiDataSource.user : AiDataSource.aiAnalysis);
+    final style = garment.styleAnalysis;
+    if (style != null) {
+      add('styleRegister', style.register,
+          style.userRegister != null ? AiDataSource.user : AiDataSource.aiAnalysis);
+      add('secondaryStyles', style.secondaryStyles,
+          style.userSecondaryStyles != null ? AiDataSource.user : AiDataSource.aiAnalysis);
+      add('styleCharacteristics', style.characteristics,
+          style.userCharacteristics != null ? AiDataSource.user : AiDataSource.aiAnalysis);
+    }
     add('seasons', garment.effectiveSeasons, AiDataSource.user);
     add('occasions', garment.effectiveOccasions, AiDataSource.user);
-    add('thermalProfile', thermal.toJson(), AiDataSource.calculated);
+    final thermal = garment.thermalProfile;
+    if (thermal != null) add('thermalProfile', thermal.toJson(), AiDataSource.calculated);
     add('description', garment.descriptionIA, AiDataSource.aiAnalysis);
     add('wearCount', garment.wearCount, AiDataSource.calculated);
     add('lastWorn', garment.lastWorn?.toIso8601String(), AiDataSource.calculated);

@@ -205,6 +205,21 @@ class RecommendationEngine {
       .join(' ');
 }
 
+final _defaultThermalProfile = ThermalProfile(
+  standaloneMinC: 12,
+  standaloneMaxC: 24,
+  layeredMinC: 8,
+  layeredMaxC: 24,
+  level: ThermalLevel.moderate,
+  breathability: BreathabilityLevel.medium,
+  windProtection: WeatherProtection.none,
+  rainCompatibility: WeatherProtection.none,
+  primaryRole: LayerRole.mid,
+  inputFingerprint: 'fallback',
+  calculatedAt: DateTime.fromMillisecondsSinceEpoch(0),
+  confidence: .3,
+);
+
 class _Profile {
   final Garment garment;
   final GarmentRecommendationCorrection? correction;
@@ -212,9 +227,9 @@ class _Profile {
 
   Set<String> get styles => {
     correction?.style,
-    if (correction?.style == null) garment.effectiveStyleAnalysis.register,
-    if (correction?.style == null) ...garment.effectiveStyleAnalysis.secondaryStyles,
-    if (correction?.style == null) ...garment.effectiveStyleAnalysis.characteristics,
+    if (correction?.style == null) garment.styleAnalysis?.register,
+    if (correction?.style == null) ...?garment.styleAnalysis?.secondaryStyles,
+    if (correction?.style == null) ...?garment.styleAnalysis?.characteristics,
   }.map(RecommendationEngine._normalize).where((value) => value.isNotEmpty).toSet();
   String? get formality => correction?.formality ?? garment.niveauFormalite;
   Set<String> get seasons => (correction?.seasons ?? garment.effectiveSeasons)
@@ -232,7 +247,7 @@ class _Profile {
   Set<String> get discouragedOccasions => (garment.occasionsDeconseillees ?? const [])
       .map(RecommendationEngine._normalize).toSet();
   ThermalProfile get thermal {
-    final current = garment.effectiveThermalProfile;
+    final current = garment.thermalProfile ?? _defaultThermalProfile;
     if (correction?.minimumTemperature == null &&
         correction?.maximumTemperature == null && correction?.rainCompatible == null) {
       return current;

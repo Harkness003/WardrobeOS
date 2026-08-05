@@ -3,6 +3,7 @@ import '../../core/outfit_generation/outfit_generation_engine.dart';
 import '../../core/recommendation/recommendation_context.dart';
 import '../../data/database_service.dart';
 import '../../models/outfit.dart';
+import '../../models/garment.dart';
 import '../../weather/models/weather_data.dart';
 import '../../weather/services/weather_service.dart';
 import '../calendar/calendar_event.dart';
@@ -111,6 +112,9 @@ class AgendaService {
     final wardrobe = (await aiContextService.build()).garments;
     final calendar = await _events(date);
     final weather = await _optionalWeather();
+    if (!calendar.available) {
+      throw StateError('Aucune source calendrier réelle n’est disponible pour contextualiser cette journée.');
+    }
     final events = calendar.events;
     final conflict = _eventConflict(events);
     if (conflict != null) throw StateError(conflict);
@@ -151,6 +155,9 @@ class AgendaService {
       try {
         final calendar = await _events(date);
         calendarAvailable = calendarAvailable && calendar.available;
+        if (!calendar.available) {
+          throw StateError('Aucune source calendrier réelle n’est disponible pour contextualiser cette journée.');
+        }
         final conflict = _eventConflict(calendar.events);
         if (conflict != null) throw StateError(conflict);
         final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
@@ -188,7 +195,8 @@ class AgendaService {
 
   Future<void> _ensureStored(Outfit outfit) async {
     if (await database.getOutfitById(outfit.id) == null) await database.createOutfit(outfit);
-    for (final garment in outfit.allGarments) {
+    final garments = List<Garment>.from(outfit.allGarments, growable: false);
+    for (final garment in garments) {
       await database.addGarmentToOutfit(outfit.id, garment.id);
     }
   }

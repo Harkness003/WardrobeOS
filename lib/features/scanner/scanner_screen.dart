@@ -209,6 +209,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   Future<void> analyze() async {
     if (busy || imagePath == null) return;
+    final initialName = name.text;
+    final initialBrand = brand.text;
+    final initialColor = color.text;
+    final initialMaterial = material.text;
+    final initialCategory = category;
+    final initialSeason = season;
     setState(() => analyzing = true);
 
     try {
@@ -280,12 +286,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
       setState(() {
         result = validated;
         conversation = decision;
-        name.text = mapped.name;
-        brand.text = mapped.brand;
-        color.text = mapped.color;
-        material.text = mapped.material;
-        if (mapped.category.isNotEmpty) category = mapped.category;
-        if (mapped.season.isNotEmpty) season = mapped.season;
+        if (name.text == initialName || name.text.trim().isEmpty) name.text = mapped.name;
+        if (brand.text == initialBrand || brand.text.trim().isEmpty) brand.text = mapped.brand;
+        if (color.text == initialColor || color.text.trim().isEmpty) color.text = mapped.color;
+        if (material.text == initialMaterial || material.text.trim().isEmpty) material.text = mapped.material;
+        if (mapped.category.isNotEmpty && category == initialCategory) category = mapped.category;
+        if (mapped.season.isNotEmpty && season == initialSeason) season = mapped.season;
       });
       mergeWatch.stop();
       assert(() {

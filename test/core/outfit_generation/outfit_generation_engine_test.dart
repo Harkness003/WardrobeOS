@@ -20,8 +20,8 @@ void main() {
       wardrobe: [garment('top', 'Hauts')],
       proposalCount: 3,
     ));
-    expect(result.proposals, hasLength(1));
-    expect(result.proposals.single.outfit.allGarments.single.id, 'top');
+    expect(result.proposals, isEmpty);
+    expect(result.messages, contains(OutfitGenerationResult.incompleteOutfitMessage));
   });
 
   test('borne la génération pour un dressing important', () {
@@ -35,12 +35,13 @@ void main() {
     expect(result.proposals.every((item) => item.outfit.allGarments.length == 2), isTrue);
   });
 
-  test('diversifie plusieurs vêtements similaires', () {
+  test('refuse les tenues à une seule pièce', () {
     final result = engine().generate(OutfitGenerationRequest(
       wardrobe: List.generate(6, (index) => garment('pull-$index', 'Hauts')),
       proposalCount: 4,
     ));
-    expect(result.proposals.map((item) => item.outfit.allGarments.single.id).toSet(), hasLength(4));
+    expect(result.proposals, isEmpty);
+    expect(result.messages, contains(OutfitGenerationResult.incompleteOutfitMessage));
   });
 
   test('accepte une météo absente et fournit des explications', () {
@@ -55,7 +56,7 @@ void main() {
 
   test('expose les contraintes respectées dans le contrat canonique', () {
     final proposal = engine().generate(OutfitGenerationRequest(
-      wardrobe: [garment('top', 'Hauts')],
+      wardrobe: [garment('top', 'Hauts'), garment('bottom', 'Pantalons')],
       context: const RecommendationContext(
         season: 'Été',
         desiredStyle: 'casual',

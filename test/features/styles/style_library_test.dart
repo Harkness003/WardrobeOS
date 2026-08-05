@@ -21,6 +21,11 @@ void main() {
     expect(StyleCatalog.normalize('  CHIC-Décontracté '), 'chic decontracte');
     expect(StyleCatalog.matches(const LibraryStyle(id: 'x', name: 'Élégant', definition: '', description: '', isSystem: true), 'elegant'), isTrue);
   });
+  test('traduit les identifiants internes en libellés français', () {
+    expect(StyleCatalog.displayName('smart_casual'), 'Chic décontracté');
+    expect(StyleCatalog.displayName('dressy'), 'Habillé');
+  });
+
   testWidgets('library opens, searches and displays a definition', (tester) async {
     await tester.pumpWidget(MaterialApp(home: StyleLibraryScreen(repository: FakeStyles())));
     await tester.pumpAndSettle();

@@ -2,6 +2,7 @@ import '../../models/garment.dart';
 import '../../models/outfit.dart';
 import '../recommendation/recommendation_context.dart';
 import '../recommendation/recommendation_engine.dart';
+import '../../features/styles/style_repository.dart';
 
 /// Immutable input snapshot for outfit generation. StyleAnalysis and thermal
 /// profiles are deliberately read through each garment's `effective*` getters,
@@ -41,9 +42,15 @@ class OutfitGenerationProposal {
 }
 
 class OutfitGenerationResult {
+  static const incompleteOutfitMessage =
+      'Il manque des éléments pour constituer une tenue complète.';
+
   final List<OutfitGenerationProposal> proposals;
-  const OutfitGenerationResult._(this.proposals);
+  final List<String> messages;
+  const OutfitGenerationResult._(this.proposals, [this.messages = const []]);
 }
+
+enum OutfitCompleteness { incomplete, acceptable, recommended }
 
 /// Central, UI-independent two-stage engine: bounded candidate generation,
 /// followed by deterministic scoring and explanation.
@@ -101,12 +108,20 @@ class OutfitGenerationEngine {
       ));
     }
 
-    final scored = generated.map((outfit) => _score(outfit, request)).toList()
+    final messages = <String>[];
+    final validGenerated = generated.where((outfit) {
+      final valid = validateOutfit(outfit) != OutfitCompleteness.incomplete;
+      if (!valid && !messages.contains(OutfitGenerationResult.incompleteOutfitMessage)) {
+        messages.add(OutfitGenerationResult.incompleteOutfitMessage);
+      }
+      return valid;
+    }).toList(growable: false);
+    final scored = validGenerated.map((outfit) => _score(outfit, request)).toList()
       ..sort((a, b) {
         final score = b.score.compareTo(a.score);
         return score != 0 ? score : _signature(a.outfit).compareTo(_signature(b.outfit));
       });
-    return OutfitGenerationResult._(List.unmodifiable(scored));
+    return OutfitGenerationResult._(List.unmodifiable(scored), List.unmodifiable(messages));
   }
 
   OutfitGenerationProposal _score(Outfit outfit, OutfitGenerationRequest request) {
@@ -133,7 +148,7 @@ class OutfitGenerationEngine {
     final thermal = average('température');
     final layering = average('superposition');
     final formality = average('formalité');
-    final diversity = (outfit.garments.length / 5).clamp(0, 1).toDouble();
+    final diversity = (items.length / 5).clamp(0, 1).toDouble();
     final rotation = items.isEmpty
         ? 0.0
         : items.map((item) => 1 / (1 + item.wearCount)).reduce((a, b) => a + b) / items.length;
@@ -147,7 +162,7 @@ class OutfitGenerationEngine {
       if (style >= .7) 'Couleurs et styles harmonieux.',
       if (layering >= .7) 'Couches compatibles entre elles.',
       if (formality >= .7 && request.context.desiredStyle != null)
-        'Adapté au registre ${request.context.desiredStyle}.',
+        'Adapté au registre ${StyleCatalog.displayName(request.context.desiredStyle!)}.',
       if (rotation >= .7) 'La sélection privilégie des pièces rarement portées.',
       if (items.any((item) => item.lastWorn != null) && rotation >= .5)
         'La rotation évite les pièces portées le plus récemment.',
@@ -172,7 +187,7 @@ class OutfitGenerationEngine {
         if (request.context.desiredStyle != null) 'Style souhaité',
         if (request.context.weather?.temperature != null) 'Température',
         if (request.context.weather?.isRaining != null) 'Pluie',
-        if (items.any((item) => item.effectiveThermalProfile.primaryRole.name.isNotEmpty)) 'Rôles de couche',
+        if (items.any((item) => (item.thermalProfile?.primaryRole.name ?? item.layerType ?? '').isNotEmpty)) 'Rôles de couche',
         if (request.preferences.preferredColors.isNotEmpty) 'Couleurs préférées',
         if (request.preferences.preferredStyles.isNotEmpty) 'Styles préférés',
         if (request.preferences.avoidedMaterials.isNotEmpty) 'Matières évitées',
@@ -180,8 +195,15 @@ class OutfitGenerationEngine {
     );
   }
 
+  static OutfitCompleteness validateOutfit(Outfit outfit) {
+    final count = outfit.allGarments.length;
+    if (count <= 1) return OutfitCompleteness.incomplete;
+    if (count == 2) return OutfitCompleteness.acceptable;
+    return OutfitCompleteness.recommended;
+  }
+
   static OutfitCategory categoryFor(Garment garment) {
-    final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.effectiveThermalProfile.primaryRole.name}'.toLowerCase();
+    final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.thermalProfile?.primaryRole.name ?? garment.layerType ?? ''}'.toLowerCase();
     if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) return OutfitCategory.shoes;
     if (value.contains('pantal') || value.contains('jupe') || value.contains('short') || value.contains('bas')) return OutfitCategory.bottom;
     if (value.contains('manteau') || value.contains('parka')) return OutfitCategory.coat;

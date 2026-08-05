@@ -31,8 +31,7 @@ class MissingRainwearRule implements WardrobeGapRule {
   @override
   WardrobeGap? evaluate(WardrobeRuleContext context) {
     if (context.garments.isEmpty ||
-        context.garments.any((item) => item.effectiveThermalProfile
-            .rainCompatibility != WeatherProtection.none)) {
+        context.garments.any((item) => item.thermalProfile?.rainCompatibility != null && item.thermalProfile!.rainCompatibility != WeatherProtection.none)) {
       return null;
     }
     return const WardrobeGap(
@@ -53,10 +52,11 @@ class InsufficientWinterRule implements WardrobeGapRule {
   @override
   WardrobeGap? evaluate(WardrobeRuleContext context) {
     final winterShare = context.garments.where((item) {
-      final thermal = item.effectiveThermalProfile;
-      return thermal.standaloneMinC <= 8 ||
-          thermal.level == ThermalLevel.warm ||
-          thermal.level == ThermalLevel.veryWarm;
+      final thermal = item.thermalProfile;
+      return thermal != null &&
+          (thermal.standaloneMinC <= 8 ||
+              thermal.level == ThermalLevel.warm ||
+              thermal.level == ThermalLevel.veryWarm);
     }).length / context.garments.length;
     if (context.garments.length < 5 || winterShare >= minimumShare) return null;
     return WardrobeGap(

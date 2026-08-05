@@ -79,6 +79,19 @@ class StyleCatalog extends ChangeNotifier implements StyleRepository {
     for (var i = 0; i < accented.length; i++) { result = result.replaceAll(accented[i], plain[i]); }
     return result.replaceAll(RegExp(r'[_-]+'), ' ').replaceAll(RegExp(r'\s+'), ' ');
   }
+
+  static String displayName(String idOrLabel) {
+    final normalized = normalize(idOrLabel);
+    for (final entry in StyleTaxonomy.entries.entries) {
+      if (normalize(entry.key) == normalized ||
+          normalize(entry.value.name) == normalized ||
+          entry.value.synonyms.map(normalize).contains(normalized)) {
+        return entry.value.name;
+      }
+    }
+    return idOrLabel.replaceAll('_', ' ');
+  }
+
   static bool matches(LibraryStyle style, String query) {
     final needle = normalize(query);
     if (needle.isEmpty) return true;

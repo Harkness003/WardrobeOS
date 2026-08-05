@@ -49,9 +49,9 @@ class WardrobeIntelligenceEngine {
   }
 
   static Iterable<String?> _styles(Garment item) => [
-    item.effectiveStyleAnalysis.register,
-    ...item.effectiveStyleAnalysis.secondaryStyles,
-    ...item.effectiveStyleAnalysis.characteristics,
+    item.styleAnalysis?.register,
+    ...?item.styleAnalysis?.secondaryStyles,
+    ...?item.styleAnalysis?.characteristics,
   ];
 
   static Iterable<String?> _materials(Garment item) => [
@@ -92,7 +92,7 @@ class WardrobeIntelligenceEngine {
     for (final item in garments) {
       final parts = [item.category, item.sousCategorie, item.typePrecis,
         item.couleurPrincipale ?? item.color,
-        item.effectiveStyleAnalysis.register]
+        item.styleAnalysis?.register]
           .map(_key).where((value) => value.isNotEmpty).toList();
       if (parts.length < 3) continue;
       groups.putIfAbsent(parts.join('|'), () => []).add(item);
@@ -166,8 +166,8 @@ class WardrobeIntelligenceEngine {
       garmentIds: underused.map((item) => item.id).toList(growable: false),
     ));
     final hotWeather = garments.where((item) {
-      final thermal = item.effectiveThermalProfile;
-      return thermal.standaloneMaxC >= 25 &&
+      final thermal = item.thermalProfile;
+      return thermal != null && thermal.standaloneMaxC >= 25 &&
           thermal.breathability.name != 'low';
     }).length;
     if (garments.length >= 5 && hotWeather / garments.length < .15) result.add(WardrobeInsight(
