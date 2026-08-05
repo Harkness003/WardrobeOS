@@ -47,11 +47,6 @@ class CalendarEventContextMapper {
     return event.copyWith(type: inferred.type, formality: inferred.formality);
   }
 
-  String _occasion(CalendarEvent event) {
-    final inferred = _classify(event);
-    return '${inferred.context} (${inferred.formality.label})';
-  }
-
   _InferredEventContext _classify(CalendarEvent event) {
     final text = '${event.title} ${event.description ?? ''}'.toLowerCase();
     if (event.formality == EventFormality.business || event.type == CalendarEventType.work ||

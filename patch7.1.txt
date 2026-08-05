@@ -1,0 +1,60 @@
+diff --git a/lib/features/calendar/calendar_event_context_mapper.dart b/lib/features/calendar/calendar_event_context_mapper.dart
+index 5f8b982b062583ddee903b31c5115cfc44d6ebb3..92c2ab325fd39566c41337106a023b4b09f5520c 100644
+--- a/lib/features/calendar/calendar_event_context_mapper.dart
++++ b/lib/features/calendar/calendar_event_context_mapper.dart
+@@ -25,55 +25,50 @@ class CalendarEventContextMapper {
+         'events': events.map((event) => {
+           'id': event.id,
+           'title': event.title,
+           'start': event.startsAt.toIso8601String(),
+           'end': event.endsAt.toIso8601String(),
+           'durationMinutes': event.endsAt.difference(event.startsAt).inMinutes,
+           'context': event.type.label,
+           'formality': event.formality.label,
+           'allDay': event.isAllDay,
+           if (event.location != null) 'location': event.location,
+         }).toList(),
+         if (dominant != null) ...{
+           'eventContext': dominant.context,
+           'eventPriority': dominant.priority,
+           'eventScope': 'day',
+         },
+       },
+     );
+   }
+ 
+   CalendarEvent applyInferredConstraints(CalendarEvent event) {
+     final inferred = _classify(event);
+     return event.copyWith(type: inferred.type, formality: inferred.formality);
+   }
+ 
+-  String _occasion(CalendarEvent event) {
+-    final inferred = _classify(event);
+-    return '${inferred.context} (${inferred.formality.label})';
+-  }
+-
+   _InferredEventContext _classify(CalendarEvent event) {
+     final text = '${event.title} ${event.description ?? ''}'.toLowerCase();
+     if (event.formality == EventFormality.business || event.type == CalendarEventType.work ||
+         _containsAny(text, const ['réunion client', 'reunion client', 'client meeting', 'comité', 'comite', 'présentation', 'presentation'])) {
+       return const _InferredEventContext(CalendarEventType.work, EventFormality.business, 'contexte professionnel', 'professionnel', 100);
+     }
+     if (_containsAny(text, const ['mariage', 'wedding', 'gala', 'cérémonie', 'ceremonie'])) {
+       return const _InferredEventContext(CalendarEventType.party, EventFormality.formal, 'événement élégant', 'élégant', 90);
+     }
+     if (_containsAny(text, const ['sport', 'gym', 'running', 'course', 'yoga', 'entraînement', 'entrainement'])) {
+       return const _InferredEventContext(CalendarEventType.sport, EventFormality.sport, 'activité physique', 'confort', 60);
+     }
+     if (_containsAny(text, const ['restaurant', 'dîner', 'diner', 'déjeuner', 'dejeuner', 'brunch'])) {
+       return const _InferredEventContext(CalendarEventType.restaurant, EventFormality.smartCasual, 'sortie', 'casual chic', 70);
+     }
+     if (event.type == CalendarEventType.party || event.type == CalendarEventType.travel) {
+       return _InferredEventContext(event.type, event.formality, event.type.label, null, 90);
+     }
+     if (event.type == CalendarEventType.restaurant) {
+       return _InferredEventContext(event.type, event.formality, 'sortie', 'casual chic', 70);
+     }
+     if (event.type == CalendarEventType.sport || event.formality == EventFormality.sport) {
+       return const _InferredEventContext(CalendarEventType.sport, EventFormality.sport, 'activité physique', 'confort', 60);
+     }
+     return _InferredEventContext(event.type, event.formality, event.type.label, null, 10);
