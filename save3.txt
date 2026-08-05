@@ -1,0 +1,104 @@
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index b5d372f0578d37cc3bbee786aac78aeb588511a7..8f46050148225105f8beefbaa12d8218e9741d8a 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -636,65 +636,88 @@ class DatabaseService {
+ 
+   Future<void> addGarmentToOutfit(String outfitId, String garmentId) async {
+     final db = await database;
+     await db.insert(
+       'outfit_items',
+       OutfitItem(outfitId: outfitId, garmentId: garmentId).toMap(),
+       conflictAlgorithm: ConflictAlgorithm.ignore,
+     );
+   }
+ 
+   Future<void> removeGarmentFromOutfit(
+     String outfitId,
+     String garmentId,
+   ) async {
+     final db = await database;
+     await db.delete(
+       'outfit_items',
+       where: 'outfit_id = ? AND garment_id = ?',
+       whereArgs: [outfitId, garmentId],
+     );
+   }
+ 
+   /// Returns a consistent, JSON-ready view of every persisted wardrobe table.
+   Future<Map<String, List<Map<String, Object?>>>> exportBackupData() async {
+     final db = await database;
+-    return db.transaction(
+-      (txn) async => {
++    return db.transaction((txn) async {
++      return {
+         'garments': await txn.query('garments'),
+-        'outfits': await txn.query('outfits'),
+-        'outfitItems': await txn.query('outfit_items'),
++        'outfits': await _queryOptionalBackupTable(txn, 'outfits'),
++        'outfitItems': await _queryOptionalBackupTable(txn, 'outfit_items'),
+         // Wishlist V1 is currently UI-only and therefore has no persisted rows.
+         'wishlist': <Map<String, Object?>>[],
+-        'wearHistory': await txn.query('wear_history'),
+-        'userMemories': await txn.query('user_memories'),
+-        'userMemoryRevisions': await txn.query('user_memory_revisions'),
+-        'personalGoals': await txn.query('personal_goals'),
+-        'styleProfiles': await txn.query('style_profiles'),
+-        'plannedOutfits': await txn.query('planned_outfits'),
+-      },
++        'wearHistory': await _queryOptionalBackupTable(txn, 'wear_history'),
++        'userMemories': await _queryOptionalBackupTable(txn, 'user_memories'),
++        'userMemoryRevisions': await _queryOptionalBackupTable(
++          txn,
++          'user_memory_revisions',
++        ),
++        'personalGoals': await _queryOptionalBackupTable(txn, 'personal_goals'),
++        'styleProfiles': await _queryOptionalBackupTable(txn, 'style_profiles'),
++        'plannedOutfits': await _queryOptionalBackupTable(
++          txn,
++          'planned_outfits',
++        ),
++      };
++    });
++  }
++
++  Future<List<Map<String, Object?>>> _queryOptionalBackupTable(
++    Transaction txn,
++    String tableName,
++  ) async {
++    final exists = await txn.query(
++      'sqlite_master',
++      columns: const ['name'],
++      where: 'type = ? AND name = ?',
++      whereArgs: ['table', tableName],
++      limit: 1,
+     );
++    if (exists.isEmpty) {
++      return <Map<String, Object?>>[];
++    }
++    return txn.query(tableName);
+   }
+ 
+   /// Atomically replaces all persisted wardrobe data with a validated backup.
+   Future<void> restoreBackupData(
+     Map<String, List<Map<String, Object?>>> data,
+   ) async {
+     final db = await database;
+     await db.transaction((txn) async {
+       await txn.delete('planned_outfits');
+       await txn.delete('outfit_items');
+       await txn.delete('wear_history');
+       await txn.delete('outfits');
+       await txn.delete('garments');
+       await txn.delete('user_memory_revisions');
+       await txn.delete('user_memories');
+       await txn.delete('personal_goals');
+       await txn.delete('style_profiles');
+ 
+       for (final row in data['garments']!) {
+         await txn.insert('garments', row);
+       }
+       for (final row in data['outfits']!) {
+         await txn.insert('outfits', row);
+       }
+       for (final row in data['outfitItems']!) {

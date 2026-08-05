@@ -658,21 +658,44 @@ class DatabaseService {
   /// Returns a consistent, JSON-ready view of every persisted wardrobe table.
   Future<Map<String, List<Map<String, Object?>>>> exportBackupData() async {
     final db = await database;
-    return db.transaction(
-      (txn) async => {
+    return db.transaction((txn) async {
+      return {
         'garments': await txn.query('garments'),
-        'outfits': await txn.query('outfits'),
-        'outfitItems': await txn.query('outfit_items'),
+        'outfits': await _queryOptionalBackupTable(txn, 'outfits'),
+        'outfitItems': await _queryOptionalBackupTable(txn, 'outfit_items'),
         // Wishlist V1 is currently UI-only and therefore has no persisted rows.
         'wishlist': <Map<String, Object?>>[],
-        'wearHistory': await txn.query('wear_history'),
-        'userMemories': await txn.query('user_memories'),
-        'userMemoryRevisions': await txn.query('user_memory_revisions'),
-        'personalGoals': await txn.query('personal_goals'),
-        'styleProfiles': await txn.query('style_profiles'),
-        'plannedOutfits': await txn.query('planned_outfits'),
-      },
+        'wearHistory': await _queryOptionalBackupTable(txn, 'wear_history'),
+        'userMemories': await _queryOptionalBackupTable(txn, 'user_memories'),
+        'userMemoryRevisions': await _queryOptionalBackupTable(
+          txn,
+          'user_memory_revisions',
+        ),
+        'personalGoals': await _queryOptionalBackupTable(txn, 'personal_goals'),
+        'styleProfiles': await _queryOptionalBackupTable(txn, 'style_profiles'),
+        'plannedOutfits': await _queryOptionalBackupTable(
+          txn,
+          'planned_outfits',
+        ),
+      };
+    });
+  }
+
+  Future<List<Map<String, Object?>>> _queryOptionalBackupTable(
+    Transaction txn,
+    String tableName,
+  ) async {
+    final exists = await txn.query(
+      'sqlite_master',
+      columns: const ['name'],
+      where: 'type = ? AND name = ?',
+      whereArgs: ['table', tableName],
+      limit: 1,
     );
+    if (exists.isEmpty) {
+      return <Map<String, Object?>>[];
+    }
+    return txn.query(tableName);
   }
 
   /// Atomically replaces all persisted wardrobe data with a validated backup.
