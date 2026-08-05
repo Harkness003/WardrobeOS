@@ -83,7 +83,7 @@ class BackupService {
       content: backup.manifest.content, checksums: hashes);
     final bytes = utf8.encode(const JsonEncoder.withIndent('  ').convert(manifest.toJson()));
     archive.addFile(ArchiveFile('manifest.json', bytes.length, bytes));
-    return ZipEncoder().encode(archive) ?? const [];
+    return ZipEncoder().encode(archive);
   }
 
   Future<BackupManifest> writeBackup(BackupArchive backup, String path) async {

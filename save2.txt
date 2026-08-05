@@ -1,0 +1,44 @@
+diff --git a/lib/features/backup/backup_service.dart b/lib/features/backup/backup_service.dart
+index f9a97052e8276b108bd76c53c0a6b32b19845002..f2669c0b4579c6256d22aab2a11eedc28c52b377 100644
+--- a/lib/features/backup/backup_service.dart
++++ b/lib/features/backup/backup_service.dart
+@@ -61,38 +61,38 @@ class BackupService {
+     }
+     data['garments'] = garments;
+     final counts = {for (final entry in data.entries) entry.key: entry.value.length};
+     return BackupArchive(manifest: BackupManifest(appVersion: appVersion,
+       schemaVersion: BackupManifest.currentSchemaVersion, createdAt: now(),
+       garmentCount: garments.length, photoCount: photos.length, content: counts),
+       sections: data, photos: photos);
+   }
+ 
+   List<int> encodeBackup(BackupArchive backup) {
+     final archive = Archive(); final hashes = <String, String>{};
+     for (final entry in backup.sections.entries) {
+       final name = 'data/${entry.key}.json'; final bytes = utf8.encode(jsonEncode(entry.value));
+       hashes[name] = sha256.convert(bytes).toString(); archive.addFile(ArchiveFile(name, bytes.length, bytes));
+     }
+     for (final entry in backup.photos.entries) {
+       hashes[entry.key] = sha256.convert(entry.value).toString();
+       archive.addFile(ArchiveFile(entry.key, entry.value.length, entry.value));
+     }
+     final manifest = BackupManifest(appVersion: backup.manifest.appVersion,
+       schemaVersion: backup.manifest.schemaVersion, createdAt: backup.manifest.createdAt,
+       garmentCount: backup.manifest.garmentCount, photoCount: backup.manifest.photoCount,
+       content: backup.manifest.content, checksums: hashes);
+     final bytes = utf8.encode(const JsonEncoder.withIndent('  ').convert(manifest.toJson()));
+     archive.addFile(ArchiveFile('manifest.json', bytes.length, bytes));
+-    return ZipEncoder().encode(archive) ?? const [];
++    return ZipEncoder().encode(archive);
+   }
+ 
+   Future<BackupManifest> writeBackup(BackupArchive backup, String path) async {
+     final zip = encodeBackup(backup);
+     await File(path).writeAsBytes(zip, flush: true);
+     final file = File(path);
+     if (!await file.exists() || await file.length() == 0) {
+       throw const FileSystemException('Backup file was not created');
+     }
+     return backup.manifest;
+   }
+ }
