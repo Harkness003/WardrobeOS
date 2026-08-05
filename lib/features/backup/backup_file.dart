@@ -63,7 +63,9 @@ class BackupArchive {
   final BackupManifest manifest;
   final Map<String, List<Map<String, Object?>>> sections;
   final Map<String, List<int>> photos;
-  const BackupArchive({required this.manifest, required this.sections, required this.photos});
+  final List<String> warnings;
+  const BackupArchive({required this.manifest, required this.sections, required this.photos,
+    this.warnings = const []});
 }
 
 List<Map<String, Object?>> decodeRows(List<int> bytes, String section) {

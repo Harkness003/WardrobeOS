@@ -27,44 +27,68 @@ class BackupService {
   Future<BackupArchive> createBackup() async {
     final data = await repository.exportData();
     final photos = <String, List<int>>{};
+    final warnings = <String>[];
+    var missingPhotoCount = 0;
+    final garmentsWithMissingPhotos = <String>{};
+    var normalizedPhotoCount = 0;
+    final garmentsWithNormalizedPhotos = <String>{};
     final garments = (data['garments'] ?? const []).map((source) => Map<String, Object?>.from(source)).toList();
     for (final garment in garments) {
+      final garmentId = garment['id']?.toString() ?? 'inconnu';
+      final garmentLabel = _garmentLabel(garment);
       final List<GarmentPhoto> garmentPhotos;
       try {
         garmentPhotos = GarmentPhoto.decodeStrict(garment['photos']);
-      } on FormatException {
-        throw BackupFormatException('Photos canoniques invalides pour le vêtement ${garment['id']}.');
+      } on FormatException catch (error) {
+        throw BackupFormatException('Photos canoniques invalides pour le vêtement $garmentLabel : ${error.message}.');
+      }
+      final normalized = GarmentPhotoNormalizer.normalize(garmentPhotos);
+      if (normalized.changed) {
+        normalizedPhotoCount += normalized.removedEmptyPaths + normalized.repairedEmptyIds + normalized.removedDuplicateIds +
+          normalized.removedDuplicatePaths + normalized.demotedPrimaryCount + (normalized.promotedPrimary ? 1 : 0);
+        garmentsWithNormalizedPhotos.add(garmentId);
       }
       final archivedPhotos = <GarmentPhoto>[];
-      for (final photo in garmentPhotos) {
+      for (final photo in normalized.photos) {
         final path = photo.path;
-        if (path.isEmpty) {
-          throw BackupFormatException('Chemin vide pour la photo ${photo.id} du vêtement ${garment['id']}.');
-        }
         try {
           final file = File(path);
           if (!await file.exists()) {
-            throw BackupFormatException('Photo introuvable : $path.');
+            missingPhotoCount++;
+            garmentsWithMissingPhotos.add(garmentId);
+            continue;
           }
-          final name = 'photos/${garment['id']}/${photo.id}_${p.basename(path)}';
+          final name = 'photos/$garmentId/${photo.id}_${p.basename(path)}';
           if (photos.containsKey(name)) {
-            throw BackupFormatException('Identifiant de photo dupliqué : ${photo.id}.');
+            throw BackupFormatException('Référence de photo dupliquée pour le vêtement $garmentLabel : $name.');
           }
           photos[name] = await file.readAsBytes();
           archivedPhotos.add(GarmentPhoto(id: photo.id, path: name, type: photo.type,
             createdAt: photo.createdAt, semanticType: photo.semanticType));
         } on FileSystemException catch (error) {
-          throw BackupFormatException('Photo illisible : $path (${error.message}).');
+          throw BackupFormatException('Photo illisible pour le vêtement $garmentLabel : $path (${error.message}).');
         }
       }
       garment['photos'] = GarmentPhoto.encode(archivedPhotos);
+    }
+    if (missingPhotoCount > 0) {
+      warnings.add('Sauvegarde créée avec $missingPhotoCount photo${missingPhotoCount == 1 ? '' : 's'} manquante${missingPhotoCount == 1 ? '' : 's'} sur ${garmentsWithMissingPhotos.length} vêtement${garmentsWithMissingPhotos.length == 1 ? '' : 's'}.');
+    }
+    if (normalizedPhotoCount > 0) {
+      warnings.add('$normalizedPhotoCount entrée${normalizedPhotoCount == 1 ? '' : 's'} photo incomplète${normalizedPhotoCount == 1 ? '' : 's'} ou dupliquée${normalizedPhotoCount == 1 ? '' : 's'} normalisée${normalizedPhotoCount == 1 ? '' : 's'} sur ${garmentsWithNormalizedPhotos.length} vêtement${garmentsWithNormalizedPhotos.length == 1 ? '' : 's'}.');
     }
     data['garments'] = garments;
     final counts = {for (final entry in data.entries) entry.key: entry.value.length};
     return BackupArchive(manifest: BackupManifest(appVersion: appVersion,
       schemaVersion: BackupManifest.currentSchemaVersion, createdAt: now(),
       garmentCount: garments.length, photoCount: photos.length, content: counts),
-      sections: data, photos: photos);
+      sections: data, photos: photos, warnings: warnings);
+  }
+
+  String _garmentLabel(Map<String, Object?> garment) {
+    final id = garment['id']?.toString() ?? 'inconnu';
+    final name = garment['name']?.toString().trim();
+    return name == null || name.isEmpty ? id : '$name ($id)';
   }
 
   List<int> encodeBackup(BackupArchive backup) {

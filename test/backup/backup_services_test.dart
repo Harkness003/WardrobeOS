@@ -58,12 +58,115 @@ void main() {
     }), throwsA(isA<BackupFormatException>()));
   });
 
-  test('une photo canonique absente fait échouer la sauvegarde', () async {
+  test('une photo canonique absente est exclue avec avertissement', () async {
     final service = BackupService(repository: _MemoryRepository(
       _sampleData('/absente.jpg', null)));
-    await expectLater(service.createBackup(), throwsA(isA<BackupFormatException>()));
+
+    final archive = await service.createBackup();
+
+    expect(archive.photos, isEmpty);
+    expect(archive.manifest.photoCount, 0);
+    expect(archive.warnings.single, 'Sauvegarde créée avec 1 photo manquante sur 1 vêtement.');
+    expect(GarmentPhoto.decode(archive.sections['garments']!.single['photos']), isEmpty);
   });
 
+  test('la sauvegarde accepte les vêtements sans photo', () async {
+    final data = _sampleDataWithoutImagePath(photos: const []);
+    final service = BackupService(repository: _MemoryRepository(data));
+
+    final archive = await service.createBackup();
+
+    expect(archive.photos, isEmpty);
+    expect(archive.warnings, isEmpty);
+    expect(GarmentPhoto.decode(archive.sections['garments']!.single['photos']), isEmpty);
+    expect(archive.sections['garments']!.single.containsKey('imagePath'), isFalse);
+    expect(archive.sections['garments']!.single.containsKey('image_path'), isFalse);
+  });
+
+  test('la sauvegarde promeut une photo valide non principale', () async {
+    final file = File('${temp.path}/detail.jpg')..writeAsBytesSync([7]);
+    final data = _sampleDataWithoutImagePath(photos: [
+      GarmentPhoto(id: 'detail', path: file.path, type: GarmentPhotoType.detail,
+        createdAt: DateTime.utc(2026, 1, 3)),
+    ]);
+    final service = BackupService(repository: _MemoryRepository(data));
+
+    final archive = await service.createBackup();
+
+    final exported = GarmentPhoto.decode(archive.sections['garments']!.single['photos']);
+    expect(exported.single.type, GarmentPhotoType.primary);
+    expect(archive.warnings.single, contains('normalisée'));
+  });
+
+  test('la sauvegarde déduplique les photos et limite la photo principale', () async {
+    final one = File('${temp.path}/one.jpg')..writeAsBytesSync([1]);
+    final two = File('${temp.path}/two.jpg')..writeAsBytesSync([2]);
+    final data = _sampleDataWithoutImagePath(photos: [
+      GarmentPhoto(id: 'same', path: one.path, type: GarmentPhotoType.primary,
+        createdAt: DateTime.utc(2026, 1, 1)),
+      GarmentPhoto(id: 'same', path: two.path, type: GarmentPhotoType.primary,
+        createdAt: DateTime.utc(2026, 1, 2)),
+      GarmentPhoto(id: 'other', path: one.path, type: GarmentPhotoType.detail,
+        createdAt: DateTime.utc(2026, 1, 3)),
+      GarmentPhoto(id: '', path: two.path, type: GarmentPhotoType.primary,
+        createdAt: DateTime.utc(2026, 1, 4)),
+    ]);
+    final service = BackupService(repository: _MemoryRepository(data));
+
+    final archive = await service.createBackup();
+
+    final exported = GarmentPhoto.decode(archive.sections['garments']!.single['photos']);
+    expect(exported, hasLength(2));
+    expect(exported.where((photo) => photo.type == GarmentPhotoType.primary), hasLength(1));
+    expect(exported.every((photo) => photo.id.isNotEmpty), isTrue);
+    expect(archive.warnings.single, contains('normalisées'));
+  });
+
+  test('la sauvegarde supprime les chemins vides et poursuit avec avertissement', () async {
+    final file = File('${temp.path}/valid.jpg')..writeAsBytesSync([9]);
+    final data = _sampleDataWithoutImagePath(photos: [
+      GarmentPhoto(id: 'blank', path: ' ', type: GarmentPhotoType.primary,
+        createdAt: DateTime.utc(2026, 1, 1)),
+      GarmentPhoto(id: 'valid', path: file.path, type: GarmentPhotoType.detail,
+        createdAt: DateTime.utc(2026, 1, 2)),
+    ]);
+    final service = BackupService(repository: _MemoryRepository(data));
+
+    final archive = await service.createBackup();
+
+    final exported = GarmentPhoto.decode(archive.sections['garments']!.single['photos']);
+    expect(exported.single.id, 'valid');
+    expect(exported.single.type, GarmentPhotoType.primary);
+    expect(archive.warnings.single, contains('normalisées'));
+  });
+
+  test('un manifeste JSON invalide reste bloquant avec une raison précise', () async {
+    final data = _sampleDataWithoutImagePath(photos: const []);
+    data['garments']!.single['photos'] = '{invalid';
+    final service = BackupService(repository: _MemoryRepository(data));
+
+    await expectLater(service.createBackup(), throwsA(isA<BackupFormatException>()
+      .having((error) => error.message, 'message', contains('Photos canoniques invalides'))
+      .having((error) => error.message, 'garment', contains('Chemise'))));
+  });
+
+  test('le contrôleur affiche les avertissements de sauvegarde réussie', () async {
+    final repository = _MemoryRepository(_sampleData('/absente.jpg', null));
+    final controller = BackupController(
+      backupService: BackupService(repository: repository),
+      restoreService: RestoreService(repository: repository),
+      destinationPicker: _FakeBackupDestinationPicker(
+        destination: const BackupSaveDestination(name: 'backup.zip', confirmed: true),
+      ),
+    );
+
+    await controller.createBackup();
+
+    expect(controller.result, contains('Sauvegarde créée : backup.zip'));
+    expect(controller.result, contains('Sauvegarde créée avec 1 photo manquante sur 1 vêtement.'));
+    expect(controller.resultIsError, isFalse);
+    controller.dispose();
+  });
 
 
   test('création de sauvegarde annule proprement sans écriture', () async {
@@ -209,6 +312,16 @@ Map<String, List<Map<String, Object?>>> _sampleData(String primary, String? deta
   'outfitItems': [{'outfit_id': 'o1', 'garment_id': 'g1'}],
   'plannedOutfits': [{'id': 'p1', 'outfit_id': 'o1'}],
   'styleProfiles': [{'id': 'default'}],
+};
+
+
+Map<String, List<Map<String, Object?>>> _sampleDataWithoutImagePath({required List<GarmentPhoto> photos}) => {
+  ..._emptyData(),
+  'garments': [{
+    'id': 'g1', 'name': 'Chemise', 'category': 'Hauts',
+    'photos': GarmentPhoto.encode(photos),
+    'created_at': '2026-01-01', 'updated_at': '2026-01-01',
+  }],
 };
 
 

@@ -112,9 +112,10 @@ class BackupController extends ChangeNotifier {
       }
       lastBackup = archive.manifest;
       lastLocation = destination.location;
+      final warningText = archive.warnings.isEmpty ? '' : '\n${archive.warnings.join(' ')}';
       result = destination.location == null
-        ? 'Sauvegarde créée : ${destination.name}'
-        : 'Sauvegarde créée : ${destination.name}\nEmplacement : ${destination.location}';
+        ? 'Sauvegarde créée : ${destination.name}$warningText'
+        : 'Sauvegarde créée : ${destination.name}\nEmplacement : ${destination.location}$warningText';
     }, failurePrefix: 'Impossible de créer la sauvegarde');
   }
   Future<bool> selectRestore() async {
@@ -136,7 +137,9 @@ class BackupController extends ChangeNotifier {
     if (error is BackupSaveException) {
       return switch (error.failure) {
         BackupSaveFailure.invalidDestination => 'Impossible d’utiliser l’emplacement sélectionné. Choisis un autre emplacement.',
-        BackupSaveFailure.archiveCreation => 'Impossible de créer l’archive de sauvegarde.',
+        BackupSaveFailure.archiveCreation => error.cause is BackupFormatException
+          ? (error.cause as BackupFormatException).message
+          : 'Impossible de créer l’archive de sauvegarde.',
         BackupSaveFailure.export => 'L’archive a été préparée, mais n’a pas pu être enregistrée à l’emplacement choisi.',
       };
     }

@@ -491,7 +491,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
           'Suggestions IA vérifiées · confiance ${((analysis.overallConfidence ?? analysis.globalConfidence) * 100).round()} %.',
         null => 'Ajout manuel depuis le scanner.',
       },
-      photos: [
+      photos: GarmentPhotoNormalizer.normalize([
         for (var index = 0; index < sessionImagePaths.length; index++)
           GarmentPhoto(
             id: const Uuid().v4(),
@@ -499,7 +499,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
             type: index == 0 ? GarmentPhotoType.primary : GarmentPhotoType.other,
             createdAt: now,
           ),
-      ],
+      ]).photos,
       lastAnalyzedAt: result == null ? null : now,
       aiAnalysisVersion: result == null
           ? null

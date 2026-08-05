@@ -197,10 +197,10 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     final garment = Garment(
       id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: normalizedType.category ?? 'Autre',
       brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes),
-      photos: [
+      photos: GarmentPhotoNormalizer.normalize([
         if (_imagePath != null) GarmentPhoto(id: old?.effectivePhotos.firstOrNull?.id ?? const Uuid().v4(), path: _imagePath!, type: GarmentPhotoType.primary, createdAt: old?.effectivePhotos.firstOrNull?.createdAt ?? now),
         ...?old?.effectivePhotos.skip(1),
-      ],
+      ]).photos,
       sousCategorie: normalizedType.subcategory, couleurPrincipale: _text(_color), matierePrincipale: material,
       typePrecis: normalizedType.preciseType, superposable: old?.superposable,
       saisons: _seasons.toList(),
