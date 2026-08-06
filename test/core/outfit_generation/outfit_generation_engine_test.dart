@@ -24,10 +24,8 @@ void main() {
     WeatherProtection rain = WeatherProtection.none,
     WeatherProtection wind = WeatherProtection.none,
   }) => ThermalProfile(
-    standaloneMinC: min, standaloneMaxC: max, layeredMinC: min - contribution, layeredMaxC: max - 1,
-    level: ThermalLevel.moderate, insulation: InsulationLevel.medium, thickness: ThicknessLevel.medium,
-    thermalContributionC: contribution, breathability: BreathabilityLevel.medium,
-    windProtection: wind, rainCompatibility: rain, primaryRole: role,
+    insulation: contribution >= 10 ? InsulationLevel.veryHigh : contribution >= 5 ? InsulationLevel.medium : InsulationLevel.veryLow, thickness: ThicknessLevel.medium, breathability: BreathabilityLevel.medium,
+    windProtection: wind, rainProtection: rain, primaryRole: role,
     acceptsUnder: role == LayerRole.outer ? const [LayerRole.base, LayerRole.mid] : const [],
     acceptsOver: role == LayerRole.base ? const [LayerRole.mid, LayerRole.outer] : role == LayerRole.mid ? const [LayerRole.outer] : const [],
     inputFingerprint: 'fixture', calculatedAt: now,

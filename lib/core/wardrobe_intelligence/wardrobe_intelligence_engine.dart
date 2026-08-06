@@ -167,8 +167,8 @@ class WardrobeIntelligenceEngine {
     ));
     final hotWeather = garments.where((item) {
       final thermal = item.thermalProfile;
-      return thermal != null && thermal.standaloneMaxC >= 25 &&
-          thermal.breathability.name != 'low';
+      return thermal != null && thermal.insulation.index <= InsulationLevel.low.index &&
+          thermal.breathability == BreathabilityLevel.high;
     }).length;
     if (garments.length >= 5 && hotWeather / garments.length < .15) result.add(WardrobeInsight(
       code: 'low_hot_weather_coverage', type: WardrobeInsightType.gap,

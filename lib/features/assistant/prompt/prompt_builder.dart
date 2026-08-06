@@ -38,7 +38,8 @@ class PromptBuilder {
             'contraintesRespectées': proposal.respectedConstraints,
           }).toList())}\n'
           "Explique et conseille à partir de ces propositions uniquement. Ne sélectionne, "
-          "ne remplace et n'invente aucun vêtement.";
+          "ne remplace et n'invente aucun vêtement. Pour toute explication thermique, "
+          "reprends uniquement les raisons calculées fournies, sans les compléter.";
     }
     return prompt;
   }

@@ -28,6 +28,9 @@ class OutfitTool implements AssistantTool {
           .map((proposal) => {
                 'id': proposal.outfit.id,
                 'name': proposal.outfit.name,
+                // Canonical deterministic explanations from
+                // OutfitGenerationEngine; WardrobeGPT must relay, not invent.
+                'reasons': proposal.reasons,
               })
           .toList(growable: false),
       'lastWorn':

@@ -100,14 +100,10 @@ void main() {
       saisons: const ['Automne', 'Hiver'],
       occasions: const ['Travail'],
       thermalProfile: ThermalProfile(
-        standaloneMinC: 3,
-        standaloneMaxC: 18,
-        layeredMinC: -2,
-        layeredMaxC: 14,
-        level: ThermalLevel.warm,
+        insulation: InsulationLevel.high,
         breathability: BreathabilityLevel.medium,
         windProtection: WeatherProtection.limited,
-        rainCompatibility: WeatherProtection.none,
+        rainProtection: WeatherProtection.none,
         primaryRole: LayerRole.outer,
         acceptsUnder: const [LayerRole.base, LayerRole.mid],
         inputFingerprint: 'thermal-fixture',
@@ -150,8 +146,8 @@ void main() {
     expect(restored.effectiveStyleAnalysis.register, 'smart_casual');
     expect(restored.effectiveStyleAnalysis.characteristics,
         ['structured', 'elegant']);
-    expect(restored.effectiveThermalProfile.standaloneMinC, 3);
-    expect(restored.effectiveThermalProfile.standaloneMaxC, 18);
+    expect(restored.effectiveThermalProfile.insulation, InsulationLevel.high);
+    expect(restored.effectiveThermalProfile.primaryRole, LayerRole.outer);
     expect(restored.limitesAnalyse, ['Étiquette non visible']);
     expect(restored.couleursCompatibles, ['Écru', 'Marine']);
     expect(restored.explicationPolyvalence, 'Polyvalence moyenne.');

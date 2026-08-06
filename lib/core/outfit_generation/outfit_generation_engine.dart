@@ -80,6 +80,19 @@ class OutfitGenerationDiagnostic {
 
 enum OutfitCompleteness { incomplete, acceptable, recommended }
 
+enum ThermalVerdict { ideal, tooWarm, tooLight, rainInsufficient, missingOuterLayer, excessiveInsulation }
+
+class OutfitThermalAssessment {
+  final double score;
+  final ThermalVerdict verdict;
+  final double accumulatedInsulation;
+  final double accumulatedBreathability;
+  final List<String> reasons;
+  const OutfitThermalAssessment({required this.score, required this.verdict,
+    required this.accumulatedInsulation, required this.accumulatedBreathability,
+    required this.reasons});
+}
+
 /// Central, UI-independent two-stage engine: bounded candidate generation,
 /// followed by deterministic scoring and explanation.
 class OutfitGenerationEngine {
@@ -195,7 +208,8 @@ class OutfitGenerationEngine {
       return values == null || values.isEmpty ? fallback : values.reduce((a, b) => a + b) / values.length;
     }
     final style = (average('style') + average('couleurs')) / 2;
-    final thermal = _outfitThermalScore(items, request.context) ?? average('température');
+    final thermalAssessment = evaluateThermal(items, request.context);
+    final thermal = thermalAssessment?.score ?? average('température');
     final layering = average('superposition');
     final formality = average('formalité');
     final diversity = (items.length / 5).clamp(0, 1).toDouble();
@@ -206,12 +220,7 @@ class OutfitGenerationEngine {
         diversity * .10 + rotation * .15;
     final temperature = request.context.weather?.temperature;
     final reasons = <String>[
-      if (thermal >= .7 && temperature != null)
-        'Choisie car adaptée à ${temperature.round()} °C${request.context.weather?.isRaining == true ? ' avec pluie légère' : ''}.',
-      if (request.context.weather?.isRaining == true && items.any((item) => _thermal(item).rainCompatibility != WeatherProtection.none))
-        'Ajoutée comme couche extérieure contre la pluie.',
-      if ((request.context.weather?.windSpeed ?? 0) >= 15 && items.any((item) => _thermal(item).windProtection != WeatherProtection.none))
-        'Ajoutée comme couche extérieure contre le vent.',
+      ...?thermalAssessment?.reasons,
       if (thermal >= .7 && request.context.weather == null) 'Bonne compatibilité thermique.',
       if (style >= .7) 'Couleurs et styles harmonieux.',
       if (layering >= .7) 'Couches compatibles entre elles.',
@@ -249,28 +258,53 @@ class OutfitGenerationEngine {
     );
   }
 
-  double? _outfitThermalScore(List<Garment> items, RecommendationContext context) {
+  /// Unique decision point for thermal suitability, shared by every caller
+  /// including Daily. No garment temperature range is consulted.
+  OutfitThermalAssessment? evaluateThermal(List<Garment> items, RecommendationContext context) {
     final apparent = context.weather?.apparentTemperature;
     if (apparent == null || items.isEmpty) return null;
     final profiles = items.map(_thermal).toList(growable: false);
-    final baseMax = profiles.map((p) => p.standaloneMaxC).reduce((a, b) => a > b ? a : b);
-    final contribution = profiles.fold<double>(0, (sum, p) => sum + p.thermalContributionC);
+    double insulationOf(InsulationLevel value) => const [.25, .55, 1.0, 1.7, 2.5][value.index];
+    double breathabilityOf(BreathabilityLevel value) => const [.25, .6, 1.0][value.index];
+    final insulation = profiles.fold<double>(0, (sum, p) => sum + insulationOf(p.insulation));
+    final breathability = profiles.fold<double>(0, (sum, p) => sum + breathabilityOf(p.breathability)) / profiles.length;
     final hasOuter = profiles.any((p) => p.primaryRole == LayerRole.outer);
     final hasMid = profiles.any((p) => p.primaryRole == LayerRole.mid);
-    final layeredMin = (24 - contribution - (hasOuter && hasMid ? 1.5 : 0)).clamp(-15, baseMax).toDouble();
-    final layeredMax = (baseMax - (profiles.length >= 3 ? 3 : profiles.length == 2 ? 1.5 : 0)).toDouble();
-    var score = apparent < layeredMin
-        ? 1 - (layeredMin - apparent) / 12
-        : apparent > layeredMax
-            ? 1 - (apparent - layeredMax) / 10
-            : 1.0;
-    if (context.weather?.isRaining == true && !profiles.any((p) => p.primaryRole == LayerRole.outer && p.rainCompatibility != WeatherProtection.none)) {
-      score = score > .45 ? .45 : score;
+    final activity = (context.metadata['activityLevel'] as num?)?.toDouble() ?? 0;
+    final evening = context.metadata['momentOfDay'] == 'evening' ? .2 : 0;
+    final target = ((22 - apparent) / 6 + evening - activity * .45).clamp(.25, 5).toDouble();
+    final difference = insulation - target;
+    var score = (1 - difference.abs() / 3).clamp(0, 1).toDouble();
+    var verdict = difference > 1.6 ? ThermalVerdict.excessiveInsulation
+        : difference > .7 ? ThermalVerdict.tooWarm
+        : difference < -1 ? ThermalVerdict.tooLight : ThermalVerdict.ideal;
+    final reasons = <String>[];
+    if (hasMid) reasons.add('La couche intermédiaire apporte l’isolation nécessaire.');
+    if (hasOuter && (context.weather?.windSpeed ?? 0) >= 15 &&
+        profiles.any((p) => p.primaryRole == LayerRole.outer && p.windProtection != WeatherProtection.none)) {
+      reasons.add('La couche extérieure protège du vent.');
     }
-    if ((context.weather?.windSpeed ?? 0) >= 15 && !profiles.any((p) => p.primaryRole == LayerRole.outer && p.windProtection != WeatherProtection.none)) {
-      score = score > .6 ? .6 : score;
+    if (context.weather?.isRaining == true && !profiles.any((p) =>
+        p.primaryRole == LayerRole.outer && p.rainProtection == WeatherProtection.resistant)) {
+      verdict = ThermalVerdict.rainInsufficient; score = score.clamp(0, .4).toDouble();
+      reasons.add('La pluie n’est pas suffisamment couverte par la couche extérieure.');
+    } else if (context.weather?.isRaining == true) {
+      reasons.add('La couche extérieure assure la protection contre la pluie.');
     }
-    return score.clamp(0, 1).toDouble();
+    if ((context.weather?.windSpeed ?? 0) >= 20 && !hasOuter) {
+      verdict = ThermalVerdict.missingOuterLayer; score = score.clamp(0, .5).toDouble();
+      reasons.add('Cette tenue manque d’une couche extérieure contre le vent.');
+    }
+    if ((context.weather?.humidity ?? 0) >= 75 && apparent >= 20 && breathability < .65) {
+      score = (score - .2).clamp(0, 1).toDouble(); reasons.add('La respirabilité cumulée est faible pour cette forte humidité.');
+    }
+    if (verdict == ThermalVerdict.tooWarm) reasons.add('Cette tenue est trop chaude pour la température ressentie.');
+    if (verdict == ThermalVerdict.excessiveInsulation) reasons.add('L’isolation cumulée est excessive.');
+    if (verdict == ThermalVerdict.tooLight) reasons.add('Cette tenue est trop légère : une couche isolante est nécessaire.');
+    if (verdict == ThermalVerdict.ideal && reasons.isEmpty) reasons.add('L’isolation et la respirabilité cumulées sont adaptées.');
+    return OutfitThermalAssessment(score: score, verdict: verdict,
+      accumulatedInsulation: insulation, accumulatedBreathability: breathability,
+      reasons: List.unmodifiable(reasons));
   }
 
   static OutfitCompleteness validateOutfit(Outfit outfit) {
@@ -304,17 +338,11 @@ class OutfitGenerationEngine {
 }
 
 final _outfitFallbackThermalProfile = ThermalProfile(
-  standaloneMinC: 12,
-  standaloneMaxC: 24,
-  layeredMinC: 8,
-  layeredMaxC: 22,
-  level: ThermalLevel.moderate,
-  insulation: InsulationLevel.medium,
+  insulation: InsulationLevel.low,
   thickness: ThicknessLevel.medium,
-  thermalContributionC: 5,
   breathability: BreathabilityLevel.medium,
   windProtection: WeatherProtection.none,
-  rainCompatibility: WeatherProtection.none,
+  rainProtection: WeatherProtection.none,
   primaryRole: LayerRole.mid,
   inputFingerprint: 'outfit-fallback',
   calculatedAt: DateTime.fromMillisecondsSinceEpoch(0),

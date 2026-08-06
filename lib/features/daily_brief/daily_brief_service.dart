@@ -99,7 +99,12 @@ class DailyBriefService {
                 isRaining: _isRaining(weather),
                 condition: weather.description,
                 windSpeed: weather.windSpeed,
+                humidity: weather.humidity,
               ),
+        metadata: {
+          'momentOfDay': _clock().hour >= 18 ? 'evening' : 'day',
+          'activityLevel': 0,
+        },
       ),
     ));
     final proposals = generation.proposals;

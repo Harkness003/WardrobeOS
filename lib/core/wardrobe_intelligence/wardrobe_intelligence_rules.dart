@@ -54,9 +54,7 @@ class InsufficientWinterRule implements WardrobeGapRule {
     final winterShare = context.garments.where((item) {
       final thermal = item.thermalProfile;
       return thermal != null &&
-          (thermal.standaloneMinC <= 8 ||
-              thermal.level == ThermalLevel.warm ||
-              thermal.level == ThermalLevel.veryWarm);
+          thermal.insulation.index >= InsulationLevel.high.index;
     }).length / context.garments.length;
     if (context.garments.length < 5 || winterShare >= minimumShare) return null;
     return WardrobeGap(

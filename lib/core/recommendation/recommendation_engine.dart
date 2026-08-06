@@ -69,7 +69,8 @@ class RecommendationEngine {
       _detail('style', weights.style, _style(candidate, base, context, preferences)),
       _detail('formalité', weights.formality, _same(candidate.formality, base?.formality)),
       _detail('saison', weights.season, _season(candidate, context)),
-      _detail('température', weights.temperature, _temperature(candidate, context)),
+      // La compatibilité thermique n'existe qu'au niveau de la tenue complète.
+      _detail('température', weights.temperature, .7),
       _detail('couleurs', weights.color, _color(candidate, base, preferences)),
       _detail('matières', weights.material, _material(candidate, base, preferences)),
       _detail('superposition', weights.layering, _layering(candidate, base)),
@@ -115,28 +116,6 @@ class RecommendationEngine {
     return item.seasons.contains(season) ? 1 : .15;
   }
 
-  double _temperature(_Profile item, RecommendationContext context) {
-    final temperature = context.weather?.apparentTemperature;
-    if (temperature == null) return .7;
-    final thermal = item.thermal;
-    if (temperature < thermal.standaloneMinC) {
-      return (1 - (thermal.standaloneMinC - temperature) / 15)
-          .clamp(0, 1)
-          .toDouble();
-    }
-    if (temperature > thermal.standaloneMaxC) {
-      return (1 - (temperature - thermal.standaloneMaxC) / 15)
-          .clamp(0, 1)
-          .toDouble();
-    }
-    if (context.weather?.isRaining == true &&
-        thermal.rainCompatibility == WeatherProtection.none) return .2;
-    if ((context.weather?.windSpeed ?? 0) >= 30 &&
-        thermal.windProtection == WeatherProtection.none) return .35;
-    if (temperature >= 25 && thermal.breathability == BreathabilityLevel.low) return .45;
-    return 1;
-  }
-
   double _color(_Profile item, _Profile? anchor, RecommendationPreferences preferences) {
     if (preferences.preferredColors.map(_normalize).contains(item.color)) return 1;
     if (anchor == null || item.color.isEmpty || anchor.color.isEmpty) return .7;
@@ -174,10 +153,6 @@ class RecommendationEngine {
 
   String _explain(_Profile item, _Profile? anchor, RecommendationContext context,
       List<RecommendationCriterionScore> details, int score) {
-    final temperature = context.weather?.apparentTemperature;
-    if (temperature != null && temperature > item.thermal.standaloneMaxC + 5) {
-      return '${item.garment.name} est déconseillé car la température prévue dépasse largement sa plage idéale.';
-    }
     if (context.weather?.isRaining == true &&
         item.thermal.rainCompatibility == WeatherProtection.none) {
       return '${item.garment.name} est peu conseillé sous la pluie car il n’est pas déclaré compatible.';
@@ -206,14 +181,10 @@ class RecommendationEngine {
 }
 
 final _defaultThermalProfile = ThermalProfile(
-  standaloneMinC: 12,
-  standaloneMaxC: 24,
-  layeredMinC: 8,
-  layeredMaxC: 24,
-  level: ThermalLevel.moderate,
+  insulation: InsulationLevel.low,
   breathability: BreathabilityLevel.medium,
   windProtection: WeatherProtection.none,
-  rainCompatibility: WeatherProtection.none,
+  rainProtection: WeatherProtection.none,
   primaryRole: LayerRole.mid,
   inputFingerprint: 'fallback',
   calculatedAt: DateTime.fromMillisecondsSinceEpoch(0),
@@ -248,24 +219,19 @@ class _Profile {
       .map(RecommendationEngine._normalize).toSet();
   ThermalProfile get thermal {
     final current = garment.thermalProfile ?? _defaultThermalProfile;
-    if (correction?.minimumTemperature == null &&
-        correction?.maximumTemperature == null && correction?.rainCompatible == null) {
+    if (correction?.rainCompatible == null) {
       return current;
     }
-    final minimum = correction?.minimumTemperature ?? current.standaloneMinC;
-    final requestedMaximum = correction?.maximumTemperature ?? current.standaloneMaxC;
     return ThermalProfile(
-      standaloneMinC: minimum,
-      standaloneMaxC: requestedMaximum < minimum ? minimum : requestedMaximum,
-      layeredMinC: current.layeredMinC, layeredMaxC: current.layeredMaxC,
-      level: current.level, insulation: current.insulation,
+      insulation: current.insulation,
       thickness: current.thickness,
-      thermalContributionC: current.thermalContributionC,
       breathability: current.breathability,
       windProtection: current.windProtection,
-      rainCompatibility: correction?.rainCompatible == null
+      rainProtection: correction?.rainCompatible == null
           ? current.rainCompatibility
           : correction!.rainCompatible! ? WeatherProtection.limited : WeatherProtection.none,
+      moistureResistance: current.moistureResistance, dryingSpeed: current.dryingSpeed,
+      coverage: current.coverage, weight: current.weight, opening: current.opening,
       primaryRole: current.primaryRole, acceptsUnder: current.acceptsUnder,
       acceptsOver: current.acceptsOver, inputFingerprint: current.inputFingerprint,
       calculatedAt: current.calculatedAt, confidence: current.confidence,

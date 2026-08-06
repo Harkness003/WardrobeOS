@@ -63,8 +63,6 @@ class GarmentRecommendationCorrection {
   final List<String>? occasions;
   final String? color;
   final String? material;
-  final double? minimumTemperature;
-  final double? maximumTemperature;
   final bool? rainCompatible;
   final bool? layerable;
 
@@ -76,8 +74,6 @@ class GarmentRecommendationCorrection {
     this.occasions,
     this.color,
     this.material,
-    this.minimumTemperature,
-    this.maximumTemperature,
     this.rainCompatible,
     this.layerable,
   });

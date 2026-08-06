@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
@@ -7,7 +6,6 @@ import '../../data/image_storage_service.dart';
 import '../../models/garment.dart';
 import '../../models/garment_photo.dart';
 import '../../models/garment_normalizer.dart';
-import '../../models/thermal_profile.dart';
 import '../../models/thermal_profile_calculator.dart';
 import '../../models/style_analysis.dart';
 import '../../widgets/garment_image.dart';
@@ -31,8 +29,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
   final _picker = ImagePicker();
   final _subCategoryFocus = FocusNode();
   late final TextEditingController _name, _brand, _color, _size, _otherMaterial,
-      _otherUse, _otherCategory, _subCategory, _composition,
-      _minTemp, _maxTemp, _notes;
+      _otherUse, _otherCategory, _subCategory, _composition, _notes;
   late String _category;
   String? _material;
   late Set<String> _seasons, _uses;
@@ -68,8 +65,6 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     final hasCustomCategory = g != null && !categories.contains(g.category);
     _otherCategory = TextEditingController(text: hasCustomCategory ? g.category : '');
     _subCategory = TextEditingController(text: g?.sousCategorie ?? '');
-    _minTemp = TextEditingController(text: g?.thermalProfile?.standaloneMinC.toString() ?? '');
-    _maxTemp = TextEditingController(text: g?.thermalProfile?.standaloneMaxC.toString() ?? '');
     _category = hasCustomCategory ? 'Autre' : (categories.contains(g?.category) ? g!.category : categories.first);
     final existingMaterial = g?.matierePrincipale ?? g?.material;
     _material = _choice(existingMaterial, materials) ?? (existingMaterial == null ? null : 'Autre...');
@@ -92,7 +87,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
 
   @override
   void dispose() {
-    for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _otherCategory, _subCategory, _composition, _minTemp, _maxTemp, _notes]) { c.dispose(); }
+    for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _otherCategory, _subCategory, _composition, _notes]) { c.dispose(); }
     _subCategoryFocus.dispose();
     super.dispose();
   }
@@ -146,8 +141,6 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    final min = _number(_minTemp), max = _number(_maxTemp);
-    if (min != null && max != null && min > max) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La température minimale doit être inférieure au maximum.'))); return; }
     setState(() => _saving = true);
     final old = widget.garment;
     final now = DateTime.now();
@@ -190,12 +183,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       old?.thermalProfile,
       calculatedAt: now,
     );
-    final thermalProfile = _withUserThermalRange(
-      calculatedThermalProfile,
-      standaloneMinC: min,
-      standaloneMaxC: max,
-      calculatedAt: now,
-    );
+    final thermalProfile = calculatedThermalProfile;
     final garment = Garment(
       id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: normalizedType.category ?? 'Autre',
       brand: GarmentNormalizer.brand(_text(_brand)), color: normalizedColor, material: normalizedMaterial, size: _text(_size), notes: _text(_notes),
@@ -285,30 +273,10 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       const SizedBox(height: 10), TextFormField(controller: _size, decoration: const InputDecoration(labelText: 'Taille (facultative)', helperText: 'Jamais estimée par l’IA')),
       const SizedBox(height: 10), ExpansionTile(title: const Text('Informations avancées'), initiallyExpanded: false, children: [
         TextFormField(controller: _composition, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Composition textile')),
-        const SizedBox(height: 10), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'Température min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'Température max'))]),
         const SizedBox(height: 10), TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
       ]),
       const SizedBox(height: 24), FilledButton.icon(style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(58)), onPressed: _saving ? null : _save, icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check), label: const Text('Enregistrer la fiche')),
     ])),
-  );
-}
-
-ThermalProfile _withUserThermalRange(ThermalProfile source,
-    {required double? standaloneMinC, required double? standaloneMaxC, required DateTime calculatedAt}) {
-  final min = standaloneMinC ?? source.standaloneMinC;
-  final max = standaloneMaxC ?? source.standaloneMaxC;
-  final layeredMinShift = source.standaloneMinC - source.layeredMinC;
-  final layeredMaxShift = source.standaloneMaxC - source.layeredMaxC;
-  return ThermalProfile(
-    standaloneMinC: min, standaloneMaxC: max,
-    layeredMinC: min - layeredMinShift, layeredMaxC: max - layeredMaxShift,
-    level: source.level, insulation: source.insulation, thickness: source.thickness,
-    thermalContributionC: source.thermalContributionC, breathability: source.breathability,
-    windProtection: source.windProtection, rainCompatibility: source.rainCompatibility,
-    primaryRole: source.primaryRole, acceptsUnder: source.acceptsUnder, acceptsOver: source.acceptsOver,
-    modelVersion: source.modelVersion, inputFingerprint: source.inputFingerprint,
-    calculatedAt: calculatedAt, confidence: source.confidence,
-    extensions: {...source.extensions, 'userThermalRange': standaloneMinC != null || standaloneMaxC != null},
   );
 }
 
@@ -331,8 +299,4 @@ class _MultiChoice extends StatelessWidget {
   final String label; final List<String> values; final Set<String> selected; final ValueChanged<Set<String>> onChanged;
   const _MultiChoice({required this.label, required this.values, required this.selected, required this.onChanged});
   @override Widget build(BuildContext context) => InputDecorator(decoration: InputDecoration(labelText: label, helperText: 'Suggestions IA · sélection modifiable'), child: Wrap(spacing: 7, children: values.map((v) => FilterChip(label: Text(v), selected: selected.contains(v), onSelected: (yes) { final next = {...selected}; yes ? next.add(v) : next.remove(v); onChanged(next); })).toList()));
-}
-class _Temperature extends StatelessWidget {
-  final TextEditingController controller; final String label; const _Temperature({required this.controller, required this.label});
-  @override Widget build(BuildContext context) => TextFormField(controller: controller, keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[-0-9,.]'))], decoration: InputDecoration(labelText: label, suffixText: '°C', helperText: 'Calcul IA'));
 }
