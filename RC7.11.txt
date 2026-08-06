@@ -1,0 +1,1233 @@
+diff --git a/docs/RC7.11_DEVELOPER_DIAGNOSTICS.md b/docs/RC7.11_DEVELOPER_DIAGNOSTICS.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..eb87365948d996bd79b8c2056818f7d3522dbd79
+--- /dev/null
++++ b/docs/RC7.11_DEVELOPER_DIAGNOSTICS.md
+@@ -0,0 +1,54 @@
++# RC7.11 — Mode développeur et centre de diagnostic
++
++## A. Architecture avant / après
++
++Avant RC7.11, les erreurs étaient transformées localement en messages d’interface et les moteurs conservaient quelques états propres (`DailyBrief.state`, `AgendaGenerationReport`, `GoogleCalendarSyncState`, métriques d’import), sans vue transversale. Après RC7.11, tous les producteurs publient vers `DiagnosticService`, bus unique désactivé par défaut. Le centre lit ce bus, filtre ses entrées et exporte sa représentation anonymisée. Aucun moteur métier ni algorithme de recommandation n’est remplacé.
++
++## Cartographie vérifiée avant modification
++
++| Domaine | Point d’entrée réellement utilisé | Erreurs / état déjà disponibles | État utile au diagnostic |
++|---|---|---|---|
++| Scanner | `ScannerScreen.analyze`, file `GarmentAnalysisQueue`, `GarmentVisionAnalyzer.analyzeQuick` | `GarmentAnalysisException`, validation et décision scanner | photos, quick, décision, enrichissement, thermique, durées |
++| Import rapide | `WardrobeImportService.enqueue` puis `_process` | `WardrobeImportStatus`, `userMessage`, `timings`, `metrics` | file, quick, création, enrichment, revue |
++| WardrobeGPT | `AssistantService.generateMessageStream` | `LlmException`, intention et diagnostic de génération | intention, contexte, propositions, fournisseur |
++| Tenues | `OutfitGenerationEngine.generate` | `OutfitGenerationDiagnostic` et raisons utilisateur | contexte, candidats, compatibilité, résultat |
++| Recommandation | `RecommendationEngine.recommend` | `RecommendationResult` | scores, règles éliminatoires et rotation |
++| Daily Brief | `DailyBriefService.watch/build` | `DailyBriefState`, `detail`, météo optionnelle | météo, contexte dressing, génération, recommandation |
++| Agenda | `AgendaService.proposeDay/proposePeriod` | `AgendaGenerationReport`, échecs par jour | événements, calendrier actif, météo, propositions |
++| Google Calendar | `GoogleCalendarService.refresh` | `GoogleCalendarSyncState` et `GoogleCalendarStatus` | connexion, calendriers sélectionnés, événements, date |
++| Weather | `CachedWeatherService.getCurrentWeather` | cache, erreurs API/localisation | ville, température, source et cache |
++| Backup | `BackupService.createBackup/writeBackup`, `BackupController` | avertissements, manifeste et résultat utilisateur | taille, vêtements, photos manquantes, durée |
++| Dressing | `WardrobeController.load/create/update/delete` | `loading`, `error`, liste locale | compte et opération |
++| Base locale | singleton `DatabaseService`, opérations SQLite/export/restore | exceptions SQLite remontées aux contrôleurs | schéma, compte, durée, opération |
++
++## B–E. Service, instrumentation, pipelines et informations visibles
++
++`DiagnosticService` définit les dix modules, quatre niveaux (`INFO`, `WARNING`, `ERROR`, `SUCCESS`), une FIFO indépendante de 100 entrées par module, le filtrage, la purge et l’export. Il ne construit aucune entrée lorsqu’il est désactivé. Les cartes montrent état, résumé orienté métier, durée, raison, avertissement, date, version, source et détails autorisés.
++
++Les premiers producteurs branchés sont Daily (`Weather → WardrobeContext → Generation → Recommendation → Résultat`), import/scanner progressif (`Photo → Quick → Création → Enrichment → Thermal`), WardrobeGPT (`Intention → WardrobeContext → OutfitGeneration → Résultat`), Weather et Backup (`Base locale → Collecte → Archive`). Les modules Agenda, Google Calendar, Tenues et Base locale ont dès maintenant leurs sections dédiées dans le modèle et l’écran ; leur instrumentation exhaustive reste une limite ci-dessous.
++
++## F. Protection des données sensibles
++
++La protection est centralisée et s’applique à la publication **et** à l’export : liste de clés interdites, masquage des jetons Bearer, clés usuelles et chemins privés, conversion des exceptions techniques en raison métier. Les photos, contenu des prompts, e-mails/comptes, coordonnées, tokens OAuth et clés API ne sont jamais inclus. Les producteurs ne doivent publier que des agrégats.
++
++## G. Export
++
++« Exporter un rapport » produit du JSON lisible (version du rapport et de l’application, plateforme, date, diagnostics, états et timings) puis le copie dans le presse-papiers. Le rapport respecte les filtres actifs et rappelle sa politique de confidentialité. Il ne contient aucun média.
++
++## H. Fichiers modifiés
++
++- `lib/core/diagnostics/diagnostic_service.dart` : modèle, bus, FIFO, filtre, purge, anonymisation et export.
++- `lib/features/developer/developer_diagnostics_screen.dart` : centre de diagnostic.
++- `lib/core/settings/app_settings.dart`, `lib/features/profile/profile_screen.dart` : activation et visibilité conditionnelle.
++- services Daily, Weather, Backup, Import et Assistant : publication uniquement.
++- `test/core/diagnostics/diagnostic_service_test.dart` : contrat du service.
++
++## I. Tests ajoutés
++
++Les tests couvrent : désactivation, FIFO, filtres, purge et suppression des données sensibles dans l’export. Conformément à la consigne RC7.11, ils n’ont pas été exécutés.
++
++## J. Limites restantes
++
++- L’historique est conservé pendant la vie du processus ; une persistance chiffrée inter-session n’est pas ajoutée afin de ne pas créer un nouveau stockage de données potentiellement sensibles.
++- Agenda, Google Calendar, scanner unitaire, `WardrobeController` et `DatabaseService` disposent de sections mais demandent encore des points de publication exhaustifs.
++- L’export est copié dans le presse-papiers plutôt qu’écrit dans un chemin privé ; un partage natif pourra être ajouté quand une dépendance de partage sera validée.
+diff --git a/lib/core/diagnostics/diagnostic_service.dart b/lib/core/diagnostics/diagnostic_service.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ef841d5fa3f9ab477c0069167d6a64fa66b241fb
+--- /dev/null
++++ b/lib/core/diagnostics/diagnostic_service.dart
+@@ -0,0 +1,205 @@
++import 'dart:convert';
++
++import 'package:flutter/foundation.dart';
++
++enum DiagnosticLevel { info, warning, error, success }
++
++enum DiagnosticModule {
++  scanner('Scanner'),
++  wardrobeImport('Import Dressing'),
++  daily('Daily'),
++  wardrobeGpt('WardrobeGPT'),
++  agenda('Agenda'),
++  googleCalendar('Google Calendar'),
++  weather('Weather'),
++  outfits('Tenues'),
++  backup('Sauvegarde'),
++  database('Base locale');
++
++  const DiagnosticModule(this.label);
++  final String label;
++}
++
++class DiagnosticStep {
++  final String name;
++  final DiagnosticLevel level;
++  final Duration duration;
++  final String? detail;
++
++  const DiagnosticStep(this.name, {
++    this.level = DiagnosticLevel.success,
++    this.duration = Duration.zero,
++    this.detail,
++  });
++
++  Map<String, Object?> toJson() => {
++    'name': name,
++    'level': level.name.toUpperCase(),
++    'durationMs': duration.inMilliseconds,
++    if (detail != null) 'detail': detail,
++  };
++}
++
++class DiagnosticEntry {
++  final String id;
++  final DiagnosticModule module;
++  final DiagnosticLevel level;
++  final String state;
++  final String summary;
++  final String? reason;
++  final String? warning;
++  final DateTime date;
++  final Duration duration;
++  final String version;
++  final String source;
++  final Map<String, Object?> details;
++  final List<DiagnosticStep> pipeline;
++
++  const DiagnosticEntry({
++    required this.id,
++    required this.module,
++    required this.level,
++    required this.state,
++    required this.summary,
++    required this.date,
++    required this.version,
++    required this.source,
++    this.reason,
++    this.warning,
++    this.duration = Duration.zero,
++    this.details = const {},
++    this.pipeline = const [],
++  });
++
++  Map<String, Object?> toJson() => {
++    'id': id,
++    'module': module.label,
++    'level': level.name.toUpperCase(),
++    'state': state,
++    'summary': summary,
++    if (reason != null) 'reason': reason,
++    if (warning != null) 'warning': warning,
++    'date': date.toUtc().toIso8601String(),
++    'durationMs': duration.inMilliseconds,
++    'version': version,
++    'source': source,
++    'details': details,
++    'pipeline': pipeline.map((step) => step.toJson()).toList(),
++  };
++}
++
++/// Unique, opt-in business diagnostics bus. Calls return before allocating an
++/// entry while disabled, keeping the normal-user cost close to zero.
++class DiagnosticService extends ChangeNotifier {
++  DiagnosticService._();
++  static final DiagnosticService instance = DiagnosticService._();
++  static const maxEntriesPerModule = 100;
++  static const appVersion = '0.8.0+9';
++
++  bool _enabled = false;
++  int _sequence = 0;
++  final Map<DiagnosticModule, List<DiagnosticEntry>> _entries = {};
++
++  bool get enabled => _enabled;
++  List<DiagnosticEntry> get entries => List.unmodifiable(
++    _entries.values.expand((items) => items).toList()
++      ..sort((a, b) => b.date.compareTo(a.date)),
++  );
++
++  void setEnabled(bool value) {
++    if (_enabled == value) return;
++    _enabled = value;
++    notifyListeners();
++  }
++
++  void publish({
++    required DiagnosticModule module,
++    required DiagnosticLevel level,
++    required String state,
++    required String summary,
++    required String source,
++    String? reason,
++    String? warning,
++    Duration duration = Duration.zero,
++    Map<String, Object?> details = const {},
++    List<DiagnosticStep> pipeline = const [],
++  }) {
++    if (!_enabled) return;
++    final safeDetails = _sanitizeMap(details);
++    final list = _entries.putIfAbsent(module, () => []);
++    list.add(DiagnosticEntry(
++      id: '${module.name}-${++_sequence}', module: module, level: level,
++      state: _sanitizeText(state), summary: _sanitizeText(summary),
++      reason: reason == null ? null : _businessReason(reason),
++      warning: warning == null ? null : _sanitizeText(warning),
++      date: DateTime.now(), duration: duration, version: appVersion,
++      source: _sanitizeText(source), details: safeDetails,
++      pipeline: pipeline.map((step) => DiagnosticStep(
++        _sanitizeText(step.name), level: step.level, duration: step.duration,
++        detail: step.detail == null ? null : _sanitizeText(step.detail!),
++      )).toList(growable: false),
++    ));
++    if (list.length > maxEntriesPerModule) {
++      list.removeRange(0, list.length - maxEntriesPerModule);
++    }
++    notifyListeners();
++  }
++
++  List<DiagnosticEntry> filtered({
++    Set<DiagnosticLevel>? levels,
++    DiagnosticModule? module,
++  }) => entries.where((entry) =>
++      (levels == null || levels.contains(entry.level)) &&
++      (module == null || entry.module == module)).toList(growable: false);
++
++  void clear([DiagnosticModule? module]) {
++    module == null ? _entries.clear() : _entries.remove(module);
++    notifyListeners();
++  }
++
++  String exportReport({Set<DiagnosticLevel>? levels, DiagnosticModule? module}) {
++    final report = {
++      'reportVersion': 1,
++      'applicationVersion': appVersion,
++      'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
++      'generatedAt': DateTime.now().toUtc().toIso8601String(),
++      'privacy': 'Photos, chemins, identifiants, prompts, clés et tokens exclus.',
++      'diagnostics': filtered(levels: levels, module: module)
++          .map((entry) => entry.toJson()).toList(),
++    };
++    return const JsonEncoder.withIndent('  ').convert(report);
++  }
++
++  static const _sensitiveKeys = {
++    'token', 'accesstoken', 'refreshtoken', 'authorization', 'apikey', 'api_key',
++    'key', 'prompt', 'photo', 'photos', 'photopath', 'path', 'filepath', 'email',
++    'accountemail', 'userid', 'account', 'latitude', 'longitude', 'location',
++    'description',
++  };
++
++  Map<String, Object?> _sanitizeMap(Map<String, Object?> source) => {
++    for (final entry in source.entries)
++      if (!_sensitiveKeys.contains(entry.key.toLowerCase().replaceAll(RegExp('[^a-z_]'), '')))
++        _sanitizeText(entry.key): _sanitizeValue(entry.value),
++  };
++
++  Object? _sanitizeValue(Object? value) {
++    if (value is Map) return _sanitizeMap(value.cast<String, Object?>());
++    if (value is Iterable) return value.map(_sanitizeValue).toList();
++    if (value is String) return _sanitizeText(value);
++    return value;
++  }
++
++  String _businessReason(String value) {
++    final safe = _sanitizeText(value);
++    if (safe.toLowerCase().contains('exception') || safe.contains('StackTrace')) {
++      return 'Le moteur n’a pas terminé son opération. Consultez l’étape en erreur.';
++    }
++    return safe;
++  }
++
++  String _sanitizeText(String value) => value
++      .replaceAll(RegExp(r'Bearer\s+[A-Za-z0-9._~+/=-]+', caseSensitive: false), '[MASQUÉ]')
++      .replaceAll(RegExp(r'(sk-|AIza)[A-Za-z0-9_-]{10,}'), '[MASQUÉ]')
++      .replaceAll(RegExp(r'(/Users/|/home/|/data/user/|[A-Z]:\\)[^\s,;]+'), '[CHEMIN MASQUÉ]');
++}
+diff --git a/lib/core/settings/app_settings.dart b/lib/core/settings/app_settings.dart
+index ac1cb71e3a0b6e155a0f2c7b3d756f403040775e..48e7da1a5b93bcfebcca26b29e6b4861de09450c 100644
+--- a/lib/core/settings/app_settings.dart
++++ b/lib/core/settings/app_settings.dart
+@@ -1,13 +1,20 @@
+ import 'package:flutter/material.dart';
++import '../diagnostics/diagnostic_service.dart';
+ 
+ class AppSettings extends ChangeNotifier {
+   ThemeMode _themeMode = ThemeMode.light;
+ 
+   ThemeMode get themeMode => _themeMode;
+   bool get darkMode => _themeMode == ThemeMode.dark;
++  bool get developerMode => DiagnosticService.instance.enabled;
+ 
+   void setDarkMode(bool enabled) {
+     _themeMode = enabled ? ThemeMode.dark : ThemeMode.light;
+     notifyListeners();
+   }
++
++  void setDeveloperMode(bool enabled) {
++    DiagnosticService.instance.setEnabled(enabled);
++    notifyListeners();
++  }
+ }
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index ebc14ada6e938d66a8e266addc7043b0f7aec805..c4c7be141f700406baca155da7e41917cdb0c597 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -1,36 +1,37 @@
+ import '../context/assistant_context.dart';
+ import '../context/assistant_context_builder.dart';
+ import '../prompt/prompt_builder.dart';
+ import '../ai/llm_provider.dart';
+ import '../tools/assistant_tool_context_builder.dart';
+ import '../intents/assistant_intent.dart';
+ import '../intents/intent_parser.dart';
+ import '../intents/intent_result.dart';
+ import '../intents/intent_type.dart';
+ import '../../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../../core/recommendation/recommendation_context.dart';
++import '../../../core/diagnostics/diagnostic_service.dart';
+ 
+ class AssistantService {
+   final AssistantContextBuilder _contextBuilder;
+   final PromptBuilder _promptBuilder;
+   final LlmProvider _llmProvider;
+   final AssistantToolContextBuilder _toolContextBuilder;
+   final AssistantIntent _intentParser;
+   final OutfitGenerationEngine _outfitEngine;
+   final String Function() _languageCode;
+   AssistantToolContext _lastToolContext = const {};
+   IntentResult? _lastIntent;
+   List<OutfitGenerationProposal> _lastOutfitProposals = const [];
+   OutfitGenerationDiagnostic? _lastGenerationDiagnostic;
+ 
+   AssistantService({
+     required AssistantContextBuilder contextBuilder,
+     AssistantToolContextBuilder? toolContextBuilder,
+     required LlmProvider llmProvider,
+     PromptBuilder? promptBuilder,
+     AssistantIntent? intentParser,
+     OutfitGenerationEngine outfitEngine = const OutfitGenerationEngine(),
+     String Function()? languageCode,
+   }) : _contextBuilder = contextBuilder,
+        _llmProvider = llmProvider,
+        _toolContextBuilder =
+@@ -133,60 +134,81 @@ class AssistantService {
+     final hasAlternative = RegExp(r'\b(alternative|option|sinon|autre|variante)\b', caseSensitive: false).hasMatch(text);
+     final needsSupport = words < 28 || !hasReason;
+     if (!needsSupport) return null;
+ 
+     final buffer = StringBuffer('\n\nPourquoi : je m’appuie sur les vêtements disponibles dans ton dressing');
+     final proposals = _lastOutfitProposals;
+     if (proposals.isNotEmpty) {
+       final first = proposals.first;
+       if (first.reasons.isNotEmpty) {
+         buffer.write(', notamment ${first.reasons.take(2).join(' et ').toLowerCase()}');
+       }
+       final names = first.garments.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
+       if (names.isNotEmpty) buffer.write('. Proposition concrète : $names');
+       if (!hasAlternative && proposals.length > 1) {
+         final altNames = proposals[1].garments.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
+         if (altNames.isNotEmpty) buffer.write('. Alternative : $altNames');
+       }
+     } else {
+       buffer.write(', tes préférences connues et le contexte météo ou agenda disponible');
+     }
+     buffer.write('.');
+     return buffer.toString();
+   }
+ 
+   Stream<String> generateMessageStream({String? userMessage}) async* {
++    final stopwatch = Stopwatch()..start();
+     try {
+       final prompt = await generatePrompt(userMessage: userMessage);
+       if (_lastIntent != null && _lastGenerationDiagnostic?.failure != null) {
+         yield _outfitFailureResponse(_lastGenerationDiagnostic!.failure!);
+         return;
+       }
+       if (_llmProvider case final StreamingLlmProvider provider) {
+         final chunks = <String>[];
+         await for (final chunk in provider.generateStream(prompt)) {
+           chunks.add(chunk);
+           yield chunk;
+         }
+         final completion = _qualityCompletion(chunks.join());
+         if (completion != null) yield completion;
+       } else {
+         yield _ensureUsefulResponse(await _llmProvider.generate(prompt));
+       }
++      DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
++        level: DiagnosticLevel.success, state: 'Réponse générée', summary: 'Demande traitée',
++        source: 'AssistantService', duration: stopwatch.elapsed,
++        details: {'intention': _lastIntent?.type.name ?? 'conversation',
++          'tenuesGénérées': _lastOutfitProposals.length},
++        pipeline: [
++          const DiagnosticStep('Intention'),
++          const DiagnosticStep('WardrobeContext'),
++          DiagnosticStep('OutfitGeneration', level: _lastGenerationDiagnostic?.failure == null
++            ? DiagnosticLevel.success : DiagnosticLevel.warning),
++          DiagnosticStep('Résultat', duration: stopwatch.elapsed),
++        ]);
+     } on LlmException catch (error) {
++      DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
++        level: DiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
++        source: 'AssistantService', duration: stopwatch.elapsed,
++        reason: error.message);
+       yield error.message;
+     } catch (_) {
++      DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
++        level: DiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
++        source: 'AssistantService', duration: stopwatch.elapsed,
++        reason: 'Le contexte ou le fournisseur de réponse n’a pas terminé.');
+       yield 'WardrobeGPT est temporairement indisponible. Réessayez.';
+     }
+   }
+ 
+   static String _outfitFailureResponse(OutfitGenerationFailure failure) => switch (failure) {
+     OutfitGenerationFailure.emptyWardrobe =>
+       'Je ne peux pas encore créer une tenue complète : ton dressing est vide. Ajoute au moins un haut et un bas.',
+     OutfitGenerationFailure.missingTop =>
+       'Je ne peux pas encore créer une tenue complète : aucun haut compatible n’est enregistré. Ajoute un haut puis réessaie.',
+     OutfitGenerationFailure.missingBottom =>
+       'Je ne peux pas encore créer une tenue complète : ton dressing contient des hauts, mais aucun bas compatible n’est enregistré.',
+     OutfitGenerationFailure.incompatibleCombinations =>
+       'Je ne peux pas composer une tenue complète avec ces pièces : toutes les combinaisons disponibles sont incompatibles. Ajoute un haut ou un bas différent.',
+   };
+ }
+diff --git a/lib/features/backup/backup_service.dart b/lib/features/backup/backup_service.dart
+index 4764670d9393b4e860a405b5e13fe6c24020e9a6..def2150c0242d5d5c82f0ca87001259a93127855 100644
+--- a/lib/features/backup/backup_service.dart
++++ b/lib/features/backup/backup_service.dart
+@@ -1,52 +1,54 @@
+ import 'dart:convert';
+ import 'dart:io';
+ import 'package:archive/archive.dart';
+ import 'package:crypto/crypto.dart';
+ import 'package:path/path.dart' as p;
+ import '../../data/database_service.dart';
+ import '../../models/garment_photo.dart';
+ import 'backup_file.dart';
++import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ abstract interface class BackupRepository {
+   Future<Map<String, List<Map<String, Object?>>>> exportData();
+   Future<void> restoreData(Map<String, List<Map<String, Object?>>> data);
+ }
+ class DatabaseBackupRepository implements BackupRepository {
+   final DatabaseService databaseService;
+   const DatabaseBackupRepository(this.databaseService);
+   @override Future<Map<String, List<Map<String, Object?>>>> exportData() => databaseService.exportBackupData();
+   @override Future<void> restoreData(Map<String, List<Map<String, Object?>>> data) => databaseService.restoreBackupData(data);
+ }
+ 
+ class BackupService {
+   static const appVersion = '0.8.0+9';
+   final BackupRepository repository;
+   final DateTime Function() now;
+   BackupService({required this.repository, DateTime Function()? now}) : now = now ?? DateTime.now;
+ 
+   Future<BackupArchive> createBackup() async {
++    final stopwatch = Stopwatch()..start();
+     final data = await repository.exportData();
+     final photos = <String, List<int>>{};
+     final warnings = <String>[];
+     var missingPhotoCount = 0;
+     final garmentsWithMissingPhotos = <String>{};
+     var normalizedPhotoCount = 0;
+     final garmentsWithNormalizedPhotos = <String>{};
+     final garments = (data['garments'] ?? const []).map((source) => Map<String, Object?>.from(source)).toList();
+     for (final garment in garments) {
+       final garmentId = garment['id']?.toString() ?? 'inconnu';
+       final garmentLabel = _garmentLabel(garment);
+       final List<GarmentPhoto> garmentPhotos;
+       try {
+         garmentPhotos = GarmentPhoto.decodeStrict(garment['photos']);
+       } on FormatException catch (error) {
+         throw BackupFormatException('Photos canoniques invalides pour le vêtement $garmentLabel : ${error.message}.');
+       }
+       final normalized = GarmentPhotoNormalizer.normalize(garmentPhotos);
+       if (normalized.changed) {
+         normalizedPhotoCount += normalized.removedEmptyPaths + normalized.repairedEmptyIds + normalized.removedDuplicateIds +
+           normalized.removedDuplicatePaths + normalized.demotedPrimaryCount + (normalized.promotedPrimary ? 1 : 0);
+         garmentsWithNormalizedPhotos.add(garmentId);
+       }
+       final archivedPhotos = <GarmentPhoto>[];
+       for (final photo in normalized.photos) {
+@@ -57,54 +59,65 @@ class BackupService {
+             missingPhotoCount++;
+             garmentsWithMissingPhotos.add(garmentId);
+             continue;
+           }
+           final name = 'photos/$garmentId/${photo.id}_${p.basename(path)}';
+           if (photos.containsKey(name)) {
+             throw BackupFormatException('Référence de photo dupliquée pour le vêtement $garmentLabel : $name.');
+           }
+           photos[name] = await file.readAsBytes();
+           archivedPhotos.add(GarmentPhoto(id: photo.id, path: name, type: photo.type,
+             createdAt: photo.createdAt, semanticType: photo.semanticType));
+         } on FileSystemException catch (error) {
+           throw BackupFormatException('Photo illisible pour le vêtement $garmentLabel : $path (${error.message}).');
+         }
+       }
+       garment['photos'] = GarmentPhoto.encode(archivedPhotos);
+     }
+     if (missingPhotoCount > 0) {
+       warnings.add('Sauvegarde créée avec $missingPhotoCount photo${missingPhotoCount == 1 ? '' : 's'} manquante${missingPhotoCount == 1 ? '' : 's'} sur ${garmentsWithMissingPhotos.length} vêtement${garmentsWithMissingPhotos.length == 1 ? '' : 's'}.');
+     }
+     if (normalizedPhotoCount > 0) {
+       warnings.add('$normalizedPhotoCount entrée${normalizedPhotoCount == 1 ? '' : 's'} photo incomplète${normalizedPhotoCount == 1 ? '' : 's'} ou dupliquée${normalizedPhotoCount == 1 ? '' : 's'} normalisée${normalizedPhotoCount == 1 ? '' : 's'} sur ${garmentsWithNormalizedPhotos.length} vêtement${garmentsWithNormalizedPhotos.length == 1 ? '' : 's'}.');
+     }
+     data['garments'] = garments;
+     final counts = {for (final entry in data.entries) entry.key: entry.value.length};
+-    return BackupArchive(manifest: BackupManifest(appVersion: appVersion,
++    final result = BackupArchive(manifest: BackupManifest(appVersion: appVersion,
+       schemaVersion: BackupManifest.currentSchemaVersion, createdAt: now(),
+       garmentCount: garments.length, photoCount: photos.length, content: counts),
+       sections: data, photos: photos, warnings: warnings);
++    DiagnosticService.instance.publish(module: DiagnosticModule.backup,
++      level: warnings.isEmpty ? DiagnosticLevel.success : DiagnosticLevel.warning,
++      state: 'Archive préparée', summary: 'Sauvegarde créée', source: 'BackupService',
++      duration: stopwatch.elapsed, warning: warnings.isEmpty ? null : warnings.join(' '),
++      details: {'vêtements': garments.length, 'tailleArchiveOctets': encodeBackup(result).length},
++      pipeline: [
++        const DiagnosticStep('Base locale'),
++        DiagnosticStep('Collecte', detail: '${garments.length} vêtements'),
++        DiagnosticStep('Archive', duration: stopwatch.elapsed),
++      ]);
++    return result;
+   }
+ 
+   String _garmentLabel(Map<String, Object?> garment) {
+     final id = garment['id']?.toString() ?? 'inconnu';
+     final name = garment['name']?.toString().trim();
+     return name == null || name.isEmpty ? id : '$name ($id)';
+   }
+ 
+   List<int> encodeBackup(BackupArchive backup) {
+     final archive = Archive(); final hashes = <String, String>{};
+     for (final entry in backup.sections.entries) {
+       final name = 'data/${entry.key}.json'; final bytes = utf8.encode(jsonEncode(entry.value));
+       hashes[name] = sha256.convert(bytes).toString(); archive.addFile(ArchiveFile(name, bytes.length, bytes));
+     }
+     for (final entry in backup.photos.entries) {
+       hashes[entry.key] = sha256.convert(entry.value).toString();
+       archive.addFile(ArchiveFile(entry.key, entry.value.length, entry.value));
+     }
+     final manifest = BackupManifest(appVersion: backup.manifest.appVersion,
+       schemaVersion: backup.manifest.schemaVersion, createdAt: backup.manifest.createdAt,
+       garmentCount: backup.manifest.garmentCount, photoCount: backup.manifest.photoCount,
+       content: backup.manifest.content, checksums: hashes);
+     final bytes = utf8.encode(const JsonEncoder.withIndent('  ').convert(manifest.toJson()));
+     archive.addFile(ArchiveFile('manifest.json', bytes.length, bytes));
+     return ZipEncoder().encode(archive);
+diff --git a/lib/features/daily_brief/daily_brief_service.dart b/lib/features/daily_brief/daily_brief_service.dart
+index 25c946e55f09b35e9b9bbcef1145d9d8c84fb5b4..cbe4e2e8d011364b93996352119b7a9c344d9678 100644
+--- a/lib/features/daily_brief/daily_brief_service.dart
++++ b/lib/features/daily_brief/daily_brief_service.dart
+@@ -1,89 +1,107 @@
+ import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ import '../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../core/recommendation/recommendation_context.dart';
+ import '../../core/recommendation/recommendation_engine.dart';
+ import '../../core/wardrobe_intelligence/wardrobe_intelligence_engine.dart';
+ import '../../features/assistant/memory/personalization_snapshot.dart';
+ import '../../models/garment.dart';
+ import '../../weather/models/weather_data.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/memory/memory_service.dart';
+ import '../assistant/memory/personal_goal.dart';
+ import 'daily_brief_models.dart';
++import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ /// Composes the Daily Brief exclusively from the shared AI context and outfit
+ /// engine. Expensive I/O is performed once and intermediate states are emitted
+ /// as soon as they are useful to the UI.
+ class DailyBriefService {
+   static const maxVisibleCards = 5;
+ 
+   final WeatherService weatherService;
+   final MemoryService memoryService;
+   final RecommendationEngine recommendationEngine;
+   final WardrobeIntelligenceEngine intelligenceEngine;
+   final OutfitGenerationEngine outfitEngine;
+   final DateTime Function() _clock;
+   final WardrobeAiContextService? aiContextService;
+ 
+   DailyBriefService({
+     required this.weatherService,
+     required this.memoryService,
+     Object? assistantService, // Kept source-compatible; Daily no longer calls GPT.
+     this.recommendationEngine = const RecommendationEngine(),
+     WardrobeIntelligenceEngine? intelligenceEngine,
+     OutfitGenerationEngine? outfitEngine,
+     DateTime Function()? clock,
+     this.aiContextService,
+   }) : intelligenceEngine = intelligenceEngine ?? WardrobeIntelligenceEngine(),
+        outfitEngine = outfitEngine ??
+            OutfitGenerationEngine(recommendationEngine: recommendationEngine),
+        _clock = clock ?? DateTime.now;
+ 
+   /// Emits wardrobe/outfit content first, then weather-enriched content. A
+   /// weather failure is an explicit state and never prevents a wardrobe result.
+   Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
++    final stopwatch = Stopwatch()..start();
+     final weatherFuture = _optionalWeather();
+     try {
+       final liveContext = await aiContextService?.build();
+       final garments = liveContext?.garments ??
+           List<Garment>.unmodifiable(wardrobe);
+       final memory = liveContext?.personalization ??
+           await memoryService.loadSnapshot();
+ 
+       var brief = _compose(garments, memory, weather: null,
+         contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
+       yield brief;
+ 
+       final weather = await weatherFuture;
+       brief = weather.data == null
+           ? _compose(garments, memory, weather: null, weatherError: weather.error,
+               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero)
+           : _compose(garments, memory, weather: weather.data,
+               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
+       yield brief;
++      DiagnosticService.instance.publish(module: DiagnosticModule.daily,
++        level: brief.state == DailyBriefState.available ? DiagnosticLevel.success : DiagnosticLevel.warning,
++        state: brief.state.name, summary: '${brief.outfitProposals.length} proposition(s)',
++        source: 'DailyBriefService', duration: stopwatch.elapsed, reason: brief.detail,
++        details: {'vêtements': garments.length, 'cartes': brief.cards.length},
++        pipeline: [
++          DiagnosticStep('Weather', level: weather.data == null ? DiagnosticLevel.warning : DiagnosticLevel.success),
++          DiagnosticStep('WardrobeContext', duration: liveContext?.loadDuration ?? Duration.zero),
++          const DiagnosticStep('Generation'),
++          const DiagnosticStep('Recommendation'),
++          DiagnosticStep('Résultat', level: brief.outfitProposals.isEmpty ? DiagnosticLevel.warning : DiagnosticLevel.success),
++        ]);
+     } catch (_) {
++      DiagnosticService.instance.publish(module: DiagnosticModule.daily,
++        level: DiagnosticLevel.error, state: 'Interrompu', summary: 'Daily non généré',
++        source: 'DailyBriefService', duration: stopwatch.elapsed,
++        reason: 'Le contexte dressing n’a pas pu être préparé.');
+       // Stream errors are converted into an explicit UI state by the screen.
+       rethrow;
+     }
+   }
+ 
+   /// Compatibility API for non-progressive consumers.
+   Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
+     DailyBrief? latest;
+     await for (final brief in watch(wardrobe)) {
+       latest = brief;
+     }
+     return latest ?? DailyBrief(generatedAt: _clock(), cards: const [], outfitProposals: const []);
+   }
+ 
+   DailyBrief _compose(
+     List<Garment> garments,
+     PersonalizationSnapshot memory, {
+     required WeatherData? weather,
+     Object? weatherError,
+     Duration contextLoadDuration = Duration.zero,
+   }) {
+     final preferences = _preferences(memory);
+     final report = intelligenceEngine.analyze(garments);
+     final generation = outfitEngine.generate(OutfitGenerationRequest(
+       wardrobe: garments,
+diff --git a/lib/features/developer/developer_diagnostics_screen.dart b/lib/features/developer/developer_diagnostics_screen.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ac403c1a9a2fede399faeff9775b844ded5a28fc
+--- /dev/null
++++ b/lib/features/developer/developer_diagnostics_screen.dart
+@@ -0,0 +1,143 @@
++import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
++
++import '../../core/diagnostics/diagnostic_service.dart';
++
++class DeveloperDiagnosticsScreen extends StatefulWidget {
++  const DeveloperDiagnosticsScreen({super.key});
++
++  @override
++  State<DeveloperDiagnosticsScreen> createState() => _DeveloperDiagnosticsScreenState();
++}
++
++class _DeveloperDiagnosticsScreenState extends State<DeveloperDiagnosticsScreen> {
++  final service = DiagnosticService.instance;
++  final Set<DiagnosticLevel> levels = DiagnosticLevel.values.toSet();
++  DiagnosticModule? module;
++
++  @override
++  Widget build(BuildContext context) => Scaffold(
++    appBar: AppBar(
++      title: const Text('Centre de diagnostic'),
++      actions: [
++        IconButton(
++          tooltip: 'Exporter un rapport',
++          icon: const Icon(Icons.ios_share),
++          onPressed: _export,
++        ),
++        IconButton(
++          tooltip: 'Vider l’historique',
++          icon: const Icon(Icons.delete_sweep_outlined),
++          onPressed: () => service.clear(module),
++        ),
++      ],
++    ),
++    body: AnimatedBuilder(
++      animation: service,
++      builder: (context, _) {
++        if (!service.enabled) {
++          return const Center(child: Text('Le mode développeur est désactivé.'));
++        }
++        final visible = service.filtered(levels: levels, module: module);
++        return ListView(
++          padding: const EdgeInsets.all(16),
++          children: [
++            const Text('Diagnostic métier', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
++            const Text('Les secrets, prompts, photos, chemins et identifiants privés sont toujours exclus.'),
++            const SizedBox(height: 12),
++            DropdownButtonFormField<DiagnosticModule?>(
++              value: module,
++              decoration: const InputDecoration(labelText: 'Module'),
++              items: [
++                const DropdownMenuItem(value: null, child: Text('Tous les modules')),
++                ...DiagnosticModule.values.map((value) => DropdownMenuItem(value: value, child: Text(value.label))),
++              ],
++              onChanged: (value) => setState(() => module = value),
++            ),
++            const SizedBox(height: 8),
++            Wrap(spacing: 6, children: DiagnosticLevel.values.map((level) => FilterChip(
++              selected: levels.contains(level), label: Text(level.name.toUpperCase()),
++              avatar: Icon(_levelIcon(level), size: 18, color: _levelColor(level)),
++              onSelected: (selected) => setState(() => selected ? levels.add(level) : levels.remove(level)),
++            )).toList()),
++            const SizedBox(height: 12),
++            if (visible.isEmpty)
++              const Card(child: ListTile(
++                leading: Icon(Icons.monitor_heart_outlined),
++                title: Text('Aucun diagnostic'),
++                subtitle: Text('Utilisez l’application : les prochains résultats métier apparaîtront ici.'),
++              )),
++            for (final value in visible) _DiagnosticCard(value: value),
++          ],
++        );
++      },
++    ),
++  );
++
++  Future<void> _export() async {
++    await Clipboard.setData(ClipboardData(text: service.exportReport(levels: levels, module: module)));
++    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
++      const SnackBar(content: Text('Rapport anonymisé copié dans le presse-papiers.')),
++    );
++  }
++}
++
++class _DiagnosticCard extends StatelessWidget {
++  final DiagnosticEntry value;
++  const _DiagnosticCard({required this.value});
++
++  @override
++  Widget build(BuildContext context) => Card(
++    child: ExpansionTile(
++      leading: Icon(_levelIcon(value.level), color: _levelColor(value.level)),
++      title: Text('${value.module.label} · ${value.level.name.toUpperCase()}',
++        style: const TextStyle(fontWeight: FontWeight.w800)),
++      subtitle: Text('${value.summary}\n${_date(value.date)} · ${value.duration.inMilliseconds} ms'),
++      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
++      expandedCrossAxisAlignment: CrossAxisAlignment.start,
++      children: [
++        _line('État', value.state),
++        _line('Source', value.source),
++        _line('Version', value.version),
++        if (value.reason != null) _line('Raison', value.reason!),
++        if (value.warning != null) _line('Avertissement', value.warning!),
++        if (value.pipeline.isNotEmpty) ...[
++          const Divider(),
++          const Text('Pipeline réel', style: TextStyle(fontWeight: FontWeight.w800)),
++          for (final step in value.pipeline) ListTile(
++            dense: true, contentPadding: EdgeInsets.zero,
++            leading: Icon(_levelIcon(step.level), color: _levelColor(step.level)),
++            title: Text(step.name),
++            subtitle: step.detail == null ? null : Text(step.detail!),
++            trailing: Text('${step.duration.inMilliseconds} ms'),
++          ),
++        ],
++        if (value.details.isNotEmpty) ...[
++          const Divider(),
++          for (final detail in value.details.entries) _line(detail.key, '${detail.value}'),
++        ],
++      ],
++    ),
++  );
++
++  static Widget _line(String label, String text) => Padding(
++    padding: const EdgeInsets.only(top: 5),
++    child: Text('$label : $text'),
++  );
++
++  static String _date(DateTime value) => value.toLocal().toIso8601String().replaceFirst('T', ' ').split('.').first;
++}
++
++IconData _levelIcon(DiagnosticLevel level) => switch (level) {
++  DiagnosticLevel.info => Icons.info_outline,
++  DiagnosticLevel.warning => Icons.warning_amber_rounded,
++  DiagnosticLevel.error => Icons.cancel_outlined,
++  DiagnosticLevel.success => Icons.check_circle_outline,
++};
++
++Color _levelColor(DiagnosticLevel level) => switch (level) {
++  DiagnosticLevel.info => Colors.blue,
++  DiagnosticLevel.warning => Colors.orange,
++  DiagnosticLevel.error => Colors.red,
++  DiagnosticLevel.success => Colors.green,
++};
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index b325d2e4f5e26c1e90fd47f58ffb6a5b8ba4f84b..d41fa8e5a97a3e216f7e0cebdf928dc6980b7c27 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -1,35 +1,36 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../backup/backup_controller.dart';
+ import '../../weather/location/location_service.dart';
+ import '../../weather/location/unified_location_service.dart';
+ import '../styles/style_library_screen.dart';
+ import '../styles/style_repository.dart';
+ import '../styles/style_enrichment_service.dart';
+ import '../../widgets/content_state.dart';
++import '../developer/developer_diagnostics_screen.dart';
+ 
+ class ProfileScreen extends StatelessWidget {
+   final AppSettings settings;
+   final AiSettingsController aiSettings;
+   final BackupController backupController;
+   final UnifiedLocationService locationService;
+   final StyleRepository styleRepository;
+   final StyleEnrichmentService styleEnrichment;
+   const ProfileScreen({
+     super.key,
+     required this.settings,
+     required this.aiSettings,
+     required this.backupController,
+     required this.locationService,
+     required this.styleRepository,
+     required this.styleEnrichment,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
+         children: [
+           const Text(
+@@ -67,50 +68,71 @@ class ProfileScreen extends StatelessWidget {
+               ),
+             ),
+           ),
+           const SizedBox(height: 18),
+           _Tile(
+             icon: Icons.accessibility_new,
+             title: 'Morphologie & proportions',
+           ),
+           _Tile(icon: Icons.style_outlined, title: 'Bibliothèque des styles',
+             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) =>
+               StyleLibraryScreen(repository: styleRepository,
+                 enrichment: aiSettings.configured ? styleEnrichment : null)))),
+           _Tile(icon: Icons.notifications_none, title: 'Notifications'),
+           Card(
+             margin: const EdgeInsets.only(bottom: 10),
+             child: SwitchListTile(
+               secondary: const Icon(Icons.dark_mode_outlined),
+               title: const Text(
+                 'Mode sombre',
+                 style: TextStyle(fontWeight: FontWeight.w800),
+               ),
+               value: settings.darkMode,
+               onChanged: settings.setDarkMode,
+             ),
+           ),
++          Card(
++            margin: const EdgeInsets.only(bottom: 10),
++            child: Column(children: [
++              SwitchListTile(
++                secondary: const Icon(Icons.developer_mode),
++                title: const Text('Mode développeur', style: TextStyle(fontWeight: FontWeight.w800)),
++                subtitle: const Text('Diagnostics métier locaux et anonymisés'),
++                value: settings.developerMode,
++                onChanged: settings.setDeveloperMode,
++              ),
++              if (settings.developerMode)
++                ListTile(
++                  leading: const Icon(Icons.monitor_heart_outlined),
++                  title: const Text('Centre de diagnostic'),
++                  trailing: const Icon(Icons.chevron_right),
++                  onTap: () => Navigator.push(context, MaterialPageRoute(
++                    builder: (_) => const DeveloperDiagnosticsScreen(),
++                  )),
++                ),
++            ]),
++          ),
+           _LocationSettings(service: locationService),
+           _BackupSettings(controller: backupController),
+           _WardrobeGptSettings(controller: aiSettings),
+           _Tile(icon: Icons.info_outline, title: 'À propos'),
+           const SizedBox(height: 18),
+           Center(
+             child: Text(
+               'WardrobeOS Sprint 2 · Premium UI',
+               style: Theme.of(context).textTheme.bodySmall,
+             ),
+           ),
+         ],
+       ),
+     );
+   }
+ }
+ 
+ class _LocationSettings extends StatefulWidget {
+   final UnifiedLocationService service;
+   const _LocationSettings({required this.service});
+ 
+   @override
+   State<_LocationSettings> createState() => _LocationSettingsState();
+ }
+ 
+diff --git a/lib/features/scanner/analysis/wardrobe_import_service.dart b/lib/features/scanner/analysis/wardrobe_import_service.dart
+index c353f83284afcb3d1edc33df800651d52362b9d2..a0a2d02d93f551a112af96c437a39b3d62253931 100644
+--- a/lib/features/scanner/analysis/wardrobe_import_service.dart
++++ b/lib/features/scanner/analysis/wardrobe_import_service.dart
+@@ -1,33 +1,34 @@
+ import 'dart:async';
+ import 'dart:convert';
+ import 'dart:io';
+ 
+ import 'package:flutter/foundation.dart';
+ import 'package:uuid/uuid.dart';
+ 
+ import '../../../data/database_service.dart';
++import '../../../core/diagnostics/diagnostic_service.dart';
+ import '../../../models/garment.dart';
+ import '../../../models/garment_normalizer.dart';
+ import '../../../models/garment_photo.dart';
+ import '../../../models/thermal_profile_calculator.dart';
+ import '../../assistant/settings/api_key_storage.dart';
+ import '../../wardrobe/personal_catalog_repository.dart';
+ import '../ai/analysis_foundations.dart';
+ import '../ai/garment_analysis_exception.dart';
+ import '../ai/garment_analysis_normalizer.dart';
+ import '../ai/garment_analysis_request.dart';
+ import '../ai/garment_analysis_result.dart';
+ import '../ai/garment_analysis_validator.dart';
+ import '../ai/garment_image_processing.dart';
+ import '../ai/garment_vision_analyzer.dart';
+ import '../ai/normalization/garment_value_normalizer.dart';
+ import '../ai/openai_garment_vision_analyzer.dart';
+ 
+ const importCategories = ['Hauts', 'Chemises', 'Vestes', 'Bas', 'Chaussures', 'Accessoires', 'Autre'];
+ const importColors = ['Noir', 'Blanc', 'Gris', 'Bleu marine', 'Bleu', 'Beige', 'Marron', 'Camel', 'Vert', 'Kaki', 'Rouge', 'Bordeaux', 'Rose', 'Violet', 'Jaune', 'Orange'];
+ const importMaterials = ['Coton', 'Laine', 'Lin', 'Soie', 'Denim', 'Cuir', 'Textile', 'Synthétique'];
+ const importEnrichmentFields = {
+   'material', 'compositions', 'thermalPhysicalProperties',
+ };
+ 
+ enum WardrobeImportStatus { pending, quickAnalysis, enriching, completed, needsReview, failed, cancelled }
+@@ -215,73 +216,120 @@ class WardrobeImportService extends ChangeNotifier {
+           quick.rejectionReason ?? 'Le vêtement n’est pas suffisamment visible.');
+       }
+       final creation = Stopwatch()..start();
+       final garment = _quickGarment(task, quick);
+       await database.insertGarment(garment);
+       creation.stop();
+       task = await _replace(task.copyWith(status: WardrobeImportStatus.enriching,
+         garmentId: garment.id, quickResult: quick, timings: {...task.timings,
+           'preparation': preparation.elapsedMilliseconds, 'quick': quickWatch.elapsedMilliseconds,
+           'creation': creation.elapsedMilliseconds}));
+ 
+       final enrichmentWatch = Stopwatch()..start();
+       final enriched = _validated(await analyzer.enrich(request.copyWith(
+         phase: GarmentAnalysisPhase.enrichment, previousAnalysis: quick.toJson(),
+         requestedFields: importEnrichmentFields)));
+       enrichmentWatch.stop();
+       await _mergeEnrichment(garment.id, quick, enriched);
+       total.stop();
+       final review = _needsReview(quick);
+       await _replace(task.copyWith(status: review ? WardrobeImportStatus.needsReview : WardrobeImportStatus.completed,
+         enrichmentResult: enriched, userMessage: review ? 'Vérifiez la catégorie, le type ou la couleur.' : null,
+         timings: {...task.timings, 'enrichment': enrichmentWatch.elapsedMilliseconds,
+           'total': total.elapsedMilliseconds}));
+       _events.add(WardrobeImportEvent(WardrobeImportEventType.enrichmentFinished, task.id));
+       if (review) _events.add(WardrobeImportEvent(WardrobeImportEventType.needsReview, task.id));
++      DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeImport,
++        level: review ? DiagnosticLevel.warning : DiagnosticLevel.success,
++        state: review ? 'À vérifier' : 'Terminé', summary: 'Vêtement importé',
++        source: 'WardrobeImportService', duration: total.elapsed,
++        warning: review ? 'La catégorie, le type ou la couleur mérite une vérification.' : null,
++        details: {'photos': 1, 'quickMs': quickWatch.elapsedMilliseconds,
++          'enrichmentMs': enrichmentWatch.elapsedMilliseconds,
++          'profilThermique': 'généré'},
++        pipeline: [
++          DiagnosticStep('Photo', duration: preparation.elapsed),
++          DiagnosticStep('Quick', duration: quickWatch.elapsed),
++          DiagnosticStep('Création', duration: creation.elapsed),
++          DiagnosticStep('Enrichment', duration: enrichmentWatch.elapsed),
++          DiagnosticStep('Thermal', level: review ? DiagnosticLevel.warning : DiagnosticLevel.success),
++        ]);
++      DiagnosticService.instance.publish(module: DiagnosticModule.scanner,
++        level: review ? DiagnosticLevel.warning : DiagnosticLevel.success,
++        state: review ? 'Analyse à confirmer' : 'Analyse terminée',
++        summary: 'Photo analysée et profil thermique généré',
++        source: 'GarmentVisionAnalyzer', duration: total.elapsed,
++        details: {'photos': 1, 'quickMs': quickWatch.elapsedMilliseconds,
++          'enrichmentMs': enrichmentWatch.elapsedMilliseconds, 'profilThermique': 'généré'},
++        pipeline: [
++          DiagnosticStep('Photo', duration: preparation.elapsed),
++          DiagnosticStep('Quick', duration: quickWatch.elapsed),
++          DiagnosticStep('Enrichment', duration: enrichmentWatch.elapsed),
++          const DiagnosticStep('Thermal'),
++          DiagnosticStep('Résultat', level: review ? DiagnosticLevel.warning : DiagnosticLevel.success),
++        ]);
+     } catch (error) {
+       total.stop();
+       final current = _tasks.firstWhere((task) => task.id == original.id);
+       // Quick already crossed the creation threshold: enrichment is optional
+       // and must never turn a usable, visible garment into a failed import.
+       if (current.garmentId != null) {
+         await _replace(current.copyWith(
+           status: WardrobeImportStatus.needsReview,
+           userMessage: 'La fiche est créée ; son enrichissement pourra être réessayé.',
+           timings: {...current.timings, 'total': total.elapsedMilliseconds},
+         ));
+         _events.add(WardrobeImportEvent(WardrobeImportEventType.needsReview, current.id));
+         return;
+       }
+       if (_isTransient(error) && current.attempt < maxAttempts) {
+         await Future<void>.delayed(Duration(milliseconds: 500 * current.attempt));
+         await _replace(current.copyWith(status: WardrobeImportStatus.pending,
+           userMessage: 'Connexion indisponible — l’analyse va reprendre.'));
+       } else {
+         await _replace(current.copyWith(status: WardrobeImportStatus.failed,
+           userMessage: _friendly(error), timings: {...current.timings, 'total': total.elapsedMilliseconds}));
+         _events.add(WardrobeImportEvent(WardrobeImportEventType.analysisFailed, current.id));
+       }
++      DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeImport,
++        level: DiagnosticLevel.error, state: 'Interrompu', summary: 'Import non terminé',
++        source: 'WardrobeImportService', duration: total.elapsed,
++        reason: _friendly(error), details: {'tentative': current.attempt},
++        pipeline: [
++          const DiagnosticStep('Photo'),
++          DiagnosticStep('Quick / Enrichment', level: DiagnosticLevel.error, duration: total.elapsed),
++          const DiagnosticStep('Résultat', level: DiagnosticLevel.error),
++        ]);
++      DiagnosticService.instance.publish(module: DiagnosticModule.scanner,
++        level: DiagnosticLevel.error, state: 'Analyse interrompue',
++        summary: 'La photo n’a pas produit de fiche exploitable',
++        source: 'GarmentVisionAnalyzer', duration: total.elapsed,
++        reason: _friendly(error), pipeline: [
++          const DiagnosticStep('Photo'),
++          DiagnosticStep('Quick / Enrichment', level: DiagnosticLevel.error, duration: total.elapsed),
++          const DiagnosticStep('Résultat', level: DiagnosticLevel.error),
++        ]);
+     }
+   }
+ 
+   GarmentAnalysisResult _validated(GarmentAnalysisResult raw) => const GarmentAnalysisNormalizer().normalize(
+     GarmentAnalysisValidator(categoryNormalizer: const GarmentValueNormalizer(importCategories),
+       colorNormalizer: const GarmentValueNormalizer(importColors),
+       materialNormalizer: const GarmentValueNormalizer(importMaterials),
+       seasonNormalizer: const GarmentValueNormalizer([])).validate(raw).analysis);
+ 
+   Garment _quickGarment(WardrobeImportTask task, GarmentAnalysisResult quick) {
+     final now = DateTime.now();
+     final type = GarmentNormalizer.normalizeType(name: quick.suggestedName,
+       category: quick.category, subcategory: quick.preciseType, preciseType: quick.preciseType);
+     final category = type.category ?? quick.category ?? 'Autre';
+     final color = GarmentNormalizer.classification(quick.primaryColor);
+     final brand = GarmentNormalizer.brand(quick.visibleBrand);
+     final thermal = const ThermalProfileCalculator().calculate(ThermalProfileInput(
+       category: category, subcategory: type.subcategory), calculatedAt: now);
+     return Garment(id: const Uuid().v4(),
+       name: GarmentNormalizer.value(quick.suggestedName) ?? type.preciseType ?? 'Vêtement à identifier',
+       category: category, sousCategorie: type.subcategory, typePrecis: type.preciseType,
+       brand: brand, color: color, couleurPrincipale: color, descriptionIA: quick.suggestedName,
+       thermalProfile: thermal, confianceGlobale: quick.globalConfidence,
+       avertissementsIA: quick.warnings,
+       photos: [GarmentPhoto(id: const Uuid().v4(), path: task.photoPath,
+diff --git a/lib/weather/services/cached_weather_service.dart b/lib/weather/services/cached_weather_service.dart
+index e91b430eea626ef81a89e8844e4551529c672909..11ea916fb182bbf03efefe61449435b51ad8c13d 100644
+--- a/lib/weather/services/cached_weather_service.dart
++++ b/lib/weather/services/cached_weather_service.dart
+@@ -1,63 +1,74 @@
+ import '../api/weather_api.dart';
+ import '../location/location_service.dart';
+ import '../mapping/weather_code_mapper.dart';
+ import '../models/weather_data.dart';
+ import 'weather_service.dart';
++import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ class CachedWeatherService implements WeatherService {
+   static const cacheDuration = Duration(minutes: 15);
+   final LocationService locationService;
+   final WeatherApi weatherApi;
+   final DateTime Function() _now;
+   WeatherData? _cached;
+   DateTime? _cachedAt;
+   Future<WeatherData>? _inFlight;
+ 
+   CachedWeatherService({
+     required this.locationService,
+     required this.weatherApi,
+     DateTime Function()? now,
+   }) : _now = now ?? DateTime.now;
+ 
+   @override
+   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async {
+     final cached = _cached;
+     final cachedAt = _cachedAt;
+     if (!forceRefresh &&
+         cached != null &&
+         cachedAt != null &&
+         _now().difference(cachedAt) < cacheDuration) {
+       return cached;
+     }
+     if (!forceRefresh && _inFlight != null) return _inFlight!;
+     final request = _fetch();
+     _inFlight = request;
+     try {
+       return await request;
+     } finally {
+       if (identical(_inFlight, request)) _inFlight = null;
+     }
+   }
+ 
+   Future<WeatherData> _fetch() async {
+-    final location = await locationService.getCurrentLocation();
+-    final json = await weatherApi.fetchCurrent(
+-      latitude: location.latitude,
+-      longitude: location.longitude,
+-    );
+-    final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city);
+-    final result = parsed.copyWith(
+-      description: WeatherCodeMapper.description(parsed.weatherCode),
+-    );
+-    _cached = result;
+-    _cachedAt = _now();
+-    return result;
++    final stopwatch = Stopwatch()..start();
++    try {
++      final location = await locationService.getCurrentLocation();
++      final json = await weatherApi.fetchCurrent(
++        latitude: location.latitude, longitude: location.longitude,
++      );
++      final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city);
++      final result = parsed.copyWith(description: WeatherCodeMapper.description(parsed.weatherCode));
++      _cached = result;
++      _cachedAt = _now();
++      DiagnosticService.instance.publish(module: DiagnosticModule.weather,
++        level: DiagnosticLevel.success, state: 'Disponible', summary: 'Météo actualisée',
++        source: weatherApi.runtimeType.toString(), duration: stopwatch.elapsed,
++        details: {'ville': location.city, 'température': result.temperature, 'cache': false});
++      return result;
++    } catch (error) {
++      DiagnosticService.instance.publish(module: DiagnosticModule.weather,
++        level: DiagnosticLevel.error, state: 'Indisponible', summary: 'Actualisation météo impossible',
++        source: weatherApi.runtimeType.toString(), duration: stopwatch.elapsed,
++        reason: 'La source météo ou la localisation n’a pas répondu.');
++      rethrow;
++    }
+   }
+ 
+   @override
+   void clearCache() {
+     _cached = null;
+     _cachedAt = null;
+     _inFlight = null;
+   }
+ }
+diff --git a/test/core/diagnostics/diagnostic_service_test.dart b/test/core/diagnostics/diagnostic_service_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..ffc022b6ac9069fe4c823233b0b9080d30fac600
+--- /dev/null
++++ b/test/core/diagnostics/diagnostic_service_test.dart
+@@ -0,0 +1,56 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/core/diagnostics/diagnostic_service.dart';
++
++void main() {
++  final service = DiagnosticService.instance;
++
++  setUp(() {
++    service.setEnabled(false);
++    service.clear();
++  });
++
++  test('ne collecte rien quand le mode développeur est désactivé', () {
++    service.publish(module: DiagnosticModule.daily, level: DiagnosticLevel.info,
++      state: 'test', summary: 'test', source: 'test');
++    expect(service.entries, isEmpty);
++  });
++
++  test('conserve au plus 100 entrées par module en FIFO', () {
++    service.setEnabled(true);
++    for (var index = 0; index < 105; index++) {
++      service.publish(module: DiagnosticModule.scanner, level: DiagnosticLevel.success,
++        state: '$index', summary: 'analyse', source: 'test');
++    }
++    final entries = service.filtered(module: DiagnosticModule.scanner);
++    expect(entries, hasLength(100));
++    expect(entries.map((entry) => entry.state), isNot(contains('0')));
++    expect(entries.map((entry) => entry.state), contains('104'));
++  });
++
++  test('filtre par niveau et module puis purge un module', () {
++    service.setEnabled(true);
++    service.publish(module: DiagnosticModule.daily, level: DiagnosticLevel.error,
++      state: 'erreur', summary: 'daily', source: 'test');
++    service.publish(module: DiagnosticModule.weather, level: DiagnosticLevel.success,
++      state: 'ok', summary: 'weather', source: 'test');
++    expect(service.filtered(levels: {DiagnosticLevel.error}), hasLength(1));
++    service.clear(DiagnosticModule.daily);
++    expect(service.entries.single.module, DiagnosticModule.weather);
++  });
++
++  test('exporte sans secrets, prompts, photos ni chemins privés', () {
++    service.setEnabled(true);
++    service.publish(module: DiagnosticModule.wardrobeGpt, level: DiagnosticLevel.error,
++      state: 'Bearer secret-token', summary: 'sk-abcdefghijklmnopqrstuvwxyz',
++      source: '/home/alex/private/file.dart', reason: 'Exception: raw failure',
++      details: {'token': 'oauth-secret', 'prompt': 'prompt complet',
++        'photoPath': '/data/user/0/private.jpg', 'intention': 'dailyOutfit'});
++    final report = service.exportReport();
++    expect(report, contains('[MASQUÉ]'));
++    expect(report, isNot(contains('oauth-secret')));
++    expect(report, isNot(contains('prompt complet')));
++    expect(report, isNot(contains('private.jpg')));
++    expect(report, isNot(contains('Exception: raw failure')));
++    expect(report, contains('dailyOutfit'));
++  });
++}

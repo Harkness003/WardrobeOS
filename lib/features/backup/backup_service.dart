@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../../data/database_service.dart';
 import '../../models/garment_photo.dart';
 import 'backup_file.dart';
+import '../../core/diagnostics/diagnostic_service.dart';
 
 abstract interface class BackupRepository {
   Future<Map<String, List<Map<String, Object?>>>> exportData();
@@ -25,6 +26,7 @@ class BackupService {
   BackupService({required this.repository, DateTime Function()? now}) : now = now ?? DateTime.now;
 
   Future<BackupArchive> createBackup() async {
+    final stopwatch = Stopwatch()..start();
     final data = await repository.exportData();
     final photos = <String, List<int>>{};
     final warnings = <String>[];
@@ -79,10 +81,21 @@ class BackupService {
     }
     data['garments'] = garments;
     final counts = {for (final entry in data.entries) entry.key: entry.value.length};
-    return BackupArchive(manifest: BackupManifest(appVersion: appVersion,
+    final result = BackupArchive(manifest: BackupManifest(appVersion: appVersion,
       schemaVersion: BackupManifest.currentSchemaVersion, createdAt: now(),
       garmentCount: garments.length, photoCount: photos.length, content: counts),
       sections: data, photos: photos, warnings: warnings);
+    DiagnosticService.instance.publish(module: DiagnosticModule.backup,
+      level: warnings.isEmpty ? DiagnosticLevel.success : DiagnosticLevel.warning,
+      state: 'Archive préparée', summary: 'Sauvegarde créée', source: 'BackupService',
+      duration: stopwatch.elapsed, warning: warnings.isEmpty ? null : warnings.join(' '),
+      details: {'vêtements': garments.length, 'tailleArchiveOctets': encodeBackup(result).length},
+      pipeline: [
+        const DiagnosticStep('Base locale'),
+        DiagnosticStep('Collecte', detail: '${garments.length} vêtements'),
+        DiagnosticStep('Archive', duration: stopwatch.elapsed),
+      ]);
+    return result;
   }
 
   String _garmentLabel(Map<String, Object?> garment) {

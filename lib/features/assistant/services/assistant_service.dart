@@ -9,6 +9,7 @@ import '../intents/intent_result.dart';
 import '../intents/intent_type.dart';
 import '../../../core/outfit_generation/outfit_generation_engine.dart';
 import '../../../core/recommendation/recommendation_context.dart';
+import '../../../core/diagnostics/diagnostic_service.dart';
 
 class AssistantService {
   final AssistantContextBuilder _contextBuilder;
@@ -155,6 +156,7 @@ class AssistantService {
   }
 
   Stream<String> generateMessageStream({String? userMessage}) async* {
+    final stopwatch = Stopwatch()..start();
     try {
       final prompt = await generatePrompt(userMessage: userMessage);
       if (_lastIntent != null && _lastGenerationDiagnostic?.failure != null) {
@@ -172,9 +174,29 @@ class AssistantService {
       } else {
         yield _ensureUsefulResponse(await _llmProvider.generate(prompt));
       }
+      DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
+        level: DiagnosticLevel.success, state: 'Réponse générée', summary: 'Demande traitée',
+        source: 'AssistantService', duration: stopwatch.elapsed,
+        details: {'intention': _lastIntent?.type.name ?? 'conversation',
+          'tenuesGénérées': _lastOutfitProposals.length},
+        pipeline: [
+          const DiagnosticStep('Intention'),
+          const DiagnosticStep('WardrobeContext'),
+          DiagnosticStep('OutfitGeneration', level: _lastGenerationDiagnostic?.failure == null
+            ? DiagnosticLevel.success : DiagnosticLevel.warning),
+          DiagnosticStep('Résultat', duration: stopwatch.elapsed),
+        ]);
     } on LlmException catch (error) {
+      DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
+        level: DiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
+        source: 'AssistantService', duration: stopwatch.elapsed,
+        reason: error.message);
       yield error.message;
     } catch (_) {
+      DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
+        level: DiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
+        source: 'AssistantService', duration: stopwatch.elapsed,
+        reason: 'Le contexte ou le fournisseur de réponse n’a pas terminé.');
       yield 'WardrobeGPT est temporairement indisponible. Réessayez.';
     }
   }

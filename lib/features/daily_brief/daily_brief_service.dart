@@ -10,6 +10,7 @@ import '../../weather/services/weather_service.dart';
 import '../assistant/memory/memory_service.dart';
 import '../assistant/memory/personal_goal.dart';
 import 'daily_brief_models.dart';
+import '../../core/diagnostics/diagnostic_service.dart';
 
 /// Composes the Daily Brief exclusively from the shared AI context and outfit
 /// engine. Expensive I/O is performed once and intermediate states are emitted
@@ -42,6 +43,7 @@ class DailyBriefService {
   /// Emits wardrobe/outfit content first, then weather-enriched content. A
   /// weather failure is an explicit state and never prevents a wardrobe result.
   Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
+    final stopwatch = Stopwatch()..start();
     final weatherFuture = _optionalWeather();
     try {
       final liveContext = await aiContextService?.build();
@@ -61,7 +63,23 @@ class DailyBriefService {
           : _compose(garments, memory, weather: weather.data,
               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
       yield brief;
+      DiagnosticService.instance.publish(module: DiagnosticModule.daily,
+        level: brief.state == DailyBriefState.available ? DiagnosticLevel.success : DiagnosticLevel.warning,
+        state: brief.state.name, summary: '${brief.outfitProposals.length} proposition(s)',
+        source: 'DailyBriefService', duration: stopwatch.elapsed, reason: brief.detail,
+        details: {'vêtements': garments.length, 'cartes': brief.cards.length},
+        pipeline: [
+          DiagnosticStep('Weather', level: weather.data == null ? DiagnosticLevel.warning : DiagnosticLevel.success),
+          DiagnosticStep('WardrobeContext', duration: liveContext?.loadDuration ?? Duration.zero),
+          const DiagnosticStep('Generation'),
+          const DiagnosticStep('Recommendation'),
+          DiagnosticStep('Résultat', level: brief.outfitProposals.isEmpty ? DiagnosticLevel.warning : DiagnosticLevel.success),
+        ]);
     } catch (_) {
+      DiagnosticService.instance.publish(module: DiagnosticModule.daily,
+        level: DiagnosticLevel.error, state: 'Interrompu', summary: 'Daily non généré',
+        source: 'DailyBriefService', duration: stopwatch.elapsed,
+        reason: 'Le contexte dressing n’a pas pu être préparé.');
       // Stream errors are converted into an explicit UI state by the screen.
       rethrow;
     }

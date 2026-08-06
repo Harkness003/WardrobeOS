@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../data/database_service.dart';
+import '../../../core/diagnostics/diagnostic_service.dart';
 import '../../../models/garment.dart';
 import '../../../models/garment_normalizer.dart';
 import '../../../models/garment_photo.dart';
@@ -237,6 +238,35 @@ class WardrobeImportService extends ChangeNotifier {
           'total': total.elapsedMilliseconds}));
       _events.add(WardrobeImportEvent(WardrobeImportEventType.enrichmentFinished, task.id));
       if (review) _events.add(WardrobeImportEvent(WardrobeImportEventType.needsReview, task.id));
+      DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeImport,
+        level: review ? DiagnosticLevel.warning : DiagnosticLevel.success,
+        state: review ? 'À vérifier' : 'Terminé', summary: 'Vêtement importé',
+        source: 'WardrobeImportService', duration: total.elapsed,
+        warning: review ? 'La catégorie, le type ou la couleur mérite une vérification.' : null,
+        details: {'photos': 1, 'quickMs': quickWatch.elapsedMilliseconds,
+          'enrichmentMs': enrichmentWatch.elapsedMilliseconds,
+          'profilThermique': 'généré'},
+        pipeline: [
+          DiagnosticStep('Photo', duration: preparation.elapsed),
+          DiagnosticStep('Quick', duration: quickWatch.elapsed),
+          DiagnosticStep('Création', duration: creation.elapsed),
+          DiagnosticStep('Enrichment', duration: enrichmentWatch.elapsed),
+          DiagnosticStep('Thermal', level: review ? DiagnosticLevel.warning : DiagnosticLevel.success),
+        ]);
+      DiagnosticService.instance.publish(module: DiagnosticModule.scanner,
+        level: review ? DiagnosticLevel.warning : DiagnosticLevel.success,
+        state: review ? 'Analyse à confirmer' : 'Analyse terminée',
+        summary: 'Photo analysée et profil thermique généré',
+        source: 'GarmentVisionAnalyzer', duration: total.elapsed,
+        details: {'photos': 1, 'quickMs': quickWatch.elapsedMilliseconds,
+          'enrichmentMs': enrichmentWatch.elapsedMilliseconds, 'profilThermique': 'généré'},
+        pipeline: [
+          DiagnosticStep('Photo', duration: preparation.elapsed),
+          DiagnosticStep('Quick', duration: quickWatch.elapsed),
+          DiagnosticStep('Enrichment', duration: enrichmentWatch.elapsed),
+          const DiagnosticStep('Thermal'),
+          DiagnosticStep('Résultat', level: review ? DiagnosticLevel.warning : DiagnosticLevel.success),
+        ]);
     } catch (error) {
       total.stop();
       final current = _tasks.firstWhere((task) => task.id == original.id);
@@ -260,6 +290,24 @@ class WardrobeImportService extends ChangeNotifier {
           userMessage: _friendly(error), timings: {...current.timings, 'total': total.elapsedMilliseconds}));
         _events.add(WardrobeImportEvent(WardrobeImportEventType.analysisFailed, current.id));
       }
+      DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeImport,
+        level: DiagnosticLevel.error, state: 'Interrompu', summary: 'Import non terminé',
+        source: 'WardrobeImportService', duration: total.elapsed,
+        reason: _friendly(error), details: {'tentative': current.attempt},
+        pipeline: [
+          const DiagnosticStep('Photo'),
+          DiagnosticStep('Quick / Enrichment', level: DiagnosticLevel.error, duration: total.elapsed),
+          const DiagnosticStep('Résultat', level: DiagnosticLevel.error),
+        ]);
+      DiagnosticService.instance.publish(module: DiagnosticModule.scanner,
+        level: DiagnosticLevel.error, state: 'Analyse interrompue',
+        summary: 'La photo n’a pas produit de fiche exploitable',
+        source: 'GarmentVisionAnalyzer', duration: total.elapsed,
+        reason: _friendly(error), pipeline: [
+          const DiagnosticStep('Photo'),
+          DiagnosticStep('Quick / Enrichment', level: DiagnosticLevel.error, duration: total.elapsed),
+          const DiagnosticStep('Résultat', level: DiagnosticLevel.error),
+        ]);
     }
   }
 

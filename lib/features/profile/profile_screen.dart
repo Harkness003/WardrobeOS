@@ -8,6 +8,7 @@ import '../styles/style_library_screen.dart';
 import '../styles/style_repository.dart';
 import '../styles/style_enrichment_service.dart';
 import '../../widgets/content_state.dart';
+import '../developer/developer_diagnostics_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   final AppSettings settings;
@@ -88,6 +89,27 @@ class ProfileScreen extends StatelessWidget {
               value: settings.darkMode,
               onChanged: settings.setDarkMode,
             ),
+          ),
+          Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: Column(children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.developer_mode),
+                title: const Text('Mode développeur', style: TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: const Text('Diagnostics métier locaux et anonymisés'),
+                value: settings.developerMode,
+                onChanged: settings.setDeveloperMode,
+              ),
+              if (settings.developerMode)
+                ListTile(
+                  leading: const Icon(Icons.monitor_heart_outlined),
+                  title: const Text('Centre de diagnostic'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => const DeveloperDiagnosticsScreen(),
+                  )),
+                ),
+            ]),
           ),
           _LocationSettings(service: locationService),
           _BackupSettings(controller: backupController),

@@ -3,6 +3,7 @@ import '../location/location_service.dart';
 import '../mapping/weather_code_mapper.dart';
 import '../models/weather_data.dart';
 import 'weather_service.dart';
+import '../../core/diagnostics/diagnostic_service.dart';
 
 class CachedWeatherService implements WeatherService {
   static const cacheDuration = Duration(minutes: 15);
@@ -40,18 +41,28 @@ class CachedWeatherService implements WeatherService {
   }
 
   Future<WeatherData> _fetch() async {
-    final location = await locationService.getCurrentLocation();
-    final json = await weatherApi.fetchCurrent(
-      latitude: location.latitude,
-      longitude: location.longitude,
-    );
-    final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city);
-    final result = parsed.copyWith(
-      description: WeatherCodeMapper.description(parsed.weatherCode),
-    );
-    _cached = result;
-    _cachedAt = _now();
-    return result;
+    final stopwatch = Stopwatch()..start();
+    try {
+      final location = await locationService.getCurrentLocation();
+      final json = await weatherApi.fetchCurrent(
+        latitude: location.latitude, longitude: location.longitude,
+      );
+      final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city);
+      final result = parsed.copyWith(description: WeatherCodeMapper.description(parsed.weatherCode));
+      _cached = result;
+      _cachedAt = _now();
+      DiagnosticService.instance.publish(module: DiagnosticModule.weather,
+        level: DiagnosticLevel.success, state: 'Disponible', summary: 'Météo actualisée',
+        source: weatherApi.runtimeType.toString(), duration: stopwatch.elapsed,
+        details: {'ville': location.city, 'température': result.temperature, 'cache': false});
+      return result;
+    } catch (error) {
+      DiagnosticService.instance.publish(module: DiagnosticModule.weather,
+        level: DiagnosticLevel.error, state: 'Indisponible', summary: 'Actualisation météo impossible',
+        source: weatherApi.runtimeType.toString(), duration: stopwatch.elapsed,
+        reason: 'La source météo ou la localisation n’a pas répondu.');
+      rethrow;
+    }
   }
 
   @override
