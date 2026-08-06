@@ -60,7 +60,9 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int index = 0;
   late final _assistantWardrobe = WardrobeController();
-  late final _assistantOutfits = OutfitsController();
+  late final _assistantOutfits = OutfitsController(
+    aiContextService: _aiContextService,
+  );
   late final _apiKeyStorage = ApiKeyStorage();
   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
   late final _styleCatalog = StyleCatalog();
@@ -179,7 +181,7 @@ class _MainShellState extends State<MainShell> {
         },
       ),
       WardrobeScreen(reanalysisService: _reanalysisService),
-      const OutfitsScreen(),
+      OutfitsScreen(controller: _assistantOutfits),
       AgendaScreen(controller: _agendaController, outfitsController: _assistantOutfits),
       AssistantScreen(service: _assistantService),
       const WishlistScreen(),

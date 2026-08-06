@@ -136,7 +136,10 @@ void main() {
   test('génère une recommandation avec FakeLlmProvider', () async {
     final wardrobe = WardrobeController()
       ..loading = false
-      ..garments = [Garment(id: 'shirt', name: 'Chemise bleue', category: 'Hauts', createdAt: DateTime(2026), updatedAt: DateTime(2026))];
+      ..garments = [
+        Garment(id: 'shirt', name: 'Chemise bleue', category: 'Hauts', createdAt: DateTime(2026), updatedAt: DateTime(2026)),
+        Garment(id: 'jean', name: 'Jean', category: 'Pantalons', createdAt: DateTime(2026), updatedAt: DateTime(2026)),
+      ];
     final outfits = OutfitsController()..loading = false;
     final service = AssistantService(
       contextBuilder: AssistantContextBuilder(
@@ -154,7 +157,7 @@ void main() {
     );
 
     expect(response, 'Portez la chemise bleue.');
-    expect(service.lastOutfitProposals.single.garmentIds, ['shirt']);
+    expect(service.lastOutfitProposals.single.garmentIds, ['jean', 'shirt']);
     expect(
       await service.generatePrompt(userMessage: "Que mettre aujourd'hui ?"),
       contains('### RECOMMANDATION TENUE'),
@@ -172,6 +175,8 @@ void main() {
           createdAt: DateTime(2026),
           updatedAt: DateTime(2026),
         ),
+        Garment(id: 'bottom', name: 'Jean', category: 'Pantalons',
+          createdAt: DateTime(2026), updatedAt: DateTime(2026)),
       ],
     );
     final service = AssistantService(
@@ -191,6 +196,6 @@ void main() {
     expect(before, contains('Chemise avant modification'));
     expect(after, contains('Chemise corrigée maintenant'));
     expect(after, isNot(contains('Chemise avant modification')));
-    expect(service.lastOutfitProposals.single.garments.single.name, 'Chemise corrigée maintenant');
+    expect(service.lastOutfitProposals.single.garments.firstWhere((item) => item.id == 'stable-id').name, 'Chemise corrigée maintenant');
   });
 }

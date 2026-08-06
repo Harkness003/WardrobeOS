@@ -50,13 +50,16 @@ class DailyBriefService {
       final memory = liveContext?.personalization ??
           await memoryService.loadSnapshot();
 
-      var brief = _compose(garments, memory, weather: null);
+      var brief = _compose(garments, memory, weather: null,
+        contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
       yield brief;
 
       final weather = await weatherFuture;
       brief = weather.data == null
-          ? _compose(garments, memory, weather: null, weatherError: weather.error)
-          : _compose(garments, memory, weather: weather.data);
+          ? _compose(garments, memory, weather: null, weatherError: weather.error,
+              contextLoadDuration: liveContext?.loadDuration ?? Duration.zero)
+          : _compose(garments, memory, weather: weather.data,
+              contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
       yield brief;
     } catch (_) {
       // Stream errors are converted into an explicit UI state by the screen.
@@ -78,6 +81,7 @@ class DailyBriefService {
     PersonalizationSnapshot memory, {
     required WeatherData? weather,
     Object? weatherError,
+    Duration contextLoadDuration = Duration.zero,
   }) {
     final preferences = _preferences(memory);
     final report = intelligenceEngine.analyze(garments);
@@ -85,6 +89,7 @@ class DailyBriefService {
       wardrobe: garments,
       proposalCount: 3,
       preferences: preferences,
+      contextLoadDuration: contextLoadDuration,
       context: RecommendationContext(
         desiredStyle: preferences.preferredStyles.firstOrNull,
         weather: weather == null
@@ -133,14 +138,17 @@ class DailyBriefService {
     cards.sort((a, b) => a.priority.compareTo(b.priority));
     final categories = garments.map(OutfitGenerationEngine.categoryFor).toSet();
     final state = garments.isEmpty ? DailyBriefState.emptyWardrobe
-        : categories.length < 2 ? DailyBriefState.insufficientWardrobe
+        : generation.diagnostic.failure == OutfitGenerationFailure.missingTop ||
+              generation.diagnostic.failure == OutfitGenerationFailure.missingBottom
+            ? DailyBriefState.insufficientWardrobe
         : proposals.isEmpty ? DailyBriefState.noProposal
         : weatherError != null ? DailyBriefState.weatherError
         : DailyBriefState.available;
+    final generationDetail = generation.diagnostic.userReason;
     return DailyBrief(generatedAt: _clock(),
       cards: List.unmodifiable(cards.take(maxVisibleCards)),
       outfitProposals: List.unmodifiable(proposals), state: state,
-      detail: weatherError == null ? null : 'Météo indisponible : $weatherError');
+      detail: generationDetail ?? (weatherError == null ? null : 'Météo indisponible. La tenue est générée sans météo.'));
   }
 
   static RecommendationPreferences _preferences(PersonalizationSnapshot snapshot) {

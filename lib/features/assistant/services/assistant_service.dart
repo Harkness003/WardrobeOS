@@ -20,6 +20,7 @@ class AssistantService {
   AssistantToolContext _lastToolContext = const {};
   IntentResult? _lastIntent;
   List<OutfitGenerationProposal> _lastOutfitProposals = const [];
+  OutfitGenerationDiagnostic? _lastGenerationDiagnostic;
 
   AssistantService({
     required AssistantContextBuilder contextBuilder,
@@ -39,6 +40,7 @@ class AssistantService {
   AssistantToolContext get lastToolContext => _lastToolContext;
   IntentResult? get lastIntent => _lastIntent;
   List<OutfitGenerationProposal> get lastOutfitProposals => _lastOutfitProposals;
+  OutfitGenerationDiagnostic? get lastGenerationDiagnostic => _lastGenerationDiagnostic;
 
   Future<AssistantContext> buildContext() => _contextBuilder.build();
 
@@ -60,6 +62,7 @@ class AssistantService {
     final generation = shouldRecommend
         ? _outfitEngine.generate(OutfitGenerationRequest(
             wardrobe: context.wardrobe?.garments ?? const [],
+            contextLoadDuration: context.wardrobe?.loadDuration ?? Duration.zero,
             context: RecommendationContext(
               occasion: _lastIntent!.parameters['occasion'],
               desiredStyle: _lastIntent!.parameters['style'],
@@ -73,6 +76,7 @@ class AssistantService {
           ))
         : null;
     _lastOutfitProposals = generation?.proposals ?? const [];
+    _lastGenerationDiagnostic = generation?.diagnostic;
     final prompt = _promptBuilder.build(
       context,
       toolContext: _lastToolContext,
@@ -149,6 +153,10 @@ class AssistantService {
   Stream<String> generateMessageStream({String? userMessage}) async* {
     try {
       final prompt = await generatePrompt(userMessage: userMessage);
+      if (_lastIntent != null && _lastGenerationDiagnostic?.failure != null) {
+        yield _outfitFailureResponse(_lastGenerationDiagnostic!.failure!);
+        return;
+      }
       if (_llmProvider case final StreamingLlmProvider provider) {
         final chunks = <String>[];
         await for (final chunk in provider.generateStream(prompt)) {
@@ -166,4 +174,15 @@ class AssistantService {
       yield 'WardrobeGPT est temporairement indisponible. Réessayez.';
     }
   }
+
+  static String _outfitFailureResponse(OutfitGenerationFailure failure) => switch (failure) {
+    OutfitGenerationFailure.emptyWardrobe =>
+      'Je ne peux pas encore créer une tenue complète : ton dressing est vide. Ajoute au moins un haut et un bas.',
+    OutfitGenerationFailure.missingTop =>
+      'Je ne peux pas encore créer une tenue complète : aucun haut compatible n’est enregistré. Ajoute un haut puis réessaie.',
+    OutfitGenerationFailure.missingBottom =>
+      'Je ne peux pas encore créer une tenue complète : ton dressing contient des hauts, mais aucun bas compatible n’est enregistré.',
+    OutfitGenerationFailure.incompatibleCombinations =>
+      'Je ne peux pas composer une tenue complète avec ces pièces : toutes les combinaisons disponibles sont incompatibles. Ajoute un haut ou un bas différent.',
+  };
 }

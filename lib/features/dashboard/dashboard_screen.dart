@@ -175,8 +175,8 @@ class _DailyStateBanner extends StatelessWidget {
   const _DailyStateBanner({required this.state, this.detail});
   @override Widget build(BuildContext context) {
     final (title, message) = switch (state) {
-      DailyBriefState.insufficientWardrobe => ('Dressing encore réduit', 'La proposition utilise toutes les catégories disponibles. Ajoute des pièces pour obtenir une tenue plus complète.'),
-      DailyBriefState.noProposal => ('Aucune proposition possible', 'Le moteur ne trouve aucune combinaison cohérente avec les pièces disponibles.'),
+      DailyBriefState.insufficientWardrobe => ('Daily indisponible', detail ?? 'Ajoute au moins un haut et un bas pour générer une tenue.'),
+      DailyBriefState.noProposal => ('Aucune proposition possible', detail ?? 'Le moteur ne trouve aucune combinaison cohérente avec les pièces disponibles.'),
       DailyBriefState.weatherError => ('Météo indisponible', detail ?? 'La tenue est proposée sans contrainte météo.'),
       _ => ('', ''),
     };

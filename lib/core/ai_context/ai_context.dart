@@ -75,11 +75,13 @@ class WardrobeAiContext {
   final List<Garment> garments;
   final List<AiGarmentContext> aiGarments;
   final PersonalizationSnapshot? personalization;
+  final Duration loadDuration;
 
   WardrobeAiContext({
     required this.generatedAt,
     required List<Garment> garments,
     required this.personalization,
+    this.loadDuration = Duration.zero,
   })  : garments = List.unmodifiable(garments),
         aiGarments = List.unmodifiable(garments.map(AiGarmentContext.fromGarment));
 
@@ -87,6 +89,7 @@ class WardrobeAiContext {
     'generatedAt': generatedAt.toIso8601String(),
     'wardrobeSource': 'live_database',
     'memoryPolicy': 'memory_never_overrides_garments',
+    'loadDurationMs': loadDuration.inMilliseconds,
     'garments': aiGarments.map((garment) => garment.toMap()).toList(growable: false),
   };
 }

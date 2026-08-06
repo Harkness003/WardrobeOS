@@ -22,6 +22,7 @@ class WardrobeAiContextService {
   });
 
   Future<WardrobeAiContext> build() async {
+    final stopwatch = Stopwatch()..start();
     final garments = await loadCurrentGarments();
     PersonalizationSnapshot? personalization;
     try {
@@ -33,6 +34,7 @@ class WardrobeAiContextService {
       generatedAt: clock(),
       garments: garments,
       personalization: personalization,
+      loadDuration: stopwatch.elapsed,
     );
   }
 }

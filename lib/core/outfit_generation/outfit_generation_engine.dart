@@ -14,6 +14,7 @@ class OutfitGenerationRequest {
   final RecommendationPreferences preferences;
   final Iterable<GarmentRecommendationCorrection> corrections;
   final int proposalCount;
+  final Duration contextLoadDuration;
 
   const OutfitGenerationRequest({
     required this.wardrobe,
@@ -21,6 +22,7 @@ class OutfitGenerationRequest {
     this.preferences = const RecommendationPreferences(),
     this.corrections = const [],
     this.proposalCount = 3,
+    this.contextLoadDuration = Duration.zero,
   }) : assert(proposalCount >= 0);
 }
 
@@ -43,12 +45,37 @@ class OutfitGenerationProposal {
 }
 
 class OutfitGenerationResult {
-  static const incompleteOutfitMessage =
-      'Il manque des éléments pour constituer une tenue complète.';
+  static const incompleteOutfitMessage = 'Il manque des éléments pour constituer une tenue complète.';
 
   final List<OutfitGenerationProposal> proposals;
   final List<String> messages;
-  const OutfitGenerationResult._(this.proposals, [this.messages = const []]);
+  final OutfitGenerationDiagnostic diagnostic;
+  const OutfitGenerationResult._(this.proposals, this.diagnostic, [this.messages = const []]);
+}
+
+enum OutfitGenerationFailure { emptyWardrobe, missingTop, missingBottom, incompatibleCombinations }
+
+class OutfitGenerationDiagnostic {
+  final int garmentCount;
+  final Set<OutfitCategory> categories;
+  final int candidateCount;
+  final int producedCount;
+  final int rejectedCount;
+  final OutfitGenerationFailure? failure;
+  final Duration contextLoadDuration;
+  final Duration generationDuration;
+
+  const OutfitGenerationDiagnostic({required this.garmentCount, required this.categories,
+    required this.candidateCount, required this.producedCount, required this.rejectedCount,
+    this.failure, this.contextLoadDuration = Duration.zero, required this.generationDuration});
+
+  String? get userReason => switch (failure) {
+    OutfitGenerationFailure.emptyWardrobe => 'Le dressing est vide.',
+    OutfitGenerationFailure.missingTop => 'Aucun haut compatible n’est enregistré.',
+    OutfitGenerationFailure.missingBottom => 'Aucun bas compatible n’est enregistré.',
+    OutfitGenerationFailure.incompatibleCombinations => 'Toutes les combinaisons disponibles sont incompatibles.',
+    null => null,
+  };
 }
 
 enum OutfitCompleteness { incomplete, acceptable, recommended }
@@ -65,9 +92,22 @@ class OutfitGenerationEngine {
   });
 
   OutfitGenerationResult generate(OutfitGenerationRequest request) {
-    if (request.proposalCount == 0) return const OutfitGenerationResult._([]);
+    final stopwatch = Stopwatch()..start();
     final wardrobe = request.wardrobe.toList(growable: false);
-    if (wardrobe.isEmpty) return const OutfitGenerationResult._([]);
+    final availableCategories = wardrobe.map(categoryFor).toSet();
+    OutfitGenerationResult failure(OutfitGenerationFailure reason) => OutfitGenerationResult._(
+      const [], OutfitGenerationDiagnostic(garmentCount: wardrobe.length,
+        categories: Set.unmodifiable(availableCategories), candidateCount: 0, producedCount: 0,
+        rejectedCount: 0, failure: reason, contextLoadDuration: request.contextLoadDuration,
+        generationDuration: stopwatch.elapsed),
+      [reason == OutfitGenerationFailure.emptyWardrobe ? 'Le dressing est vide.' : incompleteOutfitMessage]);
+    if (wardrobe.isEmpty) return failure(OutfitGenerationFailure.emptyWardrobe);
+    if (!availableCategories.contains(OutfitCategory.top)) return failure(OutfitGenerationFailure.missingTop);
+    if (!availableCategories.contains(OutfitCategory.bottom)) return failure(OutfitGenerationFailure.missingBottom);
+    if (request.proposalCount == 0) return OutfitGenerationResult._(const [],
+      OutfitGenerationDiagnostic(garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
+        candidateCount: 0, producedCount: 0, rejectedCount: 0,
+        contextLoadDuration: request.contextLoadDuration, generationDuration: stopwatch.elapsed));
 
     // Rank each category once. This bounds work to O(n log n), rather than
     // enumerating the Cartesian product (which does not scale to large closets).
@@ -122,7 +162,13 @@ class OutfitGenerationEngine {
         final score = b.score.compareTo(a.score);
         return score != 0 ? score : _signature(a.outfit).compareTo(_signature(b.outfit));
       });
-    return OutfitGenerationResult._(List.unmodifiable(scored), List.unmodifiable(messages));
+    return OutfitGenerationResult._(List.unmodifiable(scored), OutfitGenerationDiagnostic(
+      garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
+      candidateCount: generated.length, producedCount: scored.length,
+      rejectedCount: generated.length - scored.length,
+      failure: scored.isEmpty ? OutfitGenerationFailure.incompatibleCombinations : null,
+      contextLoadDuration: request.contextLoadDuration,
+      generationDuration: stopwatch.elapsed), List.unmodifiable(messages));
   }
 
   OutfitGenerationProposal _score(Outfit outfit, OutfitGenerationRequest request) {
@@ -236,13 +282,13 @@ class OutfitGenerationEngine {
   static OutfitCategory categoryFor(Garment garment) {
     final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.thermalProfile?.primaryRole.name ?? garment.layerType ?? ''}'.toLowerCase();
     if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) return OutfitCategory.shoes;
-    if (value.contains('pantal') || value.contains('jupe') || value.contains('short') || value.contains('bas')) return OutfitCategory.bottom;
+    if (value.contains('pantal') || value.contains('jean') || value.contains('jupe') || value.contains('short') || value.contains('bas') || value.contains('bottom')) return OutfitCategory.bottom;
     if (value.contains('manteau') || value.contains('parka') || value.contains('doudoune')) return OutfitCategory.coat;
     if (value.contains('veste') || value.contains('blazer') || value.contains('trench') || value.contains('outer') || value.contains('outerwear')) return OutfitCategory.jacket;
     if (value.contains('sac')) return OutfitCategory.bag;
     if (value.contains('bijou') || value.contains('collier') || value.contains('bracelet')) return OutfitCategory.jewelry;
     if (value.contains('access')) return OutfitCategory.accessory;
-    if (value.contains('haut') || value.contains('top') || value.contains('chemise') || value.contains('pull') || value.contains('polo') || value.contains('t-shirt')) return OutfitCategory.top;
+    if (value.contains('haut') || value.contains('top') || value.contains('chemise') || value.contains('pull') || value.contains('polo') || value.contains('t-shirt') || value.contains('tshirt')) return OutfitCategory.top;
     return OutfitCategory.otherLayer;
   }
 

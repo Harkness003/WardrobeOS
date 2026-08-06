@@ -9,14 +9,16 @@ import 'outfit_form_screen.dart';
 import 'outfits_controller.dart';
 
 class OutfitsScreen extends StatefulWidget {
-  const OutfitsScreen({super.key});
+  final OutfitsController? controller;
+  const OutfitsScreen({super.key, this.controller});
 
   @override
   State<OutfitsScreen> createState() => _OutfitsScreenState();
 }
 
 class _OutfitsScreenState extends State<OutfitsScreen> {
-  final controller = OutfitsController();
+  late final controller = widget.controller ?? OutfitsController();
+  late final _ownsController = widget.controller == null;
 
   @override
   void initState() {
@@ -32,7 +34,7 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
   @override
   void dispose() {
     controller.removeListener(_refresh);
-    controller.dispose();
+    if (_ownsController) controller.dispose();
     super.dispose();
   }
 
@@ -125,6 +127,12 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
                   const SnackBar(content: Text('Tenue enregistrée.')));
               },
             )),
+            const SizedBox(height: 14),
+          ] else if (controller.generationMessage != null) ...[
+            ContentState.empty(title: 'Aucune tenue complète',
+              message: controller.generationMessage == 'Le dressing est vide.'
+                ? 'Ajoute au moins un haut et un bas pour générer une tenue.'
+                : controller.generationMessage!),
             const SizedBox(height: 14),
           ],
           const Text(

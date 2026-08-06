@@ -47,7 +47,7 @@ void main() {
   test('propose une tenue avant la météo puis enrichit le même brief', () async {
     final weather = Completer<WeatherData>();
     final service = _service(
-      wardrobe: [_garment('top', 'Chemise', 'Hauts')],
+      wardrobe: [_garment('top', 'Chemise', 'Hauts'), _garment('bottom', 'Jean', 'Pantalons')],
       weather: _Weather(() => weather.future),
     );
     final events = <DailyBrief>[];
@@ -66,7 +66,7 @@ void main() {
 
   test('une météo absente ne bloque jamais la recommandation', () async {
     final brief = await _service(
-      wardrobe: [_garment('top', 'T-shirt', 'Hauts')],
+      wardrobe: [_garment('top', 'T-shirt', 'Hauts'), _garment('bottom', 'Jean', 'Pantalons')],
       weather: _Weather(() => Future.error(StateError('indisponible'))),
     ).build();
 
@@ -99,7 +99,7 @@ void main() {
     var reads = 0;
     final context = WardrobeAiContextService(loadCurrentGarments: () async {
       reads++;
-      return [_garment('stable', name, 'Hauts')];
+      return [_garment('stable', name, 'Hauts'), _garment('bottom', 'Jean', 'Pantalons')];
     });
     final service = DailyBriefService(
       weatherService: _Weather(() => Future.error(StateError('offline'))),
@@ -112,8 +112,8 @@ void main() {
     final after = await service.build();
 
     expect(reads, 2);
-    expect(before.outfitProposals.single.garments.single.name, 'Avant modification');
-    expect(after.outfitProposals.single.garments.single.name, 'Après modification');
+    expect(before.outfitProposals.single.garments.firstWhere((item) => item.id == 'stable').name, 'Avant modification');
+    expect(after.outfitProposals.single.garments.firstWhere((item) => item.id == 'stable').name, 'Après modification');
   });
 }
 

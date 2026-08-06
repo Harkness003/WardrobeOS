@@ -4,6 +4,7 @@ import '../../data/database_service.dart';
 import '../../models/garment.dart';
 import '../../models/outfit.dart';
 import '../../core/outfit_generation/outfit_generation_engine.dart';
+import '../../core/ai_context/wardrobe_ai_context_service.dart';
 
 typedef WardrobeLoader = Future<List<Garment>> Function();
 
@@ -12,12 +13,14 @@ class OutfitsController extends ChangeNotifier {
   final DatabaseService _database;
   final OutfitGenerationEngine _generationEngine;
   final WardrobeLoader _wardrobeLoader;
+  final WardrobeAiContextService? _aiContextService;
 
   OutfitsController({DatabaseService? database, OutfitGenerationEngine? generationEngine,
-    WardrobeLoader? wardrobeLoader})
+    WardrobeLoader? wardrobeLoader, WardrobeAiContextService? aiContextService})
     : _database = database ?? DatabaseService.instance,
       _generationEngine = generationEngine ?? const OutfitGenerationEngine(),
-      _wardrobeLoader = wardrobeLoader ?? (() => (database ?? DatabaseService.instance).getGarments());
+      _wardrobeLoader = wardrobeLoader ?? (() => (database ?? DatabaseService.instance).getGarments()),
+      _aiContextService = aiContextService;
 
   List<Outfit> outfits = [];
   final Map<String, List<Garment>> garmentsByOutfit = {};
@@ -26,16 +29,23 @@ class OutfitsController extends ChangeNotifier {
   List<OutfitGenerationProposal> proposals = const [];
   bool generating = false;
   bool _disposed = false;
+  OutfitGenerationDiagnostic? generationDiagnostic;
+  String? generationMessage;
 
   Future<void> generate() async {
     generating = true;
     error = null;
     _notifyListenersIfActive();
     try {
-      final wardrobe = await _wardrobeLoader();
-      proposals = _generationEngine.generate(OutfitGenerationRequest(
+      final context = await _aiContextService?.build();
+      final wardrobe = context?.garments ?? await _wardrobeLoader();
+      final result = _generationEngine.generate(OutfitGenerationRequest(
         wardrobe: wardrobe, proposalCount: 3,
-      )).proposals;
+        contextLoadDuration: context?.loadDuration ?? Duration.zero,
+      ));
+      proposals = result.proposals;
+      generationDiagnostic = result.diagnostic;
+      generationMessage = result.diagnostic.userReason;
     } catch (exception) {
       error = exception;
     } finally {
