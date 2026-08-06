@@ -204,13 +204,33 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     _refreshGarment();
   }
 
+  GarmentReanalysisType? get _missingAnalysisType {
+    if (!_hasText(garment.sousCategorie)) return GarmentReanalysisType.category;
+    if (!_hasText(garment.composition) && !_hasText(garment.compositionEstimee)) {
+      return GarmentReanalysisType.composition;
+    }
+    if (garment.styleAnalysis == null) return GarmentReanalysisType.style;
+    if (garment.thermalProfile == null) return GarmentReanalysisType.thermal;
+    return null;
+  }
+
   Future<void> _reanalyze() async {
     if (_reanalyzing) return;
+    final target = _missingAnalysisType;
+    if (target == null) {
+      _showReanalysisMessage('La fiche contient déjà toutes les informations automatisables.');
+      return;
+    }
+    if (garment.effectivePhotos.isEmpty) {
+      _showReanalysisMessage('Ajoutez une photo exploitable pour compléter ces informations.');
+      return;
+    }
     setState(() => _reanalyzing = true);
+    _showReanalysisMessage('Analyse avancée en cours');
     try {
       final proposal = await widget.reanalysisService.propose(
         garment.id,
-        GarmentReanalysisType.complete,
+        target,
       );
       if (!mounted) return;
       final accepted = await showDialog<Set<String>>(
@@ -534,10 +554,9 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final identityChips =
         [
               garment.category,
-              garment.color,
-              garment.material,
-              ...garment.effectiveSeasons,
-              ...garment.effectiveOccasions,
+              garment.sousCategorie,
+              garment.couleurPrincipale ?? garment.color,
+              garment.matierePrincipale ?? garment.material,
             ]
             .whereType<String>()
             .map(_cleanText)
@@ -638,7 +657,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
             icon: _reanalyzing
                 ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.auto_awesome),
-            label: const Text('Réanalyser avec l’IA'),
+            label: const Text('Compléter automatiquement'),
           ),
           if (identityChips.isNotEmpty) ...[
             const SizedBox(height: 17),
@@ -651,171 +670,52 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
                       .toList(),
             ),
           ],
-          const SizedBox(height: 18),
-          Row(children: [const Expanded(child: _SectionTitle('Analyse de style')),
-            IconButton(tooltip: 'Corriger les styles', onPressed: _editStyleAnalysis, icon: const Icon(Icons.edit_outlined))]),
-          const SizedBox(height: 8),
-          FutureBuilder<List<LibraryStyle?>>(future: Future.wait([
-            _styles.find(garment.effectiveStyleAnalysis.register),
-            ...garment.effectiveStyleAnalysis.secondaryStyles.map(_styles.find),
-          ]), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final style in snapshot.data?.whereType<LibraryStyle>() ?? const <LibraryStyle>[])
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onLongPress: () => _styleHelp(style.id),
-                child: ActionChip(
-                  avatar: const Icon(Icons.info_outline, size: 18),
-                  label: Text(StyleCatalog.displayName(style.id)),
-                  tooltip: 'Maintenir pour voir la fiche style',
-                  onPressed: () => _styleHelp(style.id),
-                ),
-              ),
-          ])),
-          _AiGarmentDetails(garment: garment),
-          const SizedBox(height: 26),
-          const _SectionTitle('Utilisé dans'),
-          const SizedBox(height: 10),
-          FutureBuilder<List<Outfit>>(
-            future: _outfitsFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(18),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                );
-              }
-              final outfits = snapshot.data ?? [];
-              if (outfits.isEmpty) {
-                return const Card(
-                  child: ListTile(
-                    leading: Icon(Icons.style_outlined),
-                    title: Text('Aucune tenue'),
-                    subtitle: Text(
-                      'Cette pièce ne fait encore partie d’aucune tenue.',
-                    ),
-                  ),
-                );
-              }
-              return Card(
-                child: Column(
-                  children:
-                      outfits
-                          .map(
-                            (outfit) => ListTile(
-                              leading: Icon(
-                                outfit.favorite
-                                    ? Icons.favorite
-                                    : Icons.style_outlined,
-                              ),
-                              title: Text(outfit.name),
-                              trailing: const Icon(Icons.arrow_downward),
-                              onTap: () => _openOutfit(outfit),
-                            ),
-                          )
-                          .toList(),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 26),
-          const _SectionTitle('Informations'),
-          const SizedBox(height: 10),
-          Card(
-            child: Column(
-              children: [
-                _InfoTile(
-                  icon: Icons.checkroom_outlined,
-                  label: 'Catégorie',
-                  value: garment.category,
-                ),
-                if (_hasText(garment.size))
-                  _InfoTile(
-                    icon: Icons.straighten_outlined,
-                    label: 'Taille',
-                    value: garment.size!,
-                  ),
-                if (_hasText(garment.fit))
-                  _InfoTile(
-                    icon: Icons.accessibility_new_outlined,
-                    label: 'Coupe',
-                    value: garment.fit!,
-                  ),
-                if (_hasText(garment.composition))
-                  _InfoTile(
-                    icon: Icons.science_outlined,
-                    label: 'Composition',
-                    value: garment.composition!,
-                    multiline: true,
-                  ),
-                if (_hasText(garment.condition))
-                  _InfoTile(
-                    icon: Icons.verified_outlined,
-                    label: 'État',
-                    value: garment.condition!,
-                  ),
+          const SizedBox(height: 16),
+          _AdvancedSection(
+            title: 'Analyse de l’IA',
+            icon: Icons.auto_awesome_outlined,
+            children: [
+              if (garment.styleAnalysis != null) ...[
+                Row(children: [const Expanded(child: Text('Compatibilités estimées', style: TextStyle(fontWeight: FontWeight.w800))),
+                  IconButton(tooltip: 'Corriger les hypothèses', onPressed: _editStyleAnalysis, icon: const Icon(Icons.edit_outlined))]),
+                FutureBuilder<List<LibraryStyle?>>(future: Future.wait([
+                  _styles.find(garment.effectiveStyleAnalysis.register),
+                  ...garment.effectiveStyleAnalysis.secondaryStyles.map(_styles.find),
+                ]), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final style in snapshot.data?.whereType<LibraryStyle>() ?? const <LibraryStyle>[])
+                    ActionChip(avatar: const Icon(Icons.info_outline, size: 18), label: Text(StyleCatalog.displayName(style.id)), onPressed: () => _styleHelp(style.id)),
+                ])),
               ],
-            ),
+              _AiGarmentDetails(garment: garment),
+            ],
           ),
-          if (garment.purchasePrice != null ||
-              garment.purchaseDate != null) ...[
-            const SizedBox(height: 24),
-            const _SectionTitle('Achat'),
-            const SizedBox(height: 10),
-            Card(
-              child: Column(
-                children: [
-                  if (garment.purchasePrice != null)
-                    _InfoTile(
-                      icon: Icons.euro_outlined,
-                      label: "Prix d'achat",
-                      value: _formatPrice(garment.purchasePrice!),
-                    ),
-                  if (garment.purchaseDate != null)
-                    _InfoTile(
-                      icon: Icons.calendar_month_outlined,
-                      label: "Date d'achat",
-                      value: _formatDate(garment.purchaseDate!),
-                    ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 24),
-          const _SectionTitle('Statistiques'),
-          const SizedBox(height: 10),
-          _GarmentStatsGrid(
-            garment: garment,
-            firstWearFuture: _firstWearFuture,
-            formatDate: _formatDate,
-            formatPrice: _formatPrice,
-            formatCalendarAge: _formatCalendarAge,
-            daysSinceLastWearLabel: _daysSinceLastWearLabel,
+          if (garment.thermalProfile != null) _AdvancedSection(
+            title: 'Propriétés thermiques', icon: Icons.thermostat_outlined,
+            children: [_ThermalSummary(garment: garment)],
           ),
-          const SizedBox(height: 24),
-          const _SectionTitle('Historique des ports'),
-          const SizedBox(height: 10),
-          _WearHistoryCard(
-            wearHistoryFuture: _wearHistoryFuture,
-            formatDate: _formatDate,
-            formatTime: _formatTime,
-            onDelete: deleteWear,
+          _AdvancedSection(
+            title: 'Historique', icon: Icons.history,
+            children: [
+              _GarmentStatsGrid(garment: garment, firstWearFuture: _firstWearFuture,
+                formatDate: _formatDate, formatPrice: _formatPrice,
+                formatCalendarAge: _formatCalendarAge, daysSinceLastWearLabel: _daysSinceLastWearLabel),
+              _WearHistoryCard(wearHistoryFuture: _wearHistoryFuture, formatDate: _formatDate,
+                formatTime: _formatTime, onDelete: deleteWear),
+            ],
           ),
-          if (_hasText(garment.notes)) ...[
-            const SizedBox(height: 24),
-            const _SectionTitle('Notes'),
-            const SizedBox(height: 10),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(17),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(garment.notes!),
-                ),
-              ),
-            ),
-          ],
+          if (garment.effectivePhotos.length > 1) _AdvancedSection(
+            title: 'Photos complémentaires', icon: Icons.photo_library_outlined,
+            children: [Wrap(spacing: 8, runSpacing: 8, children: garment.effectivePhotos.skip(1).map((photo) =>
+              GarmentImage(imagePath: photo.path, width: 96, height: 96, borderRadius: BorderRadius.circular(14))).toList())],
+          ),
+          if (_hasText(garment.notes) || _hasText(garment.composition) || _hasText(garment.size)) _AdvancedSection(
+            title: 'Notes et informations avancées', icon: Icons.notes_outlined,
+            children: [
+              if (_hasText(garment.size)) _InfoTile(icon: Icons.straighten, label: 'Taille', value: garment.size!),
+              if (_hasText(garment.composition)) _InfoTile(icon: Icons.science_outlined, label: 'Composition', value: garment.composition!, multiline: true),
+              if (_hasText(garment.notes)) Padding(padding: const EdgeInsets.all(16), child: Align(alignment: Alignment.centerLeft, child: Text(garment.notes!))),
+            ],
+          ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
             onPressed: _recordingWear ? null : recordWear,
@@ -901,6 +801,40 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
 
 enum _WearDateChoice { today, custom }
 
+class _AdvancedSection extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final List<Widget> children;
+  const _AdvancedSection({required this.title, required this.icon, required this.children});
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: ExpansionTile(
+      key: PageStorageKey<String>('garment-section-$title'),
+      initiallyExpanded: false,
+      leading: Icon(icon),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+      childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+      children: children,
+    ),
+  );
+}
+
+class _ThermalSummary extends StatelessWidget {
+  final Garment garment;
+  const _ThermalSummary({required this.garment});
+  @override
+  Widget build(BuildContext context) {
+    final profile = garment.thermalProfile!;
+    return Wrap(spacing: 8, runSpacing: 8, children: [
+      Chip(label: Text(garment.layerType ?? 'Couche intermédiaire')),
+      Chip(label: Text('Isolation ${profile.insulation.name}')),
+      if (profile.windProtection.name != 'none') const Chip(label: Text('Protège du vent')),
+      if (profile.rainCompatibility.name != 'none') const Chip(label: Text('Protège de la pluie')),
+    ]);
+  }
+}
+
 class _AiGarmentDetails extends StatelessWidget {
   final Garment garment;
 
@@ -909,8 +843,10 @@ class _AiGarmentDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final styleEntries = <_AiDetailEntry>[
-      _AiDetailEntry.text('Style', StyleCatalog.displayName(garment.effectiveStyleAnalysis.register)),
-      _AiDetailEntry.list('Styles secondaires', garment.effectiveStyleAnalysis.secondaryStyles.map(StyleCatalog.displayName)),
+      if (garment.styleAnalysis != null) ...[
+        _AiDetailEntry.text('Compatibilité principale', StyleCatalog.displayName(garment.effectiveStyleAnalysis.register)),
+        _AiDetailEntry.list('Compatibilités secondaires', garment.effectiveStyleAnalysis.secondaryStyles.map(StyleCatalog.displayName)),
+      ],
       _AiDetailEntry.list('Points forts', garment.pointsForts),
       _AiDetailEntry.list('Points faibles', garment.pointsFaibles),
       _AiDetailEntry.list('Conseils', garment.conseils),
@@ -952,13 +888,6 @@ class _AiGarmentDetails extends StatelessWidget {
       ),
       _AiDetailEntry.text('Composition estimée', garment.compositionEstimee),
     ];
-    final occasions = <_AiDetailEntry>[
-      _AiDetailEntry.list('Occasions recommandées', garment.occasions),
-      _AiDetailEntry.list(
-        'Occasions déconseillées',
-        garment.occasionsDeconseillees,
-      ),
-    ];
     final care = <_AiDetailEntry>[
       _AiDetailEntry.text('Lavage', garment.lavage),
       _AiDetailEntry.text('Séchage', garment.sechage),
@@ -998,10 +927,6 @@ class _AiGarmentDetails extends StatelessWidget {
         characteristics,
       ),
       (
-        const _AiDetailGroup('Occasions', Icons.event_available_outlined),
-        occasions,
-      ),
-      (
         const _AiDetailGroup(
           'Entretien',
           Icons.local_laundry_service_outlined,
@@ -1020,9 +945,9 @@ class _AiGarmentDetails extends StatelessWidget {
         const SizedBox(height: 26),
         const _SectionTitle('Analyse IA'),
         const SizedBox(height: 10),
-        for (var index = 0; index < groups.length; index++) ...[
-          _AiDetailCard(group: groups[index].$1, entries: groups[index].$2),
-          if (index < groups.length - 1) const SizedBox(height: 10),
+        for (final group in groups.where((group) => group.$2.any((entry) => entry.isNotEmpty))) ...[
+          _AiDetailCard(group: group.$1, entries: group.$2.where((entry) => entry.isNotEmpty).toList()),
+          const SizedBox(height: 10),
         ],
       ],
     );

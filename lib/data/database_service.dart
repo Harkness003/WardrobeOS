@@ -199,6 +199,34 @@ class DatabaseService {
     ''');
   }
 
+  Future<void> _ensurePersonalCatalog(Database db) => db.execute('''
+    CREATE TABLE IF NOT EXISTS personal_catalog_values(
+      field TEXT NOT NULL,
+      comparison_key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(field, comparison_key)
+    )
+  ''');
+
+  Future<List<String>> getPersonalCatalogValues(String field) async {
+    final db = await database;
+    await _ensurePersonalCatalog(db);
+    final rows = await db.query('personal_catalog_values', where: 'field = ?',
+        whereArgs: [field], orderBy: 'value COLLATE NOCASE');
+    return rows.map((row) => row['value']! as String).toList(growable: false);
+  }
+
+  Future<bool> addPersonalCatalogValue(String field, String value) async {
+    final db = await database;
+    await _ensurePersonalCatalog(db);
+    final key = value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    return await db.insert('personal_catalog_values', {
+      'field': field, 'comparison_key': key, 'value': value,
+      'created_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.ignore) > 0;
+  }
+
   Future<void> _createAgendaTables(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS planned_outfits(

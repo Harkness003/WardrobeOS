@@ -9,11 +9,39 @@ class GarmentNormalizer {
     'business casual': 'Business casual',
   };
 
-  static String? value(String? input) {
-    final trimmed = input?.trim();
+  static String? value(String? input) => classification(input);
+
+  /// Normalizes free classification values at the persistence boundary.
+  static String? classification(String? input) {
+    final trimmed = input?.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (trimmed == null || trimmed.isEmpty) return null;
-    return _canonical[trimmed.toLowerCase()] ?? trimmed;
+    final canonical = _canonical[trimmed.toLowerCase()];
+    if (canonical != null) return canonical;
+    if (_isAcronym(trimmed)) return trimmed.toUpperCase();
+    final lower = trimmed == trimmed.toUpperCase()
+        ? trimmed.toLowerCase()
+        : '${trimmed[0].toLowerCase()}${trimmed.substring(1)}';
+    return '${lower[0].toUpperCase()}${lower.substring(1)}';
   }
+
+  /// Brand names keep intentional mixed casing and short acronyms.
+  static String? brand(String? input) {
+    final compact = input?.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (compact == null || compact.isEmpty) return null;
+    if (_isAcronym(compact) || compact != compact.toUpperCase()) return compact;
+    return compact.split(' ').map((word) => word.length <= 3
+        ? word
+        : '${word[0]}${word.substring(1).toLowerCase()}').join(' ');
+  }
+
+  /// Composition is whitespace-normalized only: percentages and fibre names
+  /// must never be recased automatically.
+  static String? composition(String? input) =>
+      input?.trim().replaceAll(RegExp(r'\s+'), ' ').nullIfEmpty;
+
+  static bool _isAcronym(String value) =>
+      !value.contains(' ') && value.length <= 5 &&
+      RegExp(r'^[A-Z0-9&.+-]+$').hasMatch(value);
 
   static List<String> values(Iterable<String>? input) {
     final result = <String>[];
@@ -56,6 +84,10 @@ class GarmentNormalizer {
     _GarmentTypeRule(['trench'], 'Vestes', 'Trench'),
     _GarmentTypeRule(['polo'], 'Hauts', 'Polo'),
   ];
+}
+
+extension on String {
+  String? get nullIfEmpty => isEmpty ? null : this;
 }
 
 class GarmentTypeNormalization {

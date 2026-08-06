@@ -12,6 +12,7 @@ import '../../models/thermal_profile_calculator.dart';
 import '../../models/style_analysis.dart';
 import '../../widgets/garment_image.dart';
 import 'wardrobe_controller.dart';
+import 'personal_catalog_repository.dart';
 
 /// Complete review sheet used both after AI analysis and when editing a garment.
 class GarmentFormScreen extends StatefulWidget {
@@ -28,15 +29,18 @@ class GarmentFormScreen extends StatefulWidget {
 class _GarmentFormScreenState extends State<GarmentFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _picker = ImagePicker();
+  final _subCategoryFocus = FocusNode();
   late final TextEditingController _name, _brand, _color, _size, _otherMaterial,
-      _otherUse, _otherCategory, _otherSubCategory, _composition,
+      _otherUse, _otherCategory, _subCategory, _composition,
       _minTemp, _maxTemp, _notes;
   late String _category;
-  String? _subCategory, _material;
+  String? _material;
   late Set<String> _styles, _seasons, _uses;
   late List<String> _styleOptions;
   String? _imagePath;
   bool _saving = false;
+  final _personalCatalog = PersonalCatalogRepository();
+  List<String> _personalSubcategories = const [];
 
   static const categories = ['Hauts', 'Chemises', 'Vestes', 'Bas', 'Chaussures', 'Accessoires', 'Autre'];
   static const subCategories = <String, List<String>>{
@@ -64,12 +68,10 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     _composition = TextEditingController(text: g?.composition ?? '');
     final hasCustomCategory = g != null && !categories.contains(g.category);
     _otherCategory = TextEditingController(text: hasCustomCategory ? g.category : '');
-    final knownSubcategory = g != null && subCategories[g.category]?.contains(g.sousCategorie) == true;
-    _otherSubCategory = TextEditingController(text: !knownSubcategory ? g?.sousCategorie ?? '' : '');
+    _subCategory = TextEditingController(text: g?.sousCategorie ?? '');
     _minTemp = TextEditingController(text: g?.thermalProfile?.standaloneMinC.toString() ?? '');
     _maxTemp = TextEditingController(text: g?.thermalProfile?.standaloneMaxC.toString() ?? '');
     _category = hasCustomCategory ? 'Autre' : (categories.contains(g?.category) ? g!.category : categories.first);
-    _subCategory = knownSubcategory ? g.sousCategorie : (g?.sousCategorie == null ? null : 'Autre');
     final existingMaterial = g?.matierePrincipale ?? g?.material;
     _material = _choice(existingMaterial, materials) ?? (existingMaterial == null ? null : 'Autre...');
     _otherMaterial = TextEditingController(text: _material == 'Autre...' ? existingMaterial ?? '' : '');
@@ -85,6 +87,9 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     _styleOptions = {...StyleTaxonomy.entries.keys, ..._styles}.toList(growable: false);
     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
     _imagePath = g == null || g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path;
+    _personalCatalog.values(PersonalCatalogField.subcategory).then((values) {
+      if (mounted) setState(() => _personalSubcategories = values);
+    });
   }
 
   static String? _choice(String? value, List<String> values) => values.contains(value) ? value : null;
@@ -93,7 +98,8 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
 
   @override
   void dispose() {
-    for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _otherCategory, _otherSubCategory, _composition, _minTemp, _maxTemp, _notes]) { c.dispose(); }
+    for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _otherCategory, _subCategory, _composition, _minTemp, _maxTemp, _notes]) { c.dispose(); }
+    _subCategoryFocus.dispose();
     super.dispose();
   }
 
@@ -152,6 +158,8 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     final old = widget.garment;
     final now = DateTime.now();
     final material = _material == 'Autre...' ? _text(_otherMaterial) : _material;
+    final normalizedMaterial = GarmentNormalizer.classification(material);
+    final normalizedColor = GarmentNormalizer.classification(_text(_color));
     final selectedUses = _uses.where((value) => value != 'Autre...').toList();
     if (_uses.contains('Autre...')) {
       selectedUses.addAll(
@@ -166,13 +174,13 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     final normalizedType = GarmentNormalizer.normalizeType(
       name: _text(_name),
       category: _category == 'Autre' ? _text(_otherCategory) : _category,
-      subcategory: _subCategory == 'Autre' ? _text(_otherSubCategory) : _subCategory,
+      subcategory: _text(_subCategory),
       preciseType: old?.typePrecis,
     );
     final thermalInput = ThermalProfileInput(
       category: normalizedType.category ?? 'Autre',
       subcategory: normalizedType.subcategory,
-      material: material,
+      material: normalizedMaterial,
       composition: composition,
       lining: composition?.toLowerCase().contains('doublure') == true ? 'doublure' : null,
       fit: old?.coupe ?? old?.fit,
@@ -196,15 +204,17 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     );
     final garment = Garment(
       id: old?.id ?? const Uuid().v4(), name: _name.text.trim(), category: normalizedType.category ?? 'Autre',
-      brand: _text(_brand), color: _text(_color), material: material, size: _text(_size), notes: _text(_notes),
+      brand: GarmentNormalizer.brand(_text(_brand)), color: normalizedColor, material: normalizedMaterial, size: _text(_size), notes: _text(_notes),
       photos: GarmentPhotoNormalizer.normalize([
         if (_imagePath != null) GarmentPhoto(id: old?.effectivePhotos.firstOrNull?.id ?? const Uuid().v4(), path: _imagePath!, type: GarmentPhotoType.primary, createdAt: old?.effectivePhotos.firstOrNull?.createdAt ?? now),
         ...?old?.effectivePhotos.skip(1),
       ]).photos,
-      sousCategorie: normalizedType.subcategory, couleurPrincipale: _text(_color), matierePrincipale: material,
+      sousCategorie: normalizedType.subcategory, couleurPrincipale: normalizedColor, matierePrincipale: normalizedMaterial,
       typePrecis: normalizedType.preciseType, superposable: old?.superposable,
       saisons: _seasons.toList(),
-      occasions: uniqueUses.isEmpty ? null : uniqueUses,
+      // Occasions remain available to recommendation consumers, but editing an
+      // unrelated field never destroys or asks users to reconfirm them.
+      occasions: old?.occasions ?? (uniqueUses.isEmpty ? null : uniqueUses),
       compatiblePluie: thermalProfile.rainCompatibility.name != 'none',
       compatibleChaleur: thermalProfile.breathability.name == 'high',
       layerType: switch (thermalProfile.primaryRole.name) {
@@ -213,10 +223,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
         _ => 'Couche intermédiaire',
       },
       thermalProfile: thermalProfile,
-      styleAnalysis: old?.styleAnalysis?.withUserCorrections(
-        register: _styles.isEmpty ? null : _styles.first,
-        secondaryStyles: _styles.skip(1).toList(growable: false),
-      ),
+      styleAnalysis: old?.styleAnalysis,
       descriptionIA: old?.descriptionIA, couleursSecondaires: old?.couleursSecondaires, motif: old?.motif, texture: old?.texture,
       logoVisible: old?.logoVisible, niveauFormalite: old?.niveauFormalite, coupe: old?.coupe, longueur: old?.longueur,
       longueurManches: old?.longueurManches, typeCol: old?.typeCol, typeFermeture: old?.typeFermeture,
@@ -235,7 +242,16 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       userModifiedFields: old?.userModifiedFields ?? const {},
       createdAt: old?.createdAt ?? now, updatedAt: now,
     );
-    try { await widget.controller.save(garment, isNew: old == null || widget.isDraft); if (mounted) Navigator.pop(context, true); }
+    try {
+      await widget.controller.save(garment, isNew: old == null || widget.isDraft);
+      await Future.wait([
+        _personalCatalog.learn(PersonalCatalogField.subcategory, garment.sousCategorie),
+        _personalCatalog.learn(PersonalCatalogField.brand, garment.brand),
+        _personalCatalog.learn(PersonalCatalogField.material, garment.matierePrincipale),
+        _personalCatalog.learn(PersonalCatalogField.color, garment.couleurPrincipale),
+      ]);
+      if (mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Modifications enregistrées'))); Navigator.pop(context, true); }
+    }
     catch (e) { if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Impossible d'enregistrer : $e"))); } }
   }
 
@@ -250,21 +266,34 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       const SizedBox(height: 18),
       TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Nom *', helperText: 'Proposé par l’IA · corrigez seulement si nécessaire'), validator: (v) => v == null || v.trim().isEmpty ? 'Le nom est obligatoire' : null),
       const SizedBox(height: 10), TextFormField(controller: _brand, decoration: const InputDecoration(labelText: 'Marque')),
-      const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory = null; })),
+      const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory.clear(); })),
       if (_category == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherCategory, decoration: const InputDecoration(labelText: 'Votre catégorie *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la catégorie' : null)],
-      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _subCategory, decoration: const InputDecoration(labelText: 'Sous-catégorie'), items: subCategories[_category]!.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _subCategory = v)),
-      if (_subCategory == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherSubCategory, decoration: const InputDecoration(labelText: 'Votre sous-catégorie *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la sous-catégorie' : null)],
+      const SizedBox(height: 10), RawAutocomplete<String>(
+        textEditingController: _subCategory,
+        focusNode: _subCategoryFocus,
+        optionsBuilder: (value) {
+          final query = value.text.trim().toLowerCase();
+          return {...subCategories[_category] ?? const <String>[], ..._personalSubcategories}
+              .where((option) => query.isEmpty || option.toLowerCase().contains(query));
+        },
+        fieldViewBuilder: (_, controller, focusNode, onSubmitted) => TextFormField(
+          controller: controller, focusNode: focusNode,
+          decoration: const InputDecoration(labelText: 'Sous-catégorie', helperText: 'Saisie libre · suggestions du catalogue et de votre dressing'),
+        ),
+        optionsViewBuilder: (context, onSelected, options) => Align(alignment: Alignment.topLeft,
+          child: Material(elevation: 4, child: SizedBox(width: 320, child: ListView(shrinkWrap: true,
+            children: options.map((value) => ListTile(title: Text(value), onTap: () => onSelected(value))).toList())))),
+      ),
       const SizedBox(height: 10), TextFormField(controller: _color, decoration: const InputDecoration(labelText: 'Couleur')),
       const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _material = v)),
       if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Votre matière *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la matière' : null)],
-      const SizedBox(height: 10), TextFormField(controller: _composition, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Composition textile', helperText: 'Tissu principal, doublure et rembourrage · pourcentages modifiables')),
-      const SizedBox(height: 18), _MultiChoice(label: 'Styles', values: _styleOptions, selected: _styles, onChanged: (v) => setState(() => _styles = v)),
       const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() => _seasons = v)),
-      const SizedBox(height: 10), _MultiChoice(label: 'Utilisations', values: uses, selected: _uses, onChanged: (v) => setState(() => _uses = v)),
-      if (_uses.contains('Autre...')) ...[const SizedBox(height: 10), TextFormField(controller: _otherUse, decoration: const InputDecoration(labelText: 'Vos occasions *', helperText: 'Séparez plusieurs occasions par des virgules'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez au moins une occasion' : null)],
       const SizedBox(height: 10), TextFormField(controller: _size, decoration: const InputDecoration(labelText: 'Taille (facultative)', helperText: 'Jamais estimée par l’IA')),
-      const SizedBox(height: 18), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'ThermalProfile min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'ThermalProfile max'))]),
-      const SizedBox(height: 10), TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
+      const SizedBox(height: 10), ExpansionTile(title: const Text('Informations avancées'), initiallyExpanded: false, children: [
+        TextFormField(controller: _composition, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Composition textile')),
+        const SizedBox(height: 10), Row(children: [Expanded(child: _Temperature(controller: _minTemp, label: 'Température min')), const SizedBox(width: 10), Expanded(child: _Temperature(controller: _maxTemp, label: 'Température max'))]),
+        const SizedBox(height: 10), TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
+      ]),
       const SizedBox(height: 24), FilledButton.icon(style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(58)), onPressed: _saving ? null : _save, icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check), label: const Text('Enregistrer la fiche')),
     ])),
   );
