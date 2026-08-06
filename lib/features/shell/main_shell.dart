@@ -134,6 +134,7 @@ class _MainShellState extends State<MainShell> {
       ],
     ),
     llmProvider: _openAiProvider,
+    languageCode: () => WidgetsBinding.instance.platformDispatcher.locale.languageCode,
   );
   late final _dailyBriefService = DailyBriefService(
     weatherService: widget.weatherService,

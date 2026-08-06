@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../models/personal_style.dart';
 import '../../models/style_analysis.dart';
+import '../../l10n/app_localizations.dart';
 
 class LibraryStyle {
   final String id, name, definition, description;
@@ -26,6 +27,31 @@ class LibraryStyle {
     isSystem: false, characteristics: value.characteristics, colors: value.colors,
     materials: value.materials, occasions: value.occasions,
     typicalPieces: value.typicalPieces, examples: value.examples);
+
+  /// Resolves system copy at the presentation boundary. Personal values are
+  /// deliberately returned verbatim and are never machine-translated.
+  LibraryStyle localized(AppLocalizations l10n) {
+    if (!isSystem) return this;
+    final resource = l10n.catalogEntry('style', id);
+    List<String> list(String key, List<String> fallback) =>
+        (resource[key] as List?)?.map((value) => value.toString()).toList() ?? fallback;
+    return LibraryStyle(
+      id: id,
+      name: resource['name'] as String? ?? name,
+      definition: resource['definition'] as String? ?? definition,
+      description: resource['description'] as String? ?? description,
+      isSystem: true,
+      synonyms: list('synonyms', synonyms),
+      characteristics: list('characteristics', characteristics),
+      colors: list('colors', colors),
+      materials: list('materials', materials),
+      occasions: list('occasions', occasions),
+      typicalPieces: list('typicalPieces', typicalPieces),
+      examples: list('examples', examples),
+      relatedStyleIds: relatedStyleIds,
+      oppositeStyleIds: oppositeStyleIds,
+    );
+  }
 }
 
 abstract interface class StyleRepository {
@@ -92,11 +118,12 @@ class StyleCatalog extends ChangeNotifier implements StyleRepository {
     return idOrLabel.replaceAll('_', ' ');
   }
 
-  static bool matches(LibraryStyle style, String query) {
+  static bool matches(LibraryStyle style, String query, {AppLocalizations? localizations}) {
+    final visible = localizations == null ? style : style.localized(localizations);
     final needle = normalize(query);
     if (needle.isEmpty) return true;
-    final searchable = [style.name, ...style.synonyms, style.description,
-      style.definition, ...style.characteristics].map(normalize).join(' ');
+    final searchable = [visible.name, ...visible.synonyms, visible.description,
+      visible.definition, ...visible.characteristics].map(normalize).join(' ');
     return searchable.contains(needle) || needle.split(' ').every(searchable.contains);
   }
 }

@@ -13,6 +13,7 @@
         "cupertino_icons",
         "file_picker",
         "flutter",
+        "flutter_localizations",
         "flutter_secure_storage",
         "geocoding",
         "geolocator",
@@ -206,6 +207,15 @@
       "name": "cupertino_icons",
       "version": "1.0.9",
       "dependencies": []
+    },
+    {
+      "name": "flutter_localizations",
+      "version": "0.0.0",
+      "dependencies": [
+        "flutter",
+        "intl",
+        "path"
+      ]
     },
     {
       "name": "flutter",
@@ -735,6 +745,15 @@
         "path",
         "sqflite_common",
         "sqflite_platform_interface"
+      ]
+    },
+    {
+      "name": "intl",
+      "version": "0.20.2",
+      "dependencies": [
+        "clock",
+        "meta",
+        "path"
       ]
     },
     {

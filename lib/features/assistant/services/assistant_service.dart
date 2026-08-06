@@ -17,6 +17,7 @@ class AssistantService {
   final AssistantToolContextBuilder _toolContextBuilder;
   final AssistantIntent _intentParser;
   final OutfitGenerationEngine _outfitEngine;
+  final String Function() _languageCode;
   AssistantToolContext _lastToolContext = const {};
   IntentResult? _lastIntent;
   List<OutfitGenerationProposal> _lastOutfitProposals = const [];
@@ -29,12 +30,14 @@ class AssistantService {
     PromptBuilder? promptBuilder,
     AssistantIntent? intentParser,
     OutfitGenerationEngine outfitEngine = const OutfitGenerationEngine(),
+    String Function()? languageCode,
   }) : _contextBuilder = contextBuilder,
        _llmProvider = llmProvider,
        _toolContextBuilder =
            toolContextBuilder ?? AssistantToolContextBuilder(tools: const []),
        _intentParser = intentParser ?? const IntentParser(),
        _outfitEngine = outfitEngine,
+       _languageCode = languageCode ?? (() => 'fr'),
        _promptBuilder = promptBuilder ?? PromptBuilder();
 
   AssistantToolContext get lastToolContext => _lastToolContext;
@@ -79,6 +82,7 @@ class AssistantService {
     _lastGenerationDiagnostic = generation?.diagnostic;
     final prompt = _promptBuilder.build(
       context,
+      languageCode: _languageCode(),
       toolContext: _lastToolContext,
       outfitProposals: _lastOutfitProposals,
       outfitRequest: shouldRecommend ? _lastIntent!.originalText : null,

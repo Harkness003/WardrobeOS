@@ -1,0 +1,1545 @@
+{
+  "ui": {
+    "styleLibrary": "Style library",
+    "styleSearchHint": "Name, synonym, definition…",
+    "systemStyle": "System style",
+    "personalStyle": "Personal style",
+    "characteristics": "Characteristics",
+    "associatedColors": "Associated colors",
+    "frequentMaterials": "Common materials",
+    "occasions": "Suitable occasions",
+    "typicalPieces": "Typical pieces",
+    "relatedStyles": "Related styles",
+    "oppositeStyles": "Opposite styles"
+  },
+  "catalogs": {
+    "category": {
+      "tops": {
+        "name": "Tops"
+      },
+      "shirts": {
+        "name": "Shirts"
+      },
+      "jackets": {
+        "name": "Jackets"
+      },
+      "bottoms": {
+        "name": "Bottoms"
+      },
+      "shoes": {
+        "name": "Shoes"
+      },
+      "accessories": {
+        "name": "Accessories"
+      },
+      "other": {
+        "name": "Other"
+      }
+    },
+    "material": {
+      "cotton": {
+        "name": "Cotton"
+      },
+      "wool": {
+        "name": "Wool"
+      },
+      "merino_wool": {
+        "name": "Merino wool"
+      },
+      "cashmere": {
+        "name": "Cashmere"
+      },
+      "linen": {
+        "name": "Linen"
+      },
+      "polyester": {
+        "name": "Polyester"
+      },
+      "viscose": {
+        "name": "Viscose"
+      },
+      "denim": {
+        "name": "Denim"
+      },
+      "leather": {
+        "name": "Leather"
+      },
+      "suede": {
+        "name": "Suede"
+      },
+      "nylon": {
+        "name": "Nylon"
+      },
+      "silk": {
+        "name": "Silk"
+      },
+      "blend": {
+        "name": "Blend"
+      },
+      "other": {
+        "name": "Other…"
+      }
+    },
+    "color": {
+      "black": {
+        "name": "Black"
+      },
+      "white": {
+        "name": "White"
+      },
+      "dark_blue": {
+        "name": "Dark blue"
+      },
+      "blue": {
+        "name": "Blue"
+      },
+      "beige": {
+        "name": "Beige"
+      },
+      "brown": {
+        "name": "Brown"
+      },
+      "grey": {
+        "name": "Grey"
+      },
+      "red": {
+        "name": "Red"
+      },
+      "green": {
+        "name": "Green"
+      }
+    },
+    "style": {
+      "80s": {
+        "name": "80S",
+        "definition": "A 80S aesthetic defined by its distinctive codes.",
+        "description": "A 80S style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "90s": {
+        "name": "90S",
+        "definition": "A 90S aesthetic defined by its distinctive codes.",
+        "description": "A 90S style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "artisanal": {
+        "name": "Artisanal",
+        "definition": "A Artisanal aesthetic defined by its distinctive codes.",
+        "description": "A Artisanal style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "athleisure": {
+        "name": "Athleisure",
+        "definition": "A Athleisure aesthetic defined by its distinctive codes.",
+        "description": "A Athleisure style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "avant_garde": {
+        "name": "Avant Garde",
+        "definition": "A Avant Garde aesthetic defined by its distinctive codes.",
+        "description": "A Avant Garde style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "beachwear": {
+        "name": "Beachwear",
+        "definition": "A Beachwear aesthetic defined by its distinctive codes.",
+        "description": "A Beachwear style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "black_tie": {
+        "name": "Black Tie",
+        "definition": "A Black Tie aesthetic defined by its distinctive codes.",
+        "description": "A Black Tie style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "bohemian": {
+        "name": "Bohemian",
+        "definition": "A Bohemian aesthetic defined by its distinctive codes.",
+        "description": "A Bohemian style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "boho_chic": {
+        "name": "Boho Chic",
+        "definition": "A Boho Chic aesthetic defined by its distinctive codes.",
+        "description": "A Boho Chic style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "business": {
+        "name": "Business",
+        "definition": "A Business aesthetic defined by its distinctive codes.",
+        "description": "A Business style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "business_casual": {
+        "name": "Business Casual",
+        "definition": "A Business Casual aesthetic defined by its distinctive codes.",
+        "description": "A Business Casual style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "casual": {
+        "name": "Casual",
+        "definition": "A Casual aesthetic defined by its distinctive codes.",
+        "description": "A Casual style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "ceremony": {
+        "name": "Ceremony",
+        "definition": "A Ceremony aesthetic defined by its distinctive codes.",
+        "description": "A Ceremony style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "cocktail": {
+        "name": "Cocktail",
+        "definition": "A Cocktail aesthetic defined by its distinctive codes.",
+        "description": "A Cocktail style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "color_blocking": {
+        "name": "Color Blocking",
+        "definition": "A Color Blocking aesthetic defined by its distinctive codes.",
+        "description": "A Color Blocking style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "contemporary": {
+        "name": "Contemporary",
+        "definition": "A Contemporary aesthetic defined by its distinctive codes.",
+        "description": "A Contemporary style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "cycling": {
+        "name": "Cycling",
+        "definition": "A Cycling aesthetic defined by its distinctive codes.",
+        "description": "A Cycling style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "dark_academia": {
+        "name": "Dark Academia",
+        "definition": "A Dark Academia aesthetic defined by its distinctive codes.",
+        "description": "A Dark Academia style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "designer": {
+        "name": "Designer",
+        "definition": "A Designer aesthetic defined by its distinctive codes.",
+        "description": "A Designer style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "dressy": {
+        "name": "Dressy",
+        "definition": "A Dressy aesthetic defined by its distinctive codes.",
+        "description": "A Dressy style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "evening": {
+        "name": "Evening",
+        "definition": "A Evening aesthetic defined by its distinctive codes.",
+        "description": "A Evening style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "french_chic": {
+        "name": "French Chic",
+        "definition": "A French Chic aesthetic defined by its distinctive codes.",
+        "description": "A French Chic style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "golf": {
+        "name": "Golf",
+        "definition": "A Golf aesthetic defined by its distinctive codes.",
+        "description": "A Golf style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "gorpcore": {
+        "name": "Gorpcore",
+        "definition": "A Gorpcore aesthetic defined by its distinctive codes.",
+        "description": "A Gorpcore style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "grunge": {
+        "name": "Grunge",
+        "definition": "A Grunge aesthetic defined by its distinctive codes.",
+        "description": "A Grunge style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "heritage": {
+        "name": "Heritage",
+        "definition": "A Heritage aesthetic defined by its distinctive codes.",
+        "description": "A Heritage style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "italian_elegance": {
+        "name": "Italian Elegance",
+        "definition": "A Italian Elegance aesthetic defined by its distinctive codes.",
+        "description": "A Italian Elegance style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "ivy_league": {
+        "name": "Ivy League",
+        "definition": "A Ivy League aesthetic defined by its distinctive codes.",
+        "description": "A Ivy League style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "japandi": {
+        "name": "Japandi",
+        "definition": "A Japandi aesthetic defined by its distinctive codes.",
+        "description": "A Japandi style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "japanese_americana": {
+        "name": "Japanese Americana",
+        "definition": "A Japanese Americana aesthetic defined by its distinctive codes.",
+        "description": "A Japanese Americana style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "light_academia": {
+        "name": "Light Academia",
+        "definition": "A Light Academia aesthetic defined by its distinctive codes.",
+        "description": "A Light Academia style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "luxury": {
+        "name": "Luxury",
+        "definition": "A Luxury aesthetic defined by its distinctive codes.",
+        "description": "A Luxury style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "mediterranean": {
+        "name": "Mediterranean",
+        "definition": "A Mediterranean aesthetic defined by its distinctive codes.",
+        "description": "A Mediterranean style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "military": {
+        "name": "Military",
+        "definition": "A Military aesthetic defined by its distinctive codes.",
+        "description": "A Military style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "minimalist": {
+        "name": "Minimalist",
+        "definition": "A Minimalist aesthetic defined by its distinctive codes.",
+        "description": "A Minimalist style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "modern_classic": {
+        "name": "Modern Classic",
+        "definition": "A Modern Classic aesthetic defined by its distinctive codes.",
+        "description": "A Modern Classic style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "monochrome": {
+        "name": "Monochrome",
+        "definition": "A Monochrome aesthetic defined by its distinctive codes.",
+        "description": "A Monochrome style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "normcore": {
+        "name": "Normcore",
+        "definition": "A Normcore aesthetic defined by its distinctive codes.",
+        "description": "A Normcore style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "old_money": {
+        "name": "Old Money",
+        "definition": "A Old Money aesthetic defined by its distinctive codes.",
+        "description": "A Old Money style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "outdoor": {
+        "name": "Outdoor",
+        "definition": "A Outdoor aesthetic defined by its distinctive codes.",
+        "description": "A Outdoor style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "parisian": {
+        "name": "Parisian",
+        "definition": "A Parisian aesthetic defined by its distinctive codes.",
+        "description": "A Parisian style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "preppy": {
+        "name": "Preppy",
+        "definition": "A Preppy aesthetic defined by its distinctive codes.",
+        "description": "A Preppy style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "punk": {
+        "name": "Punk",
+        "definition": "A Punk aesthetic defined by its distinctive codes.",
+        "description": "A Punk style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "quiet_luxury": {
+        "name": "Quiet Luxury",
+        "definition": "A Quiet Luxury aesthetic defined by its distinctive codes.",
+        "description": "A Quiet Luxury style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "resort": {
+        "name": "Resort",
+        "definition": "A Resort aesthetic defined by its distinctive codes.",
+        "description": "A Resort style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "retro": {
+        "name": "Retro",
+        "definition": "A Retro aesthetic defined by its distinctive codes.",
+        "description": "A Retro style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "rock": {
+        "name": "Rock",
+        "definition": "A Rock aesthetic defined by its distinctive codes.",
+        "description": "A Rock style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "romantic": {
+        "name": "Romantic",
+        "definition": "A Romantic aesthetic defined by its distinctive codes.",
+        "description": "A Romantic style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "running": {
+        "name": "Running",
+        "definition": "A Running aesthetic defined by its distinctive codes.",
+        "description": "A Running style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "sailing": {
+        "name": "Sailing",
+        "definition": "A Sailing aesthetic defined by its distinctive codes.",
+        "description": "A Sailing style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "scandinavian": {
+        "name": "Scandinavian",
+        "definition": "A Scandinavian aesthetic defined by its distinctive codes.",
+        "description": "A Scandinavian style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "smart_casual": {
+        "name": "Smart Casual",
+        "definition": "A Smart Casual aesthetic defined by its distinctive codes.",
+        "description": "A Smart Casual style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "sport": {
+        "name": "Sport",
+        "definition": "A Sport aesthetic defined by its distinctive codes.",
+        "description": "A Sport style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "sport_chic": {
+        "name": "Sport Chic",
+        "definition": "A Sport Chic aesthetic defined by its distinctive codes.",
+        "description": "A Sport Chic style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "streetwear": {
+        "name": "Streetwear",
+        "definition": "A Streetwear aesthetic defined by its distinctive codes.",
+        "description": "A Streetwear style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "technical": {
+        "name": "Technical",
+        "definition": "A Technical aesthetic defined by its distinctive codes.",
+        "description": "A Technical style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "techwear": {
+        "name": "Techwear",
+        "definition": "A Techwear aesthetic defined by its distinctive codes.",
+        "description": "A Techwear style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "tennis": {
+        "name": "Tennis",
+        "definition": "A Tennis aesthetic defined by its distinctive codes.",
+        "description": "A Tennis style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "travel": {
+        "name": "Travel",
+        "definition": "A Travel aesthetic defined by its distinctive codes.",
+        "description": "A Travel style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "utility": {
+        "name": "Utility",
+        "definition": "A Utility aesthetic defined by its distinctive codes.",
+        "description": "A Utility style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "vintage": {
+        "name": "Vintage",
+        "definition": "A Vintage aesthetic defined by its distinctive codes.",
+        "description": "A Vintage style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "wedding_guest": {
+        "name": "Wedding Guest",
+        "definition": "A Wedding Guest aesthetic defined by its distinctive codes.",
+        "description": "A Wedding Guest style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "western": {
+        "name": "Western",
+        "definition": "A Western aesthetic defined by its distinctive codes.",
+        "description": "A Western style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "workwear": {
+        "name": "Workwear",
+        "definition": "A Workwear aesthetic defined by its distinctive codes.",
+        "description": "A Workwear style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      },
+      "y2k": {
+        "name": "Y2K",
+        "definition": "A Y2K aesthetic defined by its distinctive codes.",
+        "description": "A Y2K style register used as a compatibility according to the outfit combination.",
+        "characteristics": [
+          "coherent",
+          "distinctive"
+        ],
+        "colors": [
+          "signature colors"
+        ],
+        "materials": [
+          "characteristic materials"
+        ],
+        "typicalPieces": [
+          "signature pieces"
+        ],
+        "examples": [
+          "representative outfit"
+        ],
+        "synonyms": []
+      }
+    }
+  }
+}

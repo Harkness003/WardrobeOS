@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'l10n/app_localizations.dart';
 import 'core/settings/app_settings.dart';
 import 'core/theme/app_theme.dart';
 import 'features/shell/main_shell.dart';
@@ -57,6 +59,13 @@ class _WardrobeOSAppState extends State<WardrobeOSApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'WardrobeOS',
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: AppTheme.light,
       darkTheme: AppTheme.darkTheme,
       themeMode: settings.themeMode,

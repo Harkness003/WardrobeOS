@@ -164,6 +164,12 @@
       "languageVersion": "3.5"
     },
     {
+      "name": "flutter_localizations",
+      "rootUri": "file:///C:/src/flutter/packages/flutter_localizations",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
+    },
+    {
       "name": "flutter_plugin_android_lifecycle",
       "rootUri": "file:///C:/Users/User/AppData/Local/Pub/Cache/hosted/pub.dev/flutter_plugin_android_lifecycle-2.0.35",
       "packageUri": "lib/",
@@ -366,6 +372,12 @@
       "rootUri": "file:///C:/Users/User/AppData/Local/Pub/Cache/hosted/pub.dev/image_picker_windows-0.2.2",
       "packageUri": "lib/",
       "languageVersion": "3.6"
+    },
+    {
+      "name": "intl",
+      "rootUri": "file:///C:/Users/User/AppData/Local/Pub/Cache/hosted/pub.dev/intl-0.20.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.3"
     },
     {
       "name": "jni",

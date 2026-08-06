@@ -16,11 +16,16 @@ class PromptBuilder {
 
   String build(
     AssistantContext context, {
+    String languageCode = 'fr',
     AssistantToolContext toolContext = const {},
     List<OutfitGenerationProposal> outfitProposals = const [],
     String? outfitRequest,
   }) {
     var prompt = composer.compose(context, sections);
+    prompt = '$prompt\n\n### LANGUE DE RÉPONSE\n'
+        'Réponds dans la langue de l’application (code BCP-47 : $languageCode). '
+        'Les valeurs de catalogue présentes dans le contexte sont des identifiants canoniques : '
+        'conserve-les pour raisonner et ne les remplace jamais dans les données structurées.';
     const encoder = JsonEncoder.withIndent('  ');
     if (toolContext.isNotEmpty) {
       prompt =

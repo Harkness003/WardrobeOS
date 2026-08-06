@@ -1,0 +1,3929 @@
+diff --git a/assets/i18n/en.json b/assets/i18n/en.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..6a3d8365e0c23bf6a229aae6f4270eb825bcc7af
+--- /dev/null
++++ b/assets/i18n/en.json
+@@ -0,0 +1,1545 @@
++{
++  "ui": {
++    "styleLibrary": "Style library",
++    "styleSearchHint": "Name, synonym, definition…",
++    "systemStyle": "System style",
++    "personalStyle": "Personal style",
++    "characteristics": "Characteristics",
++    "associatedColors": "Associated colors",
++    "frequentMaterials": "Common materials",
++    "occasions": "Suitable occasions",
++    "typicalPieces": "Typical pieces",
++    "relatedStyles": "Related styles",
++    "oppositeStyles": "Opposite styles"
++  },
++  "catalogs": {
++    "category": {
++      "tops": {
++        "name": "Tops"
++      },
++      "shirts": {
++        "name": "Shirts"
++      },
++      "jackets": {
++        "name": "Jackets"
++      },
++      "bottoms": {
++        "name": "Bottoms"
++      },
++      "shoes": {
++        "name": "Shoes"
++      },
++      "accessories": {
++        "name": "Accessories"
++      },
++      "other": {
++        "name": "Other"
++      }
++    },
++    "material": {
++      "cotton": {
++        "name": "Cotton"
++      },
++      "wool": {
++        "name": "Wool"
++      },
++      "merino_wool": {
++        "name": "Merino wool"
++      },
++      "cashmere": {
++        "name": "Cashmere"
++      },
++      "linen": {
++        "name": "Linen"
++      },
++      "polyester": {
++        "name": "Polyester"
++      },
++      "viscose": {
++        "name": "Viscose"
++      },
++      "denim": {
++        "name": "Denim"
++      },
++      "leather": {
++        "name": "Leather"
++      },
++      "suede": {
++        "name": "Suede"
++      },
++      "nylon": {
++        "name": "Nylon"
++      },
++      "silk": {
++        "name": "Silk"
++      },
++      "blend": {
++        "name": "Blend"
++      },
++      "other": {
++        "name": "Other…"
++      }
++    },
++    "color": {
++      "black": {
++        "name": "Black"
++      },
++      "white": {
++        "name": "White"
++      },
++      "dark_blue": {
++        "name": "Dark blue"
++      },
++      "blue": {
++        "name": "Blue"
++      },
++      "beige": {
++        "name": "Beige"
++      },
++      "brown": {
++        "name": "Brown"
++      },
++      "grey": {
++        "name": "Grey"
++      },
++      "red": {
++        "name": "Red"
++      },
++      "green": {
++        "name": "Green"
++      }
++    },
++    "style": {
++      "80s": {
++        "name": "80S",
++        "definition": "A 80S aesthetic defined by its distinctive codes.",
++        "description": "A 80S style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "90s": {
++        "name": "90S",
++        "definition": "A 90S aesthetic defined by its distinctive codes.",
++        "description": "A 90S style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "artisanal": {
++        "name": "Artisanal",
++        "definition": "A Artisanal aesthetic defined by its distinctive codes.",
++        "description": "A Artisanal style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "athleisure": {
++        "name": "Athleisure",
++        "definition": "A Athleisure aesthetic defined by its distinctive codes.",
++        "description": "A Athleisure style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "avant_garde": {
++        "name": "Avant Garde",
++        "definition": "A Avant Garde aesthetic defined by its distinctive codes.",
++        "description": "A Avant Garde style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "beachwear": {
++        "name": "Beachwear",
++        "definition": "A Beachwear aesthetic defined by its distinctive codes.",
++        "description": "A Beachwear style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "black_tie": {
++        "name": "Black Tie",
++        "definition": "A Black Tie aesthetic defined by its distinctive codes.",
++        "description": "A Black Tie style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "bohemian": {
++        "name": "Bohemian",
++        "definition": "A Bohemian aesthetic defined by its distinctive codes.",
++        "description": "A Bohemian style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "boho_chic": {
++        "name": "Boho Chic",
++        "definition": "A Boho Chic aesthetic defined by its distinctive codes.",
++        "description": "A Boho Chic style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "business": {
++        "name": "Business",
++        "definition": "A Business aesthetic defined by its distinctive codes.",
++        "description": "A Business style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "business_casual": {
++        "name": "Business Casual",
++        "definition": "A Business Casual aesthetic defined by its distinctive codes.",
++        "description": "A Business Casual style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "casual": {
++        "name": "Casual",
++        "definition": "A Casual aesthetic defined by its distinctive codes.",
++        "description": "A Casual style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "ceremony": {
++        "name": "Ceremony",
++        "definition": "A Ceremony aesthetic defined by its distinctive codes.",
++        "description": "A Ceremony style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "cocktail": {
++        "name": "Cocktail",
++        "definition": "A Cocktail aesthetic defined by its distinctive codes.",
++        "description": "A Cocktail style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "color_blocking": {
++        "name": "Color Blocking",
++        "definition": "A Color Blocking aesthetic defined by its distinctive codes.",
++        "description": "A Color Blocking style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "contemporary": {
++        "name": "Contemporary",
++        "definition": "A Contemporary aesthetic defined by its distinctive codes.",
++        "description": "A Contemporary style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "cycling": {
++        "name": "Cycling",
++        "definition": "A Cycling aesthetic defined by its distinctive codes.",
++        "description": "A Cycling style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "dark_academia": {
++        "name": "Dark Academia",
++        "definition": "A Dark Academia aesthetic defined by its distinctive codes.",
++        "description": "A Dark Academia style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "designer": {
++        "name": "Designer",
++        "definition": "A Designer aesthetic defined by its distinctive codes.",
++        "description": "A Designer style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "dressy": {
++        "name": "Dressy",
++        "definition": "A Dressy aesthetic defined by its distinctive codes.",
++        "description": "A Dressy style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "evening": {
++        "name": "Evening",
++        "definition": "A Evening aesthetic defined by its distinctive codes.",
++        "description": "A Evening style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "french_chic": {
++        "name": "French Chic",
++        "definition": "A French Chic aesthetic defined by its distinctive codes.",
++        "description": "A French Chic style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "golf": {
++        "name": "Golf",
++        "definition": "A Golf aesthetic defined by its distinctive codes.",
++        "description": "A Golf style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "gorpcore": {
++        "name": "Gorpcore",
++        "definition": "A Gorpcore aesthetic defined by its distinctive codes.",
++        "description": "A Gorpcore style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "grunge": {
++        "name": "Grunge",
++        "definition": "A Grunge aesthetic defined by its distinctive codes.",
++        "description": "A Grunge style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "heritage": {
++        "name": "Heritage",
++        "definition": "A Heritage aesthetic defined by its distinctive codes.",
++        "description": "A Heritage style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "italian_elegance": {
++        "name": "Italian Elegance",
++        "definition": "A Italian Elegance aesthetic defined by its distinctive codes.",
++        "description": "A Italian Elegance style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "ivy_league": {
++        "name": "Ivy League",
++        "definition": "A Ivy League aesthetic defined by its distinctive codes.",
++        "description": "A Ivy League style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "japandi": {
++        "name": "Japandi",
++        "definition": "A Japandi aesthetic defined by its distinctive codes.",
++        "description": "A Japandi style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "japanese_americana": {
++        "name": "Japanese Americana",
++        "definition": "A Japanese Americana aesthetic defined by its distinctive codes.",
++        "description": "A Japanese Americana style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "light_academia": {
++        "name": "Light Academia",
++        "definition": "A Light Academia aesthetic defined by its distinctive codes.",
++        "description": "A Light Academia style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "luxury": {
++        "name": "Luxury",
++        "definition": "A Luxury aesthetic defined by its distinctive codes.",
++        "description": "A Luxury style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "mediterranean": {
++        "name": "Mediterranean",
++        "definition": "A Mediterranean aesthetic defined by its distinctive codes.",
++        "description": "A Mediterranean style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "military": {
++        "name": "Military",
++        "definition": "A Military aesthetic defined by its distinctive codes.",
++        "description": "A Military style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "minimalist": {
++        "name": "Minimalist",
++        "definition": "A Minimalist aesthetic defined by its distinctive codes.",
++        "description": "A Minimalist style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "modern_classic": {
++        "name": "Modern Classic",
++        "definition": "A Modern Classic aesthetic defined by its distinctive codes.",
++        "description": "A Modern Classic style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "monochrome": {
++        "name": "Monochrome",
++        "definition": "A Monochrome aesthetic defined by its distinctive codes.",
++        "description": "A Monochrome style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "normcore": {
++        "name": "Normcore",
++        "definition": "A Normcore aesthetic defined by its distinctive codes.",
++        "description": "A Normcore style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "old_money": {
++        "name": "Old Money",
++        "definition": "A Old Money aesthetic defined by its distinctive codes.",
++        "description": "A Old Money style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "outdoor": {
++        "name": "Outdoor",
++        "definition": "A Outdoor aesthetic defined by its distinctive codes.",
++        "description": "A Outdoor style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "parisian": {
++        "name": "Parisian",
++        "definition": "A Parisian aesthetic defined by its distinctive codes.",
++        "description": "A Parisian style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "preppy": {
++        "name": "Preppy",
++        "definition": "A Preppy aesthetic defined by its distinctive codes.",
++        "description": "A Preppy style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "punk": {
++        "name": "Punk",
++        "definition": "A Punk aesthetic defined by its distinctive codes.",
++        "description": "A Punk style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "quiet_luxury": {
++        "name": "Quiet Luxury",
++        "definition": "A Quiet Luxury aesthetic defined by its distinctive codes.",
++        "description": "A Quiet Luxury style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "resort": {
++        "name": "Resort",
++        "definition": "A Resort aesthetic defined by its distinctive codes.",
++        "description": "A Resort style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "retro": {
++        "name": "Retro",
++        "definition": "A Retro aesthetic defined by its distinctive codes.",
++        "description": "A Retro style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "rock": {
++        "name": "Rock",
++        "definition": "A Rock aesthetic defined by its distinctive codes.",
++        "description": "A Rock style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "romantic": {
++        "name": "Romantic",
++        "definition": "A Romantic aesthetic defined by its distinctive codes.",
++        "description": "A Romantic style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "running": {
++        "name": "Running",
++        "definition": "A Running aesthetic defined by its distinctive codes.",
++        "description": "A Running style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "sailing": {
++        "name": "Sailing",
++        "definition": "A Sailing aesthetic defined by its distinctive codes.",
++        "description": "A Sailing style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "scandinavian": {
++        "name": "Scandinavian",
++        "definition": "A Scandinavian aesthetic defined by its distinctive codes.",
++        "description": "A Scandinavian style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "smart_casual": {
++        "name": "Smart Casual",
++        "definition": "A Smart Casual aesthetic defined by its distinctive codes.",
++        "description": "A Smart Casual style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "sport": {
++        "name": "Sport",
++        "definition": "A Sport aesthetic defined by its distinctive codes.",
++        "description": "A Sport style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "sport_chic": {
++        "name": "Sport Chic",
++        "definition": "A Sport Chic aesthetic defined by its distinctive codes.",
++        "description": "A Sport Chic style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "streetwear": {
++        "name": "Streetwear",
++        "definition": "A Streetwear aesthetic defined by its distinctive codes.",
++        "description": "A Streetwear style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "technical": {
++        "name": "Technical",
++        "definition": "A Technical aesthetic defined by its distinctive codes.",
++        "description": "A Technical style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "techwear": {
++        "name": "Techwear",
++        "definition": "A Techwear aesthetic defined by its distinctive codes.",
++        "description": "A Techwear style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "tennis": {
++        "name": "Tennis",
++        "definition": "A Tennis aesthetic defined by its distinctive codes.",
++        "description": "A Tennis style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "travel": {
++        "name": "Travel",
++        "definition": "A Travel aesthetic defined by its distinctive codes.",
++        "description": "A Travel style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "utility": {
++        "name": "Utility",
++        "definition": "A Utility aesthetic defined by its distinctive codes.",
++        "description": "A Utility style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "vintage": {
++        "name": "Vintage",
++        "definition": "A Vintage aesthetic defined by its distinctive codes.",
++        "description": "A Vintage style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "wedding_guest": {
++        "name": "Wedding Guest",
++        "definition": "A Wedding Guest aesthetic defined by its distinctive codes.",
++        "description": "A Wedding Guest style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "western": {
++        "name": "Western",
++        "definition": "A Western aesthetic defined by its distinctive codes.",
++        "description": "A Western style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "workwear": {
++        "name": "Workwear",
++        "definition": "A Workwear aesthetic defined by its distinctive codes.",
++        "description": "A Workwear style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      },
++      "y2k": {
++        "name": "Y2K",
++        "definition": "A Y2K aesthetic defined by its distinctive codes.",
++        "description": "A Y2K style register used as a compatibility according to the outfit combination.",
++        "characteristics": [
++          "coherent",
++          "distinctive"
++        ],
++        "colors": [
++          "signature colors"
++        ],
++        "materials": [
++          "characteristic materials"
++        ],
++        "typicalPieces": [
++          "signature pieces"
++        ],
++        "examples": [
++          "representative outfit"
++        ],
++        "synonyms": []
++      }
++    }
++  }
++}
+diff --git a/assets/i18n/fr.json b/assets/i18n/fr.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..a9f76ef41989f266ec724a3b4cbf441c2632841e
+--- /dev/null
++++ b/assets/i18n/fr.json
+@@ -0,0 +1,1545 @@
++{
++  "ui": {
++    "styleLibrary": "Bibliothèque des styles",
++    "styleSearchHint": "Nom, synonyme, définition…",
++    "systemStyle": "Style système",
++    "personalStyle": "Style personnel",
++    "characteristics": "Caractéristiques",
++    "associatedColors": "Couleurs associées",
++    "frequentMaterials": "Matières fréquentes",
++    "occasions": "Occasions adaptées",
++    "typicalPieces": "Pièces typiques",
++    "relatedStyles": "Styles proches",
++    "oppositeStyles": "Styles opposés"
++  },
++  "catalogs": {
++    "category": {
++      "tops": {
++        "name": "Hauts"
++      },
++      "shirts": {
++        "name": "Chemises"
++      },
++      "jackets": {
++        "name": "Vestes"
++      },
++      "bottoms": {
++        "name": "Bas"
++      },
++      "shoes": {
++        "name": "Chaussures"
++      },
++      "accessories": {
++        "name": "Accessoires"
++      },
++      "other": {
++        "name": "Autre"
++      }
++    },
++    "material": {
++      "cotton": {
++        "name": "Coton"
++      },
++      "wool": {
++        "name": "Laine"
++      },
++      "merino_wool": {
++        "name": "Mérinos"
++      },
++      "cashmere": {
++        "name": "Cachemire"
++      },
++      "linen": {
++        "name": "Lin"
++      },
++      "polyester": {
++        "name": "Polyester"
++      },
++      "viscose": {
++        "name": "Viscose"
++      },
++      "denim": {
++        "name": "Denim"
++      },
++      "leather": {
++        "name": "Cuir"
++      },
++      "suede": {
++        "name": "Daim"
++      },
++      "nylon": {
++        "name": "Nylon"
++      },
++      "silk": {
++        "name": "Soie"
++      },
++      "blend": {
++        "name": "Mélange"
++      },
++      "other": {
++        "name": "Autre…"
++      }
++    },
++    "color": {
++      "black": {
++        "name": "Noir"
++      },
++      "white": {
++        "name": "Blanc"
++      },
++      "dark_blue": {
++        "name": "Bleu marine"
++      },
++      "blue": {
++        "name": "Bleu"
++      },
++      "beige": {
++        "name": "Beige"
++      },
++      "brown": {
++        "name": "Marron"
++      },
++      "grey": {
++        "name": "Gris"
++      },
++      "red": {
++        "name": "Rouge"
++      },
++      "green": {
++        "name": "Vert"
++      }
++    },
++    "style": {
++      "80s": {
++        "name": "Années 80",
++        "definition": "Une esthétique Années 80 définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Années 80 utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "90s": {
++        "name": "Années 90",
++        "definition": "Une esthétique Années 90 définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Années 90 utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "artisanal": {
++        "name": "Artisanal",
++        "definition": "Une esthétique Artisanal définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Artisanal utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "athleisure": {
++        "name": "Athleisure",
++        "definition": "Une esthétique Athleisure définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Athleisure utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "avant_garde": {
++        "name": "Avant-Garde",
++        "definition": "Une esthétique Avant-Garde définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Avant-Garde utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "beachwear": {
++        "name": "Beachwear",
++        "definition": "Une esthétique Beachwear définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Beachwear utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "black_tie": {
++        "name": "Black Tie",
++        "definition": "Une esthétique Black Tie définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Black Tie utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "bohemian": {
++        "name": "Bohème",
++        "definition": "Une esthétique Bohème définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Bohème utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "boho_chic": {
++        "name": "Boho Chic",
++        "definition": "Une esthétique Boho Chic définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Boho Chic utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "business": {
++        "name": "Business",
++        "definition": "Une esthétique Business définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Business utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "business_casual": {
++        "name": "Business Casual",
++        "definition": "Une esthétique Business Casual définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Business Casual utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "casual": {
++        "name": "Décontracté",
++        "definition": "Une esthétique Décontracté définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Décontracté utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "ceremony": {
++        "name": "Cérémonie",
++        "definition": "Une esthétique Cérémonie définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Cérémonie utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "cocktail": {
++        "name": "Cocktail",
++        "definition": "Une esthétique Cocktail définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Cocktail utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "color_blocking": {
++        "name": "Color Blocking",
++        "definition": "Une esthétique Color Blocking définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Color Blocking utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "contemporary": {
++        "name": "Contemporain",
++        "definition": "Une esthétique Contemporain définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Contemporain utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "cycling": {
++        "name": "Cyclisme",
++        "definition": "Une esthétique Cyclisme définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Cyclisme utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "dark_academia": {
++        "name": "Dark Academia",
++        "definition": "Une esthétique Dark Academia définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Dark Academia utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "designer": {
++        "name": "Créateur",
++        "definition": "Une esthétique Créateur définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Créateur utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "dressy": {
++        "name": "Habillé",
++        "definition": "Une esthétique Habillé définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Habillé utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "evening": {
++        "name": "Soirée",
++        "definition": "Une esthétique Soirée définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Soirée utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "french_chic": {
++        "name": "French Chic",
++        "definition": "Une esthétique French Chic définie par ses codes distinctifs.",
++        "description": "Un registre stylistique French Chic utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "golf": {
++        "name": "Golf",
++        "definition": "Une esthétique Golf définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Golf utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "gorpcore": {
++        "name": "Gorpcore",
++        "definition": "Une esthétique Gorpcore définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Gorpcore utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "grunge": {
++        "name": "Grunge",
++        "definition": "Une esthétique Grunge définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Grunge utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "heritage": {
++        "name": "Heritage",
++        "definition": "Une esthétique Heritage définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Heritage utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "italian_elegance": {
++        "name": "Élégance italienne",
++        "definition": "Une esthétique Élégance italienne définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Élégance italienne utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "ivy_league": {
++        "name": "Ivy League",
++        "definition": "Une esthétique Ivy League définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Ivy League utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "japandi": {
++        "name": "Japandi",
++        "definition": "Une esthétique Japandi définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Japandi utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "japanese_americana": {
++        "name": "Japanese Americana",
++        "definition": "Une esthétique Japanese Americana définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Japanese Americana utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "light_academia": {
++        "name": "Light Academia",
++        "definition": "Une esthétique Light Academia définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Light Academia utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "luxury": {
++        "name": "Luxe",
++        "definition": "Une esthétique Luxe définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Luxe utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "mediterranean": {
++        "name": "Méditerranéen",
++        "definition": "Une esthétique Méditerranéen définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Méditerranéen utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "military": {
++        "name": "Military",
++        "definition": "Une esthétique Military définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Military utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "minimalist": {
++        "name": "Minimaliste",
++        "definition": "Une esthétique Minimaliste définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Minimaliste utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "modern_classic": {
++        "name": "Classique moderne",
++        "definition": "Une esthétique Classique moderne définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Classique moderne utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "monochrome": {
++        "name": "Monochrome",
++        "definition": "Une esthétique Monochrome définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Monochrome utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "normcore": {
++        "name": "Normcore",
++        "definition": "Une esthétique Normcore définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Normcore utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "old_money": {
++        "name": "Old Money",
++        "definition": "Une esthétique Old Money définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Old Money utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "outdoor": {
++        "name": "Plein air",
++        "definition": "Une esthétique Plein air définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Plein air utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "parisian": {
++        "name": "Parisien",
++        "definition": "Une esthétique Parisien définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Parisien utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "preppy": {
++        "name": "Preppy",
++        "definition": "Une esthétique Preppy définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Preppy utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "punk": {
++        "name": "Punk",
++        "definition": "Une esthétique Punk définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Punk utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "quiet_luxury": {
++        "name": "Quiet Luxury",
++        "definition": "Une esthétique Quiet Luxury définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Quiet Luxury utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "resort": {
++        "name": "Resort",
++        "definition": "Une esthétique Resort définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Resort utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "retro": {
++        "name": "Rétro",
++        "definition": "Une esthétique Rétro définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Rétro utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "rock": {
++        "name": "Rock",
++        "definition": "Une esthétique Rock définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Rock utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "romantic": {
++        "name": "Romantique",
++        "definition": "Une esthétique Romantique définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Romantique utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "running": {
++        "name": "Running",
++        "definition": "Une esthétique Running définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Running utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "sailing": {
++        "name": "Nautique",
++        "definition": "Une esthétique Nautique définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Nautique utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "scandinavian": {
++        "name": "Scandinave",
++        "definition": "Une esthétique Scandinave définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Scandinave utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "smart_casual": {
++        "name": "Chic décontracté",
++        "definition": "Une esthétique Chic décontracté définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Chic décontracté utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "sport": {
++        "name": "Sport",
++        "definition": "Une esthétique Sport définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Sport utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "sport_chic": {
++        "name": "Sport Chic",
++        "definition": "Une esthétique Sport Chic définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Sport Chic utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "streetwear": {
++        "name": "Streetwear",
++        "definition": "Une esthétique Streetwear définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Streetwear utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "technical": {
++        "name": "Technique",
++        "definition": "Une esthétique Technique définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Technique utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "techwear": {
++        "name": "Techwear",
++        "definition": "Une esthétique Techwear définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Techwear utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "tennis": {
++        "name": "Tennis",
++        "definition": "Une esthétique Tennis définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Tennis utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "travel": {
++        "name": "Voyage",
++        "definition": "Une esthétique Voyage définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Voyage utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "utility": {
++        "name": "Utility",
++        "definition": "Une esthétique Utility définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Utility utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "vintage": {
++        "name": "Vintage",
++        "definition": "Une esthétique Vintage définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Vintage utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "wedding_guest": {
++        "name": "Invité de mariage",
++        "definition": "Une esthétique Invité de mariage définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Invité de mariage utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "western": {
++        "name": "Western",
++        "definition": "Une esthétique Western définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Western utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "workwear": {
++        "name": "Workwear",
++        "definition": "Une esthétique Workwear définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Workwear utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      },
++      "y2k": {
++        "name": "Y2K",
++        "definition": "Une esthétique Y2K définie par ses codes distinctifs.",
++        "description": "Un registre stylistique Y2K utilisable comme compatibilité, selon les associations de la tenue.",
++        "characteristics": [
++          "cohérent",
++          "identifiable"
++        ],
++        "colors": [
++          "couleurs signatures"
++        ],
++        "materials": [
++          "matières caractéristiques"
++        ],
++        "typicalPieces": [
++          "pièces signatures"
++        ],
++        "examples": [
++          "tenue représentative"
++        ],
++        "synonyms": []
++      }
++    }
++  }
++}
+diff --git a/docs/RC7.10.1_CATALOG_I18N.md b/docs/RC7.10.1_CATALOG_I18N.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..f9c9f288bc5924f3194068be6bdfdeb4b53390a4
+--- /dev/null
++++ b/docs/RC7.10.1_CATALOG_I18N.md
+@@ -0,0 +1,63 @@
++# RC7.10.1 — Architecture i18n des catalogues
++
++## Cartographie avant le patch
++
++`StyleTaxonomy` portait à la fois l'identifiant persistant et les textes français. `StyleCatalog`
++exposait ces textes directement à `StyleLibraryScreen`, `StyleDetailScreen`,
++`GarmentDetailScreen` et `GarmentFormScreen`. La recherche indexait ces mêmes textes.
++`StyleAnalysis`, le classifieur, `RecommendationEngine` et `OutfitGenerationEngine` consomment
++les identifiants. Le scanner normalise ses réponses avant de construire un `Garment`.
++`ThermalProfile` est un modèle calculé, pas un catalogue d'affichage. Les listes de catégories,
++sous-catégories et matières étaient locales au formulaire. Les couleurs étaient libres et les
++valeurs apprises passent par `PersonalCatalogRepository`.
++
++Les points fragiles étaient donc les usages de `StyleDefinition.name`, les listes françaises du
++formulaire, `StyleCatalog.displayName`, et les alias traduits de l'analyse d'intention. Une
++traduction de ces valeurs persistées aurait cassé normalisation, comparaison et restauration.
++
++## Architecture après le patch
++
++Le flux de référence est désormais :
++
++```text
++Base de données → identifiant canonique → catalogue unique
++                  → AppLocalizations → libellé UI
++```
++
++`AppLocalizations` charge une ressource par locale. Les ressources de style couvrent nom,
++description, définition, caractéristiques, couleurs, matières, pièces, exemples et synonymes.
++Les relations restent des identifiants et sont résolues comme tels. `SystemCatalogs` définit les
++identifiants canoniques des catégories, matières et couleurs et reconnaît explicitement les
++anciens libellés comme alias de lecture. Aucun identifiant existant de `StyleTaxonomy` n'est
++modifié et aucune migration de données n'est introduite.
++
++Les catalogues convertis dans cette fondation sont : styles système, catégories système,
++matières système et couleurs système. Les sous-catégories sont le prochain consommateur à
++basculer sur le même contrat. Les propriétés thermiques restent inchangées conformément au
++périmètre RC7.10.1.
++
++## Valeurs personnelles et recherche
++
++`LibraryStyle.localized` retourne immédiatement les styles personnels sans transformation.
++De même, `PersonalCatalogRepository` conserve exactement la valeur normalisée apprise : aucune
++traduction automatique n'est appliquée à « Saharienne » ou à une autre saisie personnelle.
++
++La recherche de styles construit son index sur la vue localisée (nom, synonymes, définition,
++description et caractéristiques), puis retourne l'objet portant le même identifiant canonique.
++Changer la locale reconstruit donc implicitement l'index visible sans toucher aux données.
++
++## WardrobeGPT
++
++Le service transmet le code de langue de l'application dans le prompt. Le prompt ordonne au
++modèle de répondre dans cette langue tout en conservant les identifiants de catalogue dans les
++données structurées. La logique de recommandation et `StyleAnalysis` ne sont pas modifiés.
++
++## Limites avant RC7.11
++
++- Basculer les sous-catégories et le reste des écrans historiques sur `SystemCatalogs` sans
++  traduire les valeurs personnelles qui leur sont mêlées.
++- Remplacer les derniers textes d'interface génériques (hors catalogues) par des ressources.
++- Faire produire au scanner uniquement des identifiants canoniques pour catégories, matières et
++  couleurs, tout en conservant ses alias de compatibilité en entrée.
++- Localiser les messages de secours de WardrobeGPT ; sa langue de génération est déjà imposée.
++- Étendre le catalogue de couleurs libres lorsque la taxonomie produit sera stabilisée.
+diff --git a/lib/app.dart b/lib/app.dart
+index 29b93d74aff275bfefe51f4b5bc82fe9135ff30f..9f8568976299651022a76462dbe17458dbbdedeb 100644
+--- a/lib/app.dart
++++ b/lib/app.dart
+@@ -1,26 +1,28 @@
+ import 'package:flutter/material.dart';
++import 'package:flutter_localizations/flutter_localizations.dart';
++import 'l10n/app_localizations.dart';
+ import 'core/settings/app_settings.dart';
+ import 'core/theme/app_theme.dart';
+ import 'features/shell/main_shell.dart';
+ import 'weather/api/open_meteo_api.dart';
+ import 'weather/location/city_search_service.dart';
+ import 'weather/location/geolocator_location_service.dart';
+ import 'weather/location/location_preferences_store.dart';
+ import 'weather/location/unified_location_service.dart';
+ import 'weather/services/cached_weather_service.dart';
+ 
+ class WardrobeOSApp extends StatefulWidget {
+   const WardrobeOSApp({super.key});
+ 
+   @override
+   State<WardrobeOSApp> createState() => _WardrobeOSAppState();
+ }
+ 
+ class _WardrobeOSAppState extends State<WardrobeOSApp> {
+   final settings = AppSettings();
+   late final locationService = UnifiedLocationService(
+     gpsService: GeolocatorLocationService(),
+     preferencesStore: SecureLocationPreferencesStore(),
+     citySearchService: GeocodingCitySearchService(),
+   );
+   late final weatherService = CachedWeatherService(
+@@ -35,36 +37,43 @@ class _WardrobeOSAppState extends State<WardrobeOSApp> {
+     locationService.addListener(_locationChanged);
+     locationService.load();
+   }
+ 
+   void _locationChanged() {
+     weatherService.clearCache();
+     _refresh();
+   }
+ 
+   void _refresh() => setState(() {});
+ 
+   @override
+   void dispose() {
+     settings.removeListener(_refresh);
+     locationService.removeListener(_locationChanged);
+     locationService.dispose();
+     settings.dispose();
+     super.dispose();
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return MaterialApp(
+       debugShowCheckedModeBanner: false,
+       title: 'WardrobeOS',
++      localizationsDelegates: const [
++        AppLocalizations.delegate,
++        GlobalMaterialLocalizations.delegate,
++        GlobalWidgetsLocalizations.delegate,
++        GlobalCupertinoLocalizations.delegate,
++      ],
++      supportedLocales: AppLocalizations.supportedLocales,
+       theme: AppTheme.light,
+       darkTheme: AppTheme.darkTheme,
+       themeMode: settings.themeMode,
+       home: MainShell(
+         settings: settings,
+         weatherService: weatherService,
+         locationService: locationService,
+       ),
+     );
+   }
+ }
+diff --git a/lib/catalogs/system_catalogs.dart b/lib/catalogs/system_catalogs.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..b7479392b855dec82dba11df9657a63f7420e69e
+--- /dev/null
++++ b/lib/catalogs/system_catalogs.dart
+@@ -0,0 +1,50 @@
++import '../l10n/app_localizations.dart';
++
++class CatalogItem {
++  const CatalogItem(this.id, {this.legacyIds = const []});
++  final String id;
++  final List<String> legacyIds;
++}
++
++/// Canonical system catalogues. Only these IDs cross persistence, AI and
++/// business-engine boundaries; labels are resolved at the UI boundary.
++abstract final class SystemCatalogs {
++  static const categories = [
++    CatalogItem('tops', legacyIds: ['Hauts']),
++    CatalogItem('shirts', legacyIds: ['Chemises']),
++    CatalogItem('jackets', legacyIds: ['Vestes']),
++    CatalogItem('bottoms', legacyIds: ['Bas']),
++    CatalogItem('shoes', legacyIds: ['Chaussures']),
++    CatalogItem('accessories', legacyIds: ['Accessoires']),
++    CatalogItem('other', legacyIds: ['Autre']),
++  ];
++  static const materials = [
++    CatalogItem('cotton', legacyIds: ['Coton']), CatalogItem('wool', legacyIds: ['Laine']),
++    CatalogItem('merino_wool', legacyIds: ['Mérinos']), CatalogItem('cashmere', legacyIds: ['Cachemire']),
++    CatalogItem('linen', legacyIds: ['Lin']), CatalogItem('polyester', legacyIds: ['Polyester']),
++    CatalogItem('viscose', legacyIds: ['Viscose']), CatalogItem('denim', legacyIds: ['Denim']),
++    CatalogItem('leather', legacyIds: ['Cuir']), CatalogItem('suede', legacyIds: ['Daim']),
++    CatalogItem('nylon', legacyIds: ['Nylon']), CatalogItem('silk', legacyIds: ['Soie']),
++    CatalogItem('blend', legacyIds: ['Mélange']), CatalogItem('other', legacyIds: ['Autre...']),
++  ];
++  static const colors = [
++    CatalogItem('black', legacyIds: ['Noir']), CatalogItem('white', legacyIds: ['Blanc']),
++    CatalogItem('dark_blue', legacyIds: ['Bleu marine', 'Marine']), CatalogItem('blue', legacyIds: ['Bleu']),
++    CatalogItem('beige', legacyIds: ['Beige']), CatalogItem('brown', legacyIds: ['Marron']),
++    CatalogItem('grey', legacyIds: ['Gris']), CatalogItem('red', legacyIds: ['Rouge']),
++    CatalogItem('green', legacyIds: ['Vert']),
++  ];
++
++  static String canonicalId(Iterable<CatalogItem> catalog, String value) {
++    final normalized = _normalize(value);
++    return catalog.firstWhere(
++      (item) => _normalize(item.id) == normalized || item.legacyIds.any((legacy) => _normalize(legacy) == normalized),
++      orElse: () => CatalogItem(value),
++    ).id;
++  }
++
++  static String label(AppLocalizations l10n, String catalog, CatalogItem item) =>
++      l10n.catalogEntry(catalog, item.id)['name'] as String? ?? item.id;
++
++  static String _normalize(String value) => value.trim().toLowerCase().replaceAll('_', ' ');
++}
+diff --git a/lib/features/assistant/prompt/prompt_builder.dart b/lib/features/assistant/prompt/prompt_builder.dart
+index 112b5ad6d0d6e210ab0930dd0b55405cd26585bf..98555634ef2de8fb5ca6af225533219f4108797a 100644
+--- a/lib/features/assistant/prompt/prompt_builder.dart
++++ b/lib/features/assistant/prompt/prompt_builder.dart
+@@ -1,48 +1,53 @@
+ import 'dart:convert';
+ 
+ import '../context/assistant_context.dart';
+ import '../tools/assistant_tool_context_builder.dart';
+ import '../../../core/outfit_generation/outfit_generation_engine.dart';
+ import 'prompt_composer.dart';
+ import 'prompt_section.dart';
+ 
+ class PromptBuilder {
+   final PromptComposer composer;
+   final List<PromptSection> sections;
+ 
+   PromptBuilder({PromptComposer? composer, List<PromptSection>? sections})
+     : composer = composer ?? const PromptComposer(),
+       sections = List.unmodifiable(sections ?? _defaultSections);
+ 
+   String build(
+     AssistantContext context, {
++    String languageCode = 'fr',
+     AssistantToolContext toolContext = const {},
+     List<OutfitGenerationProposal> outfitProposals = const [],
+     String? outfitRequest,
+   }) {
+     var prompt = composer.compose(context, sections);
++    prompt = '$prompt\n\n### LANGUE DE RÉPONSE\n'
++        'Réponds dans la langue de l’application (code BCP-47 : $languageCode). '
++        'Les valeurs de catalogue présentes dans le contexte sont des identifiants canoniques : '
++        'conserve-les pour raisonner et ne les remplace jamais dans les données structurées.';
+     const encoder = JsonEncoder.withIndent('  ');
+     if (toolContext.isNotEmpty) {
+       prompt =
+           '$prompt\n\n### DONNÉES MÉTIER STRUCTURÉES\n'
+           '${encoder.convert(toolContext)}';
+     }
+     if (outfitProposals.isNotEmpty) {
+       prompt =
+           '$prompt\n\n### RECOMMANDATION TENUE\n'
+           'Demande utilisateur : $outfitRequest\n'
+           'Propositions calculées : ${encoder.convert(outfitProposals.map((proposal) => {
+             'vêtements': proposal.garments.map((item) => {'id': item.id, 'nom': item.name}).toList(),
+             'score': proposal.score,
+             'raisons': proposal.reasons,
+             'contraintesRespectées': proposal.respectedConstraints,
+           }).toList())}\n'
+           "Explique et conseille à partir de ces propositions uniquement. Ne sélectionne, "
+           "ne remplace et n'invente aucun vêtement. Pour toute explication thermique, "
+           "reprends uniquement les raisons calculées fournies, sans les compléter.";
+     }
+     return prompt;
+   }
+ 
+   static const List<PromptSection> _defaultSections = [
+     SystemPromptSection(),
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index c8ac529237643243a2bf325124b65973db73840c..ebc14ada6e938d66a8e266addc7043b0f7aec805 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -1,106 +1,110 @@
+ import '../context/assistant_context.dart';
+ import '../context/assistant_context_builder.dart';
+ import '../prompt/prompt_builder.dart';
+ import '../ai/llm_provider.dart';
+ import '../tools/assistant_tool_context_builder.dart';
+ import '../intents/assistant_intent.dart';
+ import '../intents/intent_parser.dart';
+ import '../intents/intent_result.dart';
+ import '../intents/intent_type.dart';
+ import '../../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../../core/recommendation/recommendation_context.dart';
+ 
+ class AssistantService {
+   final AssistantContextBuilder _contextBuilder;
+   final PromptBuilder _promptBuilder;
+   final LlmProvider _llmProvider;
+   final AssistantToolContextBuilder _toolContextBuilder;
+   final AssistantIntent _intentParser;
+   final OutfitGenerationEngine _outfitEngine;
++  final String Function() _languageCode;
+   AssistantToolContext _lastToolContext = const {};
+   IntentResult? _lastIntent;
+   List<OutfitGenerationProposal> _lastOutfitProposals = const [];
+   OutfitGenerationDiagnostic? _lastGenerationDiagnostic;
+ 
+   AssistantService({
+     required AssistantContextBuilder contextBuilder,
+     AssistantToolContextBuilder? toolContextBuilder,
+     required LlmProvider llmProvider,
+     PromptBuilder? promptBuilder,
+     AssistantIntent? intentParser,
+     OutfitGenerationEngine outfitEngine = const OutfitGenerationEngine(),
++    String Function()? languageCode,
+   }) : _contextBuilder = contextBuilder,
+        _llmProvider = llmProvider,
+        _toolContextBuilder =
+            toolContextBuilder ?? AssistantToolContextBuilder(tools: const []),
+        _intentParser = intentParser ?? const IntentParser(),
+        _outfitEngine = outfitEngine,
++       _languageCode = languageCode ?? (() => 'fr'),
+        _promptBuilder = promptBuilder ?? PromptBuilder();
+ 
+   AssistantToolContext get lastToolContext => _lastToolContext;
+   IntentResult? get lastIntent => _lastIntent;
+   List<OutfitGenerationProposal> get lastOutfitProposals => _lastOutfitProposals;
+   OutfitGenerationDiagnostic? get lastGenerationDiagnostic => _lastGenerationDiagnostic;
+ 
+   Future<AssistantContext> buildContext() => _contextBuilder.build();
+ 
+   Future<String> generatePrompt({String? userMessage}) async {
+     _lastIntent = userMessage == null ? null : _intentParser.parse(userMessage);
+     final context = await buildContext();
+     _lastToolContext = await _toolContextBuilder.build(
+       calendar: context.calendar,
+     );
+     final shouldRecommend =
+         _lastIntent != null &&
+         {
+           AssistantIntentType.dailyOutfit,
+           AssistantIntentType.weatherOutfit,
+           AssistantIntentType.eventOutfit,
+           AssistantIntentType.forgottenGarments,
+         }.contains(_lastIntent!.type);
+     final weather = context.weather;
+     final generation = shouldRecommend
+         ? _outfitEngine.generate(OutfitGenerationRequest(
+             wardrobe: context.wardrobe?.garments ?? const [],
+             contextLoadDuration: context.wardrobe?.loadDuration ?? Duration.zero,
+             context: RecommendationContext(
+               occasion: _lastIntent!.parameters['occasion'],
+               desiredStyle: _lastIntent!.parameters['style'],
+               season: _lastIntent!.parameters['saison'],
+               weather: weather == null ? null : RecommendationWeather(
+                 temperature: weather.temperature,
+                 condition: weather.condition,
+                 isRaining: _isRain(weather.condition),
+               ),
+             ),
+           ))
+         : null;
+     _lastOutfitProposals = generation?.proposals ?? const [];
+     _lastGenerationDiagnostic = generation?.diagnostic;
+     final prompt = _promptBuilder.build(
+       context,
++      languageCode: _languageCode(),
+       toolContext: _lastToolContext,
+       outfitProposals: _lastOutfitProposals,
+       outfitRequest: shouldRecommend ? _lastIntent!.originalText : null,
+     );
+     if (_lastIntent == null) return prompt;
+     return '$prompt\n\n### DEMANDE UTILISATEUR\n'
+         'Intention : ${_lastIntent!.type.name}\n'
+         'Paramètres : ${_lastIntent!.parameters}\n'
+         'Message : ${_lastIntent!.originalText}';
+   }
+ 
+   static bool _isRain(String condition) {
+     final value = condition.toLowerCase();
+     return value.contains('pluie') || value.contains('averse');
+   }
+ 
+   Future<String> generateMessage({String? userMessage}) async {
+     final chunks = <String>[];
+     await for (final chunk in generateMessageStream(userMessage: userMessage)) {
+       chunks.add(chunk);
+     }
+     return chunks.join();
+   }
+ 
+   String _ensureUsefulResponse(String response) {
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 604e3102bfd78e3acb958c897adbc2d764e284fd..e0dc2891c9c3bb135505ef4302b6ef01bfa00655 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -112,50 +112,51 @@ class _MainShellState extends State<MainShell> {
+         _assistantWardrobe.load(),
+         _outfitsController.load(),
+         _agendaController.load(),
+       ]);
+       if (mounted) setState(() {});
+     },
+   );
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+       outfitsController: _outfitsController,
+       calendarContextBuilder: CalendarContextBuilder(
+         service: _agendaCalendar,
+       ),
+       memoryService: _memoryService,
+       aiContextService: _aiContextService,
+     ),
+     toolContextBuilder: AssistantToolContextBuilder(
+       tools: [
+         WeatherTool(weatherService: widget.weatherService),
+         AgendaTool(service: _agendaService),
+       ],
+     ),
+     llmProvider: _openAiProvider,
++    languageCode: () => WidgetsBinding.instance.platformDispatcher.locale.languageCode,
+   );
+   late final _dailyBriefService = DailyBriefService(
+     weatherService: widget.weatherService,
+     memoryService: _memoryService,
+     assistantService: _assistantService,
+     aiContextService: _aiContextService,
+   );
+   late final _agendaController = AgendaController(
+     service: _agendaService,
+     googleCalendarService: _agendaCalendar,
+   );
+ 
+   @override
+   void initState() {
+     super.initState();
+     // Restores persisted bulk-import work on every application launch. Work
+     // continues while the process is alive; no OS background claim is made.
+     WardrobeImportService.instance.initialize();
+   }
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _outfitsController.dispose();
+     _aiSettings.dispose();
+diff --git a/lib/features/styles/style_detail_screen.dart b/lib/features/styles/style_detail_screen.dart
+index 99b95ea3264c70e4a58ac4f6aafe231f5deff33b..8f8aafc33199b5474b2f45a6396a764642a6d088 100644
+--- a/lib/features/styles/style_detail_screen.dart
++++ b/lib/features/styles/style_detail_screen.dart
+@@ -1,37 +1,41 @@
+ import 'package:flutter/material.dart';
+ import 'style_repository.dart';
++import '../../l10n/app_localizations.dart';
+ 
+ class StyleDetailScreen extends StatelessWidget {
+   final LibraryStyle style;
+   final StyleRepository repository;
+   const StyleDetailScreen({super.key, required this.style, required this.repository});
+-  @override Widget build(BuildContext context) => Scaffold(
+-    appBar: AppBar(title: Text(style.name)),
++  @override Widget build(BuildContext context) {
++    final visibleStyle = style.localized(AppLocalizations.of(context));
++    return Scaffold(
++    appBar: AppBar(title: Text(visibleStyle.name)),
+     body: ListView(padding: const EdgeInsets.all(20), children: [
+-      Chip(label: Text(style.isSystem ? 'Style système' : 'Style personnel')),
+-      const SizedBox(height: 12), Text(style.definition, style: Theme.of(context).textTheme.titleLarge),
+-      const SizedBox(height: 12), Text(style.description),
+-      _Section('Caractéristiques', style.characteristics),
+-      _Section('Couleurs associées', style.colors),
+-      _Section('Matières fréquentes', style.materials),
+-      _Section('Occasions adaptées', style.occasions),
+-      _Section('Pièces typiques', style.typicalPieces),
+-      _Relations(title: 'Styles proches', ids: style.relatedStyleIds, repository: repository),
+-      _Relations(title: 'Styles opposés', ids: style.oppositeStyleIds, repository: repository),
++      Chip(label: Text(AppLocalizations.of(context).text(visibleStyle.isSystem ? 'ui.systemStyle' : 'ui.personalStyle'))),
++      const SizedBox(height: 12), Text(visibleStyle.definition, style: Theme.of(context).textTheme.titleLarge),
++      const SizedBox(height: 12), Text(visibleStyle.description),
++      _Section(AppLocalizations.of(context).text('ui.characteristics'), visibleStyle.characteristics),
++      _Section(AppLocalizations.of(context).text('ui.associatedColors'), visibleStyle.colors),
++      _Section(AppLocalizations.of(context).text('ui.frequentMaterials'), visibleStyle.materials),
++      _Section(AppLocalizations.of(context).text('ui.occasions'), visibleStyle.occasions),
++      _Section(AppLocalizations.of(context).text('ui.typicalPieces'), visibleStyle.typicalPieces),
++      _Relations(title: AppLocalizations.of(context).text('ui.relatedStyles'), ids: visibleStyle.relatedStyleIds, repository: repository),
++      _Relations(title: AppLocalizations.of(context).text('ui.oppositeStyles'), ids: visibleStyle.oppositeStyleIds, repository: repository),
+     ]));
++  }
+ }
+ class _Section extends StatelessWidget {
+   final String title; final List<String> values;
+   const _Section(this.title, this.values);
+   @override Widget build(BuildContext context) => values.isEmpty ? const SizedBox.shrink() : Padding(
+     padding: const EdgeInsets.only(top: 22), child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+       children: [Text(title, style: const TextStyle(fontWeight: FontWeight.bold)), const SizedBox(height: 8),
+         Wrap(spacing: 8, runSpacing: 6, children: values.map((e) => Chip(label: Text(e))).toList())]));
+ }
+ class _Relations extends StatelessWidget {
+   final String title; final List<String> ids; final StyleRepository repository;
+   const _Relations({required this.title, required this.ids, required this.repository});
+   @override Widget build(BuildContext context) => ids.isEmpty ? const SizedBox.shrink() : FutureBuilder<List<LibraryStyle?>>(
+     future: Future.wait(ids.map(repository.find)), builder: (_, snapshot) => _Section(title,
+-      snapshot.data?.whereType<LibraryStyle>().map((e) => e.name).toList() ?? const []));
++      snapshot.data?.whereType<LibraryStyle>().map((e) => e.localized(AppLocalizations.of(context)).name).toList() ?? const []));
+ }
+diff --git a/lib/features/styles/style_library_screen.dart b/lib/features/styles/style_library_screen.dart
+index 6db460ad58f649073631490617e2035262055936..743a32c442431348883330aa621bd5c2b582934c 100644
+--- a/lib/features/styles/style_library_screen.dart
++++ b/lib/features/styles/style_library_screen.dart
+@@ -1,68 +1,70 @@
+ import 'package:flutter/material.dart';
+ import 'style_detail_screen.dart';
+ import 'personal_style_form_screen.dart';
+ import 'style_repository.dart';
+ import 'style_enrichment_service.dart';
+ import '../../models/personal_style.dart';
+ import '../../widgets/content_state.dart';
++import '../../l10n/app_localizations.dart';
+ 
+ class StyleLibraryScreen extends StatefulWidget {
+   final StyleRepository repository;
+   final StyleEnrichmentService? enrichment;
+   const StyleLibraryScreen({super.key, required this.repository, this.enrichment});
+   @override State<StyleLibraryScreen> createState() => _StyleLibraryScreenState();
+ }
+ class _StyleLibraryScreenState extends State<StyleLibraryScreen> {
+   String query = '';
+   late Future<List<LibraryStyle>> _styles;
+   @override void initState() { super.initState(); _reload(); }
+   void _reload() => _styles = widget.repository.all();
+   void _refresh() => setState(_reload);
+   Future<void> open(LibraryStyle style) async => Navigator.push(context,
+     MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: widget.repository)));
+   Future<void> create() async { await Navigator.push(context, MaterialPageRoute(
+     builder: (_) => PersonalStyleFormScreen(repository: widget.repository, enrichment: widget.enrichment))); _refresh(); }
+   Future<void> edit(LibraryStyle style) async {
+     final value = PersonalStyle(id: style.id, name: style.name,
+       description: style.description, examples: style.examples,
+       characteristics: style.characteristics, colors: style.colors,
+       materials: style.materials, occasions: style.occasions,
+       typicalPieces: style.typicalPieces);
+     await Navigator.push(context, MaterialPageRoute(builder: (_) =>
+       PersonalStyleFormScreen(repository: widget.repository, initial: value,
+         enrichment: widget.enrichment)));
+     _refresh();
+   }
+   Future<void> remove(LibraryStyle style) async {
+     final confirmed = await showDialog<bool>(context: context, builder: (_) => AlertDialog(
+       title: const Text('Supprimer ce style ?'), content: Text('« ${style.name} » sera supprimé définitivement.'),
+       actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+         FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Supprimer'))]));
+     if (confirmed == true) { await widget.repository.delete(style.id); _refresh(); }
+   }
+   @override Widget build(BuildContext context) => Scaffold(
+-    appBar: AppBar(title: const Text('Bibliothèque des styles')),
++    appBar: AppBar(title: Text(AppLocalizations.of(context).text('ui.styleLibrary'))),
+     floatingActionButton: FloatingActionButton.extended(onPressed: create, icon: const Icon(Icons.add), label: const Text('Style personnel')),
+     body: Column(children: [Padding(padding: const EdgeInsets.all(16), child: SearchBar(
+-      hintText: 'Nom, synonyme, définition…', leading: const Icon(Icons.search), onChanged: (v) => setState(() => query = v))),
++      hintText: AppLocalizations.of(context).text('ui.styleSearchHint'), leading: const Icon(Icons.search), onChanged: (v) => setState(() => query = v))),
+       Expanded(child: FutureBuilder<List<LibraryStyle>>(future: _styles, builder: (_, snapshot) {
+         if (snapshot.connectionState != ConnectionState.done) return const Center(child: ContentState.loading(
+           title: 'Chargement des styles', message: 'Préparation du catalogue et de ses définitions…'));
+         if (snapshot.hasError) return Center(child: ContentState.error(
+           title: 'Catalogue indisponible', message: 'Les styles n’ont pas pu être chargés.', onAction: _refresh));
+-        final values = snapshot.data!.where((e) => StyleCatalog.matches(e, query)).toList();
++        final l10n = AppLocalizations.of(context);
++        final values = snapshot.data!.where((e) => StyleCatalog.matches(e, query, localizations: l10n)).map((e) => e.localized(l10n)).toList();
+         if (values.isEmpty) return Center(child: ContentState.empty(
+           title: query.trim().isEmpty ? 'Bibliothèque vide' : 'Aucun style trouvé',
+           message: query.trim().isEmpty ? 'Crée ton premier style personnel pour commencer.' : 'Essaie un autre nom, synonyme ou mot de la définition.',
+           actionLabel: query.trim().isEmpty ? 'Créer un style' : 'Effacer la recherche',
+           onAction: query.trim().isEmpty ? create : () => setState(() => query = '')));
+         return ListView.builder(itemCount: values.length, itemBuilder: (_, index) { final style = values[index];
+           return ListTile(key: Key('style-${style.id}'), title: Text(style.name), subtitle: Text(style.definition, maxLines: 2),
+             leading: Icon(style.isSystem ? Icons.lock_outline : Icons.person_outline), onTap: () => open(style),
+             trailing: style.isSystem ? null : PopupMenuButton<String>(onSelected: (action) async {
+               if (action == 'edit') await edit(style);
+               if (action == 'delete') await remove(style);
+             }, itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Modifier')),
+               PopupMenuItem(value: 'delete', child: Text('Supprimer'))])); });
+       }))]));
+ }
+diff --git a/lib/features/styles/style_repository.dart b/lib/features/styles/style_repository.dart
+index 6dcd3c377bb3b1b313ab964a3f409054f13aff18..20f9d6914025c1560f824aca9ff15e72aea8d26b 100644
+--- a/lib/features/styles/style_repository.dart
++++ b/lib/features/styles/style_repository.dart
+@@ -1,53 +1,79 @@
+ import 'dart:convert';
+ import 'package:flutter/foundation.dart';
+ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+ import '../../models/personal_style.dart';
+ import '../../models/style_analysis.dart';
++import '../../l10n/app_localizations.dart';
+ 
+ class LibraryStyle {
+   final String id, name, definition, description;
+   final bool isSystem;
+   final List<String> synonyms, characteristics, colors, materials, occasions,
+       typicalPieces, examples, relatedStyleIds, oppositeStyleIds;
+   const LibraryStyle({required this.id, required this.name, required this.definition,
+     required this.description, required this.isSystem, this.synonyms = const [],
+     this.characteristics = const [], this.colors = const [], this.materials = const [],
+     this.occasions = const [], this.typicalPieces = const [], this.examples = const [],
+     this.relatedStyleIds = const [], this.oppositeStyleIds = const []});
+ 
+   factory LibraryStyle.system(StyleDefinition value) => LibraryStyle(id: value.id,
+     name: value.name, definition: value.definition, description: value.description,
+     isSystem: true, synonyms: value.synonyms, characteristics: value.characteristics,
+     colors: value.colors, materials: value.materials, occasions: value.occasions,
+     typicalPieces: value.typicalPieces, examples: value.typicalPieces,
+     relatedStyleIds: value.relatedStyleIds, oppositeStyleIds: value.oppositeStyleIds);
+   factory LibraryStyle.personal(PersonalStyle value) => LibraryStyle(id: value.id,
+     name: value.name, definition: value.description, description: value.description,
+     isSystem: false, characteristics: value.characteristics, colors: value.colors,
+     materials: value.materials, occasions: value.occasions,
+     typicalPieces: value.typicalPieces, examples: value.examples);
++
++  /// Resolves system copy at the presentation boundary. Personal values are
++  /// deliberately returned verbatim and are never machine-translated.
++  LibraryStyle localized(AppLocalizations l10n) {
++    if (!isSystem) return this;
++    final resource = l10n.catalogEntry('style', id);
++    List<String> list(String key, List<String> fallback) =>
++        (resource[key] as List?)?.map((value) => value.toString()).toList() ?? fallback;
++    return LibraryStyle(
++      id: id,
++      name: resource['name'] as String? ?? name,
++      definition: resource['definition'] as String? ?? definition,
++      description: resource['description'] as String? ?? description,
++      isSystem: true,
++      synonyms: list('synonyms', synonyms),
++      characteristics: list('characteristics', characteristics),
++      colors: list('colors', colors),
++      materials: list('materials', materials),
++      occasions: list('occasions', occasions),
++      typicalPieces: list('typicalPieces', typicalPieces),
++      examples: list('examples', examples),
++      relatedStyleIds: relatedStyleIds,
++      oppositeStyleIds: oppositeStyleIds,
++    );
++  }
+ }
+ 
+ abstract interface class StyleRepository {
+   Future<List<LibraryStyle>> all();
+   Future<LibraryStyle?> find(String id);
+   Future<void> save(PersonalStyle style);
+   Future<void> delete(String id);
+ }
+ 
+ class StyleCatalog extends ChangeNotifier implements StyleRepository {
+   static const _key = 'personal_styles_v1';
+   final FlutterSecureStorage _storage;
+   StyleCatalog({FlutterSecureStorage? storage})
+       : _storage = storage ?? const FlutterSecureStorage();
+ 
+   @override Future<List<LibraryStyle>> all() async {
+     final personal = await _load();
+     return [...StyleTaxonomy.entries.values.map(LibraryStyle.system),
+       ...personal.map(LibraryStyle.personal)];
+   }
+   @override Future<LibraryStyle?> find(String id) async {
+     final system = StyleTaxonomy.entries[id];
+     if (system != null) return LibraryStyle.system(system);
+     for (final value in await _load()) { if (value.id == id) return LibraryStyle.personal(value); }
+     return null;
+@@ -70,33 +96,34 @@ class StyleCatalog extends ChangeNotifier implements StyleRepository {
+     if (raw == null) return [];
+     final decoded = jsonDecode(raw) as List;
+     return decoded.map((e) => PersonalStyle.fromMap(Map<String, Object?>.from(e as Map))).toList();
+   }
+ 
+   static String normalize(String value) {
+     const accented = 'àáâäãåçèéêëìíîïñòóôöõùúûüýÿœ';
+     const plain =    'aaaaaaceeeeiiiinooooouuuuyyoe';
+     var result = value.toLowerCase().trim();
+     for (var i = 0; i < accented.length; i++) { result = result.replaceAll(accented[i], plain[i]); }
+     return result.replaceAll(RegExp(r'[_-]+'), ' ').replaceAll(RegExp(r'\s+'), ' ');
+   }
+ 
+   static String displayName(String idOrLabel) {
+     final normalized = normalize(idOrLabel);
+     for (final entry in StyleTaxonomy.entries.entries) {
+       if (normalize(entry.key) == normalized ||
+           normalize(entry.value.name) == normalized ||
+           entry.value.synonyms.map(normalize).contains(normalized)) {
+         return entry.value.name;
+       }
+     }
+     return idOrLabel.replaceAll('_', ' ');
+   }
+ 
+-  static bool matches(LibraryStyle style, String query) {
++  static bool matches(LibraryStyle style, String query, {AppLocalizations? localizations}) {
++    final visible = localizations == null ? style : style.localized(localizations);
+     final needle = normalize(query);
+     if (needle.isEmpty) return true;
+-    final searchable = [style.name, ...style.synonyms, style.description,
+-      style.definition, ...style.characteristics].map(normalize).join(' ');
++    final searchable = [visible.name, ...visible.synonyms, visible.description,
++      visible.definition, ...visible.characteristics].map(normalize).join(' ');
+     return searchable.contains(needle) || needle.split(' ').every(searchable.contains);
+   }
+ }
+diff --git a/lib/l10n/app_localizations.dart b/lib/l10n/app_localizations.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..98c39b0c5202cf9f32cea29436ed90f2693150d5
+--- /dev/null
++++ b/lib/l10n/app_localizations.dart
+@@ -0,0 +1,55 @@
++import 'dart:convert';
++
++import 'package:flutter/services.dart';
++import 'package:flutter/widgets.dart';
++
++/// The only user-facing translation gateway.
++///
++/// Business objects retain canonical identifiers. Catalogue resources are
++/// loaded for the resolved application locale and never persisted.
++class AppLocalizations {
++  AppLocalizations._(this.locale, this._resources);
++
++  final Locale locale;
++  final Map<String, Object?> _resources;
++
++  static const supportedLocales = [Locale('en'), Locale('fr')];
++  static const delegate = _AppLocalizationsDelegate();
++
++  static AppLocalizations of(BuildContext context) =>
++      Localizations.of<AppLocalizations>(context, AppLocalizations)!;
++
++  String text(String key) => _lookup(key) as String? ?? key;
++
++  Map<String, Object?> catalogEntry(String catalog, String id) {
++    final value = _lookup('catalogs.$catalog.$id');
++    return value is Map ? Map<String, Object?>.from(value) : const {};
++  }
++
++  Object? _lookup(String path) {
++    Object? current = _resources;
++    for (final segment in path.split('.')) {
++      if (current is! Map || !current.containsKey(segment)) return null;
++      current = current[segment];
++    }
++    return current;
++  }
++}
++
++class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
++  const _AppLocalizationsDelegate();
++
++  @override
++  bool isSupported(Locale locale) =>
++      AppLocalizations.supportedLocales.any((value) => value.languageCode == locale.languageCode);
++
++  @override
++  Future<AppLocalizations> load(Locale locale) async {
++    final language = isSupported(locale) ? locale.languageCode : 'en';
++    final raw = await rootBundle.loadString('assets/i18n/$language.json');
++    return AppLocalizations._(Locale(language), Map<String, Object?>.from(jsonDecode(raw) as Map));
++  }
++
++  @override
++  bool shouldReload(_AppLocalizationsDelegate old) => false;
++}
+diff --git a/pubspec.yaml b/pubspec.yaml
+index bdcd7e6b58afab970f4952960eb1505c89a109c4..7e7e3ffc1e134d0dfeaaac432d3baf0405ef5756 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -1,34 +1,38 @@
+ name: wardrobeos
+ description: Base complete et evolutive de WardrobeOS.
+ publish_to: "none"
+ version: 0.8.0+9
+ 
+ environment:
+   sdk: ">=3.7.0 <4.0.0"
+ 
+ dependencies:
+   flutter:
+     sdk: flutter
++  flutter_localizations:
++    sdk: flutter
+   cupertino_icons: ^1.0.8
+   sqflite: ^2.4.3
+   path: ^1.9.1
+   path_provider: ^2.1.5
+   image_picker: ^1.2.1
+   camera: ^0.11.2+1
+   uuid: ^4.5.3
+   image: ^4.9.1
+   geolocator: ^14.0.2
+   geocoding: ^4.0.0
+   http: ^1.4.0
+   flutter_secure_storage: ^9.2.4
+   file_picker: ^10.3.3
+   archive: ^4.0.9
+   crypto: ^3.0.6
+ 
+ dev_dependencies:
+   flutter_test:
+     sdk: flutter
+   flutter_lints: ^5.0.0
+ 
+ flutter:
+   uses-material-design: true
++  assets:
++    - assets/i18n/
+diff --git a/test/catalog_i18n_contract_test.dart b/test/catalog_i18n_contract_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e7f55e320908aca205b76a01867af9cc2dc876ab
+--- /dev/null
++++ b/test/catalog_i18n_contract_test.dart
+@@ -0,0 +1,27 @@
++import 'dart:io';
++import 'dart:convert';
++
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/catalogs/system_catalogs.dart';
++import 'package:wardrobeos/models/style_analysis.dart';
++
++void main() {
++  test('every canonical style has resources in every locale', () {
++    for (final locale in ['en', 'fr']) {
++      final resource = jsonDecode(File('assets/i18n/$locale.json').readAsStringSync()) as Map;
++      final styles = (resource['catalogs'] as Map)['style'] as Map;
++      expect(styles.keys.toSet(), containsAll(StyleTaxonomy.entries.keys));
++    }
++  });
++
++  test('legacy labels resolve without changing stored canonical IDs', () {
++    expect(SystemCatalogs.canonicalId(SystemCatalogs.categories, 'Hauts'), 'tops');
++    expect(SystemCatalogs.canonicalId(SystemCatalogs.materials, 'Mérinos'), 'merino_wool');
++    expect(SystemCatalogs.canonicalId(SystemCatalogs.colors, 'Bleu marine'), 'dark_blue');
++  });
++
++  test('style analysis serializes canonical style identifiers unchanged', () {
++    final value = StyleCompatibility(styleId: 'quiet_luxury', score: .8, justification: 'fixture');
++    expect(value.toMap()['styleId'], 'quiet_luxury');
++  });
++}

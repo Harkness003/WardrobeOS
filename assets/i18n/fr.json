@@ -1,0 +1,1545 @@
+{
+  "ui": {
+    "styleLibrary": "Bibliothèque des styles",
+    "styleSearchHint": "Nom, synonyme, définition…",
+    "systemStyle": "Style système",
+    "personalStyle": "Style personnel",
+    "characteristics": "Caractéristiques",
+    "associatedColors": "Couleurs associées",
+    "frequentMaterials": "Matières fréquentes",
+    "occasions": "Occasions adaptées",
+    "typicalPieces": "Pièces typiques",
+    "relatedStyles": "Styles proches",
+    "oppositeStyles": "Styles opposés"
+  },
+  "catalogs": {
+    "category": {
+      "tops": {
+        "name": "Hauts"
+      },
+      "shirts": {
+        "name": "Chemises"
+      },
+      "jackets": {
+        "name": "Vestes"
+      },
+      "bottoms": {
+        "name": "Bas"
+      },
+      "shoes": {
+        "name": "Chaussures"
+      },
+      "accessories": {
+        "name": "Accessoires"
+      },
+      "other": {
+        "name": "Autre"
+      }
+    },
+    "material": {
+      "cotton": {
+        "name": "Coton"
+      },
+      "wool": {
+        "name": "Laine"
+      },
+      "merino_wool": {
+        "name": "Mérinos"
+      },
+      "cashmere": {
+        "name": "Cachemire"
+      },
+      "linen": {
+        "name": "Lin"
+      },
+      "polyester": {
+        "name": "Polyester"
+      },
+      "viscose": {
+        "name": "Viscose"
+      },
+      "denim": {
+        "name": "Denim"
+      },
+      "leather": {
+        "name": "Cuir"
+      },
+      "suede": {
+        "name": "Daim"
+      },
+      "nylon": {
+        "name": "Nylon"
+      },
+      "silk": {
+        "name": "Soie"
+      },
+      "blend": {
+        "name": "Mélange"
+      },
+      "other": {
+        "name": "Autre…"
+      }
+    },
+    "color": {
+      "black": {
+        "name": "Noir"
+      },
+      "white": {
+        "name": "Blanc"
+      },
+      "dark_blue": {
+        "name": "Bleu marine"
+      },
+      "blue": {
+        "name": "Bleu"
+      },
+      "beige": {
+        "name": "Beige"
+      },
+      "brown": {
+        "name": "Marron"
+      },
+      "grey": {
+        "name": "Gris"
+      },
+      "red": {
+        "name": "Rouge"
+      },
+      "green": {
+        "name": "Vert"
+      }
+    },
+    "style": {
+      "80s": {
+        "name": "Années 80",
+        "definition": "Une esthétique Années 80 définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Années 80 utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "90s": {
+        "name": "Années 90",
+        "definition": "Une esthétique Années 90 définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Années 90 utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "artisanal": {
+        "name": "Artisanal",
+        "definition": "Une esthétique Artisanal définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Artisanal utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "athleisure": {
+        "name": "Athleisure",
+        "definition": "Une esthétique Athleisure définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Athleisure utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "avant_garde": {
+        "name": "Avant-Garde",
+        "definition": "Une esthétique Avant-Garde définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Avant-Garde utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "beachwear": {
+        "name": "Beachwear",
+        "definition": "Une esthétique Beachwear définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Beachwear utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "black_tie": {
+        "name": "Black Tie",
+        "definition": "Une esthétique Black Tie définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Black Tie utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "bohemian": {
+        "name": "Bohème",
+        "definition": "Une esthétique Bohème définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Bohème utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "boho_chic": {
+        "name": "Boho Chic",
+        "definition": "Une esthétique Boho Chic définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Boho Chic utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "business": {
+        "name": "Business",
+        "definition": "Une esthétique Business définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Business utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "business_casual": {
+        "name": "Business Casual",
+        "definition": "Une esthétique Business Casual définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Business Casual utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "casual": {
+        "name": "Décontracté",
+        "definition": "Une esthétique Décontracté définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Décontracté utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "ceremony": {
+        "name": "Cérémonie",
+        "definition": "Une esthétique Cérémonie définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Cérémonie utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "cocktail": {
+        "name": "Cocktail",
+        "definition": "Une esthétique Cocktail définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Cocktail utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "color_blocking": {
+        "name": "Color Blocking",
+        "definition": "Une esthétique Color Blocking définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Color Blocking utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "contemporary": {
+        "name": "Contemporain",
+        "definition": "Une esthétique Contemporain définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Contemporain utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "cycling": {
+        "name": "Cyclisme",
+        "definition": "Une esthétique Cyclisme définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Cyclisme utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "dark_academia": {
+        "name": "Dark Academia",
+        "definition": "Une esthétique Dark Academia définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Dark Academia utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "designer": {
+        "name": "Créateur",
+        "definition": "Une esthétique Créateur définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Créateur utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "dressy": {
+        "name": "Habillé",
+        "definition": "Une esthétique Habillé définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Habillé utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "evening": {
+        "name": "Soirée",
+        "definition": "Une esthétique Soirée définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Soirée utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "french_chic": {
+        "name": "French Chic",
+        "definition": "Une esthétique French Chic définie par ses codes distinctifs.",
+        "description": "Un registre stylistique French Chic utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "golf": {
+        "name": "Golf",
+        "definition": "Une esthétique Golf définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Golf utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "gorpcore": {
+        "name": "Gorpcore",
+        "definition": "Une esthétique Gorpcore définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Gorpcore utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "grunge": {
+        "name": "Grunge",
+        "definition": "Une esthétique Grunge définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Grunge utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "heritage": {
+        "name": "Heritage",
+        "definition": "Une esthétique Heritage définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Heritage utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "italian_elegance": {
+        "name": "Élégance italienne",
+        "definition": "Une esthétique Élégance italienne définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Élégance italienne utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "ivy_league": {
+        "name": "Ivy League",
+        "definition": "Une esthétique Ivy League définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Ivy League utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "japandi": {
+        "name": "Japandi",
+        "definition": "Une esthétique Japandi définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Japandi utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "japanese_americana": {
+        "name": "Japanese Americana",
+        "definition": "Une esthétique Japanese Americana définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Japanese Americana utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "light_academia": {
+        "name": "Light Academia",
+        "definition": "Une esthétique Light Academia définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Light Academia utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "luxury": {
+        "name": "Luxe",
+        "definition": "Une esthétique Luxe définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Luxe utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "mediterranean": {
+        "name": "Méditerranéen",
+        "definition": "Une esthétique Méditerranéen définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Méditerranéen utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "military": {
+        "name": "Military",
+        "definition": "Une esthétique Military définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Military utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "minimalist": {
+        "name": "Minimaliste",
+        "definition": "Une esthétique Minimaliste définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Minimaliste utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "modern_classic": {
+        "name": "Classique moderne",
+        "definition": "Une esthétique Classique moderne définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Classique moderne utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "monochrome": {
+        "name": "Monochrome",
+        "definition": "Une esthétique Monochrome définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Monochrome utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "normcore": {
+        "name": "Normcore",
+        "definition": "Une esthétique Normcore définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Normcore utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "old_money": {
+        "name": "Old Money",
+        "definition": "Une esthétique Old Money définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Old Money utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "outdoor": {
+        "name": "Plein air",
+        "definition": "Une esthétique Plein air définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Plein air utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "parisian": {
+        "name": "Parisien",
+        "definition": "Une esthétique Parisien définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Parisien utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "preppy": {
+        "name": "Preppy",
+        "definition": "Une esthétique Preppy définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Preppy utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "punk": {
+        "name": "Punk",
+        "definition": "Une esthétique Punk définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Punk utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "quiet_luxury": {
+        "name": "Quiet Luxury",
+        "definition": "Une esthétique Quiet Luxury définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Quiet Luxury utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "resort": {
+        "name": "Resort",
+        "definition": "Une esthétique Resort définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Resort utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "retro": {
+        "name": "Rétro",
+        "definition": "Une esthétique Rétro définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Rétro utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "rock": {
+        "name": "Rock",
+        "definition": "Une esthétique Rock définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Rock utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "romantic": {
+        "name": "Romantique",
+        "definition": "Une esthétique Romantique définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Romantique utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "running": {
+        "name": "Running",
+        "definition": "Une esthétique Running définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Running utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "sailing": {
+        "name": "Nautique",
+        "definition": "Une esthétique Nautique définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Nautique utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "scandinavian": {
+        "name": "Scandinave",
+        "definition": "Une esthétique Scandinave définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Scandinave utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "smart_casual": {
+        "name": "Chic décontracté",
+        "definition": "Une esthétique Chic décontracté définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Chic décontracté utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "sport": {
+        "name": "Sport",
+        "definition": "Une esthétique Sport définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Sport utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "sport_chic": {
+        "name": "Sport Chic",
+        "definition": "Une esthétique Sport Chic définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Sport Chic utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "streetwear": {
+        "name": "Streetwear",
+        "definition": "Une esthétique Streetwear définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Streetwear utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "technical": {
+        "name": "Technique",
+        "definition": "Une esthétique Technique définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Technique utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "techwear": {
+        "name": "Techwear",
+        "definition": "Une esthétique Techwear définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Techwear utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "tennis": {
+        "name": "Tennis",
+        "definition": "Une esthétique Tennis définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Tennis utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "travel": {
+        "name": "Voyage",
+        "definition": "Une esthétique Voyage définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Voyage utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "utility": {
+        "name": "Utility",
+        "definition": "Une esthétique Utility définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Utility utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "vintage": {
+        "name": "Vintage",
+        "definition": "Une esthétique Vintage définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Vintage utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "wedding_guest": {
+        "name": "Invité de mariage",
+        "definition": "Une esthétique Invité de mariage définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Invité de mariage utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "western": {
+        "name": "Western",
+        "definition": "Une esthétique Western définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Western utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "workwear": {
+        "name": "Workwear",
+        "definition": "Une esthétique Workwear définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Workwear utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      },
+      "y2k": {
+        "name": "Y2K",
+        "definition": "Une esthétique Y2K définie par ses codes distinctifs.",
+        "description": "Un registre stylistique Y2K utilisable comme compatibilité, selon les associations de la tenue.",
+        "characteristics": [
+          "cohérent",
+          "identifiable"
+        ],
+        "colors": [
+          "couleurs signatures"
+        ],
+        "materials": [
+          "matières caractéristiques"
+        ],
+        "typicalPieces": [
+          "pièces signatures"
+        ],
+        "examples": [
+          "tenue représentative"
+        ],
+        "synonyms": []
+      }
+    }
+  }
+}

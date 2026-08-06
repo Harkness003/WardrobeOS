@@ -5,6 +5,7 @@ import 'style_repository.dart';
 import 'style_enrichment_service.dart';
 import '../../models/personal_style.dart';
 import '../../widgets/content_state.dart';
+import '../../l10n/app_localizations.dart';
 
 class StyleLibraryScreen extends StatefulWidget {
   final StyleRepository repository;
@@ -41,16 +42,17 @@ class _StyleLibraryScreenState extends State<StyleLibraryScreen> {
     if (confirmed == true) { await widget.repository.delete(style.id); _refresh(); }
   }
   @override Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Bibliothèque des styles')),
+    appBar: AppBar(title: Text(AppLocalizations.of(context).text('ui.styleLibrary'))),
     floatingActionButton: FloatingActionButton.extended(onPressed: create, icon: const Icon(Icons.add), label: const Text('Style personnel')),
     body: Column(children: [Padding(padding: const EdgeInsets.all(16), child: SearchBar(
-      hintText: 'Nom, synonyme, définition…', leading: const Icon(Icons.search), onChanged: (v) => setState(() => query = v))),
+      hintText: AppLocalizations.of(context).text('ui.styleSearchHint'), leading: const Icon(Icons.search), onChanged: (v) => setState(() => query = v))),
       Expanded(child: FutureBuilder<List<LibraryStyle>>(future: _styles, builder: (_, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) return const Center(child: ContentState.loading(
           title: 'Chargement des styles', message: 'Préparation du catalogue et de ses définitions…'));
         if (snapshot.hasError) return Center(child: ContentState.error(
           title: 'Catalogue indisponible', message: 'Les styles n’ont pas pu être chargés.', onAction: _refresh));
-        final values = snapshot.data!.where((e) => StyleCatalog.matches(e, query)).toList();
+        final l10n = AppLocalizations.of(context);
+        final values = snapshot.data!.where((e) => StyleCatalog.matches(e, query, localizations: l10n)).map((e) => e.localized(l10n)).toList();
         if (values.isEmpty) return Center(child: ContentState.empty(
           title: query.trim().isEmpty ? 'Bibliothèque vide' : 'Aucun style trouvé',
           message: query.trim().isEmpty ? 'Crée ton premier style personnel pour commencer.' : 'Essaie un autre nom, synonyme ou mot de la définition.',
