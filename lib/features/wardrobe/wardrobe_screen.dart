@@ -3,6 +3,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/garment.dart';
 import '../../widgets/garment_image.dart';
 import '../scanner/scanner_screen.dart';
+import '../scanner/wardrobe_import_screen.dart';
 import 'garment_detail_screen.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
@@ -81,7 +82,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                   ),
                   ListTile(
                     leading: const Icon(Icons.document_scanner_outlined),
-                    title: const Text('Scanner un vêtement'),
+                    title: const Text('Ajouter un vêtement'),
                     subtitle: const Text(
                       'Photo et pré-remplissage automatique',
                     ),
@@ -94,6 +95,17 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
                         ),
                       );
                       if (added == true) await controller.load();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.collections_outlined),
+                    title: const Text('Importer mon dressing'),
+                    subtitle: const Text('Photographier plusieurs vêtements sans attendre'),
+                    onTap: () async {
+                      Navigator.pop(sheetContext);
+                      await Navigator.push<void>(context, MaterialPageRoute(
+                        builder: (_) => const WardrobeImportScreen()));
+                      await controller.load();
                     },
                   ),
                   ListTile(

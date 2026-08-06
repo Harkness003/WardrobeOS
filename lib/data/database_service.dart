@@ -18,7 +18,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 1,
+      version: 2,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -105,8 +105,46 @@ class DatabaseService {
         await _createPersonalizationTables(db);
         await _createAgendaTables(db);
         await _createIndexes(db);
+        await _createWardrobeImportTable(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) await _createWardrobeImportTable(db);
       },
     );
+  }
+
+  Future<void> _createWardrobeImportTable(Database db) => db.execute('''
+    CREATE TABLE IF NOT EXISTS wardrobe_import_tasks(
+      id TEXT PRIMARY KEY,
+      photo_path TEXT NOT NULL,
+      captured_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempt INTEGER NOT NULL DEFAULT 0,
+      garment_id TEXT,
+      quick_result TEXT,
+      enrichment_result TEXT,
+      user_message TEXT,
+      timings TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL
+    )
+  ''');
+
+  Future<List<Map<String, Object?>>> getWardrobeImportTasks() async {
+    final db = await database;
+    await _createWardrobeImportTable(db);
+    return db.query('wardrobe_import_tasks', orderBy: 'captured_at ASC');
+  }
+
+  Future<void> putWardrobeImportTask(Map<String, Object?> value) async {
+    final db = await database;
+    await _createWardrobeImportTable(db);
+    await db.insert('wardrobe_import_tasks', value,
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> deleteWardrobeImportTask(String id) async {
+    final db = await database;
+    await db.delete('wardrobe_import_tasks', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> _createWearHistoryTable(Database db) async {

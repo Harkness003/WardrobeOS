@@ -35,6 +35,7 @@ import '../assistant/tools/agenda_tool.dart';
 import '../../core/ai_context/wardrobe_ai_context_service.dart';
 import '../../weather/location/unified_location_service.dart';
 import '../scanner/ai/openai_garment_vision_analyzer.dart';
+import '../scanner/analysis/wardrobe_import_service.dart';
 import '../wardrobe/reanalysis/database_garment_reanalysis_repository.dart';
 import '../wardrobe/reanalysis/garment_reanalysis_models.dart';
 import '../wardrobe/reanalysis/garment_reanalysis_service.dart';
@@ -144,6 +145,14 @@ class _MainShellState extends State<MainShell> {
     service: _agendaService,
     googleCalendarService: _agendaCalendar,
   );
+
+  @override
+  void initState() {
+    super.initState();
+    // Restores persisted bulk-import work on every application launch. Work
+    // continues while the process is alive; no OS background claim is made.
+    WardrobeImportService.instance.initialize();
+  }
 
   @override
   void dispose() {
