@@ -179,7 +179,7 @@ class ScannerDecisionEngine {
         global >= completionThreshold &&
         bestRule == null;
     final contextualPhoto = bestRule == null ? null : _contextualPhoto(result, bestRule);
-    final photo = canFinish || bestRule == null
+    final candidatePhoto = bestRule == null
         ? null
         : contextualPhoto ?? RequestedPhoto(
             type: bestRule.photoType!,
@@ -187,6 +187,10 @@ class ScannerDecisionEngine {
             reason: bestRule.photoReason!,
             targetFields: [bestRule.field],
           );
+    // Business stop condition: never ask for evidence that no feature consumes.
+    final photo = canFinish || candidatePhoto?.consumers.isEmpty != false
+        ? null
+        : candidatePhoto;
     return ScannerDecision(
       globalConfidence: global,
       canFinishAutomatically: canFinish,

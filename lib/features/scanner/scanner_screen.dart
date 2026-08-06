@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -25,6 +24,7 @@ import 'ai/garment_image_processing.dart';
 import 'ai/normalization/garment_value_normalizer.dart';
 import 'ai/openai_garment_vision_analyzer.dart';
 import 'ai/analysis_foundations.dart';
+import 'analysis/garment_analysis_queue.dart';
 import 'conversation/scan_conversation.dart';
 
 class ScannerScreen extends StatefulWidget {
@@ -38,6 +38,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   final picker = ImagePicker();
   late final OpenAiGarmentVisionAnalyzer scanner;
   final wardrobe = WardrobeController();
+  final analysisQueue = GarmentAnalysisQueue();
 
   final name = TextEditingController();
   final brand = TextEditingController();
@@ -57,6 +58,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
   String scanStep = '';
   String? enrichmentWarning;
   final scanTimings = <String, Duration>{};
+  bool complementaryPhotoConsumed = false;
+
+  static const enrichmentFields = <String>{
+    'material', 'compositions', 'season', 'style', 'occasions', 'compatibility',
+  };
 
   bool get busy => importing || analyzing || saving;
 
@@ -138,6 +144,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
         if (!isAdditional) {
           result = null;
           conversation = null;
+          complementaryPhotoConsumed = false;
         }
       });
       persisted = null; // The screen now owns this copy.
@@ -212,6 +219,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   Future<void> analyze() async {
     if (busy || imagePath == null) return;
+    if (result != null) {
+      await _analyzeComplementaryPhoto();
+      return;
+    }
     final initialName = name.text;
     final initialBrand = brand.text;
     final initialColor = color.text;
@@ -232,10 +243,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
         );
       }
       final bytes = await File(imagePath!).readAsBytes();
-      final previousBytes = <Uint8List>[];
-      for (final path in sessionImagePaths.where((path) => path != imagePath)) {
-        previousBytes.add(await File(path).readAsBytes());
-      }
       final request = GarmentAnalysisRequest(
           imageBytes: bytes,
           mimeType:
@@ -248,11 +255,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
             if (name.text.trim().isNotEmpty) 'name': name.text.trim(),
             if (brand.text.trim().isNotEmpty) 'brand': brand.text.trim(),
           },
-          previousImageBytes: previousBytes,
-          previousAnalysis: result?.toJson(),
+          requestedFields: enrichmentFields,
         );
       setState(() => scanStep = 'Identification du vêtement…');
-      final raw = await scanner.analyzeQuick(request);
+      final raw = await analysisQueue.enqueue(() => scanner.analyzeQuick(request));
       final parsingWatch = Stopwatch()..start();
       final validated = const GarmentAnalysisNormalizer().normalize(GarmentAnalysisValidator(
         categoryNormalizer: const GarmentValueNormalizer(categories),
@@ -300,7 +306,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
       mergeWatch.stop();
       _recordTimings('quick', parsingWatch.elapsed, mergeWatch.elapsed);
       if (!mounted) return;
-      setState(() => scanStep = 'Analyse stylistique en cours…');
+      setState(() => scanStep = '✓ identification terminée · enrichissement en cours');
       enrichmentStarted = true;
       unawaited(_runEnrichment(request, validated, initialName, initialBrand, initialColor, initialMaterial, initialCategory, initialSeason));
     } on GarmentAnalysisException catch (error) {
@@ -325,7 +331,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
     String initialSeason,
   ) async {
     try {
-      final raw = await scanner.enrich(request.copyWith(phase: GarmentAnalysisPhase.enrichment));
+      final raw = await analysisQueue.enqueue(() => scanner.enrich(request.copyWith(
+        phase: GarmentAnalysisPhase.enrichment,
+        previousAnalysis: quickResult.toJson(),
+        requestedFields: enrichmentFields,
+      )));
       final parsingWatch = Stopwatch()..start();
       final enriched = const GarmentAnalysisNormalizer().normalize(GarmentAnalysisValidator(
         categoryNormalizer: const GarmentValueNormalizer(categories),
@@ -353,11 +363,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
         if (material.text == initialMaterial || material.text.trim().isEmpty) material.text = mapped.material;
         if (mapped.category.isNotEmpty && category == initialCategory) category = mapped.category;
         if (mapped.season.isNotEmpty && season == initialSeason) season = mapped.season;
-        scanStep = 'Analyse complète';
+        scanStep = decision.requestedPhoto == null
+            ? '✓ analyse terminée'
+            : '✓ photo complémentaire demandée';
       });
       mergeWatch.stop();
       _recordTimings('enrichment', parsingWatch.elapsed, mergeWatch.elapsed);
-      if (decision.canFinishAutomatically) await _openFullForm();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -369,11 +380,85 @@ class _ScannerScreenState extends State<ScannerScreen> {
     }
   }
 
+  Future<void> _analyzeComplementaryPhoto() async {
+    final current = result;
+    final requested = conversation?.requestedPhoto;
+    if (current == null || requested == null || complementaryPhotoConsumed) {
+      setState(() {
+        conversation = ScanConversationDecision(
+          canFinishAutomatically: true,
+          requestedPhoto: null,
+          progress: conversation?.progress ?? const [],
+        );
+        scanStep = '✓ analyse terminée';
+      });
+      return;
+    }
+    complementaryPhotoConsumed = true; // Hard stop: at most one follow-up.
+    setState(() {
+      analyzing = true;
+      scanStep = 'Enrichissement ciblé en cours…';
+      enrichmentWarning = null;
+    });
+    try {
+      final bytes = await File(imagePath!).readAsBytes();
+      final request = GarmentAnalysisRequest(
+        imageBytes: bytes,
+        mimeType: GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
+        allowedCategories: categories,
+        allowedColors: colors,
+        allowedMaterials: materials,
+        allowedSeasons: seasons,
+        previousAnalysis: current.toJson(),
+        requestedFields: requested.targetFields.toSet(),
+      );
+      final raw = await analysisQueue.enqueue(() => scanner.enrich(request));
+      final parsingWatch = Stopwatch()..start();
+      final targeted = const GarmentAnalysisNormalizer().normalize(
+        GarmentAnalysisValidator(
+          categoryNormalizer: const GarmentValueNormalizer(categories),
+          colorNormalizer: const GarmentValueNormalizer(colors),
+          materialNormalizer: const GarmentValueNormalizer(materials),
+          seasonNormalizer: const GarmentValueNormalizer(seasons),
+        ).validate(raw).analysis,
+      );
+      parsingWatch.stop();
+      final fusionWatch = Stopwatch()..start();
+      final merged = _mergeAnalysis(current, targeted);
+      fusionWatch.stop();
+      if (!mounted) return;
+      setState(() {
+        result = merged;
+        conversation = ScanConversationDecision(
+          canFinishAutomatically: true,
+          requestedPhoto: null,
+          progress: const ScanConversationPolicy().evaluate(merged).progress,
+        );
+        scanStep = '✓ analyse terminée';
+      });
+      _recordTimings('complementaryPhoto', parsingWatch.elapsed, fusionWatch.elapsed);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        conversation = ScanConversationDecision(
+          canFinishAutomatically: true,
+          requestedPhoto: null,
+          progress: conversation?.progress ?? const [],
+        );
+        enrichmentWarning = 'Photo complémentaire inexploitable. La fiche reste disponible.';
+        scanStep = '✓ analyse terminée';
+      });
+    } finally {
+      if (mounted) setState(() => analyzing = false);
+    }
+  }
+
   GarmentAnalysisResult _mergeAnalysis(GarmentAnalysisResult quick, GarmentAnalysisResult enriched) => enriched.copyWith(
-    suggestedName: enriched.suggestedName ?? quick.suggestedName,
-    category: enriched.category ?? quick.category,
-    preciseType: enriched.preciseType ?? quick.preciseType,
-    primaryColor: enriched.primaryColor ?? quick.primaryColor,
+    // Identity is owned by the quick pass; enrichment never silently changes it.
+    suggestedName: quick.suggestedName,
+    category: quick.category,
+    preciseType: quick.preciseType,
+    primaryColor: quick.primaryColor,
     visibleBrand: enriched.visibleBrand ?? quick.visibleBrand,
     globalConfidence: enriched.globalConfidence == 0 ? quick.globalConfidence : enriched.globalConfidence,
     fieldConfidences: {...quick.fieldConfidences, ...enriched.fieldConfidences},
@@ -412,7 +497,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   };
 
   Future<void> _openFullForm() async {
-    if (busy) return;
+    if (saving) return;
     if (imagePath == null) {
       _toast('Ajoute d’abord une photo.');
       return;
@@ -670,13 +755,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   ),
                 ],
               ),
-              if (result != null &&
-                  conversation?.canFinishAutomatically == false) ...[
+              if (result != null) ...[
                 const SizedBox(height: 8),
                 FilledButton.icon(
-                  onPressed: busy ? null : _openFullForm,
+                  onPressed: saving ? null : _openFullForm,
                   icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Ouvrir et compléter la fiche'),
+                  label: const Text('Ouvrir et éditer la fiche'),
                   style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
                 ),
               ],
@@ -846,6 +930,8 @@ class _ConversationCard extends StatelessWidget {
             if (request != null) ...[
               const Divider(height: 24),
               Text(request.reason),
+              if (request.consumers.isNotEmpty)
+                Text('Utilisé pour : ${request.consumers.join(' · ')}'),
               const SizedBox(height: 8),
               Text(
                 request.instruction,
@@ -919,35 +1005,6 @@ class _PhotoArea extends StatelessWidget {
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          if (analyzing)
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: .58),
-                  borderRadius: BorderRadius.circular(32),
-                ),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(color: AppTheme.gold),
-                    SizedBox(height: 18),
-                    Text(
-                      'Étape actuelle : analyse IA…',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    SizedBox(height: 5),
-                    Text(
-                      'Déjà détecté : photo importée\nRecherche : catégorie · couleur · matière · saison\nTu pourras corriger chaque donnée avant l’enregistrement.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white70),
                     ),
                   ],
                 ),

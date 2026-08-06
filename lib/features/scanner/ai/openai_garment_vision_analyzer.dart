@@ -89,11 +89,10 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
     final preparationWatch = Stopwatch()..start();
     final compressionWatch = Stopwatch()..start();
     final prepared = preprocessor.prepareBytes(request.imageBytes, mimeType: request.mimeType);
-    final previous = request.previousImageBytes.map((bytes) => preprocessor.prepareBytes(
-      bytes, mimeType: GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
-    ).bytes).toList(growable: false);
     compressionWatch.stop();
-    final preparedRequest = request.copyWith(imageBytes: prepared.bytes, mimeType: prepared.mimeType, previousImageBytes: previous);
+    // Previous evidence is represented by `previousAnalysis`. Re-uploading all
+    // earlier photos made every follow-up as expensive as a complete scan.
+    final preparedRequest = request.copyWith(imageBytes: prepared.bytes, mimeType: prepared.mimeType, previousImageBytes: const []);
     preparationWatch.stop();
     final body = _requestBody(preparedRequest);
     var attempt = 0;
@@ -164,15 +163,10 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
         'content': [
           {
             'type': 'input_text',
-            'text': request.previousImageBytes.isEmpty
+            'text': request.previousAnalysis == null
                 ? 'Analyse cette première photo selon les instructions.'
-                : 'Mets à jour l’analyse en combinant toutes les photos. La dernière image répond à la demande précédente.',
+                : 'Cette image apporte uniquement les preuves demandées. Complète l’analyse précédente sans la recommencer.',
           },
-          ...request.previousImageBytes.map((bytes) => {
-            'type': 'input_image',
-            'image_url':
-                'data:${GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg'};base64,${base64Encode(bytes)}',
-          }),
           {
             'type': 'input_image',
             'image_url':
@@ -219,8 +213,9 @@ par OCR. Ne déduis jamais une composition depuis l'apparence et ne demande une
 photo plus nette que si le texte est réellement illisible. Baisse la confiance si texture, couleur ou logo
 sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
 Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
-Combine toutes les images : une nouvelle photo complète l'analyse précédente et
-ne la remplace jamais. Réévalue chaque champ et sa confiance. La plupart des
+L'analyse précédente est la référence immuable. Complète uniquement les champs
+demandés et laisse tous les autres inchangés. Ne recalcule jamais suggestedName,
+category, preciseType ou primaryColor. La plupart des
 pièces doivent être finalisées avec une seule photo. Mets needsMorePhotos à true
 uniquement si une photo ciblée peut améliorer de façon importante un champ
 encore incertain. Ne demande qu'une seule photo à la fois, explique précisément
@@ -254,6 +249,7 @@ season=${jsonEncode(request.allowedSeasons)}
 Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
 ${jsonEncode(request.existingValues)}
 Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}
+Champs exclusivement attendus par cet appel : ${jsonEncode(request.requestedFields.toList())}
 ''';
 
   static const _nullableString = {'type': ['string', 'null']};
