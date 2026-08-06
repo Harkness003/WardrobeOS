@@ -35,8 +35,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       _minTemp, _maxTemp, _notes;
   late String _category;
   String? _material;
-  late Set<String> _styles, _seasons, _uses;
-  late List<String> _styleOptions;
+  late Set<String> _seasons, _uses;
   String? _imagePath;
   bool _saving = false;
   final _personalCatalog = PersonalCatalogRepository();
@@ -80,11 +79,6 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
     final customUses = existingUses.where((value) => !uses.contains(value)).toList();
     if (customUses.isNotEmpty) _uses.add('Autre...');
     _otherUse = TextEditingController(text: customUses.join(', '));
-    _styles = g == null ? <String>{} : {
-      g.effectiveStyleAnalysis.register,
-      ...g.effectiveStyleAnalysis.secondaryStyles,
-    };
-    _styleOptions = {...StyleTaxonomy.entries.keys, ..._styles}.toList(growable: false);
     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
     _imagePath = g == null || g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path;
     _personalCatalog.values(PersonalCatalogField.subcategory).then((values) {

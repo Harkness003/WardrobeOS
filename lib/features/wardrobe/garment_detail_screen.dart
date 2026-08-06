@@ -1,13 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../data/database_service.dart';
 import '../../models/garment.dart';
 import '../../models/style_analysis.dart';
-import '../../models/outfit.dart';
 import '../../models/wear_history.dart';
 import '../../widgets/garment_image.dart';
-import '../outfits/outfit_form_screen.dart';
-import '../outfits/outfits_controller.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
 import 'reanalysis/garment_reanalysis_models.dart';
@@ -157,7 +153,6 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   bool _recordingWear = false;
   late Future<List<WearHistory>> _wearHistoryFuture;
   late Future<WearHistory?> _firstWearFuture;
-  late Future<List<Outfit>> _outfitsFuture;
 
   bool _reanalyzing = false;
 
@@ -270,9 +265,6 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     garment = widget.garment;
     _wearHistoryFuture = _loadWearHistory();
     _firstWearFuture = _loadFirstWear();
-    _outfitsFuture = DatabaseService.instance.getOutfitsContainingGarment(
-      garment.id,
-    );
   }
 
   Future<void> edit() async {
@@ -523,30 +515,6 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   Future<void> toggleFavorite() async {
     await widget.controller.toggleFavorite(garment);
     _refreshGarment();
-  }
-
-  Future<void> _openOutfit(Outfit outfit) async {
-    final controller = OutfitsController();
-    await controller.load();
-    if (!mounted) {
-      controller.dispose();
-      return;
-    }
-    await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder:
-            (_) => OutfitFormScreen(controller: controller, outfit: outfit),
-      ),
-    );
-    controller.dispose();
-    if (mounted) {
-      setState(() {
-        _outfitsFuture = DatabaseService.instance.getOutfitsContainingGarment(
-          garment.id,
-        );
-      });
-    }
   }
 
   @override

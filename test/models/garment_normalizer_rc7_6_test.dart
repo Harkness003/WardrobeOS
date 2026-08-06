@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:wardrobe_os/models/garment_normalizer.dart';
+import 'package:wardrobeos/models/garment_normalizer.dart';
 
 void main() {
   group('RC7.6 text normalization', () {
