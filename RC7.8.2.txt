@@ -1,0 +1,661 @@
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+index c599873900deb25e95bd373834f161d2fffdd2fb..248a6a9d40932ad376a6119ec1e10baba30cb2b4 100644
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -1,29 +1,31 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+-    <uses-permission android:name="android.permission.INTERNET" />
++    <uses-permission android:name="android.permission.INTERNET" />
++    <uses-permission android:name="android.permission.CAMERA" />
++    <uses-feature android:name="android.hardware.camera" android:required="false" />
+     <application
+         android:label="wardrobeos"
+         android:name="${applicationName}"
+         android:icon="@mipmap/ic_launcher">
+         <activity
+             android:name=".MainActivity"
+             android:exported="true"
+             android:launchMode="singleTop"
+             android:taskAffinity=""
+             android:theme="@style/LaunchTheme"
+             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+             android:hardwareAccelerated="true"
+             android:windowSoftInputMode="adjustResize">
+             <!-- Specifies an Android theme to apply to this Activity as soon as
+                  the Android process has started. This theme is visible to the user
+                  while the Flutter UI initializes. After that, this theme continues
+                  to determine the Window background behind the Flutter UI. -->
+             <meta-data
+               android:name="io.flutter.embedding.android.NormalTheme"
+               android:resource="@style/NormalTheme"
+               />
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN"/>
+                 <category android:name="android.intent.category.LAUNCHER"/>
+             </intent-filter>
+diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+index d2e1ec2a6473e592960afc07668833c9f976ce52..d050a7aef3d054043485e286038f8fcddbb204e1 100644
+--- a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+@@ -242,51 +242,51 @@ pourquoi elle est utile et indique les champs visés. Ne redemande jamais une vu
+ déjà fournie. Sinon mets needsMorePhotos à false et requestedPhoto à null.
+ Adapte la demande au vêtement : semelle, intérieur ou usure pour des chaussures ;
+ étiquette, col ou poignets pour une chemise ; doublure, fermeture ou rembourrage
+ pour un manteau. Explique toujours le bénéfice concret de la photo.
+ Dans compositions, conserve toutes les fibres et pourcentages lus, séparés en
+ main, lining et padding. Utilise la source ocr pour le texte lu et visual
+ seulement pour une matière directement observable. Ne crée aucune valeur incertaine.
+ « category » est la catégorie générale, choisie uniquement parmi les catégories
+ autorisées ci-dessous. « preciseType » est le type concret et précis observé
+ (par exemple chemise Oxford, blazer croisé, jean droit, pantalon cargo,
+ cardigan, trench ou baskets basses). Utilise null si l'image ne permet pas de
+ conclure et ne répète jamais exactement « category » dans « preciseType ».
+ Agis comme un styliste professionnel : observe, explique, argumente et nuance.
+ Produis un résumé, des points forts et faibles, des conseils concrets, les
+ couleurs, bas et chaussures compatibles, les couleurs moins adaptées, les
+ occasions idéales et déconseillées, une polyvalence expliquée et un verdict
+ franc. Ne flatte pas systématiquement et ne qualifie jamais une pièce
+ d'élégante, polyvalente ou belle sans justification. Tu peux dire qu'une coupe
+ est datée, une couleur difficile, un motif chargé ou la pièce peu polyvalente.
+ Chaque critique doit indiquer pourquoi et tout défaut doit mener à une solution
+ concrète. Mentionne dans analysisLimitations ce que l'image ne permet pas de
+ conclure (intérieur invisible, matière estimée, vêtement masqué, par exemple).
+ category=${jsonEncode(request.allowedCategories)}
+ primaryColor=${jsonEncode(request.allowedColors)}
+ material=${jsonEncode(request.allowedMaterials)}
+-season=${jsonEncode(request.allowedSeasons)}
++${request.allowedSeasons.isEmpty ? '' : 'season=${jsonEncode(request.allowedSeasons)}'}
+ Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
+ ${jsonEncode(request.existingValues)}
+ Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}
+ Champs exclusivement attendus par cet appel : ${jsonEncode(request.requestedFields.toList())}
+ ''';
+ 
+   static const _nullableString = {'type': ['string', 'null']};
+ 
+   static const _quickSchema = {
+     'type': 'object',
+     'additionalProperties': false,
+     'required': [
+       'isUsableImage',
+       'rejectionReason',
+       'suggestedName',
+       'category',
+       'preciseType',
+       'primaryColor',
+       'visibleBrand',
+       'globalConfidence',
+       'fieldConfidences',
+       'warnings',
+     ],
+     'properties': {
+       'isUsableImage': {'type': 'boolean'},
+diff --git a/lib/features/scanner/analysis/wardrobe_import_service.dart b/lib/features/scanner/analysis/wardrobe_import_service.dart
+index fdec74eb774d3981a684eead0878079e9c512303..c353f83284afcb3d1edc33df800651d52362b9d2 100644
+--- a/lib/features/scanner/analysis/wardrobe_import_service.dart
++++ b/lib/features/scanner/analysis/wardrobe_import_service.dart
+@@ -182,50 +182,51 @@ class WardrobeImportService extends ChangeNotifier {
+       final taskId = _tasks[index].id;
+       unawaited(_process(_tasks[index]).whenComplete(() {
+         _running--;
+         _pump();
+         if (_running == 0 && pending == 0) {
+           _events.add(WardrobeImportEvent(WardrobeImportEventType.importFinished, taskId));
+         }
+       }));
+     }
+   }
+ 
+   Future<void> _process(WardrobeImportTask original) async {
+     final total = Stopwatch()..start();
+     try {
+       var task = await _replace(original.copyWith(status: WardrobeImportStatus.quickAnalysis,
+         attempt: original.attempt + 1, userMessage: null));
+       final preparation = Stopwatch()..start();
+       final validation = await const GarmentImageValidator().validateFile(task.photoPath);
+       if (!validation.isValid) throw GarmentAnalysisException(GarmentAnalysisError.rejectedImage,
+         validation.rejectionReason ?? 'Cette photo ne permet pas d’identifier un vêtement.');
+       final bytes = await File(task.photoPath).readAsBytes();
+       final request = GarmentAnalysisRequest(imageBytes: bytes,
+         mimeType: GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
+         allowedCategories: importCategories, allowedColors: importColors,
+         allowedMaterials: importMaterials,
++        allowedSeasons: const <String>[],
+         requestedFields: importEnrichmentFields);
+       preparation.stop();
+       final quickWatch = Stopwatch()..start();
+       final quick = _validated(await analyzer.analyzeQuick(request));
+       quickWatch.stop();
+       if (!quick.isUsableImage || (quick.category == null && quick.preciseType == null)) {
+         throw GarmentAnalysisException(GarmentAnalysisError.rejectedImage,
+           quick.rejectionReason ?? 'Le vêtement n’est pas suffisamment visible.');
+       }
+       final creation = Stopwatch()..start();
+       final garment = _quickGarment(task, quick);
+       await database.insertGarment(garment);
+       creation.stop();
+       task = await _replace(task.copyWith(status: WardrobeImportStatus.enriching,
+         garmentId: garment.id, quickResult: quick, timings: {...task.timings,
+           'preparation': preparation.elapsedMilliseconds, 'quick': quickWatch.elapsedMilliseconds,
+           'creation': creation.elapsedMilliseconds}));
+ 
+       final enrichmentWatch = Stopwatch()..start();
+       final enriched = _validated(await analyzer.enrich(request.copyWith(
+         phase: GarmentAnalysisPhase.enrichment, previousAnalysis: quick.toJson(),
+         requestedFields: importEnrichmentFields)));
+       enrichmentWatch.stop();
+       await _mergeEnrichment(garment.id, quick, enriched);
+       total.stop();
+diff --git a/lib/features/scanner/capture/garment_capture.dart b/lib/features/scanner/capture/garment_capture.dart
+index 673797f0502144868d2413ba5c1bf77b9a752dc7..eea676bcf6e370b6c547fd1d9cf1bda50f2484c1 100644
+--- a/lib/features/scanner/capture/garment_capture.dart
++++ b/lib/features/scanner/capture/garment_capture.dart
+@@ -1,19 +1,132 @@
++import 'package:camera/camera.dart';
++import 'package:flutter/widgets.dart';
+ import 'package:image_picker/image_picker.dart';
+ 
+ /// Boundary around the current native camera hand-off. A CameraController
+ /// implementation can replace it later without changing import persistence.
+ abstract interface class GarmentCapture {
+   Future<String?> capture();
+ }
+ 
++/// Test seam for the lifecycle of an integrated camera session.
++abstract interface class CameraCaptureSession implements GarmentCapture {
++  CameraController? get controller;
++  bool get isInitialized;
++  bool get isCapturing;
++  Future<void> initialize();
++  Future<void> resume();
++  Future<void> suspend();
++  Future<void> setFlashMode(FlashMode mode);
++  Future<void> setFocusPoint(Offset point);
++  Future<void> dispose();
++}
++
+ class ImagePickerGarmentCapture implements GarmentCapture {
+   final ImagePicker picker;
+   ImagePickerGarmentCapture({ImagePicker? picker}) : picker = picker ?? ImagePicker();
+ 
+   @override
+   Future<String?> capture() async => (await picker.pickImage(
+     source: ImageSource.camera,
+     imageQuality: 90,
+     maxWidth: 1800,
+   ))?.path;
+ }
++
++/// Long-lived, in-app capture session used by bulk import.
++///
++/// Keeping controller ownership here makes the screen and the analysis pipeline
++/// independent from the camera plugin, and allows the session to be faked.
++class CameraGarmentCapture implements CameraCaptureSession {
++  CameraController? _controller;
++  Future<void>? _initialization;
++  bool _disposed = false;
++  bool _capturing = false;
++  int _generation = 0;
++
++  CameraController? get controller => _controller;
++  bool get isInitialized => _controller?.value.isInitialized ?? false;
++  bool get isCapturing => _capturing;
++
++  Future<void> initialize() async {
++    if (_disposed || isInitialized) return;
++    final pending = _initialization;
++    if (pending != null) return pending;
++    final operation = _initializeController();
++    _initialization = operation;
++    try {
++      await operation;
++    } finally {
++      if (identical(_initialization, operation)) _initialization = null;
++    }
++  }
++
++  Future<void> _initializeController() async {
++    final generation = _generation;
++    final cameras = await availableCameras();
++    if (cameras.isEmpty) {
++      throw CameraException('cameraUnavailable', 'Aucune caméra disponible.');
++    }
++    final selected = cameras.where((camera) => camera.lensDirection == CameraLensDirection.back)
++        .firstOrNull ?? cameras.first;
++    final next = CameraController(
++      selected,
++      ResolutionPreset.high,
++      enableAudio: false,
++      imageFormatGroup: ImageFormatGroup.jpeg,
++    );
++    await next.initialize();
++    if (_disposed || generation != _generation) {
++      await next.dispose();
++      return;
++    }
++    _controller = next;
++    try { await next.setFlashMode(FlashMode.auto); } on CameraException { /* Optional hardware feature. */ }
++    try { await next.setFocusMode(FocusMode.auto); } on CameraException { /* Autofocus is normally the default. */ }
++  }
++
++  @override
++  Future<String?> capture() async {
++    final active = _controller;
++    if (_disposed || _capturing || active == null || !active.value.isInitialized) return null;
++    _capturing = true;
++    try {
++      return (await active.takePicture()).path;
++    } finally {
++      _capturing = false;
++    }
++  }
++
++  Future<void> setFlashMode(FlashMode mode) async {
++    final active = _controller;
++    if (!_disposed && active != null && active.value.isInitialized) await active.setFlashMode(mode);
++  }
++
++  Future<void> setFocusPoint(Offset point) async {
++    final active = _controller;
++    if (!_disposed && active != null && active.value.isInitialized) await active.setFocusPoint(point);
++  }
++
++  Future<void> suspend() async {
++    _generation++;
++    final previous = _controller;
++    _controller = null;
++    await previous?.dispose();
++  }
++
++  Future<void> resume() async {
++    await initialize();
++    // A permission dialog may send the app inactive while initialization is in
++    // flight; in that case suspend invalidates the first controller.
++    if (!_disposed && !isInitialized) {
++      await Future<void>.delayed(Duration.zero);
++      await initialize();
++    }
++  }
++
++  Future<void> dispose() async {
++    if (_disposed) return;
++    _disposed = true;
++    await suspend();
++  }
++}
+diff --git a/lib/features/scanner/wardrobe_import_screen.dart b/lib/features/scanner/wardrobe_import_screen.dart
+index bf82bb1854569b4aed3fbe6d662cccf5cb88bd9d..ba6f9393c69d21e7b44265fcb65b98fb2ae187ca 100644
+--- a/lib/features/scanner/wardrobe_import_screen.dart
++++ b/lib/features/scanner/wardrobe_import_screen.dart
+@@ -1,140 +1,224 @@
++import 'dart:async';
+ import 'dart:io';
+ 
++import 'package:camera/camera.dart';
+ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ 
+ import '../../data/image_storage_service.dart';
+ import 'analysis/wardrobe_import_service.dart';
+ import 'capture/garment_capture.dart';
+ 
+ class WardrobeImportScreen extends StatefulWidget {
+-  const WardrobeImportScreen({super.key});
++  final CameraCaptureSession? cameraCapture;
++  final GarmentCapture? fallbackCapture;
++  const WardrobeImportScreen({super.key, this.cameraCapture, this.fallbackCapture});
+   @override
+   State<WardrobeImportScreen> createState() => _WardrobeImportScreenState();
+ }
+ 
+ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with WidgetsBindingObserver {
+-  final capture = ImagePickerGarmentCapture();
++  late final CameraCaptureSession capture;
++  late final GarmentCapture fallbackCapture;
+   final service = WardrobeImportService.instance;
+   WardrobeImportTask? lastCapture;
+   bool capturing = false;
++  bool cameraLoading = true;
++  String? cameraError;
++  FlashMode flashMode = FlashMode.auto;
+   String message = 'Cadrez un vêtement, puis photographiez-le.';
+ 
+   @override
+   void initState() {
+     super.initState();
++    capture = widget.cameraCapture ?? CameraGarmentCapture();
++    fallbackCapture = widget.fallbackCapture ?? ImagePickerGarmentCapture();
+     WidgetsBinding.instance.addObserver(this);
+     service.addListener(_refresh);
+     service.initialize();
++    _initializeCamera();
+   }
+ 
+   @override
+   void didChangeAppLifecycleState(AppLifecycleState state) {
+-    if (state == AppLifecycleState.resumed) service.resume();
++    if (state == AppLifecycleState.resumed) {
++      service.resume();
++      _initializeCamera();
++    } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
++      unawaited(capture.suspend());
++      if (mounted) setState(() => cameraLoading = true);
++    }
++  }
++
++  Future<void> _initializeCamera() async {
++    if (!mounted) return;
++    setState(() { cameraLoading = true; cameraError = null; });
++    try {
++      await capture.resume();
++      if (mounted) setState(() => cameraLoading = false);
++    } on CameraException catch (error) {
++      if (!mounted) return;
++      setState(() {
++        cameraLoading = false;
++        cameraError = error.code == 'CameraAccessDenied' || error.code == 'CameraAccessDeniedWithoutPrompt'
++            ? 'Accès à la caméra refusé. Autorisez-le dans les réglages ou utilisez la caméra système.'
++            : 'La caméra intégrée est indisponible. Vous pouvez poursuivre avec la caméra système.';
++      });
++    } catch (_) {
++      if (mounted) setState(() { cameraLoading = false; cameraError = 'Impossible d’initialiser la caméra intégrée.'; });
++    }
+   }
+ 
+   void _refresh() { if (mounted) setState(() {}); }
+ 
+   @override
+   void dispose() {
+     WidgetsBinding.instance.removeObserver(this);
+     service.removeListener(_refresh);
++    unawaited(capture.dispose());
+     super.dispose();
+   }
+ 
+-  Future<void> _capture() async {
++  Future<void> _capture({bool useFallback = false}) async {
+     if (capturing) return;
+     final watch = Stopwatch()..start();
+     setState(() => capturing = true);
+     String? persisted;
+     try {
+-      final photoPath = await capture.capture();
++      final photoPath = await (useFallback ? fallbackCapture : capture).capture();
+       if (photoPath == null) return;
+       persisted = await ImageStorageService.persist(photoPath);
+       watch.stop();
+       final task = await service.enqueue(persisted, captureDuration: watch.elapsed);
+       persisted = null;
+       await HapticFeedback.mediumImpact();
+       if (mounted) setState(() {
+         lastCapture = task;
+         message = 'Photo enregistrée — vous pouvez continuer.';
+       });
+     } catch (_) {
+       if (persisted != null) await File(persisted).delete().catchError((_) => File(persisted!));
+       if (mounted) setState(() => message = 'Impossible d’enregistrer la photo. Réessayez.');
+     } finally {
+       if (mounted) setState(() => capturing = false);
+     }
+   }
+ 
++  Future<void> _toggleFlash() async {
++    final next = switch (flashMode) {
++      FlashMode.auto => FlashMode.always,
++      FlashMode.always || FlashMode.torch => FlashMode.off,
++      FlashMode.off => FlashMode.auto,
++    };
++    try {
++      await capture.setFlashMode(next);
++      if (mounted) setState(() => flashMode = next);
++    } catch (_) {
++      if (mounted) setState(() => message = 'Ce mode de flash n’est pas disponible.');
++    }
++  }
++
++  Future<void> _focus(TapDownDetails details, BoxConstraints constraints) async {
++    final point = Offset(
++      (details.localPosition.dx / constraints.maxWidth).clamp(0.0, 1.0),
++      (details.localPosition.dy / constraints.maxHeight).clamp(0.0, 1.0),
++    );
++    try { await capture.setFocusPoint(point); } catch (_) { /* Autofocus remains active. */ }
++  }
++
+   Future<void> _cancelLast({bool retake = false}) async {
+     final task = lastCapture;
+     if (task == null) return;
+     final cancelled = await service.cancel(task.id);
+     if (!mounted) return;
+     setState(() {
+       if (cancelled) lastCapture = null;
+       message = cancelled ? 'Capture annulée.' : 'L’analyse a déjà commencé ; la fiche reste en cours.';
+     });
+     if (cancelled && retake) await _capture();
+   }
+ 
+   Future<void> _finish() async {
+     await Navigator.push(context, MaterialPageRoute(builder: (_) => const WardrobeImportSummaryScreen()));
+   }
+ 
+   @override
+   Widget build(BuildContext context) => Scaffold(
+     appBar: AppBar(title: const Text('Importer mon dressing'), actions: [TextButton(onPressed: _finish, child: const Text('Terminer'))]),
+     body: SafeArea(child: Column(children: [
+       Padding(padding: const EdgeInsets.all(12), child: Wrap(spacing: 8, runSpacing: 8, children: [
+         _Count('Capturés', service.captured), _Count('En attente', service.pending),
+         _Count('En analyse', service.analyzing), _Count('Terminés', service.completed),
+         _Count('À vérifier', service.needsReview),
+       ])),
+       Expanded(child: Stack(fit: StackFit.expand, children: [
+-        Container(color: Colors.black87, child: const Center(child: Icon(Icons.camera_alt_outlined, color: Colors.white54, size: 96))),
++        ColoredBox(color: Colors.black, child: _cameraBody()),
++        if (capture.isInitialized) Positioned(right: 12, top: 12, child: IconButton.filledTonal(
++          tooltip: 'Flash : ${flashMode.name}', onPressed: _toggleFlash,
++          icon: Icon(flashMode == FlashMode.auto ? Icons.flash_auto : flashMode == FlashMode.off ? Icons.flash_off : Icons.flash_on))),
+         if (lastCapture case final task?) Positioned(left: 16, right: 16, bottom: 16,
+           child: Card(color: Colors.black87, child: Padding(padding: const EdgeInsets.all(10), child: Row(children: [
+             ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(File(task.photoPath), width: 64, height: 64, fit: BoxFit.cover)),
+             const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+               const Text('Dernière photo', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+               Row(children: [TextButton(onPressed: () => _cancelLast(retake: true), child: const Text('Reprendre')),
+                 TextButton(onPressed: _cancelLast, child: const Text('Annuler'))]),
+             ])),
+           ])))),
+       ])),
+       Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 20), child: Column(children: [
+         Text(message, textAlign: TextAlign.center), const SizedBox(height: 12),
+         Semantics(label: 'Photographier le vêtement suivant', button: true, child: FloatingActionButton.large(
+-          heroTag: 'bulkCapture', onPressed: capturing ? null : _capture,
++          heroTag: 'bulkCapture', onPressed: capturing || !capture.isInitialized ? null : _capture,
+           child: Icon(capturing ? Icons.hourglass_top : Icons.camera_alt))),
+         const SizedBox(height: 8), Text(service.analyzing == 0 ? 'Prêt pour la prochaine photo' : '${service.analyzing} vêtement(s) en cours d’analyse'),
+       ])),
+     ])),
+   );
++
++  Widget _cameraBody() {
++    if (cameraLoading) return const Center(child: CircularProgressIndicator());
++    if (cameraError case final error?) {
++      return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
++        const Icon(Icons.no_photography_outlined, color: Colors.white, size: 56),
++        const SizedBox(height: 12), Text(error, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
++        const SizedBox(height: 16), FilledButton.icon(onPressed: capturing ? null : () => _capture(useFallback: true),
++          icon: const Icon(Icons.open_in_new), label: const Text('Utiliser la caméra système')),
++        TextButton(onPressed: _initializeCamera, child: const Text('Réessayer')),
++      ])));
++    }
++    final controller = capture.controller;
++    if (controller == null || !controller.value.isInitialized) {
++      return const Center(child: Text('Aucune caméra disponible', style: TextStyle(color: Colors.white)));
++    }
++    return LayoutBuilder(builder: (context, constraints) => GestureDetector(
++      behavior: HitTestBehavior.opaque,
++      onTapDown: (details) => _focus(details, constraints),
++      child: Center(child: CameraPreview(controller)),
++    ));
++  }
+ }
+ 
+ class _Count extends StatelessWidget {
+   final String label; final int value;
+   const _Count(this.label, this.value);
+   @override Widget build(BuildContext context) => Chip(label: Text('$label  $value'));
+ }
+ 
+ class WardrobeImportSummaryScreen extends StatefulWidget {
+   const WardrobeImportSummaryScreen({super.key});
+   @override State<WardrobeImportSummaryScreen> createState() => _WardrobeImportSummaryScreenState();
+ }
+ 
+ class _WardrobeImportSummaryScreenState extends State<WardrobeImportSummaryScreen> {
+   final service = WardrobeImportService.instance;
+   @override void initState() { super.initState(); service.addListener(_refresh); }
+   void _refresh() { if (mounted) setState(() {}); }
+   @override void dispose() { service.removeListener(_refresh); super.dispose(); }
+   @override Widget build(BuildContext context) {
+     final active = service.pending + service.analyzing;
+     return Scaffold(appBar: AppBar(title: const Text('Récapitulatif')), body: ListView(padding: const EdgeInsets.all(20), children: [
+       Text('${service.captured} vêtements capturés', style: Theme.of(context).textTheme.headlineSmall),
+       const SizedBox(height: 16), Text('${service.completed + service.needsReview} fiches déjà créées'),
+       Text('$active analyses en cours'), Text('${service.needsReview} nécessitent votre attention'), Text('${service.failed} échecs'),
+       if (active > 0) const Padding(padding: EdgeInsets.only(top: 12), child: Text('Vous pouvez fermer cet écran : les analyses continuent tant que l’application reste active.')),
+diff --git a/pubspec.yaml b/pubspec.yaml
+index 4bb8bb07ea5fac53e7bd5a316d345c4b67038846..bdcd7e6b58afab970f4952960eb1505c89a109c4 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -1,33 +1,34 @@
+ name: wardrobeos
+ description: Base complete et evolutive de WardrobeOS.
+ publish_to: "none"
+ version: 0.8.0+9
+ 
+ environment:
+   sdk: ">=3.7.0 <4.0.0"
+ 
+ dependencies:
+   flutter:
+     sdk: flutter
+   cupertino_icons: ^1.0.8
+   sqflite: ^2.4.3
+   path: ^1.9.1
+   path_provider: ^2.1.5
+   image_picker: ^1.2.1
++  camera: ^0.11.2+1
+   uuid: ^4.5.3
+   image: ^4.9.1
+   geolocator: ^14.0.2
+   geocoding: ^4.0.0
+   http: ^1.4.0
+   flutter_secure_storage: ^9.2.4
+   file_picker: ^10.3.3
+   archive: ^4.0.9
+   crypto: ^3.0.6
+ 
+ dev_dependencies:
+   flutter_test:
+     sdk: flutter
+   flutter_lints: ^5.0.0
+ 
+ flutter:
+   uses-material-design: true
+diff --git a/test/features/scanner/wardrobe_import_rc7_8_1_contract_test.dart b/test/features/scanner/wardrobe_import_rc7_8_1_contract_test.dart
+index 69fb23c068ccf1defeb26827fccdb7d0b0888dce..bdf53b064dc02c9e82d077b71daf58d557407620 100644
+--- a/test/features/scanner/wardrobe_import_rc7_8_1_contract_test.dart
++++ b/test/features/scanner/wardrobe_import_rc7_8_1_contract_test.dart
+@@ -11,29 +11,29 @@ void main() {
+       expect(RegExp(r'_createWardrobeImportTable\(db\)').allMatches(source).length,
+         greaterThanOrEqualTo(2));
+       expect(source, contains('CREATE TABLE IF NOT EXISTS wardrobe_import_tasks'));
+     });
+ 
+     test('bulk schema contains no abandoned or secondary fields', () {
+       final source = File('lib/features/scanner/ai/openai_garment_vision_analyzer.dart')
+         .readAsStringSync();
+       final start = source.indexOf('static const _essentialEnrichmentSchema');
+       final end = source.indexOf('static const _schema', start + 1);
+       final schema = source.substring(start, end);
+       expect(schema, contains("'detectedFeatures'"));
+       expect(schema, isNot(contains("'season'")));
+       expect(schema, isNot(contains("'idealOccasions'")));
+       expect(schema, isNot(contains("'styleSummary'")));
+       expect(schema, isNot(contains("'requestedPhoto'")));
+     });
+ 
+     test('ImagePicker boundary returns null without creating import work', () {
+       final capture = File('lib/features/scanner/capture/garment_capture.dart').readAsStringSync();
+       final screen = File('lib/features/scanner/wardrobe_import_screen.dart').readAsStringSync();
+       expect(capture, contains('Future<String?> capture()'));
+       expect(screen, contains('if (photoPath == null) return;'));
+       expect(screen.indexOf('if (photoPath == null) return;'),
+         lessThan(screen.indexOf('service.enqueue')));
+-      expect(screen, contains('onPressed: capturing ? null : _capture'));
++      expect(screen, contains('capturing || !capture.isInitialized ? null : _capture'));
+     });
+   });
+ }
+diff --git a/test/features/scanner/wardrobe_import_rc7_8_2_contract_test.dart b/test/features/scanner/wardrobe_import_rc7_8_2_contract_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..cc030f89286f7712c0689fa58e63152b3e6eb296
+--- /dev/null
++++ b/test/features/scanner/wardrobe_import_rc7_8_2_contract_test.dart
+@@ -0,0 +1,58 @@
++import 'dart:io';
++
++import 'package:flutter_test/flutter_test.dart';
++
++void main() {
++  group('RC7.8.2 integrated capture contract', () {
++    late String request;
++    late String provider;
++    late String service;
++    late String capture;
++    late String screen;
++
++    setUpAll(() {
++      request = File('lib/features/scanner/ai/garment_analysis_request.dart').readAsStringSync();
++      provider = File('lib/features/scanner/ai/openai_garment_vision_analyzer.dart').readAsStringSync();
++      service = File('lib/features/scanner/analysis/wardrobe_import_service.dart').readAsStringSync();
++      capture = File('lib/features/scanner/capture/garment_capture.dart').readAsStringSync();
++      screen = File('lib/features/scanner/wardrobe_import_screen.dart').readAsStringSync();
++    });
++
++    test('bulk import explicitly supplies no seasons and provider omits an empty list', () {
++      expect(request, contains('required this.allowedSeasons'));
++      expect(service, contains('allowedSeasons: const <String>[]'));
++      expect(provider, contains("request.allowedSeasons.isEmpty ? ''"));
++    });
++
++    test('one testable controller session supports repeated guarded captures', () {
++      expect(capture, contains('abstract interface class CameraCaptureSession'));
++      expect(capture, contains("if (pending != null) return pending"));
++      expect(capture, contains("if (_disposed || _capturing"));
++      expect(capture, contains('active.takePicture()'));
++      expect(screen, contains('CameraPreview(controller)'));
++      expect(screen, contains('persisted = await ImageStorageService.persist(photoPath)'));
++      expect(screen, contains('service.enqueue(persisted'));
++    });
++
++    test('camera lifecycle releases, resumes and disposes the controller', () {
++      expect(screen, contains('AppLifecycleState.paused'));
++      expect(screen, contains('capture.suspend()'));
++      expect(screen, contains('capture.resume()'));
++      expect(screen, contains('capture.dispose()'));
++      expect(capture, contains('generation != _generation'));
++    });
++
++    test('failure states retain ImagePicker as an explicit fallback', () {
++      expect(screen, contains('CameraAccessDenied'));
++      expect(screen, contains('Aucune caméra disponible'));
++      expect(screen, contains('ImagePickerGarmentCapture()'));
++      expect(screen, contains('Utiliser la caméra système'));
++    });
++
++    test('retake delegates cancellation and keeps the preview in the tree', () {
++      expect(screen, contains('service.cancel(task.id)'));
++      expect(screen, contains('_cancelLast(retake: true)'));
++      expect(screen, isNot(contains('ImageSource.camera')));
++    });
++  });
++}

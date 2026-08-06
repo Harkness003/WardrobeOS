@@ -33,7 +33,7 @@ void main() {
       expect(screen, contains('if (photoPath == null) return;'));
       expect(screen.indexOf('if (photoPath == null) return;'),
         lessThan(screen.indexOf('service.enqueue')));
-      expect(screen, contains('onPressed: capturing ? null : _capture'));
+      expect(screen, contains('capturing || !capture.isInitialized ? null : _capture'));
     });
   });
 }

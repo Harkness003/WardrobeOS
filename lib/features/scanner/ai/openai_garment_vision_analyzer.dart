@@ -264,7 +264,7 @@ conclure (intérieur invisible, matière estimée, vêtement masqué, par exempl
 category=${jsonEncode(request.allowedCategories)}
 primaryColor=${jsonEncode(request.allowedColors)}
 material=${jsonEncode(request.allowedMaterials)}
-season=${jsonEncode(request.allowedSeasons)}
+${request.allowedSeasons.isEmpty ? '' : 'season=${jsonEncode(request.allowedSeasons)}'}
 Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
 ${jsonEncode(request.existingValues)}
 Analyse cumulée précédente : ${jsonEncode(request.previousAnalysis)}

@@ -204,6 +204,7 @@ class WardrobeImportService extends ChangeNotifier {
         mimeType: GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
         allowedCategories: importCategories, allowedColors: importColors,
         allowedMaterials: importMaterials,
+        allowedSeasons: const <String>[],
         requestedFields: importEnrichmentFields);
       preparation.stop();
       final quickWatch = Stopwatch()..start();

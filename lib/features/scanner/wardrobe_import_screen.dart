@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -8,29 +10,63 @@ import 'analysis/wardrobe_import_service.dart';
 import 'capture/garment_capture.dart';
 
 class WardrobeImportScreen extends StatefulWidget {
-  const WardrobeImportScreen({super.key});
+  final CameraCaptureSession? cameraCapture;
+  final GarmentCapture? fallbackCapture;
+  const WardrobeImportScreen({super.key, this.cameraCapture, this.fallbackCapture});
   @override
   State<WardrobeImportScreen> createState() => _WardrobeImportScreenState();
 }
 
 class _WardrobeImportScreenState extends State<WardrobeImportScreen> with WidgetsBindingObserver {
-  final capture = ImagePickerGarmentCapture();
+  late final CameraCaptureSession capture;
+  late final GarmentCapture fallbackCapture;
   final service = WardrobeImportService.instance;
   WardrobeImportTask? lastCapture;
   bool capturing = false;
+  bool cameraLoading = true;
+  String? cameraError;
+  FlashMode flashMode = FlashMode.auto;
   String message = 'Cadrez un vêtement, puis photographiez-le.';
 
   @override
   void initState() {
     super.initState();
+    capture = widget.cameraCapture ?? CameraGarmentCapture();
+    fallbackCapture = widget.fallbackCapture ?? ImagePickerGarmentCapture();
     WidgetsBinding.instance.addObserver(this);
     service.addListener(_refresh);
     service.initialize();
+    _initializeCamera();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) service.resume();
+    if (state == AppLifecycleState.resumed) {
+      service.resume();
+      _initializeCamera();
+    } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      unawaited(capture.suspend());
+      if (mounted) setState(() => cameraLoading = true);
+    }
+  }
+
+  Future<void> _initializeCamera() async {
+    if (!mounted) return;
+    setState(() { cameraLoading = true; cameraError = null; });
+    try {
+      await capture.resume();
+      if (mounted) setState(() => cameraLoading = false);
+    } on CameraException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        cameraLoading = false;
+        cameraError = error.code == 'CameraAccessDenied' || error.code == 'CameraAccessDeniedWithoutPrompt'
+            ? 'Accès à la caméra refusé. Autorisez-le dans les réglages ou utilisez la caméra système.'
+            : 'La caméra intégrée est indisponible. Vous pouvez poursuivre avec la caméra système.';
+      });
+    } catch (_) {
+      if (mounted) setState(() { cameraLoading = false; cameraError = 'Impossible d’initialiser la caméra intégrée.'; });
+    }
   }
 
   void _refresh() { if (mounted) setState(() {}); }
@@ -39,16 +75,17 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     service.removeListener(_refresh);
+    unawaited(capture.dispose());
     super.dispose();
   }
 
-  Future<void> _capture() async {
+  Future<void> _capture({bool useFallback = false}) async {
     if (capturing) return;
     final watch = Stopwatch()..start();
     setState(() => capturing = true);
     String? persisted;
     try {
-      final photoPath = await capture.capture();
+      final photoPath = await (useFallback ? fallbackCapture : capture).capture();
       if (photoPath == null) return;
       persisted = await ImageStorageService.persist(photoPath);
       watch.stop();
@@ -65,6 +102,28 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
     } finally {
       if (mounted) setState(() => capturing = false);
     }
+  }
+
+  Future<void> _toggleFlash() async {
+    final next = switch (flashMode) {
+      FlashMode.auto => FlashMode.always,
+      FlashMode.always || FlashMode.torch => FlashMode.off,
+      FlashMode.off => FlashMode.auto,
+    };
+    try {
+      await capture.setFlashMode(next);
+      if (mounted) setState(() => flashMode = next);
+    } catch (_) {
+      if (mounted) setState(() => message = 'Ce mode de flash n’est pas disponible.');
+    }
+  }
+
+  Future<void> _focus(TapDownDetails details, BoxConstraints constraints) async {
+    final point = Offset(
+      (details.localPosition.dx / constraints.maxWidth).clamp(0.0, 1.0),
+      (details.localPosition.dy / constraints.maxHeight).clamp(0.0, 1.0),
+    );
+    try { await capture.setFocusPoint(point); } catch (_) { /* Autofocus remains active. */ }
   }
 
   Future<void> _cancelLast({bool retake = false}) async {
@@ -93,7 +152,10 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
         _Count('À vérifier', service.needsReview),
       ])),
       Expanded(child: Stack(fit: StackFit.expand, children: [
-        Container(color: Colors.black87, child: const Center(child: Icon(Icons.camera_alt_outlined, color: Colors.white54, size: 96))),
+        ColoredBox(color: Colors.black, child: _cameraBody()),
+        if (capture.isInitialized) Positioned(right: 12, top: 12, child: IconButton.filledTonal(
+          tooltip: 'Flash : ${flashMode.name}', onPressed: _toggleFlash,
+          icon: Icon(flashMode == FlashMode.auto ? Icons.flash_auto : flashMode == FlashMode.off ? Icons.flash_off : Icons.flash_on))),
         if (lastCapture case final task?) Positioned(left: 16, right: 16, bottom: 16,
           child: Card(color: Colors.black87, child: Padding(padding: const EdgeInsets.all(10), child: Row(children: [
             ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(File(task.photoPath), width: 64, height: 64, fit: BoxFit.cover)),
@@ -107,12 +169,34 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
       Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 20), child: Column(children: [
         Text(message, textAlign: TextAlign.center), const SizedBox(height: 12),
         Semantics(label: 'Photographier le vêtement suivant', button: true, child: FloatingActionButton.large(
-          heroTag: 'bulkCapture', onPressed: capturing ? null : _capture,
+          heroTag: 'bulkCapture', onPressed: capturing || !capture.isInitialized ? null : _capture,
           child: Icon(capturing ? Icons.hourglass_top : Icons.camera_alt))),
         const SizedBox(height: 8), Text(service.analyzing == 0 ? 'Prêt pour la prochaine photo' : '${service.analyzing} vêtement(s) en cours d’analyse'),
       ])),
     ])),
   );
+
+  Widget _cameraBody() {
+    if (cameraLoading) return const Center(child: CircularProgressIndicator());
+    if (cameraError case final error?) {
+      return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.no_photography_outlined, color: Colors.white, size: 56),
+        const SizedBox(height: 12), Text(error, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
+        const SizedBox(height: 16), FilledButton.icon(onPressed: capturing ? null : () => _capture(useFallback: true),
+          icon: const Icon(Icons.open_in_new), label: const Text('Utiliser la caméra système')),
+        TextButton(onPressed: _initializeCamera, child: const Text('Réessayer')),
+      ])));
+    }
+    final controller = capture.controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return const Center(child: Text('Aucune caméra disponible', style: TextStyle(color: Colors.white)));
+    }
+    return LayoutBuilder(builder: (context, constraints) => GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (details) => _focus(details, constraints),
+      child: Center(child: CameraPreview(controller)),
+    ));
+  }
 }
 
 class _Count extends StatelessWidget {
