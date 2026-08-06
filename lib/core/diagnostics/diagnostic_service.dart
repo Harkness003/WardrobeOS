@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
-enum DiagnosticLevel { info, warning, error, success }
+enum AppDiagnosticLevel { info, warning, error, success }
 
 enum DiagnosticModule {
   scanner('Scanner'),
@@ -22,12 +22,12 @@ enum DiagnosticModule {
 
 class DiagnosticStep {
   final String name;
-  final DiagnosticLevel level;
+  final AppDiagnosticLevel level;
   final Duration duration;
   final String? detail;
 
   const DiagnosticStep(this.name, {
-    this.level = DiagnosticLevel.success,
+    this.level = AppDiagnosticLevel.success,
     this.duration = Duration.zero,
     this.detail,
   });
@@ -43,7 +43,7 @@ class DiagnosticStep {
 class DiagnosticEntry {
   final String id;
   final DiagnosticModule module;
-  final DiagnosticLevel level;
+  final AppDiagnosticLevel level;
   final String state;
   final String summary;
   final String? reason;
@@ -114,7 +114,7 @@ class DiagnosticService extends ChangeNotifier {
 
   void publish({
     required DiagnosticModule module,
-    required DiagnosticLevel level,
+    required AppDiagnosticLevel level,
     required String state,
     required String summary,
     required String source,
@@ -146,7 +146,7 @@ class DiagnosticService extends ChangeNotifier {
   }
 
   List<DiagnosticEntry> filtered({
-    Set<DiagnosticLevel>? levels,
+    Set<AppDiagnosticLevel>? levels,
     DiagnosticModule? module,
   }) => entries.where((entry) =>
       (levels == null || levels.contains(entry.level)) &&
@@ -157,7 +157,7 @@ class DiagnosticService extends ChangeNotifier {
     notifyListeners();
   }
 
-  String exportReport({Set<DiagnosticLevel>? levels, DiagnosticModule? module}) {
+  String exportReport({Set<AppDiagnosticLevel>? levels, DiagnosticModule? module}) {
     final report = {
       'reportVersion': 1,
       'applicationVersion': appVersion,

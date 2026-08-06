@@ -64,20 +64,20 @@ class DailyBriefService {
               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
       yield brief;
       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
-        level: brief.state == DailyBriefState.available ? DiagnosticLevel.success : DiagnosticLevel.warning,
+        level: brief.state == DailyBriefState.available ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
         state: brief.state.name, summary: '${brief.outfitProposals.length} proposition(s)',
         source: 'DailyBriefService', duration: stopwatch.elapsed, reason: brief.detail,
         details: {'vêtements': garments.length, 'cartes': brief.cards.length},
         pipeline: [
-          DiagnosticStep('Weather', level: weather.data == null ? DiagnosticLevel.warning : DiagnosticLevel.success),
+          DiagnosticStep('Weather', level: weather.data == null ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
           DiagnosticStep('WardrobeContext', duration: liveContext?.loadDuration ?? Duration.zero),
           const DiagnosticStep('Generation'),
           const DiagnosticStep('Recommendation'),
-          DiagnosticStep('Résultat', level: brief.outfitProposals.isEmpty ? DiagnosticLevel.warning : DiagnosticLevel.success),
+          DiagnosticStep('Résultat', level: brief.outfitProposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
         ]);
     } catch (_) {
       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
-        level: DiagnosticLevel.error, state: 'Interrompu', summary: 'Daily non généré',
+        level: AppDiagnosticLevel.error, state: 'Interrompu', summary: 'Daily non généré',
         source: 'DailyBriefService', duration: stopwatch.elapsed,
         reason: 'Le contexte dressing n’a pas pu être préparé.');
       // Stream errors are converted into an explicit UI state by the screen.

@@ -175,7 +175,7 @@ class AssistantService {
         yield _ensureUsefulResponse(await _llmProvider.generate(prompt));
       }
       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
-        level: DiagnosticLevel.success, state: 'Réponse générée', summary: 'Demande traitée',
+        level: AppDiagnosticLevel.success, state: 'Réponse générée', summary: 'Demande traitée',
         source: 'AssistantService', duration: stopwatch.elapsed,
         details: {'intention': _lastIntent?.type.name ?? 'conversation',
           'tenuesGénérées': _lastOutfitProposals.length},
@@ -183,18 +183,18 @@ class AssistantService {
           const DiagnosticStep('Intention'),
           const DiagnosticStep('WardrobeContext'),
           DiagnosticStep('OutfitGeneration', level: _lastGenerationDiagnostic?.failure == null
-            ? DiagnosticLevel.success : DiagnosticLevel.warning),
+            ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
           DiagnosticStep('Résultat', duration: stopwatch.elapsed),
         ]);
     } on LlmException catch (error) {
       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
-        level: DiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
+        level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
         source: 'AssistantService', duration: stopwatch.elapsed,
         reason: error.message);
       yield error.message;
     } catch (_) {
       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
-        level: DiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
+        level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
         source: 'AssistantService', duration: stopwatch.elapsed,
         reason: 'Le contexte ou le fournisseur de réponse n’a pas terminé.');
       yield 'WardrobeGPT est temporairement indisponible. Réessayez.';

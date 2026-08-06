@@ -86,7 +86,7 @@ class BackupService {
       garmentCount: garments.length, photoCount: photos.length, content: counts),
       sections: data, photos: photos, warnings: warnings);
     DiagnosticService.instance.publish(module: DiagnosticModule.backup,
-      level: warnings.isEmpty ? DiagnosticLevel.success : DiagnosticLevel.warning,
+      level: warnings.isEmpty ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
       state: 'Archive préparée', summary: 'Sauvegarde créée', source: 'BackupService',
       duration: stopwatch.elapsed, warning: warnings.isEmpty ? null : warnings.join(' '),
       details: {'vêtements': garments.length, 'tailleArchiveOctets': encodeBackup(result).length},

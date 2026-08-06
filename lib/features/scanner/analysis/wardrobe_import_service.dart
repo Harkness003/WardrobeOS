@@ -239,7 +239,7 @@ class WardrobeImportService extends ChangeNotifier {
       _events.add(WardrobeImportEvent(WardrobeImportEventType.enrichmentFinished, task.id));
       if (review) _events.add(WardrobeImportEvent(WardrobeImportEventType.needsReview, task.id));
       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeImport,
-        level: review ? DiagnosticLevel.warning : DiagnosticLevel.success,
+        level: review ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success,
         state: review ? 'À vérifier' : 'Terminé', summary: 'Vêtement importé',
         source: 'WardrobeImportService', duration: total.elapsed,
         warning: review ? 'La catégorie, le type ou la couleur mérite une vérification.' : null,
@@ -251,10 +251,10 @@ class WardrobeImportService extends ChangeNotifier {
           DiagnosticStep('Quick', duration: quickWatch.elapsed),
           DiagnosticStep('Création', duration: creation.elapsed),
           DiagnosticStep('Enrichment', duration: enrichmentWatch.elapsed),
-          DiagnosticStep('Thermal', level: review ? DiagnosticLevel.warning : DiagnosticLevel.success),
+          DiagnosticStep('Thermal', level: review ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
         ]);
       DiagnosticService.instance.publish(module: DiagnosticModule.scanner,
-        level: review ? DiagnosticLevel.warning : DiagnosticLevel.success,
+        level: review ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success,
         state: review ? 'Analyse à confirmer' : 'Analyse terminée',
         summary: 'Photo analysée et profil thermique généré',
         source: 'GarmentVisionAnalyzer', duration: total.elapsed,
@@ -265,7 +265,7 @@ class WardrobeImportService extends ChangeNotifier {
           DiagnosticStep('Quick', duration: quickWatch.elapsed),
           DiagnosticStep('Enrichment', duration: enrichmentWatch.elapsed),
           const DiagnosticStep('Thermal'),
-          DiagnosticStep('Résultat', level: review ? DiagnosticLevel.warning : DiagnosticLevel.success),
+          DiagnosticStep('Résultat', level: review ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
         ]);
     } catch (error) {
       total.stop();
@@ -291,22 +291,22 @@ class WardrobeImportService extends ChangeNotifier {
         _events.add(WardrobeImportEvent(WardrobeImportEventType.analysisFailed, current.id));
       }
       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeImport,
-        level: DiagnosticLevel.error, state: 'Interrompu', summary: 'Import non terminé',
+        level: AppDiagnosticLevel.error, state: 'Interrompu', summary: 'Import non terminé',
         source: 'WardrobeImportService', duration: total.elapsed,
         reason: _friendly(error), details: {'tentative': current.attempt},
         pipeline: [
           const DiagnosticStep('Photo'),
-          DiagnosticStep('Quick / Enrichment', level: DiagnosticLevel.error, duration: total.elapsed),
-          const DiagnosticStep('Résultat', level: DiagnosticLevel.error),
+          DiagnosticStep('Quick / Enrichment', level: AppDiagnosticLevel.error, duration: total.elapsed),
+          const DiagnosticStep('Résultat', level: AppDiagnosticLevel.error),
         ]);
       DiagnosticService.instance.publish(module: DiagnosticModule.scanner,
-        level: DiagnosticLevel.error, state: 'Analyse interrompue',
+        level: AppDiagnosticLevel.error, state: 'Analyse interrompue',
         summary: 'La photo n’a pas produit de fiche exploitable',
         source: 'GarmentVisionAnalyzer', duration: total.elapsed,
         reason: _friendly(error), pipeline: [
           const DiagnosticStep('Photo'),
-          DiagnosticStep('Quick / Enrichment', level: DiagnosticLevel.error, duration: total.elapsed),
-          const DiagnosticStep('Résultat', level: DiagnosticLevel.error),
+          DiagnosticStep('Quick / Enrichment', level: AppDiagnosticLevel.error, duration: total.elapsed),
+          const DiagnosticStep('Résultat', level: AppDiagnosticLevel.error),
         ]);
     }
   }

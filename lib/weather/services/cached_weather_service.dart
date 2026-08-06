@@ -52,13 +52,13 @@ class CachedWeatherService implements WeatherService {
       _cached = result;
       _cachedAt = _now();
       DiagnosticService.instance.publish(module: DiagnosticModule.weather,
-        level: DiagnosticLevel.success, state: 'Disponible', summary: 'Météo actualisée',
+        level: AppDiagnosticLevel.success, state: 'Disponible', summary: 'Météo actualisée',
         source: weatherApi.runtimeType.toString(), duration: stopwatch.elapsed,
         details: {'ville': location.city, 'température': result.temperature, 'cache': false});
       return result;
     } catch (error) {
       DiagnosticService.instance.publish(module: DiagnosticModule.weather,
-        level: DiagnosticLevel.error, state: 'Indisponible', summary: 'Actualisation météo impossible',
+        level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Actualisation météo impossible',
         source: weatherApi.runtimeType.toString(), duration: stopwatch.elapsed,
         reason: 'La source météo ou la localisation n’a pas répondu.');
       rethrow;

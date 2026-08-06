@@ -12,7 +12,7 @@ class DeveloperDiagnosticsScreen extends StatefulWidget {
 
 class _DeveloperDiagnosticsScreenState extends State<DeveloperDiagnosticsScreen> {
   final service = DiagnosticService.instance;
-  final Set<DiagnosticLevel> levels = DiagnosticLevel.values.toSet();
+  final Set<AppDiagnosticLevel> levels = AppDiagnosticLevel.values.toSet();
   DiagnosticModule? module;
 
   @override
@@ -55,7 +55,7 @@ class _DeveloperDiagnosticsScreenState extends State<DeveloperDiagnosticsScreen>
               onChanged: (value) => setState(() => module = value),
             ),
             const SizedBox(height: 8),
-            Wrap(spacing: 6, children: DiagnosticLevel.values.map((level) => FilterChip(
+            Wrap(spacing: 6, children: AppDiagnosticLevel.values.map((level) => FilterChip(
               selected: levels.contains(level), label: Text(level.name.toUpperCase()),
               avatar: Icon(_levelIcon(level), size: 18, color: _levelColor(level)),
               onSelected: (selected) => setState(() => selected ? levels.add(level) : levels.remove(level)),
@@ -76,9 +76,11 @@ class _DeveloperDiagnosticsScreenState extends State<DeveloperDiagnosticsScreen>
 
   Future<void> _export() async {
     await Clipboard.setData(ClipboardData(text: service.exportReport(levels: levels, module: module)));
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Rapport anonymisé copié dans le presse-papiers.')),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Rapport anonymisé copié dans le presse-papiers.')),
+      );
+    }
   }
 }
 
@@ -128,16 +130,16 @@ class _DiagnosticCard extends StatelessWidget {
   static String _date(DateTime value) => value.toLocal().toIso8601String().replaceFirst('T', ' ').split('.').first;
 }
 
-IconData _levelIcon(DiagnosticLevel level) => switch (level) {
-  DiagnosticLevel.info => Icons.info_outline,
-  DiagnosticLevel.warning => Icons.warning_amber_rounded,
-  DiagnosticLevel.error => Icons.cancel_outlined,
-  DiagnosticLevel.success => Icons.check_circle_outline,
+IconData _levelIcon(AppDiagnosticLevel level) => switch (level) {
+  AppDiagnosticLevel.info => Icons.info_outline,
+  AppDiagnosticLevel.warning => Icons.warning_amber_rounded,
+  AppDiagnosticLevel.error => Icons.cancel_outlined,
+  AppDiagnosticLevel.success => Icons.check_circle_outline,
 };
 
-Color _levelColor(DiagnosticLevel level) => switch (level) {
-  DiagnosticLevel.info => Colors.blue,
-  DiagnosticLevel.warning => Colors.orange,
-  DiagnosticLevel.error => Colors.red,
-  DiagnosticLevel.success => Colors.green,
+Color _levelColor(AppDiagnosticLevel level) => switch (level) {
+  AppDiagnosticLevel.info => Colors.blue,
+  AppDiagnosticLevel.warning => Colors.orange,
+  AppDiagnosticLevel.error => Colors.red,
+  AppDiagnosticLevel.success => Colors.green,
 };
