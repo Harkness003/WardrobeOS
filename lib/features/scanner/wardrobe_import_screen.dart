@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../data/image_storage_service.dart';
 import 'analysis/wardrobe_import_service.dart';
+import 'capture/garment_capture.dart';
 
 class WardrobeImportScreen extends StatefulWidget {
   const WardrobeImportScreen({super.key});
@@ -14,7 +14,7 @@ class WardrobeImportScreen extends StatefulWidget {
 }
 
 class _WardrobeImportScreenState extends State<WardrobeImportScreen> with WidgetsBindingObserver {
-  final picker = ImagePicker();
+  final capture = ImagePickerGarmentCapture();
   final service = WardrobeImportService.instance;
   WardrobeImportTask? lastCapture;
   bool capturing = false;
@@ -48,9 +48,9 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
     setState(() => capturing = true);
     String? persisted;
     try {
-      final photo = await picker.pickImage(source: ImageSource.camera, imageQuality: 90, maxWidth: 1800);
-      if (photo == null) return;
-      persisted = await ImageStorageService.persist(photo.path);
+      final photoPath = await capture.capture();
+      if (photoPath == null) return;
+      persisted = await ImageStorageService.persist(photoPath);
       watch.stop();
       final task = await service.enqueue(persisted, captureDuration: watch.elapsed);
       persisted = null;

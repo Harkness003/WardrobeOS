@@ -180,12 +180,19 @@ class OpenAiGarmentVisionAnalyzer implements GarmentVisionAnalyzer {
         'type': 'json_schema',
         'name': request.phase == GarmentAnalysisPhase.quick ? 'garment_quick_analysis' : 'garment_analysis',
         'strict': true,
-        'schema': request.phase == GarmentAnalysisPhase.quick ? _quickSchema : _schema,
+        'schema': request.phase == GarmentAnalysisPhase.quick
+            ? _quickSchema
+            : _isEssentialEnrichment(request) ? _essentialEnrichmentSchema : _schema,
       },
     },
   };
 
-  String _prompt(GarmentAnalysisRequest request) => request.phase == GarmentAnalysisPhase.quick ? _quickPrompt(request) : _enrichmentPrompt(request);
+  bool _isEssentialEnrichment(GarmentAnalysisRequest request) =>
+      request.requestedFields.contains('thermalPhysicalProperties');
+
+  String _prompt(GarmentAnalysisRequest request) => request.phase == GarmentAnalysisPhase.quick
+      ? _quickPrompt(request)
+      : _isEssentialEnrichment(request) ? _essentialEnrichmentPrompt(request) : _enrichmentPrompt(request);
 
   String _quickPrompt(GarmentAnalysisRequest request) => '''
 Tu analyses uniquement le vêtement principal visible. Objectif : identification rapide en quelques secondes.
@@ -196,6 +203,18 @@ category=${jsonEncode(request.allowedCategories)}
 primaryColor=${jsonEncode(request.allowedColors)}
 Valeurs déjà saisies (contexte seulement, ne pas prétendre les avoir observées) :
 ${jsonEncode(request.existingValues)}
+''';
+
+  String _essentialEnrichmentPrompt(GarmentAnalysisRequest request) => '''
+Analyse uniquement le vêtement principal visible et complète l'identification précédente.
+Retourne seulement des faits objectifs utiles à la fiche et à ThermalProfile v3 : matière
+si elle est directement observable, composition seulement si elle est lisible, épaisseur,
+doublure, coupe, construction, longueur, ouverture et caractéristiques physiques visibles.
+Utilise null ou une liste vide lorsque l'image ne fournit pas la preuve. N'infère jamais
+une saison, une occasion, un style, une température, une marque ou une composition.
+Ne demande aucune autre photo. L'analyse précédente reste immuable pour l'identité.
+material=${jsonEncode(request.allowedMaterials)}
+Analyse précédente : ${jsonEncode(request.previousAnalysis)}
 ''';
 
   String _enrichmentPrompt(GarmentAnalysisRequest request) => '''
@@ -283,6 +302,54 @@ Champs exclusivement attendus par cet appel : ${jsonEncode(request.requestedFiel
         'items': {
           'type': 'object',
           'additionalProperties': false,
+          'required': ['field', 'confidence'],
+          'properties': {
+            'field': {'type': 'string'},
+            'confidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+          },
+        },
+      },
+      'warnings': {'type': 'array', 'items': {'type': 'string'}},
+    },
+  };
+
+  static const _essentialEnrichmentSchema = {
+    'type': 'object',
+    'additionalProperties': false,
+    'required': [
+      'isUsableImage', 'rejectionReason', 'material', 'compositions',
+      'thickness', 'lining', 'fit', 'construction', 'length', 'opening',
+      'detectedFeatures', 'globalConfidence', 'fieldConfidences', 'warnings',
+    ],
+    'properties': {
+      'isUsableImage': {'type': 'boolean'},
+      'rejectionReason': _nullableString,
+      'material': _nullableString,
+      'compositions': {
+        'type': 'array',
+        'items': {
+          'type': 'object', 'additionalProperties': false,
+          'required': ['section', 'material', 'percentage', 'source'],
+          'properties': {
+            'section': {'type': 'string', 'enum': ['main', 'lining', 'padding']},
+            'material': {'type': 'string'},
+            'percentage': {'type': ['number', 'null'], 'minimum': 0, 'maximum': 100},
+            'source': {'type': 'string', 'enum': ['ocr', 'visual']},
+          },
+        },
+      },
+      'thickness': _nullableString,
+      'lining': _nullableString,
+      'fit': _nullableString,
+      'construction': _nullableString,
+      'length': _nullableString,
+      'opening': _nullableString,
+      'detectedFeatures': {'type': 'array', 'items': {'type': 'string'}},
+      'globalConfidence': {'type': 'number', 'minimum': 0, 'maximum': 1},
+      'fieldConfidences': {
+        'type': 'array',
+        'items': {
+          'type': 'object', 'additionalProperties': false,
           'required': ['field', 'confidence'],
           'properties': {
             'field': {'type': 'string'},

@@ -78,5 +78,19 @@ void main() {
       expect(source, contains('Garment('));
       expect(source, contains('GarmentPhoto('));
     });
+    test('essential enrichment excludes seasons, occasions, and style', () {
+      expect(importEnrichmentFields, containsAll(
+        {'material', 'compositions', 'thermalPhysicalProperties'}));
+      expect(importEnrichmentFields, isNot(contains('season')));
+      expect(importEnrichmentFields, isNot(contains('occasions')));
+      expect(importEnrichmentFields, isNot(contains('style')));
+    });
+    test('enrichment recalculates ThermalProfile v3 from physical evidence', () {
+      expect(source, contains('ThermalProfileInput('));
+      expect(source, contains('thickness: enriched.thickness'));
+      expect(source, contains('detectedFeatures: enriched.detectedFeatures'));
+      expect(source, contains("protected.contains('thermalProfile')"));
+      expect(source, isNot(contains('withCurrentStyleAnalysis')));
+    });
   });
 }

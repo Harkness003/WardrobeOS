@@ -26,8 +26,9 @@ import '../ai/openai_garment_vision_analyzer.dart';
 const importCategories = ['Hauts', 'Chemises', 'Vestes', 'Bas', 'Chaussures', 'Accessoires', 'Autre'];
 const importColors = ['Noir', 'Blanc', 'Gris', 'Bleu marine', 'Bleu', 'Beige', 'Marron', 'Camel', 'Vert', 'Kaki', 'Rouge', 'Bordeaux', 'Rose', 'Violet', 'Jaune', 'Orange'];
 const importMaterials = ['Coton', 'Laine', 'Lin', 'Soie', 'Denim', 'Cuir', 'Textile', 'Synthétique'];
-const importSeasons = ['Toute saison', 'Printemps', 'Été', 'Automne', 'Hiver'];
-const importEnrichmentFields = {'material', 'compositions', 'season', 'style', 'occasions', 'compatibility'};
+const importEnrichmentFields = {
+  'material', 'compositions', 'thermalPhysicalProperties',
+};
 
 enum WardrobeImportStatus { pending, quickAnalysis, enriching, completed, needsReview, failed, cancelled }
 
@@ -202,7 +203,7 @@ class WardrobeImportService extends ChangeNotifier {
       final request = GarmentAnalysisRequest(imageBytes: bytes,
         mimeType: GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
         allowedCategories: importCategories, allowedColors: importColors,
-        allowedMaterials: importMaterials, allowedSeasons: importSeasons,
+        allowedMaterials: importMaterials,
         requestedFields: importEnrichmentFields);
       preparation.stop();
       final quickWatch = Stopwatch()..start();
@@ -265,7 +266,7 @@ class WardrobeImportService extends ChangeNotifier {
     GarmentAnalysisValidator(categoryNormalizer: const GarmentValueNormalizer(importCategories),
       colorNormalizer: const GarmentValueNormalizer(importColors),
       materialNormalizer: const GarmentValueNormalizer(importMaterials),
-      seasonNormalizer: const GarmentValueNormalizer(importSeasons)).validate(raw).analysis);
+      seasonNormalizer: const GarmentValueNormalizer([])).validate(raw).analysis);
 
   Garment _quickGarment(WardrobeImportTask task, GarmentAnalysisResult quick) {
     final now = DateTime.now();
@@ -288,7 +289,7 @@ class WardrobeImportService extends ChangeNotifier {
       currentAnalysis: GarmentAnalysisSnapshot(version: 'scanner-v1:${OpenAiGarmentVisionAnalyzer.defaultModel}',
         analyzedAt: now, values: quick.toJson().cast<String, Object?>()),
       notes: _needsReview(quick) ? 'Import rapide · à vérifier' : 'Import rapide · validé automatiquement',
-      createdAt: now, updatedAt: now).withCurrentStyleAnalysis(calculatedAt: now);
+      createdAt: now, updatedAt: now);
   }
 
   Future<void> _mergeEnrichment(String id, GarmentAnalysisResult quick, GarmentAnalysisResult enriched) async {
@@ -302,9 +303,33 @@ class WardrobeImportService extends ChangeNotifier {
     final mergedJson = {...quick.toJson(), ...enriched.toJson(),
       'suggestedName': quick.suggestedName, 'category': quick.category,
       'preciseType': quick.preciseType, 'primaryColor': quick.primaryColor};
+    final composition = enriched.compositions.isEmpty ? current.composition
+      : enriched.compositions.map((value) => [
+          if (value.percentage != null) '${value.percentage!.toStringAsFixed(0)}%',
+          value.material,
+        ].join(' ')).join(', ');
+    final thermalInput = ThermalProfileInput(
+      category: current.category,
+      subcategory: current.sousCategorie,
+      material: material,
+      composition: protected.contains('composition') ? current.composition : composition,
+      thickness: enriched.thickness,
+      lining: enriched.lining,
+      fit: protected.contains('fit') ? current.fit : enriched.fit,
+      construction: enriched.construction,
+      length: protected.contains('longueur') ? current.longueur : enriched.length,
+      opening: protected.contains('typeFermeture') ? current.typeFermeture : enriched.opening,
+      detectedFeatures: enriched.detectedFeatures,
+    );
+    final thermal = protected.contains('thermalProfile') ? current.thermalProfile
+      : const ThermalProfileCalculator().ensureCurrent(thermalInput, current.thermalProfile);
     final updated = current.copyWith(material: material, matierePrincipale: material,
-      brand: brand, saisons: protected.contains('saisons') || enriched.season == null
-        ? current.saisons : [enriched.season!],
+      brand: brand,
+      composition: protected.contains('composition') ? current.composition : composition,
+      fit: protected.contains('fit') ? current.fit : enriched.fit,
+      longueur: protected.contains('longueur') ? current.longueur : enriched.length,
+      typeFermeture: protected.contains('typeFermeture') ? current.typeFermeture : enriched.opening,
+      thermalProfile: thermal,
       confianceMatiere: enriched.fieldConfidences['material'],
       lastAnalyzedAt: DateTime.now(), updatedAt: DateTime.now(),
       currentAnalysis: GarmentAnalysisSnapshot(version: 'scanner-v1:${OpenAiGarmentVisionAnalyzer.defaultModel}',

@@ -36,6 +36,10 @@ class GarmentAnalysisResult {
   final String? preciseType;
   final String? primaryColor;
   final String? material;
+  /// Objective construction evidence used by ThermalProfile v3. These values
+  /// are optional because a single overview photo may not expose them.
+  final String? thickness, lining, fit, construction, length, opening;
+  final List<String> detectedFeatures;
   final List<TextileComposition> compositions;
   final String? season;
   final String? visibleBrand;
@@ -91,6 +95,13 @@ class GarmentAnalysisResult {
     this.preciseType,
     this.primaryColor,
     this.material,
+    this.thickness,
+    this.lining,
+    this.fit,
+    this.construction,
+    this.length,
+    this.opening,
+    this.detectedFeatures = const [],
     this.compositions = const [],
     this.season,
     this.visibleBrand,
@@ -229,6 +240,13 @@ class GarmentAnalysisResult {
       preciseType: text('preciseType'),
       primaryColor: text('primaryColor'),
       material: text('material'),
+      thickness: text('thickness'),
+      lining: text('lining'),
+      fit: text('fit'),
+      construction: text('construction'),
+      length: text('length'),
+      opening: text('opening'),
+      detectedFeatures: List.unmodifiable(strings('detectedFeatures')),
       compositions: TextileComposition.fromJsonList(json['compositions']),
       season: text('season'),
       visibleBrand: text('visibleBrand'),
@@ -284,6 +302,13 @@ class GarmentAnalysisResult {
     'preciseType': preciseType,
     'primaryColor': primaryColor,
     'material': material,
+    'thickness': thickness,
+    'lining': lining,
+    'fit': fit,
+    'construction': construction,
+    'length': length,
+    'opening': opening,
+    'detectedFeatures': detectedFeatures,
     'compositions': compositions.map((value) => value.toJson()).toList(),
     'season': season,
     'visibleBrand': visibleBrand,
@@ -336,6 +361,13 @@ class GarmentAnalysisResult {
     String? preciseType,
     String? primaryColor,
     String? material,
+    String? thickness,
+    String? lining,
+    String? fit,
+    String? construction,
+    String? length,
+    String? opening,
+    List<String>? detectedFeatures,
     List<TextileComposition>? compositions,
     String? season,
     String? visibleBrand,
@@ -353,7 +385,15 @@ class GarmentAnalysisResult {
     suggestedName: suggestedName ?? this.suggestedName, category: category ?? this.category,
     preciseType: preciseType ?? this.preciseType,
     primaryColor: primaryColor ?? this.primaryColor,
-    material: material ?? this.material, compositions: compositions ?? this.compositions,
+    material: material ?? this.material,
+    thickness: thickness ?? this.thickness,
+    lining: lining ?? this.lining,
+    fit: fit ?? this.fit,
+    construction: construction ?? this.construction,
+    length: length ?? this.length,
+    opening: opening ?? this.opening,
+    detectedFeatures: detectedFeatures ?? this.detectedFeatures,
+    compositions: compositions ?? this.compositions,
     season: season ?? this.season, visibleBrand: visibleBrand ?? this.visibleBrand,
     globalConfidence: globalConfidence ?? this.globalConfidence,
     imageQualityConfidence: imageQualityConfidence, isBlurry: isBlurry,
