@@ -1,5 +1,6 @@
 import '../../models/garment.dart';
 import '../../models/garment_normalizer.dart';
+import '../../models/thermal_profile.dart';
 import 'wardrobe_intelligence_models.dart';
 import 'wardrobe_intelligence_rules.dart';
 

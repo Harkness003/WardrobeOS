@@ -83,7 +83,6 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
 
   static String? _choice(String? value, List<String> values) => values.contains(value) ? value : null;
   String? _text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
-  double? _number(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '.'));
 
   @override
   void dispose() {

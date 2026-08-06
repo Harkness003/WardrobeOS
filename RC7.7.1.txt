@@ -1,0 +1,145 @@
+diff --git a/lib/core/outfit_generation/outfit_generation_engine.dart b/lib/core/outfit_generation/outfit_generation_engine.dart
+index 7748afec4c3c13e01dcb95795e900e194805d035..7186389d3d8da6b4e11528ef12302d9ea416d9a0 100644
+--- a/lib/core/outfit_generation/outfit_generation_engine.dart
++++ b/lib/core/outfit_generation/outfit_generation_engine.dart
+@@ -196,51 +196,50 @@ class OutfitGenerationEngine {
+         anchor: index == 0 ? null : items.first,
+         context: request.context,
+         preferences: request.preferences,
+         corrections: request.corrections,
+         alternativeCount: 0,
+       ).bestChoice;
+       for (final detail in evaluated?.details ?? const []) {
+         details.putIfAbsent(detail.criterion, () => []).add(detail.score);
+       }
+     }
+     double average(String key, [double fallback = .7]) {
+       final values = details[key];
+       return values == null || values.isEmpty ? fallback : values.reduce((a, b) => a + b) / values.length;
+     }
+     final style = (average('style') + average('couleurs')) / 2;
+     final thermalAssessment = evaluateThermal(items, request.context);
+     final thermal = thermalAssessment?.score ?? average('température');
+     final layering = average('superposition');
+     final formality = average('formalité');
+     final diversity = (items.length / 5).clamp(0, 1).toDouble();
+     final rotation = items.isEmpty
+         ? 0.0
+         : items.map((item) => 1 / (1 + item.wearCount)).reduce((a, b) => a + b) / items.length;
+     final score = style * .25 + thermal * .20 + layering * .15 + formality * .15 +
+         diversity * .10 + rotation * .15;
+-    final temperature = request.context.weather?.temperature;
+     final reasons = <String>[
+       ...?thermalAssessment?.reasons,
+       if (thermal >= .7 && request.context.weather == null) 'Bonne compatibilité thermique.',
+       if (style >= .7) 'Couleurs et styles harmonieux.',
+       if (layering >= .7) 'Couches compatibles entre elles.',
+       if (formality >= .7 && request.context.desiredStyle != null)
+         'Adapté au registre ${StyleCatalog.displayName(request.context.desiredStyle!)}.',
+       if (rotation >= .7) 'La sélection privilégie des pièces rarement portées.',
+       if (items.any((item) => item.lastWorn != null) && rotation >= .5)
+         'La rotation évite les pièces portées le plus récemment.',
+       if (diversity >= .6) 'La tenue combine des catégories complémentaires.',
+     ];
+     if (reasons.isEmpty) reasons.add('Meilleur équilibre disponible dans le dressing actuel.');
+     final criterion = OutfitScore(
+       styleCoherence: OutfitCriterionScore(value: style, explanation: 'Cohérence des styles et couleurs.'),
+       weatherSuitability: OutfitCriterionScore(value: thermal, explanation: 'Compatibilité avec la météo disponible.'),
+       temperatureSuitability: OutfitCriterionScore(value: thermal, explanation: 'Compatibilité thermique des profils calculés.'),
+       formality: OutfitCriterionScore(value: formality, explanation: 'Cohérence des niveaux de formalité.'),
+       diversity: OutfitCriterionScore(value: diversity, explanation: 'Diversité des catégories sélectionnées.'),
+       overallConfidence: OutfitCriterionScore(value: score.clamp(0, 1).toDouble(), explanation: 'Score pondéré global; la rotation reste un critère secondaire.'),
+     );
+     return OutfitGenerationProposal(
+       outfit: outfit.copyWith(score: criterion, justification: List.unmodifiable(reasons)),
+       score: score,
+       reasons: List.unmodifiable(reasons),
+diff --git a/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart b/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart
+index 3d631ba8432ea142765a2b7ff93764bdc7cc5bf1..91b5a79f5fb6f86b2b1ce8bba9d409af5902ad35 100644
+--- a/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart
++++ b/lib/core/wardrobe_intelligence/wardrobe_intelligence_engine.dart
+@@ -1,27 +1,28 @@
+ import '../../models/garment.dart';
+ import '../../models/garment_normalizer.dart';
++import '../../models/thermal_profile.dart';
+ import 'wardrobe_intelligence_models.dart';
+ import 'wardrobe_intelligence_rules.dart';
+ 
+ class WardrobeIntelligenceEngine {
+   final List<WardrobeGapRule> rules;
+   final DateTime Function() _clock;
+ 
+   WardrobeIntelligenceEngine({
+     List<WardrobeGapRule> rules = defaultWardrobeGapRules,
+     DateTime Function()? clock,
+   }) : rules = List.unmodifiable(rules), _clock = clock ?? DateTime.now;
+ 
+   WardrobeIntelligenceReport analyze(Iterable<Garment> source) {
+     final garments = List<Garment>.unmodifiable(source);
+     final categories = _distribution(garments.map((item) => item.category));
+     final colors = _distribution(garments.map(
+       (item) => item.couleurPrincipale ?? item.color,
+     ));
+     final styles = _distribution(garments.expand(_styles));
+     final seasons = _distribution(garments.expand((item) => item.effectiveSeasons));
+     final materials = _distribution(garments.expand(_materials));
+     final duplicates = _duplicates(garments);
+     final context = WardrobeRuleContext(
+       garments: garments,
+       categories: categories,
+diff --git a/lib/features/wardrobe/garment_form_screen.dart b/lib/features/wardrobe/garment_form_screen.dart
+index cdf6fb4297e4d5a50fc4542f03e179ae0d7f6340..e67caa2784098db7b65ed75a6f9cad4f15461310 100644
+--- a/lib/features/wardrobe/garment_form_screen.dart
++++ b/lib/features/wardrobe/garment_form_screen.dart
+@@ -61,51 +61,50 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+     _color = TextEditingController(text: g?.couleurPrincipale ?? g?.color ?? '');
+     _size = TextEditingController(text: g?.size ?? '');
+     _notes = TextEditingController(text: g?.notes ?? '');
+     _composition = TextEditingController(text: g?.composition ?? '');
+     final hasCustomCategory = g != null && !categories.contains(g.category);
+     _otherCategory = TextEditingController(text: hasCustomCategory ? g.category : '');
+     _subCategory = TextEditingController(text: g?.sousCategorie ?? '');
+     _category = hasCustomCategory ? 'Autre' : (categories.contains(g?.category) ? g!.category : categories.first);
+     final existingMaterial = g?.matierePrincipale ?? g?.material;
+     _material = _choice(existingMaterial, materials) ?? (existingMaterial == null ? null : 'Autre...');
+     _otherMaterial = TextEditingController(text: _material == 'Autre...' ? existingMaterial ?? '' : '');
+     final existingUses = g?.effectiveOccasions ?? const <String>[];
+     _uses = existingUses.where(uses.contains).toSet();
+     final customUses = existingUses.where((value) => !uses.contains(value)).toList();
+     if (customUses.isNotEmpty) _uses.add('Autre...');
+     _otherUse = TextEditingController(text: customUses.join(', '));
+     _seasons = {...?g?.effectiveSeasons}; // Never select all seasons by default.
+     _imagePath = g == null || g.effectivePhotos.isEmpty ? null : g.effectivePhotos.first.path;
+     _personalCatalog.values(PersonalCatalogField.subcategory).then((values) {
+       if (mounted) setState(() => _personalSubcategories = values);
+     });
+   }
+ 
+   static String? _choice(String? value, List<String> values) => values.contains(value) ? value : null;
+   String? _text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
+-  double? _number(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '.'));
+ 
+   @override
+   void dispose() {
+     for (final c in [_name, _brand, _color, _size, _otherMaterial, _otherUse, _otherCategory, _subCategory, _composition, _notes]) { c.dispose(); }
+     _subCategoryFocus.dispose();
+     super.dispose();
+   }
+ 
+   Future<void> _chooseImage(ImageSource source) async {
+     final picked = await _picker.pickImage(source: source, imageQuality: 88, maxWidth: 1800);
+     if (picked == null) return;
+     final path = await ImageStorageService.persist(picked.path);
+     if (_imagePath != null && _imagePath != (widget.garment == null || widget.garment!.effectivePhotos.isEmpty ? null : widget.garment!.effectivePhotos.first.path)) await ImageStorageService.remove(_imagePath);
+     if (mounted) setState(() => _imagePath = path);
+   }
+ 
+   Future<void> _imageActions() => showModalBottomSheet<void>(
+     context: context, showDragHandle: true,
+     builder: (context) => SafeArea(child: Wrap(children: [
+       ListTile(leading: const Icon(Icons.camera_alt_outlined), title: const Text('Prendre une photo'), onTap: () { Navigator.pop(context); _chooseImage(ImageSource.camera); }),
+       ListTile(leading: const Icon(Icons.photo_library_outlined), title: const Text('Changer la photo'), onTap: () { Navigator.pop(context); _chooseImage(ImageSource.gallery); }),
+       if (_imagePath != null) ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Supprimer la photo'), onTap: () async { Navigator.pop(context); if (_imagePath != (widget.garment == null || widget.garment!.effectivePhotos.isEmpty ? null : widget.garment!.effectivePhotos.first.path)) await ImageStorageService.remove(_imagePath); if (mounted) setState(() => _imagePath = null); }),
+     ])),
+   );
+ 
