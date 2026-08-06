@@ -13,8 +13,8 @@ class ActionCenterScreen extends StatelessWidget {
     appBar: AppBar(title: const Text('Actions')),
     body: ListenableBuilder(listenable: service, builder: (context, _) {
       final items = service.items;
-      if (items.isEmpty) return const Center(child: Semantics(liveRegion: true,
-        label: 'Aucune action en attente', child: Column(mainAxisSize: MainAxisSize.min, children: [
+      if (items.isEmpty) return Center(child: Semantics(liveRegion: true,
+        label: 'Aucune action en attente', child: const Column(mainAxisSize: MainAxisSize.min, children: [
           Icon(Icons.task_alt, size: 48), SizedBox(height: 12), Text('Tout est à jour'),
           SizedBox(height: 4), Text('Aucune action n’attend ton intervention.'),
         ])));
@@ -37,7 +37,7 @@ class ActionCenterScreen extends StatelessWidget {
         TextButton(onPressed: () => _dismiss(context, item), child: const Text('Ignorer')),
       ]),
     ])),
-  );
+  ));
 
   Future<void> _primary(ActionCenterItem item) async {
     switch (item.kind) {
