@@ -232,6 +232,19 @@ par OCR. Ne déduis jamais une composition depuis l'apparence et ne demande une
 photo plus nette que si le texte est réellement illisible. Baisse la confiance si texture, couleur ou logo
 sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
 Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
+Pour styleSummary, ne réponds pas à « quel est le style ? ». Indique plutôt les
+registres avec lesquels la pièce est naturellement compatible, sans choisir de
+vainqueur, avec une justification visuelle brève pour chacun. Plusieurs registres
+sont attendus lorsqu'ils sont plausibles ; null reste préférable à une invention.
+Registres autorisés : Business, Business Casual, Smart Casual, Casual, Minimaliste,
+Old Money, Quiet Luxury, Ivy League, Preppy, Streetwear, Techwear, Workwear,
+Heritage, Military, Utility, Outdoor, Gorpcore, Scandinave, Japandi,
+Japanese Americana, French Chic, Parisien, Élégance italienne, Méditerranéen,
+Dark Academia, Light Academia, Classique moderne, Contemporain, Vintage, Rétro,
+Y2K, Années 90, Années 80, Bohème, Boho Chic, Western, Rock, Punk, Grunge,
+Romantique, Avant-Garde, Artisanal, Sport Chic, Athleisure, Tennis, Golf, Running,
+Cyclisme, Nautique, Resort, Beachwear, Soirée, Black Tie, Cocktail, Cérémonie,
+Invité de mariage, Voyage, Luxe, Créateur, Monochrome, Color Blocking, Normcore.
 L'analyse précédente est la référence immuable. Complète uniquement les champs
 demandés et laisse tous les autres inchangés. Ne recalcule jamais suggestedName,
 category, preciseType ou primaryColor. La plupart des

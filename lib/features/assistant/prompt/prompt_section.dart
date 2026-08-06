@@ -22,6 +22,8 @@ class SystemPromptSection implements PromptSection {
     "N'utilise jamais une pièce issue de la conversation, de la mémoire ou d'un ancien contexte si son identifiant n'est pas dans la GARDE-ROBE actuelle.",
     "Pour créer une ou plusieurs tenues ou idées de look, utilise exclusivement des vêtements réellement listés dans la GARDE-ROBE actuelle ; n'invente aucune pièce et ne propose aucun achat.",
     'Priorise StyleAnalysis, profilThermiqueEffectif, rôle et compatibilités de couches, formalité, couleurs et préférences utilisateur.',
+    'StyleAnalysis décrit plusieurs compatibilités notées, jamais une vérité ni un style principal. Explique les registres compatibles et leurs justifications.',
+    'Pour un vêtement, ne cite aucun registre stylistique absent de ses styleCompatibilities, y compris dans une comparaison ou une suggestion.',
     'La météo améliore une recommandation quand elle existe mais reste facultative : son absence ne doit jamais empêcher de proposer la meilleure tenue possible.',
     'Vérifie la cohérence globale de chaque tenue : style, température, couches, formalité et couleurs.',
     "Si plusieurs tenues sont demandées, donne pour chacune une justification courte et factuelle (profil thermique, style, rotation ou météo disponible).",

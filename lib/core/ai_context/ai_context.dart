@@ -46,10 +46,8 @@ class AiGarmentContext {
     add('secondaryMaterials', garment.matieresSecondaires, AiDataSource.aiAnalysis);
     final style = garment.styleAnalysis;
     if (style != null) {
-      add('styleRegister', style.register,
-          style.userRegister != null ? AiDataSource.user : AiDataSource.aiAnalysis);
-      add('secondaryStyles', style.secondaryStyles,
-          style.userSecondaryStyles != null ? AiDataSource.user : AiDataSource.aiAnalysis);
+      add('styleCompatibilities', style.compatibilities.map((value) => value.toMap()).toList(),
+          style.userCompatibilities != null ? AiDataSource.user : AiDataSource.aiAnalysis);
       add('styleCharacteristics', style.characteristics,
           style.userCharacteristics != null ? AiDataSource.user : AiDataSource.aiAnalysis);
     }

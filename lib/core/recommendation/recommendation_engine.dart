@@ -97,9 +97,16 @@ class RecommendationEngine {
   double _style(_Profile item, _Profile? anchor, RecommendationContext context,
       RecommendationPreferences preferences) {
     final desired = _normalize(context.desiredStyle);
-    if (desired.isNotEmpty) return item.styles.contains(desired) ? 1 : .35;
-    if (anchor != null && item.styles.intersection(anchor.styles).isNotEmpty) return 1;
-    if (item.styles.any(preferences.preferredStyles.map(_normalize).contains)) return .85;
+    if (desired.isNotEmpty) return item.styleScores[desired] ?? .35;
+    if (anchor != null) {
+      final shared = item.styles.intersection(anchor.styles);
+      if (shared.isNotEmpty) return shared.map((id) =>
+        ((item.styleScores[id] ?? .5) + (anchor.styleScores[id] ?? .5)) / 2
+      ).reduce((a, b) => a > b ? a : b);
+    }
+    final preferred = preferences.preferredStyles.map(_normalize)
+        .map((id) => item.styleScores[id] ?? 0).fold<double>(0, (a, b) => a > b ? a : b);
+    if (preferred > 0) return preferred;
     return item.styles.isEmpty ? .65 : .55;
   }
 
@@ -196,11 +203,18 @@ class _Profile {
   final GarmentRecommendationCorrection? correction;
   _Profile(this.garment, this.correction);
 
+  Map<String, double> get styleScores {
+    if (correction?.style != null) return {RecommendationEngine._normalize(correction!.style): 1};
+    final analysis = garment.styleAnalysis;
+    if (analysis != null) return {
+      for (final compatibility in analysis.compatibilities)
+        RecommendationEngine._normalize(compatibility.styleId): compatibility.score,
+    };
+    return {};
+  }
   Set<String> get styles => {
     correction?.style,
-    if (correction?.style == null) garment.styleAnalysis?.register,
-    if (correction?.style == null) ...?garment.styleAnalysis?.secondaryStyles,
-    if (correction?.style == null) ...?garment.styleAnalysis?.characteristics,
+    if (correction?.style == null) ...styleScores.keys,
   }.map(RecommendationEngine._normalize).where((value) => value.isNotEmpty).toSet();
   String? get formality => correction?.formality ?? garment.niveauFormalite;
   Set<String> get seasons => (correction?.seasons ?? garment.effectiveSeasons)

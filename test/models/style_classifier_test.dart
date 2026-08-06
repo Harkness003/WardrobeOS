@@ -4,6 +4,24 @@ import 'package:wardrobeos/models/style_analysis.dart';
 import 'package:wardrobeos/models/style_classifier.dart';
 
 void main() {
+  test('Oxford exposes several explainable compatibilities without a winner', () {
+    final analysis = const StyleClassifier().classify(const StyleInput(
+      category: 'Hauts', subcategory: 'chemise Oxford', material: 'coton'));
+    expect(analysis.compatibilities.map((value) => value.styleId), containsAll(
+      ['old_money', 'ivy_league', 'business_casual', 'quiet_luxury']));
+    expect(analysis.compatibilities.every((value) =>
+      value.score > 0 && value.justification.isNotEmpty), isTrue);
+  });
+
+  test('an empty user compatibility override survives persistence', () {
+    final source = const StyleClassifier().classify(const StyleInput(
+      category: 'Hauts', subcategory: 'chemise Oxford'))
+      .withUserCorrections(compatibilities: const []);
+    final restored = StyleAnalysis.decode(source.encode())!;
+    expect(restored.userCompatibilities, isEmpty);
+    expect(restored.compatibilities, isEmpty);
+  });
+
   const classifier = StyleClassifier();
 
   test('applique les contraintes de cohérence avant la formalité', () {

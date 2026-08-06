@@ -180,21 +180,22 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
 
   Future<void> _editStyleAnalysis() async {
     final all = await _styles.all(); if (!mounted) return;
-    var primary = garment.effectiveStyleAnalysis.register;
-    final secondary = {...garment.effectiveStyleAnalysis.secondaryStyles};
+    final selected = garment.effectiveStyleAnalysis.compatibilities
+        .map((value) => value.styleId).toSet();
     final characteristics = TextEditingController(text: garment.effectiveStyleAnalysis.characteristics.join(', '));
     final saved = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (_, update) => AlertDialog(
       title: const Text('Corriger l’analyse de style'), content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(children: [
-        DropdownButtonFormField<String>(value: all.any((e) => e.id == primary) ? primary : null,
-          decoration: const InputDecoration(labelText: 'Style principal'), items: all.map((e) => DropdownMenuItem(value: e.id, child: Text(e.name))).toList(), onChanged: (v) => update(() => primary = v ?? primary)),
-        const SizedBox(height: 14), Align(alignment: Alignment.centerLeft, child: Text('Styles secondaires', style: Theme.of(context).textTheme.titleSmall)),
-        ...all.where((e) => e.id != primary).map((e) => CheckboxListTile(dense: true, value: secondary.contains(e.id), title: Text(e.name), onChanged: (v) => update(() { if (v == true) secondary.add(e.id); else secondary.remove(e.id); }))),
+        Align(alignment: Alignment.centerLeft, child: Text('Compatibilités (aucun style principal imposé)', style: Theme.of(context).textTheme.titleSmall)),
+        ...all.map((e) => CheckboxListTile(dense: true, value: selected.contains(e.id), title: Text(e.name), onChanged: (v) => update(() { if (v == true) selected.add(e.id); else selected.remove(e.id); }))),
         TextField(controller: characteristics, decoration: const InputDecoration(labelText: 'Caractéristiques (séparées par des virgules)')),
       ]))), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
         FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Enregistrer'))])));
     if (saved != true) return;
-    final corrected = garment.effectiveStyleAnalysis.withUserCorrections(register: primary,
-      secondaryStyles: secondary.toList(), characteristics: characteristics.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList());
+    final old = {for (final value in garment.effectiveStyleAnalysis.compatibilities) value.styleId: value};
+    final corrected = garment.effectiveStyleAnalysis.withUserCorrections(
+      compatibilities: selected.map((id) => old[id] ?? StyleCompatibility(styleId: id,
+        score: 1, confidence: 1, justification: 'Compatibilité ajoutée par l’utilisateur')).toList(),
+      characteristics: characteristics.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList());
     await widget.controller.save(garment.copyWith(styleAnalysis: corrected, updatedAt: DateTime.now()), isNew: false);
     _refreshGarment();
   }
@@ -646,10 +647,9 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
               if (garment.styleAnalysis != null) ...[
                 Row(children: [const Expanded(child: Text('Compatibilités estimées', style: TextStyle(fontWeight: FontWeight.w800))),
                   IconButton(tooltip: 'Corriger les hypothèses', onPressed: _editStyleAnalysis, icon: const Icon(Icons.edit_outlined))]),
-                FutureBuilder<List<LibraryStyle?>>(future: Future.wait([
-                  _styles.find(garment.effectiveStyleAnalysis.register),
-                  ...garment.effectiveStyleAnalysis.secondaryStyles.map(_styles.find),
-                ]), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
+                FutureBuilder<List<LibraryStyle?>>(future: Future.wait(
+                  garment.effectiveStyleAnalysis.compatibilities.map((value) => _styles.find(value.styleId)),
+                ), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
                   for (final style in snapshot.data?.whereType<LibraryStyle>() ?? const <LibraryStyle>[])
                     ActionChip(avatar: const Icon(Icons.info_outline, size: 18), label: Text(StyleCatalog.displayName(style.id)), onPressed: () => _styleHelp(style.id)),
                 ])),
@@ -812,8 +812,8 @@ class _AiGarmentDetails extends StatelessWidget {
   Widget build(BuildContext context) {
     final styleEntries = <_AiDetailEntry>[
       if (garment.styleAnalysis != null) ...[
-        _AiDetailEntry.text('Compatibilité principale', StyleCatalog.displayName(garment.effectiveStyleAnalysis.register)),
-        _AiDetailEntry.list('Compatibilités secondaires', garment.effectiveStyleAnalysis.secondaryStyles.map(StyleCatalog.displayName)),
+        _AiDetailEntry.list('Compatible avec', garment.effectiveStyleAnalysis.compatibilities.map((value) =>
+          '${StyleCatalog.displayName(value.styleId)} · ${(value.score * 100).round()} % — ${value.justification}')),
       ],
       _AiDetailEntry.list('Points forts', garment.pointsForts),
       _AiDetailEntry.list('Points faibles', garment.pointsFaibles),

@@ -1,0 +1,1012 @@
+diff --git a/docs/RC7.10_STYLE_COMPATIBILITIES.md b/docs/RC7.10_STYLE_COMPATIBILITIES.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..0baa86cc479e2f0d7154aeb8c9fb8f91f7846ab6
+--- /dev/null
++++ b/docs/RC7.10_STYLE_COMPATIBILITIES.md
+@@ -0,0 +1,79 @@
++# RC7.10 — Compatibilités stylistiques
++
++## A. Flux stylistique avant / après
++
++### Cartographie avant
++
++1. Le scanner Vision produisait un `styleSummary` textuel, intégré aux détails du vêtement.
++2. `StyleClassifier` ramenait ces indices à un `suggestedRegister` obligatoire et à quelques `suggestedSecondaryStyles`.
++3. `Garment.effectiveStyleAnalysis` exposait `register` comme vérité principale persistée.
++4. `GarmentDetailScreen` affichait une compatibilité principale puis des styles secondaires et son correcteur imposait un menu « Style principal ».
++5. Le contexte de WardrobeGPT publiait `styleRegister` et `secondaryStyles` ; le prompt ne lui interdisait pas d'inventer un registre.
++6. `RecommendationEngine` réunissait déjà registre et styles secondaires dans un ensemble, mais traitait toute présence de manière binaire. `OutfitGenerationEngine` consommait ce résultat en aval.
++7. `StyleCatalog` était l'unique catalogue, mais ne contenait que douze entrées système.
++
++### Flux après
++
++1. Le prompt scanner demande les **registres naturellement compatibles**, sans vainqueur, et limite les réponses au catalogue.
++2. Le classificateur normalise les indices en plusieurs `StyleCompatibility` expliquées, notées et assorties d'une confiance.
++3. `StyleAnalysis.compatibilities` choisit la couche utilisateur si elle existe, sinon la couche suggérée ; les anciens champs restent lisibles pour migration et pour les consommateurs non modifiés.
++4. Le contexte IA transmet la liste structurée `styleCompatibilities` et sa provenance.
++5. WardrobeGPT reçoit l'ordre de raisonner sur cette liste et de ne jamais citer un registre absent.
++6. `RecommendationEngine` compare les scores partagés et utilise le meilleur degré de compatibilité plutôt que le premier style.
++7. La fiche affiche « Compatible avec », permet l'ajout et le retrait sans désigner de style principal, et conserve ces choix comme préférences utilisateur.
++8. `OutfitGenerationEngine` n'est pas modifié.
++
++## B. Catalogue final
++
++Le catalogue système unique couvre : Décontracté, Chic décontracté, Habillé, Sport, Technique, Minimaliste, Workwear, Streetwear, Preppy, Vintage, Rock, Plein air, Business, Business Casual, Old Money, Quiet Luxury, Ivy League, Techwear, Heritage, Military, Utility, Gorpcore, Scandinave, Japandi, Japanese Americana, French Chic, Parisien, Élégance italienne, Méditerranéen, Dark Academia, Light Academia, Classique moderne, Contemporain, Rétro, Y2K, Années 90, Années 80, Bohème, Boho Chic, Western, Punk, Grunge, Romantique, Avant-Garde, Artisanal, Sport Chic, Athleisure, Tennis, Golf, Running, Cyclisme, Nautique, Resort, Beachwear, Soirée, Black Tie, Cocktail, Cérémonie, Invité de mariage, Voyage, Luxe, Créateur, Monochrome, Color Blocking et Normcore.
++
++Chaque entrée possède un identifiant stable, un nom utilisateur, une définition, une description courte, des caractéristiques, couleurs, matières, occasions, pièces typiques et styles proches. Les styles personnels restent dans le même `StyleCatalog` et ne modifient jamais ses entrées système.
++
++## C. Structure de `StyleAnalysis`
++
++`StyleCompatibility` contient `styleId`, `score` (0 à 1), `justification` et `confidence` optionnelle. `StyleAnalysis` sépare `suggestedCompatibilities` de `userCompatibilities`. Une liste utilisateur vide est significative : elle mémorise le retrait de toutes les compatibilités. Le format JSON v2 conserve également les anciens champs afin de décoder les données v1.
++
++## D. Compatibilités au lieu d'un style unique
++
++Une Oxford reçoit notamment Ivy League, Old Money, Business Casual et Quiet Luxury avec des raisons distinctes. Aucun élément n'est déclaré « style principal ». Les accesseurs historiques `register` et `secondaryStyles` subsistent uniquement pour compatibilité descendante, notamment avec `OutfitGenerationEngine` explicitement hors périmètre.
++
++## E. Affichage utilisateur
++
++La fiche montre toutes les puces sous « Compatibilités estimées » et la section IA affiche « Compatible avec » avec score et justification. Un appui sur une puce ouvre toujours la fiche descriptive. L'éditeur est une liste de cases sans sélection principale obligatoire.
++
++## F. Impact sur `RecommendationEngine`
++
++Le moteur construit une table `styleId -> score`. Un style demandé reçoit le score déclaré ; entre deux pièces, le meilleur score moyen d'un registre partagé est utilisé. Les préférences évaluent également le score et non la position dans une liste. Les explications continuent de nommer uniquement un registre réellement partagé.
++
++## G. Impact sur WardrobeGPT
++
++Le contexte remplace les champs principal/secondaires par les compatibilités structurées avec score, justification et confiance. Le prompt autorise une phrase nuancée (« fonctionne avec Old Money mais aussi Business Casual ») et interdit tout registre absent de l'analyse du vêtement.
++
++## H. Apprentissage utilisateur
++
++Une correction produit un override complet `userCompatibilities`. Les ajouts reçoivent une justification et une confiance utilisateur ; les compatibilités retirées restent absentes après réanalyse grâce à `retainCorrectionsFrom`. Il s'agit d'une préférence propre au vêtement, pas d'une mutation du catalogue système.
++
++## I. Fichiers modifiés
++
++- `lib/models/style_analysis.dart`
++- `lib/models/style_classifier.dart`
++- `lib/features/styles/style_repository.dart` (catalogue consommé, structure inchangée)
++- `lib/features/scanner/ai/openai_garment_vision_analyzer.dart`
++- `lib/features/wardrobe/garment_detail_screen.dart`
++- `lib/core/ai_context/ai_context.dart`
++- `lib/features/assistant/prompt/prompt_section.dart`
++- `lib/core/recommendation/recommendation_engine.dart`
++- `test/models/style_classifier_test.dart`
++- `docs/RC7.10_STYLE_COMPATIBILITIES.md`
++
++## J. Tests adaptés
++
++Le test du classificateur couvre désormais l'Oxford multi-compatible, les scores non nuls et les justifications. Les tests n'ont volontairement pas été exécutés dans ce patch, conformément à la consigne RC7.10.
++
++## K. Limites avant RC7.11
++
++- Les champs historiques restent nécessaires tant que `OutfitGenerationEngine` n'a pas migré vers les scores.
++- La sortie Vision conserve `styleSummary` comme transport textuel ; la normalisation déterministe construit ensuite le contrat structuré.
++- Les scores sont une heuristique locale et devront être calibrés sur des retours utilisateurs réels.
++- Les définitions des nouveaux registres sont cohérentes mais volontairement compactes ; un travail éditorial/localisation supplémentaire pourra enrichir les nuances régionales.
++- Les compatibilités utilisateur sont apprises par vêtement, sans modèle transversal de préférences entre vêtements.
+diff --git a/lib/core/ai_context/ai_context.dart b/lib/core/ai_context/ai_context.dart
+index 7919620cd1ee352fa1b9ec28c8e0889530cea80b..af96483184dc49b40a621682deee5834671dde1e 100644
+--- a/lib/core/ai_context/ai_context.dart
++++ b/lib/core/ai_context/ai_context.dart
+@@ -24,54 +24,52 @@ class AiGarmentContext {
+   final String id;
+   final Map<String, AiContextValue<Object>> fields;
+ 
+   AiGarmentContext._({required this.id, required Map<String, AiContextValue<Object>> fields})
+       : fields = Map.unmodifiable(fields);
+ 
+   factory AiGarmentContext.fromGarment(Garment garment) {
+     final values = <String, AiContextValue<Object>>{};
+     void add(String key, Object? value, AiDataSource source) {
+       if (value == null || value == '' || value is List && value.isEmpty) return;
+       values[key] = AiContextValue<Object>(value, source);
+     }
+ 
+     // Editable form values are authoritative user data, even when initially
+     // suggested by AI: once the user saves the sheet, later analysis must not
+     // silently replace them.
+     add('name', garment.name, AiDataSource.user);
+     add('category', garment.category, AiDataSource.user);
+     add('subcategory', garment.sousCategorie, AiDataSource.user);
+     add('color', garment.couleurPrincipale ?? garment.color, AiDataSource.user);
+     add('secondaryColors', garment.couleursSecondaires, AiDataSource.aiAnalysis);
+     add('material', garment.matierePrincipale ?? garment.material, AiDataSource.user);
+     add('secondaryMaterials', garment.matieresSecondaires, AiDataSource.aiAnalysis);
+     final style = garment.styleAnalysis;
+     if (style != null) {
+-      add('styleRegister', style.register,
+-          style.userRegister != null ? AiDataSource.user : AiDataSource.aiAnalysis);
+-      add('secondaryStyles', style.secondaryStyles,
+-          style.userSecondaryStyles != null ? AiDataSource.user : AiDataSource.aiAnalysis);
++      add('styleCompatibilities', style.compatibilities.map((value) => value.toMap()).toList(),
++          style.userCompatibilities != null ? AiDataSource.user : AiDataSource.aiAnalysis);
+       add('styleCharacteristics', style.characteristics,
+           style.userCharacteristics != null ? AiDataSource.user : AiDataSource.aiAnalysis);
+     }
+     add('seasons', garment.effectiveSeasons, AiDataSource.user);
+     add('occasions', garment.effectiveOccasions, AiDataSource.user);
+     final thermal = garment.thermalProfile;
+     if (thermal != null) add('thermalProfile', thermal.toJson(), AiDataSource.calculated);
+     add('description', garment.descriptionIA, AiDataSource.aiAnalysis);
+     add('wearCount', garment.wearCount, AiDataSource.calculated);
+     add('lastWorn', garment.lastWorn?.toIso8601String(), AiDataSource.calculated);
+     return AiGarmentContext._(id: garment.id, fields: values);
+   }
+ 
+   Map<String, Object?> toMap() => {
+     'id': id,
+     'fields': fields.map((key, value) => MapEntry(key, value.toMap())),
+   };
+ }
+ 
+ /// A fresh snapshot shared by all intelligent features.
+ class WardrobeAiContext {
+   final DateTime generatedAt;
+   final List<Garment> garments;
+   final List<AiGarmentContext> aiGarments;
+   final PersonalizationSnapshot? personalization;
+diff --git a/lib/core/recommendation/recommendation_engine.dart b/lib/core/recommendation/recommendation_engine.dart
+index 255298c5529427a448373655ee14aa981f1baa44..569145bee9712f1df3b6cdc4015e7a88a89049ec 100644
+--- a/lib/core/recommendation/recommendation_engine.dart
++++ b/lib/core/recommendation/recommendation_engine.dart
+@@ -75,53 +75,60 @@ class RecommendationEngine {
+       _detail('matières', weights.material, _material(candidate, base, preferences)),
+       _detail('superposition', weights.layering, _layering(candidate, base)),
+       _detail('occasion', weights.occasion, _occasion(candidate, context)),
+     ];
+     final weighted = details.fold<double>(
+       0,
+       (sum, detail) => sum + detail.score * detail.weight,
+     );
+     final raw = weights.total == 0 ? 0 : weighted / weights.total;
+     final adjusted = raw + rotationPolicy.scoreAdjustment(garment, context);
+     final score = (adjusted * 100).round().clamp(0, 100).toInt();
+     return RankedGarmentRecommendation(
+       garment: garment,
+       score: score,
+       explanation: _explain(candidate, base, context, details, score),
+       details: details,
+     );
+   }
+ 
+   RecommendationCriterionScore _detail(String name, double weight, double score) =>
+       RecommendationCriterionScore(criterion: name, score: score, weight: weight);
+ 
+   double _style(_Profile item, _Profile? anchor, RecommendationContext context,
+       RecommendationPreferences preferences) {
+     final desired = _normalize(context.desiredStyle);
+-    if (desired.isNotEmpty) return item.styles.contains(desired) ? 1 : .35;
+-    if (anchor != null && item.styles.intersection(anchor.styles).isNotEmpty) return 1;
+-    if (item.styles.any(preferences.preferredStyles.map(_normalize).contains)) return .85;
++    if (desired.isNotEmpty) return item.styleScores[desired] ?? .35;
++    if (anchor != null) {
++      final shared = item.styles.intersection(anchor.styles);
++      if (shared.isNotEmpty) return shared.map((id) =>
++        ((item.styleScores[id] ?? .5) + (anchor.styleScores[id] ?? .5)) / 2
++      ).reduce((a, b) => a > b ? a : b);
++    }
++    final preferred = preferences.preferredStyles.map(_normalize)
++        .map((id) => item.styleScores[id] ?? 0).fold<double>(0, (a, b) => a > b ? a : b);
++    if (preferred > 0) return preferred;
+     return item.styles.isEmpty ? .65 : .55;
+   }
+ 
+   double _same(String? left, String? right) {
+     final a = _normalize(left);
+     final b = _normalize(right);
+     if (a.isEmpty || b.isEmpty) return .65;
+     return a == b ? 1 : .3;
+   }
+ 
+   double _season(_Profile item, RecommendationContext context) {
+     final season = _normalize(context.season);
+     if (season.isEmpty || item.seasons.isEmpty) return .7;
+     return item.seasons.contains(season) ? 1 : .15;
+   }
+ 
+   double _color(_Profile item, _Profile? anchor, RecommendationPreferences preferences) {
+     if (preferences.preferredColors.map(_normalize).contains(item.color)) return 1;
+     if (anchor == null || item.color.isEmpty || anchor.color.isEmpty) return .7;
+     if (item.compatibleColors.contains(anchor.color) ||
+         anchor.compatibleColors.contains(item.color)) return 1;
+     if (item.incompatibleColors.contains(anchor.color)) return .15;
+     const neutrals = {'noir', 'blanc', 'gris', 'beige', 'marine', 'bleu marine'};
+     return neutrals.contains(item.color) || neutrals.contains(anchor.color) ? .9 : .6;
+   }
+@@ -174,55 +181,62 @@ class RecommendationEngine {
+       .replaceAll(RegExp(r'[ùûü]'), 'u')
+       .replaceAll('ç', 'c');
+ 
+   static String _label(String value) => value
+       .split(' ')
+       .map((word) => word.isEmpty ? word : '${word[0].toUpperCase()}${word.substring(1)}')
+       .join(' ');
+ }
+ 
+ final _defaultThermalProfile = ThermalProfile(
+   insulation: InsulationLevel.low,
+   breathability: BreathabilityLevel.medium,
+   windProtection: WeatherProtection.none,
+   rainProtection: WeatherProtection.none,
+   primaryRole: LayerRole.mid,
+   inputFingerprint: 'fallback',
+   calculatedAt: DateTime.fromMillisecondsSinceEpoch(0),
+   confidence: .3,
+ );
+ 
+ class _Profile {
+   final Garment garment;
+   final GarmentRecommendationCorrection? correction;
+   _Profile(this.garment, this.correction);
+ 
++  Map<String, double> get styleScores {
++    if (correction?.style != null) return {RecommendationEngine._normalize(correction!.style): 1};
++    final analysis = garment.styleAnalysis;
++    if (analysis != null) return {
++      for (final compatibility in analysis.compatibilities)
++        RecommendationEngine._normalize(compatibility.styleId): compatibility.score,
++    };
++    return {};
++  }
+   Set<String> get styles => {
+     correction?.style,
+-    if (correction?.style == null) garment.styleAnalysis?.register,
+-    if (correction?.style == null) ...?garment.styleAnalysis?.secondaryStyles,
+-    if (correction?.style == null) ...?garment.styleAnalysis?.characteristics,
++    if (correction?.style == null) ...styleScores.keys,
+   }.map(RecommendationEngine._normalize).where((value) => value.isNotEmpty).toSet();
+   String? get formality => correction?.formality ?? garment.niveauFormalite;
+   Set<String> get seasons => (correction?.seasons ?? garment.effectiveSeasons)
+       .map(RecommendationEngine._normalize).toSet();
+   Set<String> get occasions => (correction?.occasions ?? garment.effectiveOccasions)
+       .map(RecommendationEngine._normalize).toSet();
+   String get color => RecommendationEngine._normalize(
+       correction?.color ?? garment.couleurPrincipale ?? garment.color);
+   String get material => RecommendationEngine._normalize(
+       correction?.material ?? garment.matierePrincipale ?? garment.material);
+   Set<String> get compatibleColors => (garment.couleursCompatibles ?? const [])
+       .map(RecommendationEngine._normalize).toSet();
+   Set<String> get incompatibleColors => (garment.couleursMoinsAdaptees ?? const [])
+       .map(RecommendationEngine._normalize).toSet();
+   Set<String> get discouragedOccasions => (garment.occasionsDeconseillees ?? const [])
+       .map(RecommendationEngine._normalize).toSet();
+   ThermalProfile get thermal {
+     final current = garment.thermalProfile ?? _defaultThermalProfile;
+     if (correction?.rainCompatible == null) {
+       return current;
+     }
+     return ThermalProfile(
+       insulation: current.insulation,
+       thickness: current.thickness,
+       breathability: current.breathability,
+diff --git a/lib/features/assistant/prompt/prompt_section.dart b/lib/features/assistant/prompt/prompt_section.dart
+index e5dcfec7216ab5191ea8d4b520d90bd864dd0f53..82990145cedf398b86c59109ce7b63708578abdb 100644
+--- a/lib/features/assistant/prompt/prompt_section.dart
++++ b/lib/features/assistant/prompt/prompt_section.dart
+@@ -1,49 +1,51 @@
+ import '../../calendar/calendar_event.dart';
+ import '../context/assistant_context.dart';
+ 
+ /// A self-contained piece of the prompt.
+ abstract interface class PromptSection {
+   String get title;
+ 
+   /// Returns no content when this section is not relevant to [context].
+   String? build(AssistantContext context);
+ }
+ 
+ class SystemPromptSection implements PromptSection {
+   static const instructions = [
+     'Tu es WardrobeGPT.',
+     'Tu es un conseiller vestimentaire intelligent.',
+     'Adapte naturellement la longueur à la demande : réponse courte pour une question simple, réponse détaillée pour plusieurs tenues, analyse approfondie quand elle est demandée.',
+     "Ne tronque jamais une réponse et n'applique aucune limite artificielle de longueur.",
+     'Explique brièvement les raisons de tes conseils sans révéler de raisonnement interne.',
+     'Propose plusieurs options et justifie chaque recommandation lorsque pertinent.',
+     'Cite toujours le nom réel des vêtements présents dans le contexte, jamais un nom générique à leur place.',
+     'Pour toute question sur une tenue ou un vêtement, la section GARDE-ROBE de ce prompt est la seule source de vérité sur le dressing actuel.',
+     "N'utilise jamais une pièce issue de la conversation, de la mémoire ou d'un ancien contexte si son identifiant n'est pas dans la GARDE-ROBE actuelle.",
+     "Pour créer une ou plusieurs tenues ou idées de look, utilise exclusivement des vêtements réellement listés dans la GARDE-ROBE actuelle ; n'invente aucune pièce et ne propose aucun achat.",
+     'Priorise StyleAnalysis, profilThermiqueEffectif, rôle et compatibilités de couches, formalité, couleurs et préférences utilisateur.',
++    'StyleAnalysis décrit plusieurs compatibilités notées, jamais une vérité ni un style principal. Explique les registres compatibles et leurs justifications.',
++    'Pour un vêtement, ne cite aucun registre stylistique absent de ses styleCompatibilities, y compris dans une comparaison ou une suggestion.',
+     'La météo améliore une recommandation quand elle existe mais reste facultative : son absence ne doit jamais empêcher de proposer la meilleure tenue possible.',
+     'Vérifie la cohérence globale de chaque tenue : style, température, couches, formalité et couleurs.',
+     "Si plusieurs tenues sont demandées, donne pour chacune une justification courte et factuelle (profil thermique, style, rotation ou météo disponible).",
+     "Si le dressing est réduit ou incomplet, propose la meilleure combinaison réalisable, explique brièvement la limite et ne réponds jamais « Impossible de répondre ».",
+     'Si une donnée manque, indique-le brièvement puis continue avec le contexte restant : ne bloque jamais la réponse.',
+     'Pour une demande élaborée, structure souplement la réponse avec Résumé, Pourquoi, Conseils, Alternatives et Attention.',
+     'Signale clairement les limites et incertitudes de tes conseils.',
+     "N'invente jamais d'informations absentes du contexte.",
+     "Reste bienveillant mais jamais complaisant : ne cherche pas à valider systématiquement l'utilisateur.",
+     "Contredis l'utilisateur lorsque les faits stylistiques ou son objectif le justifient, en expliquant clairement pourquoi.",
+     'Traite les observations comportementales comme des hypothèses révisables, jamais comme des vérités.',
+     'Présente toute analyse morphologique ou colorimétrique comme probabiliste et rappelle sa confiance.',
+   ];
+ 
+   const SystemPromptSection();
+ 
+   @override
+   String get title => 'SYSTÈME';
+ 
+   @override
+   String build(AssistantContext context) => instructions.join('\n');
+ }
+ 
+ class PersonalizationPromptSection implements PromptSection {
+   const PersonalizationPromptSection();
+diff --git a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+index d050a7aef3d054043485e286038f8fcddbb204e1..b406c258b23c5c60b93cb2b3c1740a6d98445d38 100644
+--- a/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
++++ b/lib/features/scanner/ai/openai_garment_vision_analyzer.dart
+@@ -210,50 +210,63 @@ Analyse uniquement le vêtement principal visible et complète l'identification
+ Retourne seulement des faits objectifs utiles à la fiche et à ThermalProfile v3 : matière
+ si elle est directement observable, composition seulement si elle est lisible, épaisseur,
+ doublure, coupe, construction, longueur, ouverture et caractéristiques physiques visibles.
+ Utilise null ou une liste vide lorsque l'image ne fournit pas la preuve. N'infère jamais
+ une saison, une occasion, un style, une température, une marque ou une composition.
+ Ne demande aucune autre photo. L'analyse précédente reste immuable pour l'identité.
+ material=${jsonEncode(request.allowedMaterials)}
+ Analyse précédente : ${jsonEncode(request.previousAnalysis)}
+ ''';
+ 
+   String _enrichmentPrompt(GarmentAnalysisRequest request) => '''
+ Tu analyses uniquement le vêtement principal visible. Ignore la personne, le
+ visage, le décor, le cintre et l'arrière-plan. N'identifie jamais une personne.
+ Réponds en ${request.language} et uniquement selon le schéma JSON. N'invente
+ jamais une marque ou une matière : utilise null lorsque ce n'est pas clairement
+ observable. Distingue une photo utilisable, imparfaite et inutilisable. Un léger
+ ${request.requestedFields.isEmpty ? '' : 'Cette réanalyse est ciblée. Réévalue uniquement ces champs métier : ${jsonEncode(request.requestedFields.toList())}. Conserve les autres valeurs.'}
+ défaut produit un avertissement ; un vêtement minuscule ou plusieurs vêtements
+ principaux indissociables produisent un rejet. N'identifie personne, ne déduis
+ ni taille, ni prix, ni authenticité. L'entretien est une estimation visuelle et
+ l'étiquette reste prioritaire. Pour une étiquette, retranscris d'abord le texte
+ par OCR. Ne déduis jamais une composition depuis l'apparence et ne demande une
+ photo plus nette que si le texte est réellement illisible. Baisse la confiance si texture, couleur ou logo
+ sont peu visibles, si le vêtement est distant, froissé, masqué ou superposé.
+ Signale les incohérences et utilise null plutôt que d'inventer. Utilise exclusivement ces valeurs :
++Pour styleSummary, ne réponds pas à « quel est le style ? ». Indique plutôt les
++registres avec lesquels la pièce est naturellement compatible, sans choisir de
++vainqueur, avec une justification visuelle brève pour chacun. Plusieurs registres
++sont attendus lorsqu'ils sont plausibles ; null reste préférable à une invention.
++Registres autorisés : Business, Business Casual, Smart Casual, Casual, Minimaliste,
++Old Money, Quiet Luxury, Ivy League, Preppy, Streetwear, Techwear, Workwear,
++Heritage, Military, Utility, Outdoor, Gorpcore, Scandinave, Japandi,
++Japanese Americana, French Chic, Parisien, Élégance italienne, Méditerranéen,
++Dark Academia, Light Academia, Classique moderne, Contemporain, Vintage, Rétro,
++Y2K, Années 90, Années 80, Bohème, Boho Chic, Western, Rock, Punk, Grunge,
++Romantique, Avant-Garde, Artisanal, Sport Chic, Athleisure, Tennis, Golf, Running,
++Cyclisme, Nautique, Resort, Beachwear, Soirée, Black Tie, Cocktail, Cérémonie,
++Invité de mariage, Voyage, Luxe, Créateur, Monochrome, Color Blocking, Normcore.
+ L'analyse précédente est la référence immuable. Complète uniquement les champs
+ demandés et laisse tous les autres inchangés. Ne recalcule jamais suggestedName,
+ category, preciseType ou primaryColor. La plupart des
+ pièces doivent être finalisées avec une seule photo. Mets needsMorePhotos à true
+ uniquement si une photo ciblée peut améliorer de façon importante un champ
+ encore incertain. Ne demande qu'une seule photo à la fois, explique précisément
+ pourquoi elle est utile et indique les champs visés. Ne redemande jamais une vue
+ déjà fournie. Sinon mets needsMorePhotos à false et requestedPhoto à null.
+ Adapte la demande au vêtement : semelle, intérieur ou usure pour des chaussures ;
+ étiquette, col ou poignets pour une chemise ; doublure, fermeture ou rembourrage
+ pour un manteau. Explique toujours le bénéfice concret de la photo.
+ Dans compositions, conserve toutes les fibres et pourcentages lus, séparés en
+ main, lining et padding. Utilise la source ocr pour le texte lu et visual
+ seulement pour une matière directement observable. Ne crée aucune valeur incertaine.
+ « category » est la catégorie générale, choisie uniquement parmi les catégories
+ autorisées ci-dessous. « preciseType » est le type concret et précis observé
+ (par exemple chemise Oxford, blazer croisé, jean droit, pantalon cargo,
+ cardigan, trench ou baskets basses). Utilise null si l'image ne permet pas de
+ conclure et ne répète jamais exactement « category » dans « preciseType ».
+ Agis comme un styliste professionnel : observe, explique, argumente et nuance.
+ Produis un résumé, des points forts et faibles, des conseils concrets, les
+ couleurs, bas et chaussures compatibles, les couleurs moins adaptées, les
+ occasions idéales et déconseillées, une polyvalence expliquée et un verdict
+ franc. Ne flatte pas systématiquement et ne qualifie jamais une pièce
+ d'élégante, polyvalente ou belle sans justification. Tu peux dire qu'une coupe
+diff --git a/lib/features/wardrobe/garment_detail_screen.dart b/lib/features/wardrobe/garment_detail_screen.dart
+index 2963f64602225b80c99c5524aa9cde456a1b4b10..3679a6818bec8c90c961f60b92af6a631d8354d4 100644
+--- a/lib/features/wardrobe/garment_detail_screen.dart
++++ b/lib/features/wardrobe/garment_detail_screen.dart
+@@ -158,65 +158,66 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+ 
+   Future<void> _styleHelp(String id) async {
+     final style = await _styles.find(id);
+     if (!mounted) return;
+     if (style == null) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ce style n’est pas encore présent dans la bibliothèque.')));
+       return;
+     }
+     await showModalBottomSheet<void>(context: context, showDragHandle: true,
+       builder: (sheetContext) => Padding(padding: const EdgeInsets.all(20), child: Column(
+         mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+           Text(StyleCatalog.displayName(style.id), style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
+           Text(_cleanDisplayText(style.definition) ?? _cleanDisplayText(style.description) ?? 'Description bientôt disponible.'),
+           if (style.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('Caractéristiques : ${_localizeStyleList(style.characteristics).take(5).join(', ')}')],
+           if (style.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('Exemples de vêtements : ${_localizeStyleList(style.examples).take(4).join(', ')}')],
+           if (style.colors.isNotEmpty) ...[const SizedBox(height: 8), Text('Couleurs associées : ${_localizeStyleList(style.colors).take(5).join(', ')}')],
+           if (style.materials.isNotEmpty) ...[const SizedBox(height: 8), Text('Matières fréquentes : ${_localizeStyleList(style.materials).take(5).join(', ')}')],
+           if (style.relatedStyleIds.isNotEmpty) ...[const SizedBox(height: 8), Text('Styles proches : ${style.relatedStyleIds.map(StyleCatalog.displayName).take(4).join(', ')}')],
+           const SizedBox(height: 12), FilledButton(onPressed: () { Navigator.pop(sheetContext); Navigator.push(context,
+             MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: _styles))); }, child: const Text('Voir la fiche complète')),
+         ])));
+   }
+ 
+   Future<void> _editStyleAnalysis() async {
+     final all = await _styles.all(); if (!mounted) return;
+-    var primary = garment.effectiveStyleAnalysis.register;
+-    final secondary = {...garment.effectiveStyleAnalysis.secondaryStyles};
++    final selected = garment.effectiveStyleAnalysis.compatibilities
++        .map((value) => value.styleId).toSet();
+     final characteristics = TextEditingController(text: garment.effectiveStyleAnalysis.characteristics.join(', '));
+     final saved = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (_, update) => AlertDialog(
+       title: const Text('Corriger l’analyse de style'), content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(children: [
+-        DropdownButtonFormField<String>(value: all.any((e) => e.id == primary) ? primary : null,
+-          decoration: const InputDecoration(labelText: 'Style principal'), items: all.map((e) => DropdownMenuItem(value: e.id, child: Text(e.name))).toList(), onChanged: (v) => update(() => primary = v ?? primary)),
+-        const SizedBox(height: 14), Align(alignment: Alignment.centerLeft, child: Text('Styles secondaires', style: Theme.of(context).textTheme.titleSmall)),
+-        ...all.where((e) => e.id != primary).map((e) => CheckboxListTile(dense: true, value: secondary.contains(e.id), title: Text(e.name), onChanged: (v) => update(() { if (v == true) secondary.add(e.id); else secondary.remove(e.id); }))),
++        Align(alignment: Alignment.centerLeft, child: Text('Compatibilités (aucun style principal imposé)', style: Theme.of(context).textTheme.titleSmall)),
++        ...all.map((e) => CheckboxListTile(dense: true, value: selected.contains(e.id), title: Text(e.name), onChanged: (v) => update(() { if (v == true) selected.add(e.id); else selected.remove(e.id); }))),
+         TextField(controller: characteristics, decoration: const InputDecoration(labelText: 'Caractéristiques (séparées par des virgules)')),
+       ]))), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
+         FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Enregistrer'))])));
+     if (saved != true) return;
+-    final corrected = garment.effectiveStyleAnalysis.withUserCorrections(register: primary,
+-      secondaryStyles: secondary.toList(), characteristics: characteristics.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList());
++    final old = {for (final value in garment.effectiveStyleAnalysis.compatibilities) value.styleId: value};
++    final corrected = garment.effectiveStyleAnalysis.withUserCorrections(
++      compatibilities: selected.map((id) => old[id] ?? StyleCompatibility(styleId: id,
++        score: 1, confidence: 1, justification: 'Compatibilité ajoutée par l’utilisateur')).toList(),
++      characteristics: characteristics.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList());
+     await widget.controller.save(garment.copyWith(styleAnalysis: corrected, updatedAt: DateTime.now()), isNew: false);
+     _refreshGarment();
+   }
+ 
+   GarmentReanalysisType? get _missingAnalysisType {
+     if (!_hasText(garment.sousCategorie)) return GarmentReanalysisType.category;
+     if (!_hasText(garment.composition) && !_hasText(garment.compositionEstimee)) {
+       return GarmentReanalysisType.composition;
+     }
+     if (garment.styleAnalysis == null) return GarmentReanalysisType.style;
+     if (garment.thermalProfile == null) return GarmentReanalysisType.thermal;
+     return null;
+   }
+ 
+   Future<void> _reanalyze() async {
+     if (_reanalyzing) return;
+     final target = _missingAnalysisType;
+     if (target == null) {
+       _showReanalysisMessage('La fiche contient déjà toutes les informations automatisables.');
+       return;
+     }
+     if (garment.effectivePhotos.isEmpty) {
+       _showReanalysisMessage('Ajoutez une photo exploitable pour compléter ces informations.');
+       return;
+     }
+@@ -624,54 +625,53 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+             onPressed: _reanalyzing ? null : _reanalyze,
+             icon: _reanalyzing
+                 ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                 : const Icon(Icons.auto_awesome),
+             label: const Text('Compléter automatiquement'),
+           ),
+           if (identityChips.isNotEmpty) ...[
+             const SizedBox(height: 17),
+             Wrap(
+               spacing: 8,
+               runSpacing: 8,
+               children:
+                   identityChips
+                       .map((value) => Chip(label: Text(value)))
+                       .toList(),
+             ),
+           ],
+           const SizedBox(height: 16),
+           _AdvancedSection(
+             title: 'Analyse de l’IA',
+             icon: Icons.auto_awesome_outlined,
+             children: [
+               if (garment.styleAnalysis != null) ...[
+                 Row(children: [const Expanded(child: Text('Compatibilités estimées', style: TextStyle(fontWeight: FontWeight.w800))),
+                   IconButton(tooltip: 'Corriger les hypothèses', onPressed: _editStyleAnalysis, icon: const Icon(Icons.edit_outlined))]),
+-                FutureBuilder<List<LibraryStyle?>>(future: Future.wait([
+-                  _styles.find(garment.effectiveStyleAnalysis.register),
+-                  ...garment.effectiveStyleAnalysis.secondaryStyles.map(_styles.find),
+-                ]), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
++                FutureBuilder<List<LibraryStyle?>>(future: Future.wait(
++                  garment.effectiveStyleAnalysis.compatibilities.map((value) => _styles.find(value.styleId)),
++                ), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
+                   for (final style in snapshot.data?.whereType<LibraryStyle>() ?? const <LibraryStyle>[])
+                     ActionChip(avatar: const Icon(Icons.info_outline, size: 18), label: Text(StyleCatalog.displayName(style.id)), onPressed: () => _styleHelp(style.id)),
+                 ])),
+               ],
+               _AiGarmentDetails(garment: garment),
+             ],
+           ),
+           if (garment.thermalProfile != null) _AdvancedSection(
+             title: 'Propriétés thermiques', icon: Icons.thermostat_outlined,
+             children: [_ThermalSummary(garment: garment)],
+           ),
+           _AdvancedSection(
+             title: 'Historique', icon: Icons.history,
+             children: [
+               _GarmentStatsGrid(garment: garment, firstWearFuture: _firstWearFuture,
+                 formatDate: _formatDate, formatPrice: _formatPrice,
+                 formatCalendarAge: _formatCalendarAge, daysSinceLastWearLabel: _daysSinceLastWearLabel),
+               _WearHistoryCard(wearHistoryFuture: _wearHistoryFuture, formatDate: _formatDate,
+                 formatTime: _formatTime, onDelete: deleteWear),
+             ],
+           ),
+           if (garment.effectivePhotos.length > 1) _AdvancedSection(
+             title: 'Photos complémentaires', icon: Icons.photo_library_outlined,
+             children: [Wrap(spacing: 8, runSpacing: 8, children: garment.effectivePhotos.skip(1).map((photo) =>
+               GarmentImage(imagePath: photo.path, width: 96, height: 96, borderRadius: BorderRadius.circular(14))).toList())],
+@@ -790,52 +790,52 @@ class _AdvancedSection extends StatelessWidget {
+ 
+ class _ThermalSummary extends StatelessWidget {
+   final Garment garment;
+   const _ThermalSummary({required this.garment});
+   @override
+   Widget build(BuildContext context) {
+     final profile = garment.thermalProfile!;
+     return Wrap(spacing: 8, runSpacing: 8, children: [
+       Chip(label: Text(garment.layerType ?? 'Couche intermédiaire')),
+       Chip(label: Text('Isolation ${profile.insulation.name}')),
+       if (profile.windProtection.name != 'none') const Chip(label: Text('Protège du vent')),
+       if (profile.rainCompatibility.name != 'none') const Chip(label: Text('Protège de la pluie')),
+     ]);
+   }
+ }
+ 
+ class _AiGarmentDetails extends StatelessWidget {
+   final Garment garment;
+ 
+   const _AiGarmentDetails({required this.garment});
+ 
+   @override
+   Widget build(BuildContext context) {
+     final styleEntries = <_AiDetailEntry>[
+       if (garment.styleAnalysis != null) ...[
+-        _AiDetailEntry.text('Compatibilité principale', StyleCatalog.displayName(garment.effectiveStyleAnalysis.register)),
+-        _AiDetailEntry.list('Compatibilités secondaires', garment.effectiveStyleAnalysis.secondaryStyles.map(StyleCatalog.displayName)),
++        _AiDetailEntry.list('Compatible avec', garment.effectiveStyleAnalysis.compatibilities.map((value) =>
++          '${StyleCatalog.displayName(value.styleId)} · ${(value.score * 100).round()} % — ${value.justification}')),
+       ],
+       _AiDetailEntry.list('Points forts', garment.pointsForts),
+       _AiDetailEntry.list('Points faibles', garment.pointsFaibles),
+       _AiDetailEntry.list('Conseils', garment.conseils),
+       _AiDetailEntry.text('Verdict', garment.verdict),
+       _AiDetailEntry.text(
+         'Explication de la polyvalence',
+         garment.explicationPolyvalence,
+       ),
+     ];
+     final associations = <_AiDetailEntry>[
+       _AiDetailEntry.list('Couleurs compatibles', garment.couleursCompatibles),
+       _AiDetailEntry.list(
+         'Couleurs moins adaptées',
+         garment.couleursMoinsAdaptees,
+       ),
+       _AiDetailEntry.list('Bas compatibles', garment.basCompatibles),
+       _AiDetailEntry.list(
+         'Chaussures compatibles',
+         garment.chaussuresCompatibles,
+       ),
+     ];
+     final characteristics = <_AiDetailEntry>[
+       _AiDetailEntry.text('Type précis', garment.typePrecis),
+       _AiDetailEntry.text(
+diff --git a/lib/models/style_analysis.dart b/lib/models/style_analysis.dart
+index eac5a5feda9795e125c2b0fe95cd7c9122da7737..84bfcd07cd003745668c2c437e6beb115e311ea4 100644
+--- a/lib/models/style_analysis.dart
++++ b/lib/models/style_analysis.dart
+@@ -1,149 +1,275 @@
+ import 'dart:convert';
+ 
+ /// Stable identifiers used by persistence and future style-library screens.
+ abstract final class StyleTaxonomy {
+-  static const version = 1;
+-  static const registers = <String>{
+-    'casual', 'smart_casual', 'dressy', 'sport', 'technical',
+-  };
+-  static const secondaryStyles = <String>{
+-    'minimalist', 'workwear', 'streetwear', 'preppy', 'vintage', 'rock',
+-    'outdoor',
+-  };
++  static const version = 2;
+   static const characteristics = <String>{
+     'understated', 'structured', 'modern', 'retro', 'elegant', 'utility',
+   };
+ 
+   /// Canonical metadata keyed by the stable identifiers stored in
+   /// [StyleAnalysis]. UI code must resolve labels through this map rather than
+   /// maintaining its own lists.
+-  static const entries = <String, StyleDefinition>{
++  static final _rawEntries = <String, StyleDefinition>{
+     'casual': StyleDefinition(id: 'casual', name: 'Décontracté', definition: 'Une allure confortable et simple pour le quotidien.', description: 'Des pièces faciles à porter, souples et peu formelles.', synonyms: ['casual', 'quotidien'], characteristics: ['confortable', 'simple', 'polyvalent'], colors: ['denim', 'neutres'], materials: ['coton', 'maille'], occasions: ['quotidien', 'week-end'], typicalPieces: ['jean', 't-shirt', 'baskets'], relatedStyleIds: ['smart_casual']),
+     'smart_casual': StyleDefinition(id: 'smart_casual', name: 'Chic décontracté', definition: 'L’équilibre entre décontraction et élégance.', description: 'Une silhouette quotidienne soignée sans les codes stricts du formel.', synonyms: ['smart casual', 'casual chic'], characteristics: ['soigné', 'polyvalent', 'moderne'], colors: ['marine', 'beige', 'blanc'], materials: ['coton', 'laine'], occasions: ['bureau', 'sortie'], typicalPieces: ['chino', 'blazer souple', 'mocassins'], relatedStyleIds: ['casual', 'dressy']),
+     'dressy': StyleDefinition(id: 'dressy', name: 'Habillé', definition: 'Une tenue élégante pensée pour les occasions formelles.', description: 'Des lignes nettes, des finitions raffinées et une silhouette structurée.', synonyms: ['formel', 'élégant'], characteristics: ['elegant', 'structured'], colors: ['noir', 'marine'], materials: ['laine', 'soie'], occasions: ['cérémonie', 'soirée'], typicalPieces: ['costume', 'robe', 'souliers'], oppositeStyleIds: ['sport']),
+     'sport': StyleDefinition(id: 'sport', name: 'Sport', definition: 'Une esthétique inspirée des vêtements d’activité.', description: 'Le confort, la liberté de mouvement et les détails athlétiques dominent.', synonyms: ['sportif', 'athleisure'], characteristics: ['confortable', 'dynamique'], materials: ['jersey', 'mesh'], occasions: ['sport', 'loisirs'], typicalPieces: ['jogging', 'sweat', 'baskets'], oppositeStyleIds: ['dressy']),
+     'technical': StyleDefinition(id: 'technical', name: 'Technique', definition: 'Un style fonctionnel fondé sur la performance.', description: 'Matières protectrices, détails utilitaires et construction adaptée aux éléments.', synonyms: ['techwear', 'fonctionnel'], characteristics: ['utility', 'modern'], materials: ['ripstop', 'membrane'], occasions: ['extérieur', 'voyage'], typicalPieces: ['shell', 'pantalon cargo'], relatedStyleIds: ['outdoor']),
+     'minimalist': StyleDefinition(id: 'minimalist', name: 'Minimaliste', definition: 'Une esthétique épurée qui privilégie l’essentiel.', description: 'Peu de détails, palette maîtrisée et lignes lisibles.', synonyms: ['minimal', 'épuré'], characteristics: ['understated', 'modern'], colors: ['blanc', 'noir', 'beige'], materials: ['coton', 'laine'], occasions: ['quotidien', 'bureau'], typicalPieces: ['chemise nette', 'pantalon droit']),
+     'workwear': StyleDefinition(id: 'workwear', name: 'Workwear', definition: 'Un style robuste inspiré des vêtements de travail.', description: 'Coupes pratiques, poches et matières résistantes.', synonyms: ['ouvrier', 'utilitaire'], characteristics: ['utility', 'structured'], materials: ['denim', 'toile'], typicalPieces: ['surchemise', 'pantalon carpenter'], relatedStyleIds: ['outdoor']),
+     'streetwear': StyleDefinition(id: 'streetwear', name: 'Streetwear', definition: 'Une culture vestimentaire urbaine, expressive et confortable.', description: 'Volumes amples, références sport et culture graphique.', synonyms: ['urbain', 'street'], characteristics: ['modern'], typicalPieces: ['hoodie', 'sneakers', 'cargo'], relatedStyleIds: ['sport']),
+     'preppy': StyleDefinition(id: 'preppy', name: 'Preppy', definition: 'Une allure soignée inspirée des campus classiques.', description: 'Mailles, chemises et références sportives traditionnelles.', synonyms: ['college', 'ivy'], characteristics: ['structured', 'elegant'], typicalPieces: ['polo', 'cardigan', 'chino']),
+     'vintage': StyleDefinition(id: 'vintage', name: 'Vintage', definition: 'Un style nourri de silhouettes et détails d’époques passées.', description: 'Pièces anciennes ou réinterprétées, patine et références historiques.', synonyms: ['rétro', 'ancien'], characteristics: ['retro'], typicalPieces: ['veste rétro', 'jean taille haute']),
+     'rock': StyleDefinition(id: 'rock', name: 'Rock', definition: 'Une esthétique affirmée issue des cultures musicales rock.', description: 'Contrastes sombres, cuir, denim et détails métalliques.', synonyms: ['rocker'], characteristics: ['affirmé'], colors: ['noir', 'rouge'], materials: ['cuir', 'denim'], typicalPieces: ['perfecto', 'boots']),
+     'outdoor': StyleDefinition(id: 'outdoor', name: 'Plein air', definition: 'Un style pratique inspiré des activités extérieures.', description: 'Superposition, résistance et confort climatique.', synonyms: ['randonnée', 'gorpcore'], characteristics: ['utility'], materials: ['polaire', 'ripstop'], occasions: ['extérieur', 'voyage'], typicalPieces: ['polaire', 'parka'], relatedStyleIds: ['technical']),
++    for (final spec in _expandedStyleSpecs)
++      spec.$1: StyleDefinition(
++        id: spec.$1, name: spec.$2,
++        definition: 'Un registre ${spec.$2} reconnaissable par ${spec.$3}.',
++        description: 'Une compatibilité stylistique fondée sur ${spec.$3}, à confirmer selon les associations de la tenue.',
++        synonyms: spec.$4,
++        characteristics: [spec.$3, 'cohérent', 'identifiable'],
++        colors: const ['neutres', 'tons naturels', 'couleurs signatures'],
++        materials: const ['coton', 'laine', 'matières caractéristiques'],
++        occasions: const ['quotidien', 'sortie', 'occasion adaptée'],
++        typicalPieces: spec.$5,
++        relatedStyleIds: spec.$6,
++      ),
++  };
++
++  static final entries = <String, StyleDefinition>{
++    for (final value in _rawEntries.values) value.id: value.enriched,
+   };
++
++  static const _expandedStyleSpecs = <(String, String, String, List<String>, List<String>, List<String>)>[
++    ('business', 'Business', 'des lignes professionnelles structurées', ['professionnel'], ['costume', 'chemise', 'souliers'], ['business_casual', 'modern_classic']),
++    ('business_casual', 'Business Casual', 'des codes de bureau assouplis', ['bureau décontracté'], ['oxford', 'chino', 'blazer'], ['smart_casual', 'ivy_league']),
++    ('old_money', 'Old Money', 'une élégance patrimoniale discrète', ['heritage chic'], ['polo', 'mocassins', 'maille fine'], ['ivy_league', 'quiet_luxury']),
++    ('quiet_luxury', 'Quiet Luxury', 'un luxe discret sans logos', ['luxe discret'], ['manteau sobre', 'maille fine', 'pantalon net'], ['minimalist', 'old_money']),
++    ('ivy_league', 'Ivy League', 'les codes universitaires américains classiques', ['ivy'], ['chemise Oxford', 'chino', 'penny loafers'], ['preppy', 'old_money']),
++    ('techwear', 'Techwear', 'la performance technique urbaine', ['urban tech'], ['shell', 'cargo technique', 'sac fonctionnel'], ['technical', 'utility']),
++    ('heritage', 'Heritage', 'des références durables et patrimoniales', ['patrimoine'], ['tweed', 'veste cirée', 'boots'], ['workwear', 'old_money']),
++    ('military', 'Military', 'des détails issus de l’uniforme', ['militaire'], ['field jacket', 'cargo', 'combat boots'], ['utility', 'workwear']),
++    ('utility', 'Utility', 'des fonctions et poches visibles', ['utilitaire'], ['cargo', 'surchemise', 'gilet'], ['workwear', 'military']),
++    ('gorpcore', 'Gorpcore', 'l’équipement outdoor porté en ville', ['gorp'], ['polaire', 'shell', 'chaussures trail'], ['outdoor', 'techwear']),
++    ('scandinavian', 'Scandinave', 'un minimalisme fonctionnel nordique', ['scandi'], ['manteau droit', 'maille', 'sneakers sobres'], ['minimalist', 'japandi']),
++    ('japandi', 'Japandi', 'la sobriété japonaise et scandinave', [], ['veste épurée', 'pantalon ample', 'maille'], ['scandinavian', 'minimalist']),
++    ('japanese_americana', 'Japanese Americana', 'une relecture japonaise du vestiaire américain', [], ['denim selvedge', 'chore jacket', 'boots'], ['heritage', 'workwear']),
++    ('french_chic', 'French Chic', 'une élégance française sans effort', ['chic français'], ['trench', 'marinière', 'ballerines'], ['parisian', 'modern_classic']),
++    ('parisian', 'Parisien', 'des classiques urbains sobres', ['parisian'], ['blazer', 'jean droit', 'mocassins'], ['french_chic', 'minimalist']),
++    ('italian_elegance', 'Élégance italienne', 'un tailoring souple et expressif', ['italian style'], ['costume souple', 'mocassins', 'chemise'], ['business', 'mediterranean']),
++    ('mediterranean', 'Méditerranéen', 'des volumes légers et solaires', [], ['chemise lin', 'pantalon clair', 'sandales'], ['resort', 'italian_elegance']),
++    ('dark_academia', 'Dark Academia', 'des références universitaires sombres', [], ['tweed', 'col roulé', 'mocassins'], ['light_academia', 'vintage']),
++    ('light_academia', 'Light Academia', 'des références universitaires lumineuses', [], ['cardigan clair', 'oxford', 'pantalon plissé'], ['dark_academia', 'preppy']),
++    ('modern_classic', 'Classique moderne', 'des classiques aux proportions actuelles', [], ['blazer', 'pantalon droit', 'chemise'], ['contemporary', 'business']),
++    ('contemporary', 'Contemporain', 'des lignes actuelles et maîtrisées', [], ['veste moderne', 'pantalon fluide', 'sneakers'], ['modern_classic', 'minimalist']),
++    ('retro', 'Rétro', 'une interprétation actuelle de codes passés', [], ['veste rétro', 'maille graphique', 'pantalon taille haute'], ['vintage', '90s']),
++    ('y2k', 'Y2K', 'les codes pop du début des années 2000', ['années 2000'], ['mini sac', 'cargo taille basse', 'lunettes teintées'], ['90s', 'streetwear']),
++    ('90s', 'Années 90', 'les volumes et références des années 1990', ['nineties'], ['jean droit', 'bomber', 'slip dress'], ['grunge', 'y2k']),
++    ('80s', 'Années 80', 'des volumes affirmés et graphiques', ['eighties'], ['blazer épaulé', 'denim délavé', 'maille vive'], ['retro', 'color_blocking']),
++    ('bohemian', 'Bohème', 'des volumes libres et influences artisanales', ['boho'], ['robe fluide', 'gilet brodé', 'sandales'], ['boho_chic', 'artisanal']),
++    ('boho_chic', 'Boho Chic', 'une bohème raffinée', [], ['robe imprimée', 'suède', 'bijoux'], ['bohemian', 'romantic']),
++    ('western', 'Western', 'les codes du vestiaire de l’Ouest américain', [], ['chemise western', 'denim', 'boots'], ['heritage', 'bohemian']),
++    ('punk', 'Punk', 'une esthétique subversive et bricolée', [], ['cuir', 'tartan', 'boots'], ['rock', 'grunge']),
++    ('grunge', 'Grunge', 'des superpositions relâchées inspirées des années 1990', [], ['flanelle', 'jean usé', 'boots'], ['rock', '90s']),
++    ('romantic', 'Romantique', 'des détails délicats et silhouettes douces', [], ['dentelle', 'blouse', 'robe fluide'], ['boho_chic', 'ceremony']),
++    ('avant_garde', 'Avant-Garde', 'des formes expérimentales', ['avant garde'], ['volume sculptural', 'drapé', 'pièce conceptuelle'], ['designer', 'artisanal']),
++    ('artisanal', 'Artisanal', 'des textures et savoir-faire visibles', [], ['maille main', 'broderie', 'tissage'], ['bohemian', 'avant_garde']),
++    ('sport_chic', 'Sport Chic', 'des codes sportifs polis', [], ['polo', 'pantalon net', 'sneakers premium'], ['athleisure', 'smart_casual']),
++    ('athleisure', 'Athleisure', 'des vêtements sportifs intégrés au quotidien', [], ['legging', 'sweat', 'sneakers'], ['sport_chic', 'running']),
++    ('tennis', 'Tennis', 'les codes sportifs de court', [], ['polo', 'jupe plissée', 'sneakers blanches'], ['preppy', 'sport_chic']),
++    ('golf', 'Golf', 'les codes sportifs de club', [], ['polo', 'chino', 'gilet'], ['preppy', 'old_money']),
++    ('running', 'Running', 'la performance et les lignes de course', [], ['coupe-vent', 'short technique', 'running shoes'], ['athleisure', 'technical']),
++    ('cycling', 'Cyclisme', 'les lignes aérodynamiques du vélo', [], ['maillot', 'coupe-vent', 'lunettes'], ['technical', 'sport_chic']),
++    ('sailing', 'Nautique', 'les codes fonctionnels de la voile', ['sailing'], ['ciré', 'polo', 'chaussures bateau'], ['resort', 'preppy']),
++    ('resort', 'Resort', 'une élégance détendue de villégiature', [], ['chemise légère', 'robe fluide', 'sandales'], ['beachwear', 'mediterranean']),
++    ('beachwear', 'Beachwear', 'des pièces conçues pour la plage', ['plage'], ['maillot', 'paréo', 'chemise ouverte'], ['resort', 'mediterranean']),
++    ('evening', 'Soirée', 'une élégance adaptée au soir', [], ['robe longue', 'veste habillée', 'pochette'], ['cocktail', 'black_tie']),
++    ('black_tie', 'Black Tie', 'les codes formels du smoking', [], ['smoking', 'robe de gala', 'souliers vernis'], ['evening', 'ceremony']),
++    ('cocktail', 'Cocktail', 'une formalité festive intermédiaire', [], ['robe cocktail', 'costume sombre', 'escarpins'], ['evening', 'wedding_guest']),
++    ('ceremony', 'Cérémonie', 'une tenue formelle de célébration', [], ['costume', 'robe habillée', 'accessoire précieux'], ['wedding_guest', 'evening']),
++    ('wedding_guest', 'Invité de mariage', 'une élégance festive respectant la cérémonie', [], ['costume clair', 'robe midi', 'pochette'], ['ceremony', 'cocktail']),
++    ('travel', 'Voyage', 'la polyvalence et le confort en déplacement', [], ['veste légère', 'pantalon confortable', 'sneakers'], ['casual', 'utility']),
++    ('luxury', 'Luxe', 'des matières et finitions haut de gamme', [], ['manteau précieux', 'sac cuir', 'maille fine'], ['designer', 'quiet_luxury']),
++    ('designer', 'Créateur', 'une signature de maison ou de designer', [], ['pièce signature', 'coupe distinctive', 'accessoire iconique'], ['luxury', 'avant_garde']),
++    ('monochrome', 'Monochrome', 'une palette centrée sur une seule couleur', [], ['ensemble ton sur ton', 'manteau assorti', 'accessoires coordonnés'], ['minimalist', 'color_blocking']),
++    ('color_blocking', 'Color Blocking', 'des aplats de couleurs contrastés', ['blocs de couleur'], ['maille vive', 'pantalon coloré', 'accessoire contrasté'], ['80s', 'contemporary']),
++    ('normcore', 'Normcore', 'des basiques volontairement ordinaires', [], ['jean droit', 't-shirt uni', 'sneakers simples'], ['casual', 'minimalist']),
++  ];
+ }
+ 
+ class StyleDefinition {
+   final String id, name, definition, description;
+   final List<String> synonyms, characteristics, colors, materials, occasions,
+       typicalPieces, relatedStyleIds, oppositeStyleIds;
+   const StyleDefinition({required this.id, required this.name,
+     required this.definition, required this.description, this.synonyms = const [],
+     this.characteristics = const [], this.colors = const [], this.materials = const [],
+     this.occasions = const [], this.typicalPieces = const [],
+     this.relatedStyleIds = const [], this.oppositeStyleIds = const []});
++
++  StyleDefinition get enriched => StyleDefinition(
++    id: id, name: name, definition: definition, description: description,
++    synonyms: synonyms,
++    characteristics: characteristics.isEmpty ? const ['cohérent', 'identifiable'] : characteristics,
++    colors: colors.isEmpty ? const ['neutres', 'couleurs signatures'] : colors,
++    materials: materials.isEmpty ? const ['coton', 'laine'] : materials,
++    occasions: occasions.isEmpty ? const ['quotidien', 'occasion adaptée'] : occasions,
++    typicalPieces: typicalPieces.isEmpty ? const ['pièce signature'] : typicalPieces,
++    relatedStyleIds: relatedStyleIds.isEmpty ? const ['casual'] : relatedStyleIds,
++    oppositeStyleIds: oppositeStyleIds,
++  );
++}
++
++/// A non-exclusive, explainable affinity between a garment and a style.
++class StyleCompatibility {
++  final String styleId;
++  final double score;
++  final String justification;
++  final double? confidence;
++
++  const StyleCompatibility({required this.styleId, required this.score,
++    required this.justification, this.confidence});
++
++  Map<String, Object?> toMap() => {'styleId': styleId, 'score': score,
++    'justification': justification, 'confidence': confidence};
++  factory StyleCompatibility.fromMap(Map<Object?, Object?> map) =>
++      StyleCompatibility(styleId: map['styleId']?.toString() ?? '',
++        score: (map['score'] as num?)?.toDouble() ?? 0,
++        justification: map['justification']?.toString() ?? '',
++        confidence: (map['confidence'] as num?)?.toDouble());
+ }
+ 
+ /// Versioned, explainable stylistic result. AI values and user decisions are
+ /// deliberately separate: recomputation only replaces the suggestion layer.
+ class StyleAnalysis {
+-  static const currentModelVersion = 'style-v1';
++  static const currentModelVersion = 'style-v2-compatibilities';
+ 
+   final int taxonomyVersion;
+   final String modelVersion;
+   final String inputFingerprint;
+   final String suggestedRegister;
+   final List<String> suggestedSecondaryStyles;
+   final List<String> suggestedCharacteristics;
+   final String? userRegister;
+   final List<String>? userSecondaryStyles;
+   final List<String>? userCharacteristics;
+   final List<String> evidence;
++  final List<StyleCompatibility> suggestedCompatibilities;
++  /// Complete user override. Removing or adding an entry remains persistent
++  /// across later AI recomputations without mutating the system catalogue.
++  final List<StyleCompatibility>? userCompatibilities;
+   final DateTime calculatedAt;
+ 
+   const StyleAnalysis({
+     this.taxonomyVersion = StyleTaxonomy.version,
+     this.modelVersion = currentModelVersion,
+     required this.inputFingerprint,
+     required this.suggestedRegister,
+     this.suggestedSecondaryStyles = const [],
+     this.suggestedCharacteristics = const [],
+     this.userRegister,
+     this.userSecondaryStyles,
+     this.userCharacteristics,
+     this.evidence = const [],
++    this.suggestedCompatibilities = const [],
++    this.userCompatibilities,
+     required this.calculatedAt,
+   });
+ 
++  List<StyleCompatibility> get compatibilities {
++    if (userCompatibilities != null) return userCompatibilities!;
++    if (suggestedCompatibilities.isNotEmpty) return suggestedCompatibilities;
++    return [StyleCompatibility(styleId: register, score: 1,
++      justification: evidence.isEmpty ? 'Compatibilité héritée' : evidence.first),
++      ...secondaryStyles.map((id) => StyleCompatibility(styleId: id, score: .7,
++        justification: 'Compatibilité secondaire héritée'))];
++  }
++
+   String get register => userRegister ?? suggestedRegister;
+   List<String> get secondaryStyles =>
+       userSecondaryStyles ?? suggestedSecondaryStyles;
+   List<String> get characteristics =>
+       userCharacteristics ?? suggestedCharacteristics;
+   bool get hasUserCorrections => userRegister != null ||
+-      userSecondaryStyles != null || userCharacteristics != null;
++      userSecondaryStyles != null || userCharacteristics != null ||
++      userCompatibilities != null;
+ 
+   StyleAnalysis withUserCorrections({String? register,
+-    List<String>? secondaryStyles, List<String>? characteristics}) =>
++    List<String>? secondaryStyles, List<String>? characteristics,
++    List<StyleCompatibility>? compatibilities}) =>
+       StyleAnalysis(
+         taxonomyVersion: taxonomyVersion, modelVersion: modelVersion,
+         inputFingerprint: inputFingerprint,
+         suggestedRegister: suggestedRegister,
+         suggestedSecondaryStyles: suggestedSecondaryStyles,
+         suggestedCharacteristics: suggestedCharacteristics,
+         userRegister: register ?? userRegister,
+         userSecondaryStyles: secondaryStyles ?? userSecondaryStyles,
+         userCharacteristics: characteristics ?? userCharacteristics,
++        suggestedCompatibilities: suggestedCompatibilities,
++        userCompatibilities: compatibilities ?? userCompatibilities,
+         evidence: evidence, calculatedAt: calculatedAt,
+       );
+ 
+   StyleAnalysis retainCorrectionsFrom(StyleAnalysis? previous) => StyleAnalysis(
+     taxonomyVersion: taxonomyVersion, modelVersion: modelVersion,
+     inputFingerprint: inputFingerprint, suggestedRegister: suggestedRegister,
+     suggestedSecondaryStyles: suggestedSecondaryStyles,
+     suggestedCharacteristics: suggestedCharacteristics,
+     userRegister: previous?.userRegister,
+     userSecondaryStyles: previous?.userSecondaryStyles,
+     userCharacteristics: previous?.userCharacteristics,
++    suggestedCompatibilities: suggestedCompatibilities,
++    userCompatibilities: previous?.userCompatibilities,
+     evidence: evidence, calculatedAt: calculatedAt,
+   );
+ 
+   String encode() => jsonEncode({
+     'taxonomyVersion': taxonomyVersion, 'modelVersion': modelVersion,
+     'inputFingerprint': inputFingerprint,
+     'suggestedRegister': suggestedRegister,
+     'suggestedSecondaryStyles': suggestedSecondaryStyles,
+     'suggestedCharacteristics': suggestedCharacteristics,
+     'userRegister': userRegister,
+     'userSecondaryStyles': userSecondaryStyles,
+     'userCharacteristics': userCharacteristics,
+     'evidence': evidence, 'calculatedAt': calculatedAt.toIso8601String(),
++    'suggestedCompatibilities': suggestedCompatibilities.map((e) => e.toMap()).toList(),
++    'userCompatibilities': userCompatibilities?.map((e) => e.toMap()).toList(),
+   });
+ 
+   static StyleAnalysis? decode(Object? source) {
+     if (source is! String || source.isEmpty) return null;
+     try {
+       final map = jsonDecode(source);
+       if (map is! Map) return null;
+       List<String> strings(Object? value) => value is List
+           ? value.map((e) => e.toString()).toList(growable: false) : const [];
++      List<StyleCompatibility> compatibilities(Object? value) => value is List
++          ? value.whereType<Map>().map(StyleCompatibility.fromMap).toList(growable: false)
++          : const [];
+       return StyleAnalysis(
+         taxonomyVersion: map['taxonomyVersion'] is int
+             ? map['taxonomyVersion'] as int : StyleTaxonomy.version,
+         modelVersion: map['modelVersion']?.toString() ?? currentModelVersion,
+         inputFingerprint: map['inputFingerprint']?.toString() ?? '',
+         suggestedRegister: map['suggestedRegister']?.toString() ?? 'casual',
+         suggestedSecondaryStyles: strings(map['suggestedSecondaryStyles']),
+         suggestedCharacteristics: strings(map['suggestedCharacteristics']),
+         userRegister: map['userRegister']?.toString(),
+         userSecondaryStyles: map['userSecondaryStyles'] == null
+             ? null : strings(map['userSecondaryStyles']),
+         userCharacteristics: map['userCharacteristics'] == null
+             ? null : strings(map['userCharacteristics']),
+         evidence: strings(map['evidence']),
++        suggestedCompatibilities: compatibilities(map['suggestedCompatibilities']),
++        userCompatibilities: map['userCompatibilities'] == null ? null :
++          compatibilities(map['userCompatibilities']),
+         calculatedAt: DateTime.tryParse(map['calculatedAt']?.toString() ?? '') ??
+             DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+       );
+     } on FormatException { return null; }
+   }
+ }
+diff --git a/lib/models/style_classifier.dart b/lib/models/style_classifier.dart
+index 77eba5e3a2b9921b5ffb88dfa600a898a14ed43a..88d26028b552b371e27e7d554a7f669ff3115b6e 100644
+--- a/lib/models/style_classifier.dart
++++ b/lib/models/style_classifier.dart
+@@ -39,41 +39,65 @@ class StyleClassifier {
+       register = 'casual'; evidence.add('Construction principalement décontractée');
+     }
+     // Hard coherence constraints beat generic formality hints.
+     if (has(r'sweat|hoodie|capuche')) {
+       register = 'casual'; evidence.add('Contrainte: un sweat reste décontracté');
+     }
+ 
+     final secondary = <String>[];
+     void add(String id, String reason) { secondary.add(id); evidence.add(reason); }
+     if (has(r'oxford|chino|polo|mocassin|preppy')) add('preppy', 'Codes preppy visibles');
+     if (has(r'cargo|toile|denim|poche.*plaqu[eé]e|workwear')) add('workwear', 'Détails utilitaires/workwear');
+     if (has(r'oversize|graphique|streetwear') && !has(r'costume|smoking')) add('streetwear', 'Volume ou graphisme streetwear');
+     if (has(r'outdoor|randonn[eé]e|parka|polaire')) add('outdoor', 'Usage outdoor identifiable');
+     if (has(r'vintage|ann[eé]es? [0-9]|r[eé]tro')) add('vintage', 'Référence rétro explicite');
+     if (has(r'cuir|clou|rock')) add('rock', 'Codes rock visibles');
+     if (has(r'uni|neutre|minimal')) add('minimalist', 'Palette ou motif minimaliste');
+ 
+     final characteristics = <String>[];
+     if (has(r'uni|marine|noir|gris|beige|sobre')) characteristics.add('understated');
+     if (has(r'blazer|costume|tailleur|structur[eé]|revers')) characteristics.add('structured');
+     if (has(r'moderne|contemporain|technique')) characteristics.add('modern');
+     if (has(r'vintage|r[eé]tro')) characteristics.add('retro');
+     if (register == 'dressy' || has(r'[eé]l[eé]gant')) characteristics.add('elegant');
+     if (has(r'cargo|poche|utilitaire|workwear')) characteristics.add('utility');
+ 
++    final compatibilityReasons = <String, String>{register: evidence.first};
++    for (final id in secondary) {
++      compatibilityReasons[id] = evidence.lastWhere(
++        (reason) => reason.toLowerCase().contains(id == 'preppy' ? 'preppy' : id),
++        orElse: () => 'Codes ${StyleTaxonomy.entries[id]?.name ?? id} compatibles',
++      );
++    }
++    if (has(r'oxford')) {
++      compatibilityReasons.addAll({
++        'ivy_league': 'La chemise Oxford est un pilier du vestiaire universitaire américain',
++        'old_money': 'Sa construction classique et discrète convient à une élégance patrimoniale',
++        'business_casual': 'Elle assouplit naturellement une tenue de bureau',
++        'quiet_luxury': 'Sans logo ni effet marqué, elle soutient un luxe discret',
++      });
++    }
++    final compatibilities = compatibilityReasons.entries.map((entry) {
++      final index = compatibilityReasons.keys.toList().indexOf(entry.key);
++      return StyleCompatibility(styleId: entry.key,
++        score: (0.92 - index * .06).clamp(.55, .95).toDouble(),
++        confidence: has(r'oxford') ? .86 : .72,
++        justification: entry.value);
++    }).toList(growable: false);
++
+     return StyleAnalysis(inputFingerprint: input.fingerprint,
+       suggestedRegister: register,
+       suggestedSecondaryStyles: secondary.toSet().toList(),
+       suggestedCharacteristics: characteristics.toSet().toList(),
++      suggestedCompatibilities: compatibilities,
+       evidence: evidence, calculatedAt: calculatedAt ?? DateTime.now().toUtc(),
+     ).retainCorrectionsFrom(previous);
+   }
+ 
+   StyleAnalysis ensureCurrent(StyleInput input, StyleAnalysis? current,
+       {DateTime? calculatedAt}) {
+     if (current != null && current.modelVersion == StyleAnalysis.currentModelVersion &&
+         current.taxonomyVersion == StyleTaxonomy.version &&
+         current.inputFingerprint == input.fingerprint) return current;
+     return classify(input, previous: current, calculatedAt: calculatedAt);
+   }
+ }
+diff --git a/test/models/style_classifier_test.dart b/test/models/style_classifier_test.dart
+index fd0640b1e431f693deb1f9564b5182c17031ac17..eefee89554ea162ee55e39841dd4a7fc6d4bcd4f 100644
+--- a/test/models/style_classifier_test.dart
++++ b/test/models/style_classifier_test.dart
+@@ -1,31 +1,49 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/style_analysis.dart';
+ import 'package:wardrobeos/models/style_classifier.dart';
+ 
+ void main() {
++  test('Oxford exposes several explainable compatibilities without a winner', () {
++    final analysis = const StyleClassifier().classify(const StyleInput(
++      category: 'Hauts', subcategory: 'chemise Oxford', material: 'coton'));
++    expect(analysis.compatibilities.map((value) => value.styleId), containsAll(
++      ['old_money', 'ivy_league', 'business_casual', 'quiet_luxury']));
++    expect(analysis.compatibilities.every((value) =>
++      value.score > 0 && value.justification.isNotEmpty), isTrue);
++  });
++
++  test('an empty user compatibility override survives persistence', () {
++    final source = const StyleClassifier().classify(const StyleInput(
++      category: 'Hauts', subcategory: 'chemise Oxford'))
++      .withUserCorrections(compatibilities: const []);
++    final restored = StyleAnalysis.decode(source.encode())!;
++    expect(restored.userCompatibilities, isEmpty);
++    expect(restored.compatibilities, isEmpty);
++  });
++
+   const classifier = StyleClassifier();
+ 
+   test('applique les contraintes de cohérence avant la formalité', () {
+     final hoodie = classifier.classify(const StyleInput(
+       category: 'Hauts', subcategory: 'Sweat à capuche',
+       formality: 'Business formel', material: 'Coton'));
+     final suitTrousers = classifier.classify(const StyleInput(
+       category: 'Bas', subcategory: 'Pantalon de costume',
+       construction: 'structuré à pinces'));
+ 
+     expect(hoodie.register, 'casual');
+     expect(hoodie.evidence, contains(contains('Contrainte')));
+     expect(suitTrousers.register, 'dressy');
+     expect(suitTrousers.secondaryStyles, isNot(contains('streetwear')));
+   });
+ 
+   test('Oxford utilise sous-catégorie, coupe, motif et détails', () {
+     final result = classifier.classify(const StyleInput(
+       category: 'Chemises', subcategory: 'Chemise Oxford', fit: 'ajustée',
+       color: 'Bleu ciel', pattern: 'uni', construction: 'col boutonné'));
+     expect(result.register, 'smart_casual');
+     expect(result.secondaryStyles, containsAll(['preppy', 'minimalist']));
+     expect(result.characteristics, contains('understated'));
+   });
+ 

@@ -61,10 +61,34 @@ class StyleClassifier {
     if (register == 'dressy' || has(r'[eé]l[eé]gant')) characteristics.add('elegant');
     if (has(r'cargo|poche|utilitaire|workwear')) characteristics.add('utility');
 
+    final compatibilityReasons = <String, String>{register: evidence.first};
+    for (final id in secondary) {
+      compatibilityReasons[id] = evidence.lastWhere(
+        (reason) => reason.toLowerCase().contains(id == 'preppy' ? 'preppy' : id),
+        orElse: () => 'Codes ${StyleTaxonomy.entries[id]?.name ?? id} compatibles',
+      );
+    }
+    if (has(r'oxford')) {
+      compatibilityReasons.addAll({
+        'ivy_league': 'La chemise Oxford est un pilier du vestiaire universitaire américain',
+        'old_money': 'Sa construction classique et discrète convient à une élégance patrimoniale',
+        'business_casual': 'Elle assouplit naturellement une tenue de bureau',
+        'quiet_luxury': 'Sans logo ni effet marqué, elle soutient un luxe discret',
+      });
+    }
+    final compatibilities = compatibilityReasons.entries.map((entry) {
+      final index = compatibilityReasons.keys.toList().indexOf(entry.key);
+      return StyleCompatibility(styleId: entry.key,
+        score: (0.92 - index * .06).clamp(.55, .95).toDouble(),
+        confidence: has(r'oxford') ? .86 : .72,
+        justification: entry.value);
+    }).toList(growable: false);
+
     return StyleAnalysis(inputFingerprint: input.fingerprint,
       suggestedRegister: register,
       suggestedSecondaryStyles: secondary.toSet().toList(),
       suggestedCharacteristics: characteristics.toSet().toList(),
+      suggestedCompatibilities: compatibilities,
       evidence: evidence, calculatedAt: calculatedAt ?? DateTime.now().toUtc(),
     ).retainCorrectionsFrom(previous);
   }
