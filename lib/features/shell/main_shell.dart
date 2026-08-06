@@ -41,6 +41,8 @@ import '../wardrobe/reanalysis/garment_reanalysis_models.dart';
 import '../wardrobe/reanalysis/garment_reanalysis_service.dart';
 import '../styles/style_repository.dart';
 import '../styles/style_enrichment_service.dart';
+import '../action_center/action_center_screen.dart';
+import '../action_center/action_center_service.dart';
 
 class MainShell extends StatefulWidget {
   final AppSettings settings;
@@ -104,6 +106,7 @@ class _MainShellState extends State<MainShell> {
     weatherService: widget.weatherService,
     aiContextService: _aiContextService,
   );
+  late final _actionCenter = ActionCenterService(importService: WardrobeImportService.instance);
   late final _backupController = BackupController(
     backupService: BackupService(repository: _backupRepository),
     restoreService: RestoreService(repository: _backupRepository),
@@ -115,7 +118,8 @@ class _MainShellState extends State<MainShell> {
       ]);
       if (mounted) setState(() {});
     },
-  );
+  )..addListener(_relayBackupAction);
+  String? _lastBackupAction;
   late final _assistantService = AssistantService(
     contextBuilder: AssistantContextBuilder(
       weatherService: widget.weatherService,
@@ -155,12 +159,20 @@ class _MainShellState extends State<MainShell> {
     WardrobeImportService.instance.initialize();
   }
 
+  void _relayBackupAction() {
+    final result = _backupController.result;
+    if (_backupController.busy || result == null || result == _lastBackupAction || result == 'Sauvegarde annulée.') return;
+    _lastBackupAction = result;
+    _actionCenter.publishBackupResult(succeeded: !_backupController.resultIsError, detail: result);
+  }
+
   @override
   void dispose() {
     _assistantWardrobe.dispose();
     _outfitsController.dispose();
     _aiSettings.dispose();
     _backupController.dispose();
+    _actionCenter.dispose();
     _agendaController.dispose();
     _reanalysisAnalyzer.close();
     super.dispose();
@@ -203,6 +215,8 @@ class _MainShellState extends State<MainShell> {
         styleRepository: _styleCatalog,
         styleEnrichment: _styleEnrichment,
       ),
+      ActionCenterScreen(service: _actionCenter, openWardrobe: () => goTo(1),
+        retryBackup: () => _backupController.createBackup()),
     ];
 
     return Scaffold(
@@ -260,6 +274,11 @@ class _MainShellState extends State<MainShell> {
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
             label: 'Profil',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.inbox_outlined),
+            selectedIcon: Icon(Icons.inbox),
+            label: 'Actions',
           ),
         ],
       ),
