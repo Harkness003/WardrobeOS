@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/garment.dart';
 import '../../models/style_analysis.dart';
 import '../../models/wear_history.dart';
+import '../../l10n/app_localizations.dart';
 import '../../widgets/garment_image.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
@@ -32,20 +33,9 @@ List<String> _cleanDisplayList(Iterable<String>? values) =>
         .toSet()
         .toList(growable: false);
 
-String _localizeStyleTokens(String value) {
-  var localized = value;
-  for (final id in StyleTaxonomy.entries.keys) {
-    localized = localized.replaceAllMapped(
-      RegExp('(^|[^A-Za-z0-9])' + RegExp.escape(id) + r'(?=[^A-Za-z0-9]|$)', caseSensitive: false),
-      (match) => '${match.group(1) ?? ''}${StyleCatalog.displayName(id)}',
-    );
-  }
-  return StyleCatalog.displayName(localized);
-}
-
-List<String> _localizeStyleList(Iterable<String>? values) =>
-    _cleanDisplayList(values).map(_localizeStyleTokens).toList(growable: false);
-
+String _styleName(AppLocalizations l10n, String id) =>
+    l10n.catalogEntry('style', id)['name'] as String? ??
+    l10n.text('ui.unknownCatalogValue', fallback: 'Unknown');
 
 String _fieldLabel(String field) => const {
   'name': 'Nom', 'category': 'Catégorie', 'color': 'Couleur',
@@ -163,16 +153,18 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ce style n’est pas encore présent dans la bibliothèque.')));
       return;
     }
+    final l10n = AppLocalizations.of(context);
+    final visibleStyle = style.localized(l10n);
     await showModalBottomSheet<void>(context: context, showDragHandle: true,
       builder: (sheetContext) => Padding(padding: const EdgeInsets.all(20), child: Column(
         mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(StyleCatalog.displayName(style.id), style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
-          Text(_cleanDisplayText(style.definition) ?? _cleanDisplayText(style.description) ?? 'Description bientôt disponible.'),
-          if (style.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('Caractéristiques : ${_localizeStyleList(style.characteristics).take(5).join(', ')}')],
-          if (style.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('Exemples de vêtements : ${_localizeStyleList(style.examples).take(4).join(', ')}')],
-          if (style.colors.isNotEmpty) ...[const SizedBox(height: 8), Text('Couleurs associées : ${_localizeStyleList(style.colors).take(5).join(', ')}')],
-          if (style.materials.isNotEmpty) ...[const SizedBox(height: 8), Text('Matières fréquentes : ${_localizeStyleList(style.materials).take(5).join(', ')}')],
-          if (style.relatedStyleIds.isNotEmpty) ...[const SizedBox(height: 8), Text('Styles proches : ${style.relatedStyleIds.map(StyleCatalog.displayName).take(4).join(', ')}')],
+          Text(visibleStyle.name, style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
+          Text(_cleanDisplayText(visibleStyle.definition) ?? _cleanDisplayText(visibleStyle.description) ?? l10n.text('ui.descriptionUnavailable', fallback: 'Description unavailable.')),
+          if (visibleStyle.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('${l10n.text('ui.characteristics')} : ${visibleStyle.characteristics.take(5).join(', ')}')],
+          if (visibleStyle.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.examples', fallback: 'Examples')} : ${visibleStyle.examples.take(4).join(', ')}')],
+          if (visibleStyle.colors.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.associatedColors')} : ${visibleStyle.colors.take(5).join(', ')}')],
+          if (visibleStyle.materials.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.frequentMaterials')} : ${visibleStyle.materials.take(5).join(', ')}')],
+          if (visibleStyle.relatedStyleIds.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.relatedStyles')} : ${visibleStyle.relatedStyleIds.map((id) => _styleName(l10n, id)).take(4).join(', ')}')],
           const SizedBox(height: 12), FilledButton(onPressed: () { Navigator.pop(sheetContext); Navigator.push(context,
             MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: _styles))); }, child: const Text('Voir la fiche complète')),
         ])));
@@ -651,7 +643,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
                   garment.effectiveStyleAnalysis.compatibilities.map((value) => _styles.find(value.styleId)),
                 ), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
                   for (final style in snapshot.data?.whereType<LibraryStyle>() ?? const <LibraryStyle>[])
-                    ActionChip(avatar: const Icon(Icons.info_outline, size: 18), label: Text(StyleCatalog.displayName(style.id)), onPressed: () => _styleHelp(style.id)),
+                    ActionChip(avatar: const Icon(Icons.info_outline, size: 18), label: Text(style.localized(AppLocalizations.of(context)).name), onPressed: () => _styleHelp(style.id)),
                 ])),
               ],
               _AiGarmentDetails(garment: garment),
@@ -813,7 +805,7 @@ class _AiGarmentDetails extends StatelessWidget {
     final styleEntries = <_AiDetailEntry>[
       if (garment.styleAnalysis != null) ...[
         _AiDetailEntry.list('Compatible avec', garment.effectiveStyleAnalysis.compatibilities.map((value) =>
-          '${StyleCatalog.displayName(value.styleId)} · ${(value.score * 100).round()} % — ${value.justification}')),
+          '${_styleName(AppLocalizations.of(context), value.styleId)} · ${(value.score * 100).round()} % — ${value.justification}')),
       ],
       _AiDetailEntry.list('Points forts', garment.pointsForts),
       _AiDetailEntry.list('Points faibles', garment.pointsFaibles),
@@ -934,10 +926,10 @@ class _AiDetailEntry {
   final List<String> values;
 
   _AiDetailEntry.text(this.label, String? value)
-    : values = _localizeStyleList(value == null ? const [] : [value]);
+    : values = _cleanDisplayList(value == null ? const [] : [value]);
 
   _AiDetailEntry.list(this.label, Iterable<String>? values)
-    : values = _localizeStyleList(values);
+    : values = _cleanDisplayList(values);
 
   bool get isNotEmpty => values.isNotEmpty;
 }

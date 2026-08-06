@@ -10,7 +10,10 @@
     "occasions": "Suitable occasions",
     "typicalPieces": "Typical pieces",
     "relatedStyles": "Related styles",
-    "oppositeStyles": "Opposite styles"
+    "oppositeStyles": "Opposite styles",
+    "unknownCatalogValue": "Unknown",
+    "descriptionUnavailable": "Description unavailable.",
+    "examples": "Examples"
   },
   "catalogs": {
     "category": {

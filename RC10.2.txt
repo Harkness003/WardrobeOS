@@ -1,0 +1,901 @@
+diff --git a/assets/i18n/en.json b/assets/i18n/en.json
+index 6a3d8365e0c23bf6a229aae6f4270eb825bcc7af..4f0fd798a40c380a4dabad7b7f58755a3e30515d 100644
+--- a/assets/i18n/en.json
++++ b/assets/i18n/en.json
+@@ -1,38 +1,41 @@
+ {
+   "ui": {
+     "styleLibrary": "Style library",
+     "styleSearchHint": "Name, synonym, definition…",
+     "systemStyle": "System style",
+     "personalStyle": "Personal style",
+     "characteristics": "Characteristics",
+     "associatedColors": "Associated colors",
+     "frequentMaterials": "Common materials",
+     "occasions": "Suitable occasions",
+     "typicalPieces": "Typical pieces",
+     "relatedStyles": "Related styles",
+-    "oppositeStyles": "Opposite styles"
++    "oppositeStyles": "Opposite styles",
++    "unknownCatalogValue": "Unknown",
++    "descriptionUnavailable": "Description unavailable.",
++    "examples": "Examples"
+   },
+   "catalogs": {
+     "category": {
+       "tops": {
+         "name": "Tops"
+       },
+       "shirts": {
+         "name": "Shirts"
+       },
+       "jackets": {
+         "name": "Jackets"
+       },
+       "bottoms": {
+         "name": "Bottoms"
+       },
+       "shoes": {
+         "name": "Shoes"
+       },
+       "accessories": {
+         "name": "Accessories"
+       },
+       "other": {
+         "name": "Other"
+       }
+     },
+diff --git a/assets/i18n/fr.json b/assets/i18n/fr.json
+index a9f76ef41989f266ec724a3b4cbf441c2632841e..f36e268dd9b276ea3d8f47b95f24bdca7aea1f2f 100644
+--- a/assets/i18n/fr.json
++++ b/assets/i18n/fr.json
+@@ -1,38 +1,41 @@
+ {
+   "ui": {
+     "styleLibrary": "Bibliothèque des styles",
+     "styleSearchHint": "Nom, synonyme, définition…",
+     "systemStyle": "Style système",
+     "personalStyle": "Style personnel",
+     "characteristics": "Caractéristiques",
+     "associatedColors": "Couleurs associées",
+     "frequentMaterials": "Matières fréquentes",
+     "occasions": "Occasions adaptées",
+     "typicalPieces": "Pièces typiques",
+     "relatedStyles": "Styles proches",
+-    "oppositeStyles": "Styles opposés"
++    "oppositeStyles": "Styles opposés",
++    "unknownCatalogValue": "Inconnu",
++    "descriptionUnavailable": "Description bientôt disponible.",
++    "examples": "Exemples"
+   },
+   "catalogs": {
+     "category": {
+       "tops": {
+         "name": "Hauts"
+       },
+       "shirts": {
+         "name": "Chemises"
+       },
+       "jackets": {
+         "name": "Vestes"
+       },
+       "bottoms": {
+         "name": "Bas"
+       },
+       "shoes": {
+         "name": "Chaussures"
+       },
+       "accessories": {
+         "name": "Accessoires"
+       },
+       "other": {
+         "name": "Autre"
+       }
+     },
+diff --git a/docs/RC7.10.2_I18N_FINALIZATION.md b/docs/RC7.10.2_I18N_FINALIZATION.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..db6d8fa05ba44b8cd53ecdd7b787cb17a22148ea
+--- /dev/null
++++ b/docs/RC7.10.2_I18N_FINALIZATION.md
+@@ -0,0 +1,132 @@
++# RC7.10.2 — Finalisation de l’architecture i18n
++
++## A. Architecture avant / après et cartographie
++
++### Avant
++
++`lib/l10n/app_localizations.dart` était déjà l’unique passerelle : son delegate chargeait
++`assets/i18n/en.json` ou `fr.json`. Il n’existe aucun ARB, aucune sortie `gen_l10n` et aucun
++autre service de traduction. Le défaut retournait toutefois la clé technique, le delegate
++ne définissait pas le repli régional/inconnu et `SystemCatalogs.label` pouvait retourner
++l’identifiant. La recherche n’indexait que la langue active. Enfin, la fiche vêtement
++utilisait encore `StyleCatalog.displayName`, donc les textes français historiques de
++`StyleTaxonomy`.
++
++Cartographie des consommateurs inspectés :
++
++- `StyleCatalog` localise les styles système à la frontière de présentation et conserve les
++  styles personnels tels quels ; `CategoryCatalog`, `MaterialCatalog` et `ColorCatalog` sont
++  les trois listes de `SystemCatalogs` (il n’existe pas de classes/catalogues concurrents) ;
++- `GarmentDetailScreen`, `GarmentFormScreen`, `StyleLibraryScreen` et `StyleDetailScreen` sont
++  les surfaces directes des catalogues ;
++- Scanner et import construisent/normalisent des `Garment`, sans charger de traduction ;
++- Daily et Agenda consomment des recommandations et messages, sans catalogue parallèle ;
++- WardrobeGPT reçoit `languageCode` dans `PromptBuilder`, tandis que les données structurées
++  restent canoniques ;
++- `RecommendationEngine` compare des valeurs normalisées et des `styleId`, jamais un libellé
++  obtenu depuis `AppLocalizations`.
++
++Les chaînes visibles génériques restent historiquement dans les widgets (notamment formulaire,
++scanner, Daily, Agenda et assistant). Elles ne constituent pas un deuxième catalogue métier ;
++leur migration complète est distincte de la sécurisation des quatre catalogues. Les points où
++un identifiant canonique pouvait sortir étaient `SystemCatalogs.label`, le détail et les chips
++de compatibilité de `GarmentDetailScreen`. Ils sont maintenant fermés.
++
++### Après
++
++`AppLocalizations` reste l’unique loader et charge les deux ressources une seule fois par
++résolution de locale. Il conserve la ressource active, l’anglais de secours et les ressources
++de recherche. `MaterialApp` applique explicitement la même résolution. Toute traduction
++manquante suit le repli anglais puis un texte propre fourni par le consommateur ; jamais la clé.
++`SystemCatalogs.label` termine sur « Unknown/Inconnu », pas sur l’ID.
++
++## B. Preuve d’un système unique
++
++Les seules ressources sont `assets/i18n/en.json` et `fr.json`, toutes deux déclarées par le
++même répertoire d’assets. Le seul appel à `rootBundle.loadString('assets/i18n/…')` est dans
++`AppLocalizations`. L’audit échoue si un second loader apparaît dans `lib`. Il n’y a ni ARB,
++ni package de localisation tiers, ni dictionnaire Dart concurrent.
++
++## C. Flux contractuel
++
++```text
++SQLite / sauvegarde / réponse structurée IA
++  → identifiant canonique (quiet_luxury, merino_wool, tops…)
++  → StyleCatalog ou SystemCatalogs
++  → AppLocalizations.catalogEntry(...)
++  → nom/description/synonymes localisés
++  → Text / Dropdown / Chip
++```
++
++Le sens inverse ne sert qu’à l’entrée compatible : les anciens alias sont normalisés vers un
++ID. Les moteurs, la base et le LLM ne reçoivent jamais un libellé traduit en remplacement de
++l’ID. Un changement de locale ne modifie donc ni base, ni cache IA, ni modèle métier : la
++reconstruction Flutter recalcule seulement la vue localisée.
++
++## D. Politique de fallback des locales
++
++- `fr_FR`, `fr_CA` et toute variante `fr_*` → `fr` ;
++- `en_GB`, `en_US` et toute variante `en_*` → `en` ;
++- toute langue inconnue ou locale absente → `en`, langue par défaut.
++
++La règle est portée par `AppLocalizations.resolveLocale` et réutilisée par le delegate et
++`MaterialApp.localeResolutionCallback`.
++
++## E. Politique de fallback des traductions
++
++Ordre strict : ressource de langue active → ressource anglaise → texte utilisateur propre
++(`Unknown`, `—` ou fallback contextuel). Une clé (`style.old_money`), un chemin de ressource ou
++un ID (`old_money`) ne sont jamais employés comme fallback d’affichage. L’audit impose la parité
++des chemins et un `name` non vide pour chaque entrée des quatre catalogues.
++
++## F. Recherche multilingue
++
++`StyleCatalog.normalize` ignore casse, accents, `_`, `-` et espaces répétés. L’index associe
++le texte visible, les synonymes et les noms/synonymes de **toutes** les ressources au même style
++canonique. « Old Money », « Luxe discret » et « Quiet Luxury » peuvent donc retrouver leur ID
++sans indexer directement cet ID. Ajouter une langue enrichit automatiquement cet index via sa
++ressource.
++
++## G. Valeurs personnelles
++
++`LibraryStyle.localized` retourne immédiatement tout style personnel. Les sous-catégories et
++autres termes appris sont conservés et affichés exactement comme saisis (« Saharienne » reste
++« Saharienne »). Pas de traduction automatique, pas d’interprétation et pas de migration.
++
++## H. Écrans réellement branchés
++
++La bibliothèque et le détail des styles utilisent la vue `localized`. La fiche vêtement utilise
++maintenant la même vue pour le panneau d’aide, les relations et les chips de compatibilité. Le
++formulaire consomme encore ses listes historiques pour préserver le contrat de données RC7.10.1.
++Scanner/import, Daily, Agenda et WardrobeGPT ne résolvent pas directement d’ID de style dans un
++widget ; leurs valeurs structurées restent canoniques. WardrobeGPT transmet en plus la langue
++active via le service de prompt. Aucun des moteurs interdits n’a été modifié.
++
++## I. Audit ajouté
++
++`tool/i18n_audit.dart` vérifie : locales attendues, JSON valide, parité intégrale des clés,
++présence des catalogues style/catégorie/matière/couleur, noms propres non vides, second loader,
++comparaison probable sur un libellé et rendu probable d’un identifiant canonique. Il est prévu
++comme garde CI et doit évoluer avec la liste explicite de locales.
++
++## J. Fichiers modifiés
++
++Passerelle et résolution (`app_localizations.dart`, `app.dart`), fallback catalogue
++(`system_catalogs.dart`), recherche (`style_repository.dart`), fiche vêtement, ressources JSON,
++audit, tests de contrat et ce rapport.
++
++## K. Tests adaptés
++
++Le contrat couvre désormais les variantes régionales, la langue inconnue, la parité complète
++des ressources, la couverture des styles, les anciens alias et la persistance inchangée d’un
++`styleId`. Conformément à la consigne RC, aucun test, build ou analyse n’a été exécuté.
++
++## L. Limites avant RC7.11
++
++- migrer les textes génériques de tous les écrans vers la passerelle sans confondre ce chantier
++  avec les catalogues métier ;
++- canoniser le formulaire historique catégories/matières seulement quand les dépendances
++  thermiques accepteront ces IDs, afin de ne pas introduire une migration implicite ;
++- étendre explicitement `supportedLocales` et l’audit lors de l’ajout réel d’une ressource ;
++- connecter le réglage de langue si un sélecteur utilisateur est ajouté. Cela ne demandera
++  aucune modification des moteurs ou des modèles persistés.
+diff --git a/lib/app.dart b/lib/app.dart
+index 9f8568976299651022a76462dbe17458dbbdedeb..3998fdf6157d521aa225dd3447e2b2060113a848 100644
+--- a/lib/app.dart
++++ b/lib/app.dart
+@@ -44,36 +44,38 @@ class _WardrobeOSAppState extends State<WardrobeOSApp> {
+   }
+ 
+   void _refresh() => setState(() {});
+ 
+   @override
+   void dispose() {
+     settings.removeListener(_refresh);
+     locationService.removeListener(_locationChanged);
+     locationService.dispose();
+     settings.dispose();
+     super.dispose();
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return MaterialApp(
+       debugShowCheckedModeBanner: false,
+       title: 'WardrobeOS',
+       localizationsDelegates: const [
+         AppLocalizations.delegate,
+         GlobalMaterialLocalizations.delegate,
+         GlobalWidgetsLocalizations.delegate,
+         GlobalCupertinoLocalizations.delegate,
+       ],
+       supportedLocales: AppLocalizations.supportedLocales,
++      localeResolutionCallback: (locale, _) =>
++          AppLocalizations.resolveLocale(locale ?? AppLocalizations.defaultLocale),
+       theme: AppTheme.light,
+       darkTheme: AppTheme.darkTheme,
+       themeMode: settings.themeMode,
+       home: MainShell(
+         settings: settings,
+         weatherService: weatherService,
+         locationService: locationService,
+       ),
+     );
+   }
+ }
+diff --git a/lib/catalogs/system_catalogs.dart b/lib/catalogs/system_catalogs.dart
+index b7479392b855dec82dba11df9657a63f7420e69e..055c61708b26a1e620f66c3d0ae873bb75e1c544 100644
+--- a/lib/catalogs/system_catalogs.dart
++++ b/lib/catalogs/system_catalogs.dart
+@@ -22,29 +22,30 @@ abstract final class SystemCatalogs {
+     CatalogItem('cotton', legacyIds: ['Coton']), CatalogItem('wool', legacyIds: ['Laine']),
+     CatalogItem('merino_wool', legacyIds: ['Mérinos']), CatalogItem('cashmere', legacyIds: ['Cachemire']),
+     CatalogItem('linen', legacyIds: ['Lin']), CatalogItem('polyester', legacyIds: ['Polyester']),
+     CatalogItem('viscose', legacyIds: ['Viscose']), CatalogItem('denim', legacyIds: ['Denim']),
+     CatalogItem('leather', legacyIds: ['Cuir']), CatalogItem('suede', legacyIds: ['Daim']),
+     CatalogItem('nylon', legacyIds: ['Nylon']), CatalogItem('silk', legacyIds: ['Soie']),
+     CatalogItem('blend', legacyIds: ['Mélange']), CatalogItem('other', legacyIds: ['Autre...']),
+   ];
+   static const colors = [
+     CatalogItem('black', legacyIds: ['Noir']), CatalogItem('white', legacyIds: ['Blanc']),
+     CatalogItem('dark_blue', legacyIds: ['Bleu marine', 'Marine']), CatalogItem('blue', legacyIds: ['Bleu']),
+     CatalogItem('beige', legacyIds: ['Beige']), CatalogItem('brown', legacyIds: ['Marron']),
+     CatalogItem('grey', legacyIds: ['Gris']), CatalogItem('red', legacyIds: ['Rouge']),
+     CatalogItem('green', legacyIds: ['Vert']),
+   ];
+ 
+   static String canonicalId(Iterable<CatalogItem> catalog, String value) {
+     final normalized = _normalize(value);
+     return catalog.firstWhere(
+       (item) => _normalize(item.id) == normalized || item.legacyIds.any((legacy) => _normalize(legacy) == normalized),
+       orElse: () => CatalogItem(value),
+     ).id;
+   }
+ 
+   static String label(AppLocalizations l10n, String catalog, CatalogItem item) =>
+-      l10n.catalogEntry(catalog, item.id)['name'] as String? ?? item.id;
++      l10n.catalogEntry(catalog, item.id)['name'] as String? ??
++      l10n.text('ui.unknownCatalogValue', fallback: 'Unknown');
+ 
+   static String _normalize(String value) => value.trim().toLowerCase().replaceAll('_', ' ');
+ }
+diff --git a/lib/features/styles/style_repository.dart b/lib/features/styles/style_repository.dart
+index 20f9d6914025c1560f824aca9ff15e72aea8d26b..f0ec9edf4b5f97120296f2410032bfb182773f52 100644
+--- a/lib/features/styles/style_repository.dart
++++ b/lib/features/styles/style_repository.dart
+@@ -100,30 +100,33 @@ class StyleCatalog extends ChangeNotifier implements StyleRepository {
+ 
+   static String normalize(String value) {
+     const accented = 'àáâäãåçèéêëìíîïñòóôöõùúûüýÿœ';
+     const plain =    'aaaaaaceeeeiiiinooooouuuuyyoe';
+     var result = value.toLowerCase().trim();
+     for (var i = 0; i < accented.length; i++) { result = result.replaceAll(accented[i], plain[i]); }
+     return result.replaceAll(RegExp(r'[_-]+'), ' ').replaceAll(RegExp(r'\s+'), ' ');
+   }
+ 
+   static String displayName(String idOrLabel) {
+     final normalized = normalize(idOrLabel);
+     for (final entry in StyleTaxonomy.entries.entries) {
+       if (normalize(entry.key) == normalized ||
+           normalize(entry.value.name) == normalized ||
+           entry.value.synonyms.map(normalize).contains(normalized)) {
+         return entry.value.name;
+       }
+     }
+     return idOrLabel.replaceAll('_', ' ');
+   }
+ 
+   static bool matches(LibraryStyle style, String query, {AppLocalizations? localizations}) {
+     final visible = localizations == null ? style : style.localized(localizations);
+     final needle = normalize(query);
+     if (needle.isEmpty) return true;
+-    final searchable = [visible.name, ...visible.synonyms, visible.description,
++    final internationalAliases = localizations == null || !style.isSystem
++        ? const <String>[]
++        : localizations.catalogSearchTerms('style', style.id);
++    final searchable = [visible.name, ...visible.synonyms, ...internationalAliases, visible.description,
+       visible.definition, ...visible.characteristics].map(normalize).join(' ');
+     return searchable.contains(needle) || needle.split(' ').every(searchable.contains);
+   }
+ }
+diff --git a/lib/features/wardrobe/garment_detail_screen.dart b/lib/features/wardrobe/garment_detail_screen.dart
+index 3679a6818bec8c90c961f60b92af6a631d8354d4..0e36c53b86acecefde37233c79235a4e8d3984bc 100644
+--- a/lib/features/wardrobe/garment_detail_screen.dart
++++ b/lib/features/wardrobe/garment_detail_screen.dart
+@@ -1,73 +1,63 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../models/garment.dart';
+ import '../../models/style_analysis.dart';
+ import '../../models/wear_history.dart';
++import '../../l10n/app_localizations.dart';
+ import '../../widgets/garment_image.dart';
+ import 'garment_form_screen.dart';
+ import 'wardrobe_controller.dart';
+ import 'reanalysis/garment_reanalysis_models.dart';
+ import 'reanalysis/garment_reanalysis_service.dart';
+ import '../styles/style_detail_screen.dart';
+ import '../styles/style_repository.dart';
+ 
+ String? _cleanDisplayText(String? value) {
+   final trimmed = value?.trim();
+   if (trimmed == null || trimmed.isEmpty) return null;
+   final normalized = trimmed.toLowerCase();
+   if (normalized == 'null' ||
+       normalized == 'n/a' ||
+       normalized == 'vide' ||
+       normalized == 'inconnu' ||
+       normalized == 'inconnue') {
+     return null;
+   }
+   return trimmed;
+ }
+ 
+ List<String> _cleanDisplayList(Iterable<String>? values) =>
+     (values ?? const <String>[])
+         .map(_cleanDisplayText)
+         .whereType<String>()
+         .toSet()
+         .toList(growable: false);
+ 
+-String _localizeStyleTokens(String value) {
+-  var localized = value;
+-  for (final id in StyleTaxonomy.entries.keys) {
+-    localized = localized.replaceAllMapped(
+-      RegExp('(^|[^A-Za-z0-9])' + RegExp.escape(id) + r'(?=[^A-Za-z0-9]|$)', caseSensitive: false),
+-      (match) => '${match.group(1) ?? ''}${StyleCatalog.displayName(id)}',
+-    );
+-  }
+-  return StyleCatalog.displayName(localized);
+-}
+-
+-List<String> _localizeStyleList(Iterable<String>? values) =>
+-    _cleanDisplayList(values).map(_localizeStyleTokens).toList(growable: false);
+-
++String _styleName(AppLocalizations l10n, String id) =>
++    l10n.catalogEntry('style', id)['name'] as String? ??
++    l10n.text('ui.unknownCatalogValue', fallback: 'Unknown');
+ 
+ String _fieldLabel(String field) => const {
+   'name': 'Nom', 'category': 'Catégorie', 'color': 'Couleur',
+   'material': 'Matière', 'season': 'Saison', 'brand': 'Marque',
+   'composition': 'Composition', 'style': 'Style',
+ }[field] ?? field;
+ 
+ class _AiComparisonDialog extends StatefulWidget {
+   final GarmentReanalysisProposal preview;
+   const _AiComparisonDialog({required this.preview});
+ 
+   @override
+   State<_AiComparisonDialog> createState() => _AiComparisonDialogState();
+ }
+ 
+ class _AiComparisonDialogState extends State<_AiComparisonDialog> {
+   final Set<String> accepted = {};
+ 
+   @override
+   Widget build(BuildContext context) => AlertDialog(
+     title: const Text('Comparer les modifications'),
+     content: SizedBox(
+       width: 560,
+       child: widget.preview.changes.isEmpty
+           ? const Text('L’IA ne propose aucune modification.')
+@@ -141,60 +131,62 @@ class GarmentDetailScreen extends StatefulWidget {
+     required this.controller,
+     required this.garment,
+     required this.reanalysisService,
+   });
+ 
+   @override
+   State<GarmentDetailScreen> createState() => _GarmentDetailScreenState();
+ }
+ 
+ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+   final StyleRepository _styles = StyleCatalog();
+   late Garment garment;
+   bool _recordingWear = false;
+   late Future<List<WearHistory>> _wearHistoryFuture;
+   late Future<WearHistory?> _firstWearFuture;
+ 
+   bool _reanalyzing = false;
+ 
+   Future<void> _styleHelp(String id) async {
+     final style = await _styles.find(id);
+     if (!mounted) return;
+     if (style == null) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ce style n’est pas encore présent dans la bibliothèque.')));
+       return;
+     }
++    final l10n = AppLocalizations.of(context);
++    final visibleStyle = style.localized(l10n);
+     await showModalBottomSheet<void>(context: context, showDragHandle: true,
+       builder: (sheetContext) => Padding(padding: const EdgeInsets.all(20), child: Column(
+         mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+-          Text(StyleCatalog.displayName(style.id), style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
+-          Text(_cleanDisplayText(style.definition) ?? _cleanDisplayText(style.description) ?? 'Description bientôt disponible.'),
+-          if (style.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('Caractéristiques : ${_localizeStyleList(style.characteristics).take(5).join(', ')}')],
+-          if (style.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('Exemples de vêtements : ${_localizeStyleList(style.examples).take(4).join(', ')}')],
+-          if (style.colors.isNotEmpty) ...[const SizedBox(height: 8), Text('Couleurs associées : ${_localizeStyleList(style.colors).take(5).join(', ')}')],
+-          if (style.materials.isNotEmpty) ...[const SizedBox(height: 8), Text('Matières fréquentes : ${_localizeStyleList(style.materials).take(5).join(', ')}')],
+-          if (style.relatedStyleIds.isNotEmpty) ...[const SizedBox(height: 8), Text('Styles proches : ${style.relatedStyleIds.map(StyleCatalog.displayName).take(4).join(', ')}')],
++          Text(visibleStyle.name, style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
++          Text(_cleanDisplayText(visibleStyle.definition) ?? _cleanDisplayText(visibleStyle.description) ?? l10n.text('ui.descriptionUnavailable', fallback: 'Description unavailable.')),
++          if (visibleStyle.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('${l10n.text('ui.characteristics')} : ${visibleStyle.characteristics.take(5).join(', ')}')],
++          if (visibleStyle.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.examples', fallback: 'Examples')} : ${visibleStyle.examples.take(4).join(', ')}')],
++          if (visibleStyle.colors.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.associatedColors')} : ${visibleStyle.colors.take(5).join(', ')}')],
++          if (visibleStyle.materials.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.frequentMaterials')} : ${visibleStyle.materials.take(5).join(', ')}')],
++          if (visibleStyle.relatedStyleIds.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.relatedStyles')} : ${visibleStyle.relatedStyleIds.map((id) => _styleName(l10n, id)).take(4).join(', ')}')],
+           const SizedBox(height: 12), FilledButton(onPressed: () { Navigator.pop(sheetContext); Navigator.push(context,
+             MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: _styles))); }, child: const Text('Voir la fiche complète')),
+         ])));
+   }
+ 
+   Future<void> _editStyleAnalysis() async {
+     final all = await _styles.all(); if (!mounted) return;
+     final selected = garment.effectiveStyleAnalysis.compatibilities
+         .map((value) => value.styleId).toSet();
+     final characteristics = TextEditingController(text: garment.effectiveStyleAnalysis.characteristics.join(', '));
+     final saved = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (_, update) => AlertDialog(
+       title: const Text('Corriger l’analyse de style'), content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(children: [
+         Align(alignment: Alignment.centerLeft, child: Text('Compatibilités (aucun style principal imposé)', style: Theme.of(context).textTheme.titleSmall)),
+         ...all.map((e) => CheckboxListTile(dense: true, value: selected.contains(e.id), title: Text(e.name), onChanged: (v) => update(() { if (v == true) selected.add(e.id); else selected.remove(e.id); }))),
+         TextField(controller: characteristics, decoration: const InputDecoration(labelText: 'Caractéristiques (séparées par des virgules)')),
+       ]))), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
+         FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Enregistrer'))])));
+     if (saved != true) return;
+     final old = {for (final value in garment.effectiveStyleAnalysis.compatibilities) value.styleId: value};
+     final corrected = garment.effectiveStyleAnalysis.withUserCorrections(
+       compatibilities: selected.map((id) => old[id] ?? StyleCompatibility(styleId: id,
+         score: 1, confidence: 1, justification: 'Compatibilité ajoutée par l’utilisateur')).toList(),
+       characteristics: characteristics.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList());
+     await widget.controller.save(garment.copyWith(styleAnalysis: corrected, updatedAt: DateTime.now()), isNew: false);
+     _refreshGarment();
+@@ -629,51 +621,51 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+             label: const Text('Compléter automatiquement'),
+           ),
+           if (identityChips.isNotEmpty) ...[
+             const SizedBox(height: 17),
+             Wrap(
+               spacing: 8,
+               runSpacing: 8,
+               children:
+                   identityChips
+                       .map((value) => Chip(label: Text(value)))
+                       .toList(),
+             ),
+           ],
+           const SizedBox(height: 16),
+           _AdvancedSection(
+             title: 'Analyse de l’IA',
+             icon: Icons.auto_awesome_outlined,
+             children: [
+               if (garment.styleAnalysis != null) ...[
+                 Row(children: [const Expanded(child: Text('Compatibilités estimées', style: TextStyle(fontWeight: FontWeight.w800))),
+                   IconButton(tooltip: 'Corriger les hypothèses', onPressed: _editStyleAnalysis, icon: const Icon(Icons.edit_outlined))]),
+                 FutureBuilder<List<LibraryStyle?>>(future: Future.wait(
+                   garment.effectiveStyleAnalysis.compatibilities.map((value) => _styles.find(value.styleId)),
+                 ), builder: (_, snapshot) => Wrap(spacing: 8, runSpacing: 8, children: [
+                   for (final style in snapshot.data?.whereType<LibraryStyle>() ?? const <LibraryStyle>[])
+-                    ActionChip(avatar: const Icon(Icons.info_outline, size: 18), label: Text(StyleCatalog.displayName(style.id)), onPressed: () => _styleHelp(style.id)),
++                    ActionChip(avatar: const Icon(Icons.info_outline, size: 18), label: Text(style.localized(AppLocalizations.of(context)).name), onPressed: () => _styleHelp(style.id)),
+                 ])),
+               ],
+               _AiGarmentDetails(garment: garment),
+             ],
+           ),
+           if (garment.thermalProfile != null) _AdvancedSection(
+             title: 'Propriétés thermiques', icon: Icons.thermostat_outlined,
+             children: [_ThermalSummary(garment: garment)],
+           ),
+           _AdvancedSection(
+             title: 'Historique', icon: Icons.history,
+             children: [
+               _GarmentStatsGrid(garment: garment, firstWearFuture: _firstWearFuture,
+                 formatDate: _formatDate, formatPrice: _formatPrice,
+                 formatCalendarAge: _formatCalendarAge, daysSinceLastWearLabel: _daysSinceLastWearLabel),
+               _WearHistoryCard(wearHistoryFuture: _wearHistoryFuture, formatDate: _formatDate,
+                 formatTime: _formatTime, onDelete: deleteWear),
+             ],
+           ),
+           if (garment.effectivePhotos.length > 1) _AdvancedSection(
+             title: 'Photos complémentaires', icon: Icons.photo_library_outlined,
+             children: [Wrap(spacing: 8, runSpacing: 8, children: garment.effectivePhotos.skip(1).map((photo) =>
+               GarmentImage(imagePath: photo.path, width: 96, height: 96, borderRadius: BorderRadius.circular(14))).toList())],
+           ),
+           if (_hasText(garment.notes) || _hasText(garment.composition) || _hasText(garment.size)) _AdvancedSection(
+@@ -791,51 +783,51 @@ class _AdvancedSection extends StatelessWidget {
+ class _ThermalSummary extends StatelessWidget {
+   final Garment garment;
+   const _ThermalSummary({required this.garment});
+   @override
+   Widget build(BuildContext context) {
+     final profile = garment.thermalProfile!;
+     return Wrap(spacing: 8, runSpacing: 8, children: [
+       Chip(label: Text(garment.layerType ?? 'Couche intermédiaire')),
+       Chip(label: Text('Isolation ${profile.insulation.name}')),
+       if (profile.windProtection.name != 'none') const Chip(label: Text('Protège du vent')),
+       if (profile.rainCompatibility.name != 'none') const Chip(label: Text('Protège de la pluie')),
+     ]);
+   }
+ }
+ 
+ class _AiGarmentDetails extends StatelessWidget {
+   final Garment garment;
+ 
+   const _AiGarmentDetails({required this.garment});
+ 
+   @override
+   Widget build(BuildContext context) {
+     final styleEntries = <_AiDetailEntry>[
+       if (garment.styleAnalysis != null) ...[
+         _AiDetailEntry.list('Compatible avec', garment.effectiveStyleAnalysis.compatibilities.map((value) =>
+-          '${StyleCatalog.displayName(value.styleId)} · ${(value.score * 100).round()} % — ${value.justification}')),
++          '${_styleName(AppLocalizations.of(context), value.styleId)} · ${(value.score * 100).round()} % — ${value.justification}')),
+       ],
+       _AiDetailEntry.list('Points forts', garment.pointsForts),
+       _AiDetailEntry.list('Points faibles', garment.pointsFaibles),
+       _AiDetailEntry.list('Conseils', garment.conseils),
+       _AiDetailEntry.text('Verdict', garment.verdict),
+       _AiDetailEntry.text(
+         'Explication de la polyvalence',
+         garment.explicationPolyvalence,
+       ),
+     ];
+     final associations = <_AiDetailEntry>[
+       _AiDetailEntry.list('Couleurs compatibles', garment.couleursCompatibles),
+       _AiDetailEntry.list(
+         'Couleurs moins adaptées',
+         garment.couleursMoinsAdaptees,
+       ),
+       _AiDetailEntry.list('Bas compatibles', garment.basCompatibles),
+       _AiDetailEntry.list(
+         'Chaussures compatibles',
+         garment.chaussuresCompatibles,
+       ),
+     ];
+     final characteristics = <_AiDetailEntry>[
+       _AiDetailEntry.text('Type précis', garment.typePrecis),
+       _AiDetailEntry.text(
+@@ -912,54 +904,54 @@ class _AiGarmentDetails extends StatelessWidget {
+       children: [
+         const SizedBox(height: 26),
+         const _SectionTitle('Analyse IA'),
+         const SizedBox(height: 10),
+         for (final group in groups.where((group) => group.$2.any((entry) => entry.isNotEmpty))) ...[
+           _AiDetailCard(group: group.$1, entries: group.$2.where((entry) => entry.isNotEmpty).toList()),
+           const SizedBox(height: 10),
+         ],
+       ],
+     );
+   }
+ }
+ 
+ class _AiDetailGroup {
+   final String title;
+   final IconData icon;
+ 
+   const _AiDetailGroup(this.title, this.icon);
+ }
+ 
+ class _AiDetailEntry {
+   final String label;
+   final List<String> values;
+ 
+   _AiDetailEntry.text(this.label, String? value)
+-    : values = _localizeStyleList(value == null ? const [] : [value]);
++    : values = _cleanDisplayList(value == null ? const [] : [value]);
+ 
+   _AiDetailEntry.list(this.label, Iterable<String>? values)
+-    : values = _localizeStyleList(values);
++    : values = _cleanDisplayList(values);
+ 
+   bool get isNotEmpty => values.isNotEmpty;
+ }
+ 
+ class _AiDetailCard extends StatelessWidget {
+   final _AiDetailGroup group;
+   final List<_AiDetailEntry> entries;
+ 
+   const _AiDetailCard({required this.group, required this.entries});
+ 
+   @override
+   Widget build(BuildContext context) {
+     return Card(
+       child: Padding(
+         padding: const EdgeInsets.all(17),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.start,
+           children: [
+             Row(
+               children: [
+                 Icon(group.icon, size: 21),
+                 const SizedBox(width: 10),
+                 Text(
+                   group.title,
+                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
+diff --git a/lib/l10n/app_localizations.dart b/lib/l10n/app_localizations.dart
+index 98c39b0c5202cf9f32cea29436ed90f2693150d5..4c5f05976d4d196f85778dceb963fb2961846dea 100644
+--- a/lib/l10n/app_localizations.dart
++++ b/lib/l10n/app_localizations.dart
+@@ -1,55 +1,94 @@
+ import 'dart:convert';
+ 
+ import 'package:flutter/services.dart';
+ import 'package:flutter/widgets.dart';
+ 
+ /// The only user-facing translation gateway.
+ ///
+ /// Business objects retain canonical identifiers. Catalogue resources are
+ /// loaded for the resolved application locale and never persisted.
+ class AppLocalizations {
+-  AppLocalizations._(this.locale, this._resources);
++  AppLocalizations._(this.locale, this._resources, this._fallbackResources,
++      this._searchResources);
+ 
+   final Locale locale;
+   final Map<String, Object?> _resources;
++  final Map<String, Object?> _fallbackResources;
++  final List<Map<String, Object?>> _searchResources;
++
++  static const defaultLocale = Locale('en');
+ 
+   static const supportedLocales = [Locale('en'), Locale('fr')];
+   static const delegate = _AppLocalizationsDelegate();
+ 
+   static AppLocalizations of(BuildContext context) =>
+       Localizations.of<AppLocalizations>(context, AppLocalizations)!;
+ 
+-  String text(String key) => _lookup(key) as String? ?? key;
++  /// Resolves regional variants to their supported language. Unknown locales
++  /// deliberately use English; no persistence or business data is involved.
++  static Locale resolveLocale(Locale locale) => switch (locale.languageCode.toLowerCase()) {
++        'fr' => const Locale('fr'),
++        'en' => const Locale('en'),
++        _ => defaultLocale,
++      };
++
++  String text(String key, {String fallback = '—'}) =>
++      _lookup(_resources, key) as String? ??
++      _lookup(_fallbackResources, key) as String? ??
++      fallback;
+ 
+   Map<String, Object?> catalogEntry(String catalog, String id) {
+-    final value = _lookup('catalogs.$catalog.$id');
++    final path = 'catalogs.$catalog.$id';
++    final value = _lookup(_resources, path) ?? _lookup(_fallbackResources, path);
+     return value is Map ? Map<String, Object?>.from(value) : const {};
+   }
+ 
+-  Object? _lookup(String path) {
+-    Object? current = _resources;
++  /// Localized names and synonyms from every supported resource. Search never
++  /// indexes the canonical identifier itself.
++  Iterable<String> catalogSearchTerms(String catalog, String id) sync* {
++    for (final resources in _searchResources) {
++      final entry = _lookup(resources, 'catalogs.$catalog.$id');
++      if (entry is! Map) continue;
++      final name = entry['name'];
++      if (name is String) yield name;
++      final synonyms = entry['synonyms'];
++      if (synonyms is List) yield* synonyms.whereType<String>();
++    }
++  }
++
++  static Object? _lookup(Map<String, Object?> resources, String path) {
++    Object? current = resources;
+     for (final segment in path.split('.')) {
+       if (current is! Map || !current.containsKey(segment)) return null;
+       current = current[segment];
+     }
+     return current;
+   }
+ }
+ 
+ class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
+   const _AppLocalizationsDelegate();
+ 
+   @override
+   bool isSupported(Locale locale) =>
+       AppLocalizations.supportedLocales.any((value) => value.languageCode == locale.languageCode);
+ 
+   @override
+   Future<AppLocalizations> load(Locale locale) async {
+-    final language = isSupported(locale) ? locale.languageCode : 'en';
+-    final raw = await rootBundle.loadString('assets/i18n/$language.json');
+-    return AppLocalizations._(Locale(language), Map<String, Object?>.from(jsonDecode(raw) as Map));
++    final resolved = AppLocalizations.resolveLocale(locale);
++    final loaded = <String, Map<String, Object?>>{};
++    for (final language in AppLocalizations.supportedLocales.map((e) => e.languageCode)) {
++      final raw = await rootBundle.loadString('assets/i18n/$language.json');
++      loaded[language] = Map<String, Object?>.from(jsonDecode(raw) as Map);
++    }
++    return AppLocalizations._(
++      resolved,
++      loaded[resolved.languageCode]!,
++      loaded[AppLocalizations.defaultLocale.languageCode]!,
++      List.unmodifiable(loaded.values),
++    );
+   }
+ 
+   @override
+   bool shouldReload(_AppLocalizationsDelegate old) => false;
+ }
+diff --git a/test/catalog_i18n_contract_test.dart b/test/catalog_i18n_contract_test.dart
+index e7f55e320908aca205b76a01867af9cc2dc876ab..80477272aca94e87a900cf82d648d96e422aae9d 100644
+--- a/test/catalog_i18n_contract_test.dart
++++ b/test/catalog_i18n_contract_test.dart
+@@ -1,27 +1,46 @@
+ import 'dart:io';
+ import 'dart:convert';
+ 
++import 'package:flutter/widgets.dart';
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/catalogs/system_catalogs.dart';
++import 'package:wardrobeos/l10n/app_localizations.dart';
+ import 'package:wardrobeos/models/style_analysis.dart';
+ 
+ void main() {
+   test('every canonical style has resources in every locale', () {
+     for (final locale in ['en', 'fr']) {
+       final resource = jsonDecode(File('assets/i18n/$locale.json').readAsStringSync()) as Map;
+       final styles = (resource['catalogs'] as Map)['style'] as Map;
+       expect(styles.keys.toSet(), containsAll(StyleTaxonomy.entries.keys));
+     }
+   });
+ 
+   test('legacy labels resolve without changing stored canonical IDs', () {
+     expect(SystemCatalogs.canonicalId(SystemCatalogs.categories, 'Hauts'), 'tops');
+     expect(SystemCatalogs.canonicalId(SystemCatalogs.materials, 'Mérinos'), 'merino_wool');
+     expect(SystemCatalogs.canonicalId(SystemCatalogs.colors, 'Bleu marine'), 'dark_blue');
+   });
+ 
+   test('style analysis serializes canonical style identifiers unchanged', () {
+     final value = StyleCompatibility(styleId: 'quiet_luxury', score: .8, justification: 'fixture');
+     expect(value.toMap()['styleId'], 'quiet_luxury');
+   });
++
++  test('regional and unknown locales follow the documented fallback policy', () {
++    expect(AppLocalizations.resolveLocale(const Locale('fr', 'FR')), const Locale('fr'));
++    expect(AppLocalizations.resolveLocale(const Locale('fr', 'CA')), const Locale('fr'));
++    expect(AppLocalizations.resolveLocale(const Locale('en', 'GB')), const Locale('en'));
++    expect(AppLocalizations.resolveLocale(const Locale('en', 'US')), const Locale('en'));
++    expect(AppLocalizations.resolveLocale(const Locale('de', 'DE')), AppLocalizations.defaultLocale);
++  });
++
++  test('all locales expose the same complete translation surface', () {
++    Set<String> leaves(Object? value, [String prefix = '']) => value is Map
++        ? {for (final entry in value.entries) ...leaves(entry.value, '$prefix.${entry.key}')}
++        : {prefix};
++    final en = jsonDecode(File('assets/i18n/en.json').readAsStringSync());
++    final fr = jsonDecode(File('assets/i18n/fr.json').readAsStringSync());
++    expect(leaves(fr), leaves(en));
++  });
+ }
+diff --git a/tool/i18n_audit.dart b/tool/i18n_audit.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..cf92b3fbbe81dc6f35484c0b6f6341d04e078a3a
+--- /dev/null
++++ b/tool/i18n_audit.dart
+@@ -0,0 +1,72 @@
++import 'dart:convert';
++import 'dart:io';
++
++/// CI gate for the single `assets/i18n` localization system.
++void main() {
++  final errors = <String>[];
++  final files = Directory('assets/i18n').listSync().whereType<File>()
++      .where((file) => file.path.endsWith('.json')).toList()
++    ..sort((a, b) => a.path.compareTo(b.path));
++  if (files.map((f) => f.uri.pathSegments.last).join(',') != 'en.json,fr.json') {
++    errors.add('Locales must be en.json and fr.json until one is explicitly added.');
++  }
++  final resources = <String, Map<String, Object?>>{};
++  for (final file in files) {
++    try {
++      resources[file.path] = Map<String, Object?>.from(jsonDecode(file.readAsStringSync()) as Map);
++    } on Object catch (error) {
++      errors.add('${file.path}: invalid JSON ($error)');
++    }
++  }
++  if (resources.isNotEmpty) {
++    final reference = _leafPaths(resources.values.first);
++    for (final entry in resources.entries.skip(1)) {
++      final paths = _leafPaths(entry.value);
++      for (final missing in reference.difference(paths)) {
++        errors.add('${entry.key}: missing translation $missing');
++      }
++      for (final extra in paths.difference(reference)) {
++        errors.add('${entry.key}: unexpected translation $extra');
++      }
++    }
++    for (final entry in resources.entries) {
++      final catalogs = entry.value['catalogs'];
++      if (catalogs is! Map) { errors.add('${entry.key}: missing catalogs'); continue; }
++      for (final kind in const ['style', 'category', 'material', 'color']) {
++        final catalog = catalogs[kind];
++        if (catalog is! Map || catalog.isEmpty) { errors.add('${entry.key}: empty $kind catalog'); continue; }
++        for (final item in catalog.entries) {
++          final value = item.value;
++          if (value is! Map || (value['name'] as String?)?.trim().isEmpty != false) {
++            errors.add('${entry.key}: $kind.${item.key} has no clean name');
++          }
++        }
++      }
++    }
++  }
++  final dartFiles = Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'));
++  final canonicalDisplay = RegExp(r'''Text\s*\(\s*(?:[^\n;]*\.)?(?:id|styleId|category|material|color)\b''');
++  final translatedComparison = RegExp(r'''(?:name|label|displayName)\s*(?:==|!=)\s*['\"]''');
++  for (final file in dartFiles) {
++    final source = file.readAsStringSync();
++    if (canonicalDisplay.hasMatch(source)) errors.add('${file.path}: possible canonical identifier rendered by Text');
++    if (translatedComparison.hasMatch(source)) errors.add('${file.path}: possible comparison against displayed text');
++    if (source.contains("rootBundle.loadString('assets/i18n/") && !file.path.endsWith('lib/l10n/app_localizations.dart')) {
++      errors.add('${file.path}: competing localization loader');
++    }
++  }
++  if (errors.isNotEmpty) {
++    stderr.writeln('i18n audit failed (${errors.length} issue(s)):');
++    for (final error in errors) stderr.writeln(' - $error');
++    exitCode = 1;
++  } else {
++    stdout.writeln('i18n audit passed: resources and architecture are consistent.');
++  }
++}
++
++Set<String> _leafPaths(Object? value, [String prefix = '']) {
++  if (value is Map) {
++    return {for (final entry in value.entries) ..._leafPaths(entry.value, prefix.isEmpty ? '${entry.key}' : '$prefix.${entry.key}')};
++  }
++  return {prefix};
++}

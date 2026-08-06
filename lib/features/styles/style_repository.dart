@@ -122,7 +122,10 @@ class StyleCatalog extends ChangeNotifier implements StyleRepository {
     final visible = localizations == null ? style : style.localized(localizations);
     final needle = normalize(query);
     if (needle.isEmpty) return true;
-    final searchable = [visible.name, ...visible.synonyms, visible.description,
+    final internationalAliases = localizations == null || !style.isSystem
+        ? const <String>[]
+        : localizations.catalogSearchTerms('style', style.id);
+    final searchable = [visible.name, ...visible.synonyms, ...internationalAliases, visible.description,
       visible.definition, ...visible.characteristics].map(normalize).join(' ');
     return searchable.contains(needle) || needle.split(' ').every(searchable.contains);
   }

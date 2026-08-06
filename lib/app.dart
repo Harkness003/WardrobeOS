@@ -66,6 +66,8 @@ class _WardrobeOSAppState extends State<WardrobeOSApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
+      localeResolutionCallback: (locale, _) =>
+          AppLocalizations.resolveLocale(locale ?? AppLocalizations.defaultLocale),
       theme: AppTheme.light,
       darkTheme: AppTheme.darkTheme,
       themeMode: settings.themeMode,

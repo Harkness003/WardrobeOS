@@ -44,7 +44,8 @@ abstract final class SystemCatalogs {
   }
 
   static String label(AppLocalizations l10n, String catalog, CatalogItem item) =>
-      l10n.catalogEntry(catalog, item.id)['name'] as String? ?? item.id;
+      l10n.catalogEntry(catalog, item.id)['name'] as String? ??
+      l10n.text('ui.unknownCatalogValue', fallback: 'Unknown');
 
   static String _normalize(String value) => value.trim().toLowerCase().replaceAll('_', ' ');
 }
