@@ -7,6 +7,7 @@ import '../scanner/wardrobe_import_screen.dart';
 import 'garment_detail_screen.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
+import 'wardrobe_selection.dart';
 import 'reanalysis/garment_reanalysis_service.dart';
 
 class WardrobeScreen extends StatefulWidget {
@@ -20,6 +21,8 @@ class WardrobeScreen extends StatefulWidget {
 class _WardrobeScreenState extends State<WardrobeScreen> {
   final controller = WardrobeController();
   final searchController = TextEditingController();
+  final scrollController = ScrollController();
+  final selection = WardrobeSelection();
 
   static const seasons = [
     'Printemps',
@@ -56,7 +59,68 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
     controller.removeListener(_refresh);
     controller.dispose();
     searchController.dispose();
+    scrollController.dispose();
+    selection.dispose();
     super.dispose();
+  }
+
+  void _onGarmentTap(Garment garment) {
+    if (selection.isActive) {
+      selection.toggle(garment.id);
+    } else {
+      _openDetail(garment);
+    }
+  }
+
+  Future<void> _runSelectionAction(SelectionAction action) async {
+    switch (action) {
+      case SelectionAction.delete:
+        await _deleteSelection();
+    }
+  }
+
+  Future<void> _deleteSelection() async {
+    final selected = controller.garments
+        .where((garment) => selection.contains(garment.id))
+        .toList(growable: false);
+    if (selected.isEmpty) {
+      selection.clear();
+      return;
+    }
+
+    final count = selected.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Supprimer $count vêtements ?'),
+        content: const Text('Cette action est irréversible. Les vêtements et leurs photos locales seront supprimés définitivement.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      for (final garment in selected) {
+        await controller.delete(garment, refresh: false);
+      }
+      selection.clear();
+      await controller.load();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible de supprimer tous les vêtements sélectionnés.')),
+      );
+      await controller.load();
+    }
   }
 
   Future<void> _showAddOptions() async {
@@ -264,49 +328,24 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddOptions,
-        icon: const Icon(Icons.add),
-        label: const Text('Ajouter'),
+      floatingActionButton: ValueListenableBuilder<Set<String>>(
+        valueListenable: selection,
+        builder: (_, selected, __) => selected.isEmpty
+            ? FloatingActionButton.extended(
+                onPressed: _showAddOptions,
+                icon: const Icon(Icons.add),
+                label: const Text('Ajouter'),
+              )
+            : const SizedBox.shrink(),
       ),
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 12, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Mon dressing',
-                          style: TextStyle(
-                            fontSize: 30,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -1,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '${controller.garments.length} pièce${controller.garments.length > 1 ? 's' : ''} affichée${controller.garments.length > 1 ? 's' : ''}',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton.filledTonal(
-                    tooltip: 'Favoris uniquement',
-                    onPressed: controller.toggleFavoritesFilter,
-                    icon: Icon(
-                      controller.favoritesOnly
-                          ? Icons.favorite
-                          : Icons.favorite_border,
-                    ),
-                  ),
-                ],
-              ),
+            ValueListenableBuilder<Set<String>>(
+              valueListenable: selection,
+              builder: (_, selected, __) => selected.isEmpty
+                  ? _normalHeader()
+                  : _selectionHeader(selected.length),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
@@ -352,6 +391,89 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       ),
     );
   }
+
+  Widget _normalHeader() => Padding(
+        padding: const EdgeInsets.fromLTRB(18, 16, 12, 8),
+        child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Mon dressing',
+                          style: TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -1,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${controller.garments.length} pièce${controller.garments.length > 1 ? 's' : ''} affichée${controller.garments.length > 1 ? 's' : ''}',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    tooltip: 'Favoris uniquement',
+                    onPressed: controller.toggleFavoritesFilter,
+                    icon: Icon(
+                      controller.favoritesOnly
+                          ? Icons.favorite
+                          : Icons.favorite_border,
+                    ),
+                  ),
+                ],
+              ),
+            );
+
+  Widget _selectionHeader(int count) => Semantics(
+        liveRegion: true,
+        label: '$count vêtement${count > 1 ? 's' : ''} sélectionné${count > 1 ? 's' : ''}',
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: selection.clear,
+                    icon: const Icon(Icons.close),
+                    label: const Text('Annuler'),
+                  ),
+                  Expanded(
+                    child: Text(
+                      '$count sélectionné${count > 1 ? 's' : ''}',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  FilledButton.icon(
+                    onPressed: () => _runSelectionAction(SelectionAction.delete),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Supprimer'),
+                  ),
+                ],
+              ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  TextButton(
+                    onPressed: () => selection.selectAll(controller.garments.map((garment) => garment.id)),
+                    child: const Text('Tout sélectionner'),
+                  ),
+                  TextButton(
+                    onPressed: selection.clear,
+                    child: const Text('Tout désélectionner'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
 
   Widget _body() {
     if (controller.loading) {
@@ -421,6 +543,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 220),
         child: GridView.builder(
+          controller: scrollController,
           key: ValueKey(
             '${controller.category}-${controller.search}-${controller.favoritesOnly}-${controller.season}-${controller.brand}-${controller.color}-${controller.material}-${controller.style}-${controller.occasion}',
           ),
@@ -434,10 +557,22 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
           ),
           itemBuilder: (_, index) {
             final garment = controller.garments[index];
-            return _GarmentCard(
-              garment: garment,
-              onTap: () => _openDetail(garment),
-              onFavorite: () => controller.toggleFavorite(garment),
+            return ValueListenableBuilder<Set<String>>(
+              valueListenable: selection,
+              child: _GarmentCardContent(
+                garment: garment,
+                onFavorite: () => selection.isActive
+                    ? selection.toggle(garment.id)
+                    : controller.toggleFavorite(garment),
+              ),
+              builder: (_, selected, child) => _GarmentCard(
+                garment: garment,
+                selected: selected.contains(garment.id),
+                selectionActive: selected.isNotEmpty,
+                onTap: () => _onGarmentTap(garment),
+                onLongPress: () => selection.select(garment.id),
+                child: child!,
+              ),
             );
           },
         ),
@@ -469,26 +604,81 @@ class _FilterTextField extends StatelessWidget {
 
 class _GarmentCard extends StatelessWidget {
   final Garment garment;
+  final bool selected;
+  final bool selectionActive;
   final VoidCallback onTap;
-  final VoidCallback onFavorite;
+  final VoidCallback onLongPress;
+  final Widget child;
 
   const _GarmentCard({
     required this.garment,
+    required this.selected,
+    required this.selectionActive,
     required this.onTap,
-    required this.onFavorite,
+    required this.onLongPress,
+    required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Hero(
-      tag: 'garment-${garment.id}',
-      child: Material(
-        color: Colors.transparent,
-        child: Card(
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            child: Column(
+    return Semantics(
+      selected: selected,
+      label: '${garment.name}, ${selected ? 'sélectionné' : 'non sélectionné'}',
+      onLongPress: onLongPress,
+      child: Hero(
+        tag: 'garment-${garment.id}',
+        child: Material(
+          color: Colors.transparent,
+          child: Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: selected
+                  ? const BorderSide(color: AppTheme.gold, width: 3)
+                  : BorderSide.none,
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              onLongPress: onLongPress,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  child,
+                  if (selectionActive)
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: Material(
+                        color: selected ? AppTheme.gold : Colors.black54,
+                        shape: const CircleBorder(),
+                        child: Padding(
+                          padding: const EdgeInsets.all(5),
+                          child: Icon(
+                            selected ? Icons.check : Icons.circle_outlined,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GarmentCardContent extends StatelessWidget {
+  const _GarmentCardContent({required this.garment, required this.onFavorite});
+
+  final Garment garment;
+  final VoidCallback onFavorite;
+
+  @override
+  Widget build(BuildContext context) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
@@ -565,10 +755,5 @@ class _GarmentCard extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+            );
 }

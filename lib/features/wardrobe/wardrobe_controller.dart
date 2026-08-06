@@ -152,10 +152,10 @@ class WardrobeController extends ChangeNotifier {
     return removed;
   }
 
-  Future<void> delete(Garment garment) async {
+  Future<void> delete(Garment garment, {bool refresh = true}) async {
     await _db.deleteGarment(garment.id);
     await ImageStorageService.removeAll(garment.effectivePhotos.map((photo) => photo.path));
-    await load();
+    if (refresh) await load();
   }
 
   void _notifyListenersIfActive() {
