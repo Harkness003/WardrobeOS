@@ -60,7 +60,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int index = 0;
   late final _assistantWardrobe = WardrobeController();
-  late final _assistantOutfits = OutfitsController(
+  late final _outfitsController = OutfitsController(
     aiContextService: _aiContextService,
   );
   late final _apiKeyStorage = ApiKeyStorage();
@@ -109,7 +109,7 @@ class _MainShellState extends State<MainShell> {
     afterRestore: () async {
       await Future.wait([
         _assistantWardrobe.load(),
-        _assistantOutfits.load(),
+        _outfitsController.load(),
         _agendaController.load(),
       ]);
       if (mounted) setState(() {});
@@ -119,7 +119,7 @@ class _MainShellState extends State<MainShell> {
     contextBuilder: AssistantContextBuilder(
       weatherService: widget.weatherService,
       wardrobeController: _assistantWardrobe,
-      outfitsController: _assistantOutfits,
+      outfitsController: _outfitsController,
       calendarContextBuilder: CalendarContextBuilder(
         service: _agendaCalendar,
       ),
@@ -148,7 +148,7 @@ class _MainShellState extends State<MainShell> {
   @override
   void dispose() {
     _assistantWardrobe.dispose();
-    _assistantOutfits.dispose();
+    _outfitsController.dispose();
     _aiSettings.dispose();
     _backupController.dispose();
     _agendaController.dispose();
@@ -181,8 +181,8 @@ class _MainShellState extends State<MainShell> {
         },
       ),
       WardrobeScreen(reanalysisService: _reanalysisService),
-      OutfitsScreen(controller: _assistantOutfits),
-      AgendaScreen(controller: _agendaController, outfitsController: _assistantOutfits),
+      OutfitsScreen(controller: _outfitsController),
+      AgendaScreen(controller: _agendaController, outfitsController: _outfitsController),
       AssistantScreen(service: _assistantService),
       const WishlistScreen(),
       ProfileScreen(

@@ -1,0 +1,184 @@
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 88870a3478b8d45644b628519ab5bc4e387efb7b..bf2a53ab5cf91fc156558c2ac5b29900d510e8ff 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -38,173 +38,173 @@ import '../scanner/ai/openai_garment_vision_analyzer.dart';
+ import '../wardrobe/reanalysis/database_garment_reanalysis_repository.dart';
+ import '../wardrobe/reanalysis/garment_reanalysis_models.dart';
+ import '../wardrobe/reanalysis/garment_reanalysis_service.dart';
+ import '../styles/style_repository.dart';
+ import '../styles/style_enrichment_service.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+   final UnifiedLocationService locationService;
+ 
+   const MainShell({
+     super.key,
+     required this.settings,
+     required this.weatherService,
+     required this.locationService,
+   });
+ 
+   @override
+   State<MainShell> createState() => _MainShellState();
+ }
+ 
+ class _MainShellState extends State<MainShell> {
+   int index = 0;
+   late final _assistantWardrobe = WardrobeController();
+-  late final _assistantOutfits = OutfitsController(
++  late final _outfitsController = OutfitsController(
+     aiContextService: _aiContextService,
+   );
+   late final _apiKeyStorage = ApiKeyStorage();
+   late final _openAiProvider = OpenAiProvider(apiKeyStorage: _apiKeyStorage);
+   late final _styleCatalog = StyleCatalog();
+   late final _styleEnrichment = StyleEnrichmentService(_openAiProvider);
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
+   late final _reanalysisAnalyzer = OpenAiGarmentVisionAnalyzer(apiKeyStorage: _apiKeyStorage);
+   late final _reanalysisRepository = DatabaseGarmentReanalysisRepository(DatabaseService.instance);
+   late final _reanalysisService = GarmentReanalysisService(
+     repository: _reanalysisRepository,
+     analyzer: _reanalysisAnalyzer,
+     loadPhoto: (path) => File(path).readAsBytes(),
+     versions: const GarmentReanalysisVersions(
+       aiModel: 'scanner-v1',
+       pipeline: 'scanner-pipeline-v1',
+       styleTaxonomy: '1',
+       thermalEngine: '2',
+     ),
+   );
+   late final _backupRepository = DatabaseBackupRepository(
+     DatabaseService.instance,
+   );
+   late final _memoryService = MemoryService(
+     repository: DatabaseMemoryRepository(DatabaseService.instance),
+   );
+   late final _agendaCalendar = GoogleCalendarService(
+     authStore: const GoogleCalendarAuthStore(),
+   )..loadConnection();
+   late final _aiContextService = WardrobeAiContextService(
+     loadCurrentGarments: DatabaseService.instance.getGarments,
+     memoryService: _memoryService,
+   );
+   late final _agendaService = AgendaService(
+     database: DatabaseService.instance,
+     calendarService: _agendaCalendar,
+     weatherService: widget.weatherService,
+     aiContextService: _aiContextService,
+   );
+   late final _backupController = BackupController(
+     backupService: BackupService(repository: _backupRepository),
+     restoreService: RestoreService(repository: _backupRepository),
+     afterRestore: () async {
+       await Future.wait([
+         _assistantWardrobe.load(),
+-        _assistantOutfits.load(),
++        _outfitsController.load(),
+         _agendaController.load(),
+       ]);
+       if (mounted) setState(() {});
+     },
+   );
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+-      outfitsController: _assistantOutfits,
++      outfitsController: _outfitsController,
+       calendarContextBuilder: CalendarContextBuilder(
+         service: _agendaCalendar,
+       ),
+       memoryService: _memoryService,
+       aiContextService: _aiContextService,
+     ),
+     toolContextBuilder: AssistantToolContextBuilder(
+       tools: [
+         WeatherTool(weatherService: widget.weatherService),
+         AgendaTool(service: _agendaService),
+       ],
+     ),
+     llmProvider: _openAiProvider,
+   );
+   late final _dailyBriefService = DailyBriefService(
+     weatherService: widget.weatherService,
+     memoryService: _memoryService,
+     assistantService: _assistantService,
+     aiContextService: _aiContextService,
+   );
+   late final _agendaController = AgendaController(
+     service: _agendaService,
+     googleCalendarService: _agendaCalendar,
+   );
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+-    _assistantOutfits.dispose();
++    _outfitsController.dispose();
+     _aiSettings.dispose();
+     _backupController.dispose();
+     _agendaController.dispose();
+     _reanalysisAnalyzer.close();
+     super.dispose();
+   }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         dailyBriefService: _dailyBriefService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(4),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+             MaterialPageRoute(builder: (_) => const ScannerScreen()),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+           }
+         },
+       ),
+       WardrobeScreen(reanalysisService: _reanalysisService),
+-      OutfitsScreen(controller: _assistantOutfits),
+-      AgendaScreen(controller: _agendaController, outfitsController: _assistantOutfits),
++      OutfitsScreen(controller: _outfitsController),
++      AgendaScreen(controller: _agendaController, outfitsController: _outfitsController),
+       AssistantScreen(service: _assistantService),
+       const WishlistScreen(),
+       ProfileScreen(
+         settings: widget.settings,
+         locationService: widget.locationService,
+         aiSettings: _aiSettings,
+         backupController: _backupController,
+         styleRepository: _styleCatalog,
+         styleEnrichment: _styleEnrichment,
+       ),
+     ];
+ 
+     return Scaffold(
+       body: AnimatedSwitcher(
+         duration: const Duration(milliseconds: 240),
+         transitionBuilder: (child, animation) {
+           return FadeTransition(
+             opacity: animation,
+             child: SlideTransition(
+               position: Tween<Offset>(
+                 begin: const Offset(.02, 0),
+                 end: Offset.zero,
+               ).animate(animation),
+               child: child,
+             ),
