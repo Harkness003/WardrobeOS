@@ -95,12 +95,15 @@ class OutfitGenerationEngine {
     final stopwatch = Stopwatch()..start();
     final wardrobe = request.wardrobe.toList(growable: false);
     final availableCategories = wardrobe.map(categoryFor).toSet();
-    OutfitGenerationResult failure(OutfitGenerationFailure reason) => OutfitGenerationResult._(
-      const [], OutfitGenerationDiagnostic(garmentCount: wardrobe.length,
+    OutfitGenerationResult failure(OutfitGenerationFailure reason) {
+      final diagnostic = OutfitGenerationDiagnostic(garmentCount: wardrobe.length,
         categories: Set.unmodifiable(availableCategories), candidateCount: 0, producedCount: 0,
         rejectedCount: 0, failure: reason, contextLoadDuration: request.contextLoadDuration,
-        generationDuration: stopwatch.elapsed),
-      [reason == OutfitGenerationFailure.emptyWardrobe ? 'Le dressing est vide.' : incompleteOutfitMessage]);
+        generationDuration: stopwatch.elapsed);
+      final message = diagnostic.userReason;
+      return OutfitGenerationResult._(
+        const [], diagnostic, message == null ? const [] : [message]);
+    }
     if (wardrobe.isEmpty) return failure(OutfitGenerationFailure.emptyWardrobe);
     if (!availableCategories.contains(OutfitCategory.top)) return failure(OutfitGenerationFailure.missingTop);
     if (!availableCategories.contains(OutfitCategory.bottom)) return failure(OutfitGenerationFailure.missingBottom);

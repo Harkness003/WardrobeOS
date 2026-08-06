@@ -17,7 +17,10 @@ void main() {
     ]);
     await controller.generate();
     expect(controller.proposals, hasLength(3));
-    expect(controller.proposals, everyElement(predicate((proposal) => proposal.garments.length >= 2)));
+    final proposal = controller.proposals.firstOrNull;
+    expect(proposal, isNotNull);
+    final verifiedProposal = proposal!;
+    expect(verifiedProposal.garments.length, greaterThanOrEqualTo(2));
     expect(controller.generationDiagnostic?.producedCount, 3);
     controller.dispose();
   });

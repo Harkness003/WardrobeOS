@@ -136,7 +136,6 @@ class DailyBriefService {
           contribution: 'Cette sélection tient compte de tes préférences et de la rotation de ton dressing.')));
     }
     cards.sort((a, b) => a.priority.compareTo(b.priority));
-    final categories = garments.map(OutfitGenerationEngine.categoryFor).toSet();
     final state = garments.isEmpty ? DailyBriefState.emptyWardrobe
         : generation.diagnostic.failure == OutfitGenerationFailure.missingTop ||
               generation.diagnostic.failure == OutfitGenerationFailure.missingBottom
