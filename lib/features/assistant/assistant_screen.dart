@@ -1,136 +1,191 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 
-import 'services/assistant_service.dart';
-import '../../widgets/outfit_proposal_card.dart';
-import '../../widgets/content_state.dart';
+import 'conversation/assistant_conversation_controller.dart';
 
 class AssistantScreen extends StatefulWidget {
-  final AssistantService service;
+  const AssistantScreen({super.key, required this.controller});
 
-  const AssistantScreen({super.key, required this.service});
+  final AssistantConversationController controller;
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
 }
 
 class _AssistantScreenState extends State<AssistantScreen> {
-  final _controller = TextEditingController();
-  String? _message;
-  bool _isLoading = false;
-  bool _hasError = false;
-  StreamSubscription<String>? _generation;
+  final _inputController = TextEditingController();
+  final _scrollController = ScrollController();
+  bool _wasNearBottom = true;
+  int _lastMessageCount = 0;
 
   @override
-  void dispose() {
-    _generation?.cancel();
-    _controller.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_conversationChanged);
+    _scrollController.addListener(_trackScrollPosition);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  @override
+  void didUpdateWidget(covariant AssistantScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller) return;
+    oldWidget.controller.removeListener(_conversationChanged);
+    widget.controller.addListener(_conversationChanged);
+  }
+
+  void _trackScrollPosition() {
+    if (!_scrollController.hasClients) return;
+    _wasNearBottom =
+        _scrollController.position.maxScrollExtent - _scrollController.offset <
+        96;
+  }
+
+  void _conversationChanged() {
+    if (!mounted) return;
+    final addedMessage = widget.controller.messages.length > _lastMessageCount;
+    _lastMessageCount = widget.controller.messages.length;
+    setState(() {});
+    if (_wasNearBottom || addedMessage) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
+  }
+
+  void _scrollToBottom() {
+    if (!mounted || !_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+    );
   }
 
   Future<void> _send() async {
-    final userMessage = _controller.text.trim();
-    if (userMessage.isEmpty) return;
-    setState(() {
-      _isLoading = true;
-      _hasError = false;
-      _message = '';
-    });
-    _generation = widget.service
-        .generateMessageStream(userMessage: userMessage)
-        .listen(
-          (chunk) {
-            if (mounted) setState(() => _message = '${_message ?? ''}$chunk');
-          },
-          onError: (_) {
-            if (!mounted) return;
-            setState(() {
-              _message = 'WardrobeGPT est momentanément indisponible. Réessayez dans un instant.';
-              _hasError = true;
-              _isLoading = false;
-            });
-          },
-          onDone: _finishGeneration,
-        );
+    final text = _inputController.text;
+    if (text.trim().isEmpty || widget.controller.isGenerating) return;
+    _inputController.clear();
+    _wasNearBottom = true;
+    await widget.controller.send(text);
   }
 
-  void _finishGeneration() {
-    if (!mounted) return;
-    setState(() {
-      _isLoading = false;
-    });
-  }
-
-  Future<void> _stop() async {
-    await _generation?.cancel();
-    _finishGeneration();
+  @override
+  void dispose() {
+    widget.controller.removeListener(_conversationChanged);
+    _scrollController
+      ..removeListener(_trackScrollPosition)
+      ..dispose();
+    _inputController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final messages = widget.controller.messages;
+    final generating = widget.controller.isGenerating;
+    final awaitingFirstChunk =
+        generating &&
+        (messages.isEmpty ||
+            messages.last.role == AssistantMessageRole.user);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'WardrobeGPT',
-                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
-                  ),
-                ),
-                CircleAvatar(child: Icon(Icons.auto_awesome)),
-              ],
-            ),
-            const SizedBox(height: 32),
+            const Row(children: [
+              Expanded(child: Text('WardrobeGPT',
+                style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900))),
+              CircleAvatar(child: Icon(Icons.auto_awesome)),
+            ]),
+            const SizedBox(height: 16),
             Expanded(
-              child: ListView(
-                children: [
-                  for (final proposal in widget.service.lastOutfitProposals)
-                    OutfitProposalCard(proposal: proposal),
-                  SizedBox(
-                    height: 220,
-                    child: Center(
-                      child:
-                          _hasError
-                              ? ContentState.error(title: 'Réponse indisponible', message: _message!, onAction: _send)
-                          : _isLoading && (_message?.isEmpty ?? true)
-                              ? const ContentState.loading(title: 'WardrobeGPT réfléchit', message: 'Analyse de la demande et préparation d’une réponse structurée…')
-                              : Text(
-                                _message ?? 'WardrobeGPT est prêt. Demandez une tenue, un conseil de style ou une idée adaptée à votre journée.',
-                                textAlign: TextAlign.start,
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                    ),
-                  ),
-                ],
+              child: ListView.builder(
+                key: const ValueKey('wardrobe-gpt-conversation'),
+                controller: _scrollController,
+                padding: const EdgeInsets.only(bottom: 12),
+                itemCount: messages.length + (awaitingFirstChunk ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == messages.length) {
+                    return const _ThinkingMessage();
+                  }
+                  return _MessageBubble(message: messages[index]);
+                },
               ),
             ),
             TextField(
-              controller: _controller,
-              enabled: !_isLoading,
+              controller: _inputController,
+              enabled: !generating,
+              minLines: 1,
+              maxLines: 4,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _send(),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Votre demande',
                 hintText: "Que mettre aujourd'hui ?",
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  tooltip: generating ? 'Génération en cours' : 'Envoyer',
+                  onPressed: generating ? null : _send,
+                  icon: const Icon(Icons.send),
+                ),
               ),
             ),
-            const SizedBox(height: 12),
-            if (_isLoading && !(_message?.isEmpty ?? true))
-              const Padding(padding: EdgeInsets.only(bottom: 8), child: LinearProgressIndicator(semanticsLabel: 'Réponse en cours de génération')),
-            FilledButton.icon(
-              onPressed: _isLoading ? _stop : _send,
-              icon: Icon(_isLoading ? Icons.stop : Icons.send),
-              label: Text(_isLoading ? 'Arrêter' : 'Envoyer'),
-            ),
+            if (generating) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: widget.controller.stop,
+                icon: const Icon(Icons.stop),
+                label: const Text('Arrêter'),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
+}
+
+class _MessageBubble extends StatelessWidget {
+  const _MessageBubble({required this.message});
+  final AssistantMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = message.role == AssistantMessageRole.user;
+    return Align(
+      alignment: user ? Alignment.centerRight : Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * .82,
+        ),
+        child: Card(
+          color: user ? Theme.of(context).colorScheme.primaryContainer : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Semantics(
+              label: user ? 'Utilisateur' : 'Assistant',
+              child: SelectableText(message.content),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ThinkingMessage extends StatelessWidget {
+  const _ThinkingMessage();
+
+  @override
+  Widget build(BuildContext context) => const Align(
+    alignment: Alignment.centerLeft,
+    child: Padding(
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox.square(dimension: 16,
+          child: CircularProgressIndicator(strokeWidth: 2)),
+        SizedBox(width: 10),
+        Text('WardrobeGPT réfléchit…'),
+      ]),
+    ),
+  );
 }

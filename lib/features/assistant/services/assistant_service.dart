@@ -166,6 +166,21 @@ class AssistantService {
     try {
       final prompt = await generatePrompt(userMessage: userMessage);
       if (_lastIntent != null && _lastGenerationDiagnostic?.failure != null) {
+        diagnostics.publish(module: DiagnosticModule.wardrobeGpt,
+          level: AppDiagnosticLevel.warning, state: 'Réponse métier',
+          summary: 'Tenue non générée, réponse explicative fournie',
+          source: 'AssistantService', duration: stopwatch.elapsed,
+          correlationId: correlationId,
+          reason: _lastGenerationDiagnostic!.failure!.name,
+          details: {'intention': _lastIntent!.type.name},
+          pipeline: [
+            DiagnosticStep('Intention', detail: _lastIntent!.type.name),
+            const DiagnosticStep('WardrobeContext'),
+            DiagnosticStep('OutfitGeneration',
+              level: AppDiagnosticLevel.warning,
+              detail: _lastGenerationDiagnostic!.failure!.name),
+            const DiagnosticStep('BusinessResponseGenerated'),
+          ]);
         yield _outfitFailureResponse(_lastGenerationDiagnostic!.failure!);
         return;
       }
@@ -202,8 +217,9 @@ class AssistantService {
         level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
         source: 'AssistantService', duration: stopwatch.elapsed,
         correlationId: correlationId,
-        reason: error.message);
-      yield error.message;
+        reason: _technicalReason(error),
+        details: {'providerErrorType': error.runtimeType.toString()});
+      throw AssistantTechnicalException(_userMessageFor(error));
     } catch (error) {
       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
         level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
@@ -211,7 +227,7 @@ class AssistantService {
         correlationId: correlationId, reason: 'localContextProviderOrStreamFailure',
         details: {'technical': error.runtimeType.toString(),
           'intent': _lastIntent?.type.name ?? 'unknown', 'firstChunkReceived': firstChunkReceived});
-      yield 'WardrobeGPT est temporairement indisponible. Réessayez.';
+      throw const AssistantTechnicalException();
     }
   }
 
@@ -225,4 +241,29 @@ class AssistantService {
     OutfitGenerationFailure.incompatibleCombinations =>
       'Je ne peux pas composer une tenue complète avec ces pièces : toutes les combinaisons disponibles sont incompatibles. Ajoute un haut ou un bas différent.',
   };
+
+  static String _technicalReason(LlmException error) => switch (error) {
+    MissingApiKeyException() => 'missingApiKey',
+    LlmNetworkException() => 'technicalProviderUnavailable',
+    LlmTimeoutException() => 'technicalProviderTimeout',
+    LlmApiException() => 'technicalProviderRejectedResponse',
+  };
+
+  static String _userMessageFor(LlmException error) => switch (error) {
+    MissingApiKeyException() =>
+      'Configure ta clé OpenAI dans les réglages pour utiliser WardrobeGPT.',
+    LlmTimeoutException() =>
+      'Le service IA met trop de temps à répondre. Tu peux réessayer.',
+    _ => AssistantTechnicalException.defaultUserMessage,
+  };
+}
+
+class AssistantTechnicalException implements Exception {
+  const AssistantTechnicalException([
+    this.userMessage = defaultUserMessage,
+  ]);
+
+  static const defaultUserMessage =
+      'Je n’arrive pas à contacter le service IA pour le moment. Tu peux réessayer.';
+  final String userMessage;
 }

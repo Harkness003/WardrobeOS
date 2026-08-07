@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../core/settings/app_settings.dart';
 import '../assistant/assistant_screen.dart';
+import '../assistant/conversation/assistant_conversation_controller.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../outfits/outfits_screen.dart';
 import '../outfits/outfits_controller.dart';
@@ -140,6 +141,9 @@ class _MainShellState extends State<MainShell> {
     llmProvider: _openAiProvider,
     languageCode: () => WidgetsBinding.instance.platformDispatcher.locale.languageCode,
   );
+  late final _assistantConversation = AssistantConversationController(
+    service: _assistantService,
+  );
   late final _dailyBriefService = DailyBriefService(
     weatherService: widget.weatherService,
     memoryService: _memoryService,
@@ -169,6 +173,7 @@ class _MainShellState extends State<MainShell> {
   @override
   void dispose() {
     _assistantWardrobe.dispose();
+    _assistantConversation.dispose();
     _outfitsController.dispose();
     _aiSettings.dispose();
     _backupController.dispose();
@@ -205,7 +210,7 @@ class _MainShellState extends State<MainShell> {
       WardrobeScreen(reanalysisService: _reanalysisService),
       OutfitsScreen(controller: _outfitsController),
       AgendaScreen(controller: _agendaController, outfitsController: _outfitsController),
-      AssistantScreen(service: _assistantService),
+      AssistantScreen(controller: _assistantConversation),
       const WishlistScreen(),
       ProfileScreen(
         settings: widget.settings,

@@ -1,0 +1,872 @@
+diff --git a/lib/features/assistant/assistant_screen.dart b/lib/features/assistant/assistant_screen.dart
+index 1127f27cc1330f54b669480a71d34be7723a6b17..eeabeb9813c2a982efab516498b66db0e1b22807 100644
+--- a/lib/features/assistant/assistant_screen.dart
++++ b/lib/features/assistant/assistant_screen.dart
+@@ -1,136 +1,191 @@
+-import 'dart:async';
+ import 'package:flutter/material.dart';
+ 
+-import 'services/assistant_service.dart';
+-import '../../widgets/outfit_proposal_card.dart';
+-import '../../widgets/content_state.dart';
++import 'conversation/assistant_conversation_controller.dart';
+ 
+ class AssistantScreen extends StatefulWidget {
+-  final AssistantService service;
++  const AssistantScreen({super.key, required this.controller});
+ 
+-  const AssistantScreen({super.key, required this.service});
++  final AssistantConversationController controller;
+ 
+   @override
+   State<AssistantScreen> createState() => _AssistantScreenState();
+ }
+ 
+ class _AssistantScreenState extends State<AssistantScreen> {
+-  final _controller = TextEditingController();
+-  String? _message;
+-  bool _isLoading = false;
+-  bool _hasError = false;
+-  StreamSubscription<String>? _generation;
++  final _inputController = TextEditingController();
++  final _scrollController = ScrollController();
++  bool _wasNearBottom = true;
++  int _lastMessageCount = 0;
+ 
+   @override
+-  void dispose() {
+-    _generation?.cancel();
+-    _controller.dispose();
+-    super.dispose();
++  void initState() {
++    super.initState();
++    widget.controller.addListener(_conversationChanged);
++    _scrollController.addListener(_trackScrollPosition);
++    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+   }
+ 
+-  Future<void> _send() async {
+-    final userMessage = _controller.text.trim();
+-    if (userMessage.isEmpty) return;
+-    setState(() {
+-      _isLoading = true;
+-      _hasError = false;
+-      _message = '';
+-    });
+-    _generation = widget.service
+-        .generateMessageStream(userMessage: userMessage)
+-        .listen(
+-          (chunk) {
+-            if (mounted) setState(() => _message = '${_message ?? ''}$chunk');
+-          },
+-          onError: (_) {
+-            if (!mounted) return;
+-            setState(() {
+-              _message = 'WardrobeGPT est momentanément indisponible. Réessayez dans un instant.';
+-              _hasError = true;
+-              _isLoading = false;
+-            });
+-          },
+-          onDone: _finishGeneration,
+-        );
++  @override
++  void didUpdateWidget(covariant AssistantScreen oldWidget) {
++    super.didUpdateWidget(oldWidget);
++    if (oldWidget.controller == widget.controller) return;
++    oldWidget.controller.removeListener(_conversationChanged);
++    widget.controller.addListener(_conversationChanged);
+   }
+ 
+-  void _finishGeneration() {
++  void _trackScrollPosition() {
++    if (!_scrollController.hasClients) return;
++    _wasNearBottom =
++        _scrollController.position.maxScrollExtent - _scrollController.offset <
++        96;
++  }
++
++  void _conversationChanged() {
+     if (!mounted) return;
+-    setState(() {
+-      _isLoading = false;
+-    });
++    final addedMessage = widget.controller.messages.length > _lastMessageCount;
++    _lastMessageCount = widget.controller.messages.length;
++    setState(() {});
++    if (_wasNearBottom || addedMessage) {
++      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
++    }
++  }
++
++  void _scrollToBottom() {
++    if (!mounted || !_scrollController.hasClients) return;
++    _scrollController.animateTo(
++      _scrollController.position.maxScrollExtent,
++      duration: const Duration(milliseconds: 220),
++      curve: Curves.easeOut,
++    );
+   }
+ 
+-  Future<void> _stop() async {
+-    await _generation?.cancel();
+-    _finishGeneration();
++  Future<void> _send() async {
++    final text = _inputController.text;
++    if (text.trim().isEmpty || widget.controller.isGenerating) return;
++    _inputController.clear();
++    _wasNearBottom = true;
++    await widget.controller.send(text);
++  }
++
++  @override
++  void dispose() {
++    widget.controller.removeListener(_conversationChanged);
++    _scrollController
++      ..removeListener(_trackScrollPosition)
++      ..dispose();
++    _inputController.dispose();
++    super.dispose();
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
++    final messages = widget.controller.messages;
++    final generating = widget.controller.isGenerating;
++    final awaitingFirstChunk =
++        generating &&
++        (messages.isEmpty ||
++            messages.last.role == AssistantMessageRole.user);
+     return SafeArea(
+       child: Padding(
+         padding: const EdgeInsets.all(18),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.stretch,
+           children: [
+-            const Row(
+-              children: [
+-                Expanded(
+-                  child: Text(
+-                    'WardrobeGPT',
+-                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+-                  ),
+-                ),
+-                CircleAvatar(child: Icon(Icons.auto_awesome)),
+-              ],
+-            ),
+-            const SizedBox(height: 32),
++            const Row(children: [
++              Expanded(child: Text('WardrobeGPT',
++                style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900))),
++              CircleAvatar(child: Icon(Icons.auto_awesome)),
++            ]),
++            const SizedBox(height: 16),
+             Expanded(
+-              child: ListView(
+-                children: [
+-                  for (final proposal in widget.service.lastOutfitProposals)
+-                    OutfitProposalCard(proposal: proposal),
+-                  SizedBox(
+-                    height: 220,
+-                    child: Center(
+-                      child:
+-                          _hasError
+-                              ? ContentState.error(title: 'Réponse indisponible', message: _message!, onAction: _send)
+-                          : _isLoading && (_message?.isEmpty ?? true)
+-                              ? const ContentState.loading(title: 'WardrobeGPT réfléchit', message: 'Analyse de la demande et préparation d’une réponse structurée…')
+-                              : Text(
+-                                _message ?? 'WardrobeGPT est prêt. Demandez une tenue, un conseil de style ou une idée adaptée à votre journée.',
+-                                textAlign: TextAlign.start,
+-                                style: Theme.of(context).textTheme.titleMedium,
+-                              ),
+-                    ),
+-                  ),
+-                ],
++              child: ListView.builder(
++                key: const ValueKey('wardrobe-gpt-conversation'),
++                controller: _scrollController,
++                padding: const EdgeInsets.only(bottom: 12),
++                itemCount: messages.length + (awaitingFirstChunk ? 1 : 0),
++                itemBuilder: (context, index) {
++                  if (index == messages.length) {
++                    return const _ThinkingMessage();
++                  }
++                  return _MessageBubble(message: messages[index]);
++                },
+               ),
+             ),
+             TextField(
+-              controller: _controller,
+-              enabled: !_isLoading,
++              controller: _inputController,
++              enabled: !generating,
++              minLines: 1,
++              maxLines: 4,
+               textInputAction: TextInputAction.send,
+               onSubmitted: (_) => _send(),
+-              decoration: const InputDecoration(
++              decoration: InputDecoration(
+                 labelText: 'Votre demande',
+                 hintText: "Que mettre aujourd'hui ?",
+-                border: OutlineInputBorder(),
++                border: const OutlineInputBorder(),
++                suffixIcon: IconButton(
++                  tooltip: generating ? 'Génération en cours' : 'Envoyer',
++                  onPressed: generating ? null : _send,
++                  icon: const Icon(Icons.send),
++                ),
+               ),
+             ),
+-            const SizedBox(height: 12),
+-            if (_isLoading && !(_message?.isEmpty ?? true))
+-              const Padding(padding: EdgeInsets.only(bottom: 8), child: LinearProgressIndicator(semanticsLabel: 'Réponse en cours de génération')),
+-            FilledButton.icon(
+-              onPressed: _isLoading ? _stop : _send,
+-              icon: Icon(_isLoading ? Icons.stop : Icons.send),
+-              label: Text(_isLoading ? 'Arrêter' : 'Envoyer'),
+-            ),
++            if (generating) ...[
++              const SizedBox(height: 8),
++              TextButton.icon(
++                onPressed: widget.controller.stop,
++                icon: const Icon(Icons.stop),
++                label: const Text('Arrêter'),
++              ),
++            ],
+           ],
+         ),
+       ),
+     );
+   }
+ }
++
++class _MessageBubble extends StatelessWidget {
++  const _MessageBubble({required this.message});
++  final AssistantMessage message;
++
++  @override
++  Widget build(BuildContext context) {
++    final user = message.role == AssistantMessageRole.user;
++    return Align(
++      alignment: user ? Alignment.centerRight : Alignment.centerLeft,
++      child: ConstrainedBox(
++        constraints: BoxConstraints(
++          maxWidth: MediaQuery.sizeOf(context).width * .82,
++        ),
++        child: Card(
++          color: user ? Theme.of(context).colorScheme.primaryContainer : null,
++          child: Padding(
++            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
++            child: Semantics(
++              label: user ? 'Utilisateur' : 'Assistant',
++              child: SelectableText(message.content),
++            ),
++          ),
++        ),
++      ),
++    );
++  }
++}
++
++class _ThinkingMessage extends StatelessWidget {
++  const _ThinkingMessage();
++
++  @override
++  Widget build(BuildContext context) => const Align(
++    alignment: Alignment.centerLeft,
++    child: Padding(
++      padding: EdgeInsets.symmetric(vertical: 8),
++      child: Row(mainAxisSize: MainAxisSize.min, children: [
++        SizedBox.square(dimension: 16,
++          child: CircularProgressIndicator(strokeWidth: 2)),
++        SizedBox(width: 10),
++        Text('WardrobeGPT réfléchit…'),
++      ]),
++    ),
++  );
++}
+diff --git a/lib/features/assistant/conversation/assistant_conversation_controller.dart b/lib/features/assistant/conversation/assistant_conversation_controller.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..f94dbff30b1ee496456fbf5ca3f7b07eb0a8fb9f
+--- /dev/null
++++ b/lib/features/assistant/conversation/assistant_conversation_controller.dart
+@@ -0,0 +1,128 @@
++import 'dart:async';
++
++import 'package:flutter/foundation.dart';
++
++import '../services/assistant_service.dart';
++
++enum AssistantMessageRole { user, assistant }
++
++@immutable
++class AssistantMessage {
++  const AssistantMessage({
++    required this.id,
++    required this.role,
++    required this.content,
++  });
++
++  final int id;
++  final AssistantMessageRole role;
++  final String content;
++
++  AssistantMessage copyWith({String? content}) => AssistantMessage(
++    id: id,
++    role: role,
++    content: content ?? this.content,
++  );
++}
++
++/// Owns the single in-memory conversation displayed by the assistant screen.
++/// Requests are deliberately serialized: while a response is being generated,
++/// another send is rejected rather than interleaved with the active stream.
++class AssistantConversationController extends ChangeNotifier {
++  AssistantConversationController({required AssistantService service})
++    : _service = service;
++
++  final AssistantService _service;
++  final List<AssistantMessage> _messages = [];
++  StreamSubscription<String>? _generation;
++  Completer<void>? _completion;
++  int _nextId = 0;
++  bool _isGenerating = false;
++  bool _disposed = false;
++
++  List<AssistantMessage> get messages => List.unmodifiable(_messages);
++  bool get isGenerating => _isGenerating;
++
++  Future<bool> send(String text) async {
++    final request = text.trim();
++    if (request.isEmpty || _isGenerating) return false;
++
++    _isGenerating = true;
++    _messages.add(AssistantMessage(
++      id: _nextId++,
++      role: AssistantMessageRole.user,
++      content: request,
++    ));
++    _notify();
++
++    int? responseId;
++    final completion = Completer<void>();
++    _completion = completion;
++    _generation = _service.generateMessageStream(userMessage: request).listen(
++      (chunk) {
++        if (_disposed || chunk.isEmpty) return;
++        if (responseId == null) {
++          responseId = _nextId++;
++          _messages.add(AssistantMessage(
++            id: responseId!,
++            role: AssistantMessageRole.assistant,
++            content: chunk,
++          ));
++        } else {
++          final index = _messages.indexWhere((item) => item.id == responseId);
++          _messages[index] = _messages[index].copyWith(
++            content: '${_messages[index].content}$chunk',
++          );
++        }
++        _notify();
++      },
++      onError: (Object error, StackTrace stackTrace) {
++        if (!_disposed) {
++          _messages.add(AssistantMessage(
++            id: _nextId++,
++            role: AssistantMessageRole.assistant,
++            content: error is AssistantTechnicalException
++                ? error.userMessage
++                : AssistantTechnicalException.defaultUserMessage,
++          ));
++          _finish();
++        }
++        if (!completion.isCompleted) completion.complete();
++      },
++      onDone: () {
++        if (!_disposed) _finish();
++        if (!completion.isCompleted) completion.complete();
++      },
++      cancelOnError: true,
++    );
++    await completion.future;
++    return true;
++  }
++
++  Future<void> stop() async {
++    await _generation?.cancel();
++    _finish();
++  }
++
++  void _finish() {
++    _generation = null;
++    final completion = _completion;
++    if (completion != null && !completion.isCompleted) completion.complete();
++    _completion = null;
++    _isGenerating = false;
++    _notify();
++  }
++
++  void _notify() {
++    if (!_disposed) notifyListeners();
++  }
++
++  @override
++  void dispose() {
++    _disposed = true;
++    _generation?.cancel();
++    final completion = _completion;
++    if (completion != null && !completion.isCompleted) completion.complete();
++    super.dispose();
++  }
++}
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index 3bd2e0d59b5a779c736075e57f804263d74a8220..8abadf7abaf7bdebf0ae94c6f4ca00119e37e333 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -144,85 +144,126 @@ class AssistantService {
+       }
+       final names = first.garments.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
+       if (names.isNotEmpty) buffer.write('. Proposition concrète : $names');
+       if (!hasAlternative && proposals.length > 1) {
+         final altNames = proposals[1].garments.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
+         if (altNames.isNotEmpty) buffer.write('. Alternative : $altNames');
+       }
+     } else {
+       buffer.write(', tes préférences connues et le contexte météo ou agenda disponible');
+     }
+     buffer.write('.');
+     return buffer.toString();
+   }
+ 
+   Stream<String> generateMessageStream({String? userMessage}) async* {
+     final stopwatch = Stopwatch()..start();
+     final diagnostics = DiagnosticService.instance;
+     final correlationId = diagnostics.newCorrelationId('wardrobe-gpt');
+     diagnostics.publish(module: DiagnosticModule.wardrobeGpt, level: AppDiagnosticLevel.info,
+       state: 'Reçue', summary: 'Demande WardrobeGPT reçue', source: 'AssistantService',
+       correlationId: correlationId, details: {'hasMessage': userMessage?.trim().isNotEmpty == true});
+     var firstChunkReceived = false;
+     try {
+       final prompt = await generatePrompt(userMessage: userMessage);
+       if (_lastIntent != null && _lastGenerationDiagnostic?.failure != null) {
++        diagnostics.publish(module: DiagnosticModule.wardrobeGpt,
++          level: AppDiagnosticLevel.warning, state: 'Réponse métier',
++          summary: 'Tenue non générée, réponse explicative fournie',
++          source: 'AssistantService', duration: stopwatch.elapsed,
++          correlationId: correlationId,
++          reason: _lastGenerationDiagnostic!.failure!.name,
++          details: {'intention': _lastIntent!.type.name},
++          pipeline: [
++            DiagnosticStep('Intention', detail: _lastIntent!.type.name),
++            const DiagnosticStep('WardrobeContext'),
++            DiagnosticStep('OutfitGeneration',
++              level: AppDiagnosticLevel.warning,
++              detail: _lastGenerationDiagnostic!.failure!.name),
++            const DiagnosticStep('BusinessResponseGenerated'),
++          ]);
+         yield _outfitFailureResponse(_lastGenerationDiagnostic!.failure!);
+         return;
+       }
+       if (_llmProvider case final StreamingLlmProvider provider) {
+         final chunks = <String>[];
+         await for (final chunk in provider.generateStream(prompt)) {
+           firstChunkReceived = true;
+           chunks.add(chunk);
+           yield chunk;
+         }
+         final completion = _qualityCompletion(chunks.join());
+         if (completion != null) yield completion;
+       } else {
+         yield _ensureUsefulResponse(await _llmProvider.generate(prompt));
+       }
+       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
+         level: AppDiagnosticLevel.success, state: 'Réponse générée', summary: 'Demande traitée',
+         source: 'AssistantService', duration: stopwatch.elapsed,
+         correlationId: correlationId,
+         details: {'intention': _lastIntent?.type.name ?? 'conversation',
+           'tenuesGénérées': _lastOutfitProposals.length},
+         pipeline: [
+           DiagnosticStep('Intention', detail: _lastIntent?.type.name ?? 'conversation'),
+           const DiagnosticStep('WardrobeContext'),
+           DiagnosticStep('OutfitGeneration', level: _lastGenerationDiagnostic?.failure == null
+             ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+           const DiagnosticStep('LlmProviderCall'),
+           DiagnosticStep('FirstStreamChunk', level: firstChunkReceived || _llmProvider is! StreamingLlmProvider
+             ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+           DiagnosticStep('StreamCompleted', duration: stopwatch.elapsed),
+         ]);
+     } on LlmException catch (error) {
+       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
+         level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
+         source: 'AssistantService', duration: stopwatch.elapsed,
+         correlationId: correlationId,
+-        reason: error.message);
+-      yield error.message;
++        reason: _technicalReason(error),
++        details: {'providerErrorType': error.runtimeType.toString()});
++      throw AssistantTechnicalException(_userMessageFor(error));
+     } catch (error) {
+       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
+         level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
+         source: 'AssistantService', duration: stopwatch.elapsed,
+         correlationId: correlationId, reason: 'localContextProviderOrStreamFailure',
+         details: {'technical': error.runtimeType.toString(),
+           'intent': _lastIntent?.type.name ?? 'unknown', 'firstChunkReceived': firstChunkReceived});
+-      yield 'WardrobeGPT est temporairement indisponible. Réessayez.';
++      throw const AssistantTechnicalException();
+     }
+   }
+ 
+   static String _outfitFailureResponse(OutfitGenerationFailure failure) => switch (failure) {
+     OutfitGenerationFailure.emptyWardrobe =>
+       'Je ne peux pas encore créer une tenue complète : ton dressing est vide. Ajoute au moins un haut et un bas.',
+     OutfitGenerationFailure.missingTop =>
+       'Je ne peux pas encore créer une tenue complète : aucun haut compatible n’est enregistré. Ajoute un haut puis réessaie.',
+     OutfitGenerationFailure.missingBottom =>
+       'Je ne peux pas encore créer une tenue complète : ton dressing contient des hauts, mais aucun bas compatible n’est enregistré.',
+     OutfitGenerationFailure.incompatibleCombinations =>
+       'Je ne peux pas composer une tenue complète avec ces pièces : toutes les combinaisons disponibles sont incompatibles. Ajoute un haut ou un bas différent.',
+   };
++
++  static String _technicalReason(LlmException error) => switch (error) {
++    MissingApiKeyException() => 'missingApiKey',
++    LlmNetworkException() => 'technicalProviderUnavailable',
++    LlmTimeoutException() => 'technicalProviderTimeout',
++    LlmApiException() => 'technicalProviderRejectedResponse',
++  };
++
++  static String _userMessageFor(LlmException error) => switch (error) {
++    MissingApiKeyException() =>
++      'Configure ta clé OpenAI dans les réglages pour utiliser WardrobeGPT.',
++    LlmTimeoutException() =>
++      'Le service IA met trop de temps à répondre. Tu peux réessayer.',
++    _ => AssistantTechnicalException.defaultUserMessage,
++  };
++}
++
++class AssistantTechnicalException implements Exception {
++  const AssistantTechnicalException([
++    this.userMessage = defaultUserMessage,
++  ]);
++
++  static const defaultUserMessage =
++      'Je n’arrive pas à contacter le service IA pour le moment. Tu peux réessayer.';
++  final String userMessage;
+ }
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index d0bbc62dc1b8d7d36395cea09326cda6b4ce4d9d..34cebf6f8dfcf036a2777992824d0c174498a814 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -1,29 +1,30 @@
+ import 'dart:io';
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
++import '../assistant/conversation/assistant_conversation_controller.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import '../assistant/tools/assistant_tool_context_builder.dart';
+ import '../assistant/tools/weather_tool.dart';
+ import '../assistant/memory/database_memory_repository.dart';
+ import '../assistant/memory/memory_service.dart';
+ import '../calendar/calendar_context_builder.dart';
+ import '../calendar/google_calendar_auth_store.dart';
+ import '../calendar/google_calendar_service.dart';
+ import '../../data/database_service.dart';
+ import '../backup/backup_controller.dart';
+ import '../backup/backup_service.dart';
+ import '../backup/restore_service.dart';
+@@ -118,116 +119,120 @@ class _MainShellState extends State<MainShell> {
+       ]);
+       if (mounted) setState(() {});
+     },
+   )..addListener(_relayBackupAction);
+   String? _lastBackupAction;
+   late final _assistantService = AssistantService(
+     contextBuilder: AssistantContextBuilder(
+       weatherService: widget.weatherService,
+       wardrobeController: _assistantWardrobe,
+       outfitsController: _outfitsController,
+       calendarContextBuilder: CalendarContextBuilder(
+         service: _agendaCalendar,
+       ),
+       memoryService: _memoryService,
+       aiContextService: _aiContextService,
+     ),
+     toolContextBuilder: AssistantToolContextBuilder(
+       tools: [
+         WeatherTool(weatherService: widget.weatherService),
+         AgendaTool(service: _agendaService),
+       ],
+     ),
+     llmProvider: _openAiProvider,
+     languageCode: () => WidgetsBinding.instance.platformDispatcher.locale.languageCode,
+   );
++  late final _assistantConversation = AssistantConversationController(
++    service: _assistantService,
++  );
+   late final _dailyBriefService = DailyBriefService(
+     weatherService: widget.weatherService,
+     memoryService: _memoryService,
+     assistantService: _assistantService,
+     aiContextService: _aiContextService,
+   );
+   late final _agendaController = AgendaController(
+     service: _agendaService,
+     googleCalendarService: _agendaCalendar,
+   );
+ 
+   @override
+   void initState() {
+     super.initState();
+     // Restores persisted bulk-import work on every application launch. Work
+     // continues while the process is alive; no OS background claim is made.
+     WardrobeImportService.instance.initialize();
+   }
+ 
+   void _relayBackupAction() {
+     final result = _backupController.result;
+     if (_backupController.busy || result == null || result == _lastBackupAction || result == 'Sauvegarde annulée.') return;
+     _lastBackupAction = result;
+     _actionCenter.publishBackupResult(succeeded: !_backupController.resultIsError, detail: result);
+   }
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
++    _assistantConversation.dispose();
+     _outfitsController.dispose();
+     _aiSettings.dispose();
+     _backupController.dispose();
+     _actionCenter.dispose();
+     _agendaController.dispose();
+     _reanalysisAnalyzer.close();
+     super.dispose();
+   }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         dailyBriefService: _dailyBriefService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(4),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+             MaterialPageRoute(builder: (_) => const ScannerScreen()),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+           }
+         },
+       ),
+       WardrobeScreen(reanalysisService: _reanalysisService),
+       OutfitsScreen(controller: _outfitsController),
+       AgendaScreen(controller: _agendaController, outfitsController: _outfitsController),
+-      AssistantScreen(service: _assistantService),
++      AssistantScreen(controller: _assistantConversation),
+       const WishlistScreen(),
+       ProfileScreen(
+         settings: widget.settings,
+         locationService: widget.locationService,
+         aiSettings: _aiSettings,
+         backupController: _backupController,
+         styleRepository: _styleCatalog,
+         styleEnrichment: _styleEnrichment,
+       ),
+       ActionCenterScreen(service: _actionCenter, openWardrobe: () => goTo(1),
+         retryBackup: () => _backupController.createBackup()),
+     ];
+ 
+     return Scaffold(
+       body: AnimatedSwitcher(
+         duration: const Duration(milliseconds: 240),
+         transitionBuilder: (child, animation) {
+           return FadeTransition(
+             opacity: animation,
+             child: SlideTransition(
+               position: Tween<Offset>(
+                 begin: const Offset(.02, 0),
+                 end: Offset.zero,
+               ).animate(animation),
+               child: child,
+diff --git a/test/features/assistant/assistant_conversation_controller_test.dart b/test/features/assistant/assistant_conversation_controller_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..94ff395d2d033eb6f613a9dffd433f015074bc44
+--- /dev/null
++++ b/test/features/assistant/assistant_conversation_controller_test.dart
+@@ -0,0 +1,155 @@
++import 'dart:async';
++
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/features/assistant/ai/llm_provider.dart';
++import 'package:wardrobeos/features/assistant/context/assistant_context_builder.dart';
++import 'package:wardrobeos/features/assistant/conversation/assistant_conversation_controller.dart';
++import 'package:wardrobeos/features/assistant/services/assistant_service.dart';
++import 'package:wardrobeos/features/outfits/outfits_controller.dart';
++import 'package:wardrobeos/features/wardrobe/wardrobe_controller.dart';
++import 'package:wardrobeos/weather/models/weather_data.dart';
++import 'package:wardrobeos/weather/services/weather_service.dart';
++
++class _Weather implements WeatherService {
++  @override
++  void clearCache() {}
++
++  @override
++  Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async =>
++      throw StateError('optional weather unavailable');
++}
++
++class _QueueProvider implements StreamingLlmProvider {
++  _QueueProvider(this.responses);
++  final List<List<String>> responses;
++  int calls = 0;
++
++  @override
++  Future<String> generate(String prompt) async => responses[calls++].join();
++
++  @override
++  Stream<String> generateStream(String prompt) async* {
++    final chunks = responses[calls++];
++    for (final chunk in chunks) {
++      yield chunk;
++    }
++  }
++}
++
++class _FailingProvider implements StreamingLlmProvider {
++  @override
++  Future<String> generate(String prompt) => throw const LlmNetworkException();
++
++  @override
++  Stream<String> generateStream(String prompt) async* {
++    throw const LlmNetworkException();
++  }
++}
++
++class _ControlledProvider implements StreamingLlmProvider {
++  final stream = StreamController<String>();
++  int calls = 0;
++
++  @override
++  Future<String> generate(String prompt) async => '';
++
++  @override
++  Stream<String> generateStream(String prompt) {
++    calls++;
++    return stream.stream;
++  }
++}
++
++AssistantService _service(LlmProvider provider) => AssistantService(
++  contextBuilder: AssistantContextBuilder(
++    weatherService: _Weather(),
++    wardrobeController: WardrobeController()..loading = false,
++    outfitsController: OutfitsController()..loading = false,
++  ),
++  llmProvider: provider,
++);
++
++void main() {
++  test('ajoute chaque tour et assemble les fragments dans le même message', () async {
++    final controller = AssistantConversationController(
++      service: _service(_QueueProvider([
++        ['Bonjour ', 'à toi'],
++        ['Une seconde réponse'],
++      ])),
++    );
++
++    await controller.send('Premier message');
++    await controller.send('Deuxième message');
++
++    expect(controller.messages.map((message) => message.role), [
++      AssistantMessageRole.user,
++      AssistantMessageRole.assistant,
++      AssistantMessageRole.user,
++      AssistantMessageRole.assistant,
++    ]);
++    expect(controller.messages.map((message) => message.content), [
++      'Premier message',
++      'Bonjour à toi',
++      'Deuxième message',
++      'Une seconde réponse',
++    ]);
++  });
++
++  test('conserve intégralement une réponse longue', () async {
++    final longResponse = List.filled(500, 'contenu').join(' ');
++    final controller = AssistantConversationController(
++      service: _service(_QueueProvider([[longResponse]])),
++    );
++
++    await controller.send('Réponse détaillée');
++
++    expect(controller.messages.last.content, longResponse);
++  });
++
++  test('un dressing vide produit une réponse métier sans appeler le provider', () async {
++    final provider = _QueueProvider([
++      ['ne doit pas être utilisé'],
++    ]);
++    final controller = AssistantConversationController(
++      service: _service(provider),
++    );
++
++    await controller.send("Que mettre aujourd'hui ?");
++
++    expect(controller.messages.last.content, contains('dressing est vide'));
++    expect(controller.messages.last.content, isNot(contains('indisponible')));
++    expect(provider.calls, 0);
++  });
++
++  test('une panne technique ajoute un message récupérable sans effacer le fil', () async {
++    final controller = AssistantConversationController(
++      service: _service(_QueueProvider([['Réponse initiale']])),
++    );
++    await controller.send('Bonjour');
++    final failing = AssistantConversationController(
++      service: _service(_FailingProvider()),
++    );
++
++    await failing.send('Essaie');
++
++    expect(failing.messages, hasLength(2));
++    expect(failing.messages.first.content, 'Essaie');
++    expect(failing.messages.last.content, contains('réessayer'));
++    expect(failing.isGenerating, isFalse);
++    expect(controller.messages.last.content, 'Réponse initiale');
++  });
++
++  test('refuse un double envoi pendant le flux actif', () async {
++    final provider = _ControlledProvider();
++    final controller = AssistantConversationController(
++      service: _service(provider),
++    );
++
++    final first = controller.send('Une demande');
++    await Future<void>.delayed(Duration.zero);
++    expect(await controller.send('Doublon'), isFalse);
++    expect(provider.calls, 1);
++    await provider.stream.close();
++    await first;
++  });
++}
