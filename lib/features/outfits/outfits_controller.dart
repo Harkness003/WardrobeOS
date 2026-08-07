@@ -8,6 +8,9 @@ import '../../core/ai_context/wardrobe_ai_context_service.dart';
 import '../../core/diagnostics/diagnostic_service.dart';
 
 typedef WardrobeLoader = Future<List<Garment>> Function();
+typedef StoredOutfitsLoader = Future<StoredOutfitReadResult> Function();
+typedef OutfitGarmentsLoader = Future<List<Garment>> Function(String outfitId);
+typedef MissingGarmentReferencesLoader = Future<int> Function();
 
 class OutfitsController extends ChangeNotifier {
   static const int neverWornScore = 100000;
@@ -15,13 +18,25 @@ class OutfitsController extends ChangeNotifier {
   final OutfitGenerationEngine _generationEngine;
   final WardrobeLoader _wardrobeLoader;
   final WardrobeAiContextService? _aiContextService;
+  final StoredOutfitsLoader _storedOutfitsLoader;
+  final OutfitGarmentsLoader _outfitGarmentsLoader;
+  final MissingGarmentReferencesLoader _missingReferencesLoader;
 
   OutfitsController({DatabaseService? database, OutfitGenerationEngine? generationEngine,
-    WardrobeLoader? wardrobeLoader, WardrobeAiContextService? aiContextService})
+    WardrobeLoader? wardrobeLoader, WardrobeAiContextService? aiContextService,
+    StoredOutfitsLoader? storedOutfitsLoader,
+    OutfitGarmentsLoader? outfitGarmentsLoader,
+    MissingGarmentReferencesLoader? missingReferencesLoader})
     : _database = database ?? DatabaseService.instance,
       _generationEngine = generationEngine ?? const OutfitGenerationEngine(),
       _wardrobeLoader = wardrobeLoader ?? (() => (database ?? DatabaseService.instance).getGarments()),
-      _aiContextService = aiContextService;
+      _aiContextService = aiContextService,
+      _storedOutfitsLoader = storedOutfitsLoader ??
+          (database ?? DatabaseService.instance).getAllOutfitsSafely,
+      _outfitGarmentsLoader = outfitGarmentsLoader ??
+          (database ?? DatabaseService.instance).getGarmentsInOutfit,
+      _missingReferencesLoader = missingReferencesLoader ??
+          (database ?? DatabaseService.instance).countMissingGarmentReferences;
 
   List<Outfit> outfits = [];
   final Map<String, List<Garment>> garmentsByOutfit = {};
@@ -92,24 +107,41 @@ class OutfitsController extends ChangeNotifier {
     error = null;
     _notifyListenersIfActive();
     try {
-      outfits = await _database.getAllOutfits();
-      final entries = await Future.wait(
-        outfits.map(
-          (outfit) async => MapEntry(
+      final stored = await _storedOutfitsLoader();
+      outfits = stored.outfits;
+      final entries = <MapEntry<String, List<Garment>>>[];
+      var itemDecodeErrors = 0;
+      for (final outfit in outfits) {
+        try {
+          entries.add(MapEntry(
             outfit.id,
-            await _database.getGarmentsInOutfit(outfit.id),
-          ),
-        ),
-      );
+            await _outfitGarmentsLoader(outfit.id),
+          ));
+        } on Object {
+          // Keep the saved outfit visible and preserve its database links. A
+          // corrupt linked garment must not take down the complete list.
+          entries.add(MapEntry(outfit.id, const []));
+          itemDecodeErrors++;
+        }
+      }
+      final missingGarments = await _missingReferencesLoader();
       garmentsByOutfit
         ..clear()
         ..addEntries(entries);
       final itemCount = entries.fold<int>(0, (sum, entry) => sum + entry.value.length);
-      diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.success,
-        state: 'Prêt', summary: '${outfits.length} tenue(s) chargée(s)', source: 'OutfitsController.load',
+      final issueCount = stored.decodeErrors + itemDecodeErrors + missingGarments;
+      diagnostics.publish(module: DiagnosticModule.outfits,
+        level: issueCount == 0 ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
+        state: issueCount == 0 ? 'Prêt' : 'Partiel',
+        summary: issueCount == 0
+            ? '${outfits.length} tenue(s) chargée(s)'
+            : '${outfits.length} tenue(s) chargée(s), données incompatibles conservées',
+        source: 'OutfitsController.load',
         correlationId: correlationId, duration: stopwatch.elapsed,
         details: {'pipeline': 'load', 'outfits': outfits.length, 'items': itemCount,
-          'missingGarments': 0, 'decodeErrors': 0});
+          'missingGarments': missingGarments,
+          'decodeErrors': stored.decodeErrors + itemDecodeErrors},
+        reason: issueCount == 0 ? null : 'storedOutfitPartialOrInvalid');
     } catch (exception) {
       diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.error,
         state: 'Échec', summary: 'Chargement des tenues interrompu', source: 'OutfitsController.load',

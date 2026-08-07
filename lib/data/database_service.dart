@@ -7,6 +7,13 @@ import '../models/wear_history.dart';
 import '../features/agenda/agenda_models.dart';
 import '../core/outfit_generation/outfit_generation_engine.dart';
 
+class StoredOutfitReadResult {
+  final List<Outfit> outfits;
+  final int decodeErrors;
+
+  const StoredOutfitReadResult(this.outfits, this.decodeErrors);
+}
+
 class DatabaseService {
   DatabaseService._();
   static final DatabaseService instance = DatabaseService._();
@@ -615,6 +622,43 @@ class DatabaseService {
       orderBy: 'favorite DESC, updated_at DESC',
     );
     return rows.map(Outfit.fromMap).toList();
+  }
+
+  /// Reads legacy rows independently so one malformed outfit cannot hide all
+  /// other saved outfits. No row is modified or deleted by this operation.
+  Future<StoredOutfitReadResult> getAllOutfitsSafely() async {
+    final db = await database;
+    final rows = await db.query(
+      'outfits',
+      orderBy: 'favorite DESC, updated_at DESC',
+    );
+    final outfits = <Outfit>[];
+    var decodeErrors = 0;
+    for (final row in rows) {
+      try {
+        final id = row['id'];
+        final name = row['name'];
+        if (id is! String || id.trim().isEmpty ||
+            name is! String || name.trim().isEmpty) {
+          throw const FormatException('Missing canonical outfit identity');
+        }
+        outfits.add(Outfit.fromMap(row));
+      } on Object {
+        decodeErrors++;
+      }
+    }
+    return StoredOutfitReadResult(outfits, decodeErrors);
+  }
+
+  Future<int> countMissingGarmentReferences() async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS count
+      FROM outfit_items
+      LEFT JOIN garments ON garments.id = outfit_items.garment_id
+      WHERE garments.id IS NULL
+    ''');
+    return (rows.single['count'] as num?)?.toInt() ?? 0;
   }
 
   /// Records one wear for an outfit and every garment that still belongs to it.

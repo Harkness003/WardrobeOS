@@ -54,20 +54,44 @@ class DailyBriefService {
       final liveContext = await aiContextService?.build(correlationId: correlationId);
       final garments = liveContext?.garments ??
           List<Garment>.unmodifiable(wardrobe);
-      final memory = liveContext?.personalization ??
-          await memoryService.loadSnapshot();
+      // WardrobeAiContextService already treats personalization as optional.
+      // Do not retry the same failed optional read here: that used to turn a
+      // preferences failure into a fatal Daily failure after the dressing had
+      // successfully loaded.
+      final memory = aiContextService == null
+          ? await _optionalMemory(correlationId)
+          : liveContext?.personalization ?? const PersonalizationSnapshot();
 
       var brief = _compose(garments, memory, weather: null,
+        correlationId: correlationId,
         contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
       yield brief;
 
       final weather = await weatherFuture;
       brief = weather.data == null
           ? _compose(garments, memory, weather: null, weatherError: weather.error,
+              correlationId: correlationId,
               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero)
           : _compose(garments, memory, weather: weather.data,
+              correlationId: correlationId,
               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
       yield brief;
+      diagnostics.publish(
+        module: DiagnosticModule.weather,
+        level: weather.data == null
+            ? AppDiagnosticLevel.warning
+            : AppDiagnosticLevel.success,
+        state: weather.data == null ? 'Indisponible' : 'Prêt',
+        summary: weather.data == null
+            ? 'Daily continue sans météo'
+            : 'Contexte météo ajouté au Daily',
+        source: 'DailyBriefService',
+        correlationId: correlationId,
+        reason: weather.data == null ? 'optionalWeatherUnavailable' : null,
+        details: weather.data == null
+            ? {'technical': weather.error.runtimeType.toString()}
+            : const {},
+      );
       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
         level: brief.state == DailyBriefState.available ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
         state: brief.state.name, summary: '${brief.outfitProposals.length} proposition(s)',
@@ -108,6 +132,7 @@ class DailyBriefService {
     PersonalizationSnapshot memory, {
     required WeatherData? weather,
     Object? weatherError,
+    String? correlationId,
     Duration contextLoadDuration = Duration.zero,
   }) {
     final preferences = _preferences(memory);
@@ -135,6 +160,35 @@ class DailyBriefService {
       ),
     ));
     final proposals = generation.proposals;
+    DiagnosticService.instance.publish(
+      module: DiagnosticModule.outfits,
+      level: proposals.isEmpty
+          ? AppDiagnosticLevel.warning
+          : AppDiagnosticLevel.success,
+      state: proposals.isEmpty ? 'Impossible' : 'Générée',
+      summary: proposals.isEmpty
+          ? generation.diagnostic.userReason ?? 'Aucune combinaison valide'
+          : 'Tenue Daily générée par le moteur partagé',
+      source: 'DailyBriefService',
+      correlationId: correlationId,
+      reason: generation.diagnostic.failure?.name,
+      duration: generation.diagnostic.generationDuration,
+      details: {
+        'garments': generation.diagnostic.garmentCount,
+        'candidates': generation.diagnostic.candidateCount,
+        'proposals': generation.diagnostic.producedCount,
+        'rejected': generation.diagnostic.rejectedCount,
+      },
+      pipeline: [
+        DiagnosticStep(
+          'outfitGeneration',
+          level: proposals.isEmpty
+              ? AppDiagnosticLevel.warning
+              : AppDiagnosticLevel.success,
+          duration: generation.diagnostic.generationDuration,
+        ),
+      ],
+    );
 
     final cards = <DailyBriefCard<Object>>[];
     if (proposals.isNotEmpty) {
@@ -202,6 +256,24 @@ class DailyBriefService {
   Future<({WeatherData? data, Object? error})> _optionalWeather() async {
     try { return (data: await weatherService.getCurrentWeather(), error: null); }
     catch (error) { return (data: null, error: error); }
+  }
+
+  Future<PersonalizationSnapshot> _optionalMemory(String? correlationId) async {
+    try {
+      return await memoryService.loadSnapshot();
+    } catch (error) {
+      DiagnosticService.instance.publish(
+        module: DiagnosticModule.wardrobeContext,
+        level: AppDiagnosticLevel.warning,
+        state: 'Dégradé',
+        summary: 'Daily continue sans préférences',
+        source: 'DailyBriefService',
+        correlationId: correlationId,
+        reason: 'optionalPreferencesUnavailable',
+        details: {'technical': error.runtimeType.toString()},
+      );
+      return const PersonalizationSnapshot();
+    }
   }
 
   static String? _localAdvice(List<OutfitGenerationProposal> proposals, WeatherData? weather) {

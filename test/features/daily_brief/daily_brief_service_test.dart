@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
+import 'package:wardrobeos/core/diagnostics/diagnostic_service.dart';
 import 'package:wardrobeos/features/assistant/memory/memory_repository.dart';
 import 'package:wardrobeos/features/assistant/memory/memory_service.dart';
 import 'package:wardrobeos/features/assistant/memory/personal_goal.dart';
@@ -70,6 +71,54 @@ void main() {
     expect(brief.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
     expect(brief.state, DailyBriefState.weatherError);
     expect(brief.detail, contains('indisponible'));
+  });
+
+  test('sans météo ni calendrier, le dressing suffit à produire Daily', () async {
+    final brief = await _service(
+      wardrobe: [
+        _garment('top', 'T-shirt', 'Hauts'),
+        _garment('bottom', 'Jean', 'Pantalons'),
+      ],
+      weather: _Weather(() => Future.error(StateError('hors ligne'))),
+    ).build();
+
+    expect(brief.outfitProposals, isNotEmpty);
+    expect(brief.state, DailyBriefState.weatherError);
+  });
+
+  test('des préférences illisibles restent un contexte optionnel', () async {
+    final diagnostics = DiagnosticService.instance
+      ..clear()
+      ..setEnabled(true);
+    final memory = MemoryService(repository: _FailingMemoryRepository());
+    final service = DailyBriefService(
+      weatherService: _Weather(() => Future.error(StateError('hors ligne'))),
+      memoryService: memory,
+      aiContextService: WardrobeAiContextService(
+        loadCurrentGarments: () async => [
+          _garment('top', 'Chemise', 'Hauts'),
+          _garment('bottom', 'Jean', 'Pantalons'),
+        ],
+        memoryService: memory,
+      ),
+    );
+
+    final brief = await service.build();
+
+    expect(brief.outfitProposals, isNotEmpty);
+    expect(
+      diagnostics.filtered(module: DiagnosticModule.wardrobeContext),
+      contains(predicate<DiagnosticEntry>(
+        (entry) => entry.reason == 'invalidPreferences',
+      )),
+    );
+    expect(
+      diagnostics.filtered(module: DiagnosticModule.weather),
+      contains(predicate<DiagnosticEntry>(
+        (entry) => entry.reason == 'optionalWeatherUnavailable',
+      )),
+    );
+    diagnostics.setEnabled(false);
   });
 
   test('distingue dressing vide et dressing réduit', () async {
@@ -146,4 +195,10 @@ class _EmptyMemoryRepository implements MemoryRepository {
   @override Future<void> saveGoal(PersonalGoal goal) async {}
   @override Future<void> saveMemory(UserMemory memory, {bool recordRevision = true}) async {}
   @override Future<void> saveStyleProfile(StyleProfile profile) async {}
+}
+
+class _FailingMemoryRepository extends _EmptyMemoryRepository {
+  @override
+  Future<List<UserMemory>> getMemories({UserMemoryKind? kind}) =>
+      Future.error(const FormatException('legacy preferences'));
 }
