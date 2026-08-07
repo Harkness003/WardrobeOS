@@ -44,9 +44,14 @@ class DailyBriefService {
   /// weather failure is an explicit state and never prevents a wardrobe result.
   Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
     final stopwatch = Stopwatch()..start();
+    final diagnostics = DiagnosticService.instance;
+    final correlationId = diagnostics.newCorrelationId('daily');
+    diagnostics.publish(module: DiagnosticModule.daily, level: AppDiagnosticLevel.info,
+      state: 'Démarré', summary: 'Préparation du Daily demandée', source: 'DailyBriefService',
+      correlationId: correlationId, pipeline: const [DiagnosticStep('dailyStarted', level: AppDiagnosticLevel.info)]);
     final weatherFuture = _optionalWeather();
     try {
-      final liveContext = await aiContextService?.build();
+      final liveContext = await aiContextService?.build(correlationId: correlationId);
       final garments = liveContext?.garments ??
           List<Garment>.unmodifiable(wardrobe);
       final memory = liveContext?.personalization ??
@@ -67,6 +72,7 @@ class DailyBriefService {
         level: brief.state == DailyBriefState.available ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
         state: brief.state.name, summary: '${brief.outfitProposals.length} proposition(s)',
         source: 'DailyBriefService', duration: stopwatch.elapsed, reason: brief.detail,
+        correlationId: correlationId,
         details: {'vêtements': garments.length, 'cartes': brief.cards.length},
         pipeline: [
           DiagnosticStep('Weather', level: weather.data == null ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
@@ -75,11 +81,14 @@ class DailyBriefService {
           const DiagnosticStep('Recommendation'),
           DiagnosticStep('Résultat', level: brief.outfitProposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
         ]);
-    } catch (_) {
+    } catch (error) {
       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
         level: AppDiagnosticLevel.error, state: 'Interrompu', summary: 'Daily non généré',
         source: 'DailyBriefService', duration: stopwatch.elapsed,
-        reason: 'Le contexte dressing n’a pas pu être préparé.');
+        correlationId: correlationId, reason: 'wardrobeContextFailure',
+        details: {'technical': error.runtimeType.toString()},
+        pipeline: [DiagnosticStep('wardrobeContext', level: AppDiagnosticLevel.error,
+          duration: stopwatch.elapsed, detail: error.runtimeType.toString())]);
       // Stream errors are converted into an explicit UI state by the screen.
       rethrow;
     }

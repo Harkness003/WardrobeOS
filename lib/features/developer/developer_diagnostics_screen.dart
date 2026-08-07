@@ -118,6 +118,15 @@ class _DiagnosticCard extends StatelessWidget {
           const Divider(),
           for (final detail in value.details.entries) _line(detail.key, '${detail.value}'),
         ],
+        Align(alignment: Alignment.centerRight, child: TextButton.icon(
+          icon: const Icon(Icons.copy_outlined), label: const Text('Copier le diagnostic'),
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(
+              text: DiagnosticService.instance.exportEntry(value)));
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Diagnostic anonymisé copié.')));
+          },
+        )),
       ],
     ),
   );

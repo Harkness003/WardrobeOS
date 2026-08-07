@@ -157,6 +157,12 @@ class AssistantService {
 
   Stream<String> generateMessageStream({String? userMessage}) async* {
     final stopwatch = Stopwatch()..start();
+    final diagnostics = DiagnosticService.instance;
+    final correlationId = diagnostics.newCorrelationId('wardrobe-gpt');
+    diagnostics.publish(module: DiagnosticModule.wardrobeGpt, level: AppDiagnosticLevel.info,
+      state: 'Reçue', summary: 'Demande WardrobeGPT reçue', source: 'AssistantService',
+      correlationId: correlationId, details: {'hasMessage': userMessage?.trim().isNotEmpty == true});
+    var firstChunkReceived = false;
     try {
       final prompt = await generatePrompt(userMessage: userMessage);
       if (_lastIntent != null && _lastGenerationDiagnostic?.failure != null) {
@@ -166,6 +172,7 @@ class AssistantService {
       if (_llmProvider case final StreamingLlmProvider provider) {
         final chunks = <String>[];
         await for (final chunk in provider.generateStream(prompt)) {
+          firstChunkReceived = true;
           chunks.add(chunk);
           yield chunk;
         }
@@ -177,26 +184,33 @@ class AssistantService {
       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
         level: AppDiagnosticLevel.success, state: 'Réponse générée', summary: 'Demande traitée',
         source: 'AssistantService', duration: stopwatch.elapsed,
+        correlationId: correlationId,
         details: {'intention': _lastIntent?.type.name ?? 'conversation',
           'tenuesGénérées': _lastOutfitProposals.length},
         pipeline: [
-          const DiagnosticStep('Intention'),
+          DiagnosticStep('Intention', detail: _lastIntent?.type.name ?? 'conversation'),
           const DiagnosticStep('WardrobeContext'),
           DiagnosticStep('OutfitGeneration', level: _lastGenerationDiagnostic?.failure == null
             ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
-          DiagnosticStep('Résultat', duration: stopwatch.elapsed),
+          const DiagnosticStep('LlmProviderCall'),
+          DiagnosticStep('FirstStreamChunk', level: firstChunkReceived || _llmProvider is! StreamingLlmProvider
+            ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+          DiagnosticStep('StreamCompleted', duration: stopwatch.elapsed),
         ]);
     } on LlmException catch (error) {
       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
         level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
         source: 'AssistantService', duration: stopwatch.elapsed,
+        correlationId: correlationId,
         reason: error.message);
       yield error.message;
-    } catch (_) {
+    } catch (error) {
       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
         level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
         source: 'AssistantService', duration: stopwatch.elapsed,
-        reason: 'Le contexte ou le fournisseur de réponse n’a pas terminé.');
+        correlationId: correlationId, reason: 'localContextProviderOrStreamFailure',
+        details: {'technical': error.runtimeType.toString(),
+          'intent': _lastIntent?.type.name ?? 'unknown', 'firstChunkReceived': firstChunkReceived});
       yield 'WardrobeGPT est temporairement indisponible. Réessayez.';
     }
   }

@@ -3,6 +3,7 @@ import '../../models/outfit.dart';
 import '../calendar/google_calendar_service.dart';
 import 'agenda_models.dart';
 import 'agenda_service.dart';
+import '../../core/diagnostics/diagnostic_service.dart';
 
 class AgendaController extends ChangeNotifier {
   final AgendaService service;
@@ -20,6 +21,12 @@ class AgendaController extends ChangeNotifier {
     : preferences = preferences, weekStart = _monday(initialDay ?? DateTime.now());
 
   Future<void> load() async {
+    final stopwatch = Stopwatch()..start();
+    final diagnostics = DiagnosticService.instance;
+    final correlationId = diagnostics.newCorrelationId('agenda-week');
+    diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.info,
+      state: 'Démarré', summary: 'Semaine Agenda demandée', source: 'AgendaController.load',
+      correlationId: correlationId, details: {'weekStart': weekStart.toIso8601String().substring(0, 10)});
     loading = true; error = null; notifyListeners();
     try {
       plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
@@ -33,8 +40,27 @@ class AgendaController extends ChangeNotifier {
         plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
         _syncStates();
       }
+      diagnostics.publish(module: DiagnosticModule.agenda,
+        level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
+        state: 'Rendu', summary: '${plans.length} journée(s) planifiée(s)', source: 'AgendaController.load',
+        correlationId: correlationId, duration: stopwatch.elapsed,
+        reason: calendarAvailable ? null : 'calendarUnavailableFallbackWithoutEvents',
+        warning: calendarAvailable ? null : 'Calendrier indisponible : génération de repli sans événements.',
+        details: {'calendarAvailable': calendarAvailable, 'plans': plans.length,
+          'dayFailures': dayErrors.length}, pipeline: [
+          const DiagnosticStep('loadStoredWeek'),
+          DiagnosticStep('calendar', level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+          const DiagnosticStep('wardrobeContext'), const DiagnosticStep('weather'),
+          DiagnosticStep('generationByDay', level: dayErrors.isEmpty ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+          const DiagnosticStep('render')]);
     }
-    catch (value) { error = value; }
+    catch (value) {
+      diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.error,
+        state: 'Échec', summary: 'Chargement Agenda interrompu', source: 'AgendaController.load',
+        correlationId: correlationId, duration: stopwatch.elapsed, reason: 'agendaWeekLoadFailure',
+        details: {'technical': value.runtimeType.toString()});
+      error = value;
+    }
     finally { loading = false; notifyListeners(); }
   }
 

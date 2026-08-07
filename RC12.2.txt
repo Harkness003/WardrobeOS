@@ -1,0 +1,1027 @@
+diff --git a/lib/core/ai_context/wardrobe_ai_context_service.dart b/lib/core/ai_context/wardrobe_ai_context_service.dart
+index aed35a708cb348f9842f972cdb662c8af0de64e8..5781de051400b09bf2465282b29fcc7d167ac85a 100644
+--- a/lib/core/ai_context/wardrobe_ai_context_service.dart
++++ b/lib/core/ai_context/wardrobe_ai_context_service.dart
+@@ -1,40 +1,76 @@
+ import '../../features/assistant/memory/memory_service.dart';
+ import '../../features/assistant/memory/personalization_snapshot.dart';
+ import '../../models/garment.dart';
+ import 'ai_context.dart';
++import '../diagnostics/diagnostic_service.dart';
+ 
+ typedef CurrentGarmentsLoader = Future<List<Garment>> Function();
+ 
+ /// Single entry point for wardrobe data consumed by AI features.
+ ///
+ /// No snapshot is cached: every [build] invokes [loadCurrentGarments]. Memory
+ /// is loaded independently and can personalize advice, but is never merged into
+ /// garment records.
+ class WardrobeAiContextService {
+   final CurrentGarmentsLoader loadCurrentGarments;
+   final MemoryService? memoryService;
+   final DateTime Function() clock;
+ 
+   const WardrobeAiContextService({
+     required this.loadCurrentGarments,
+     this.memoryService,
+     this.clock = DateTime.now,
+   });
+ 
+-  Future<WardrobeAiContext> build() async {
++  Future<WardrobeAiContext> build({String? correlationId}) async {
+     final stopwatch = Stopwatch()..start();
+-    final garments = await loadCurrentGarments();
++    final diagnostics = DiagnosticService.instance;
++    correlationId ??= diagnostics.newCorrelationId('wardrobe-context');
++    diagnostics.publish(module: DiagnosticModule.wardrobeContext,
++      level: AppDiagnosticLevel.info, state: 'Démarré', summary: 'Lecture du dressing demandée',
++      source: 'WardrobeAiContextService', correlationId: correlationId,
++      pipeline: const [DiagnosticStep('databaseRead', level: AppDiagnosticLevel.info)]);
++    late final List<Garment> garments;
++    try {
++      garments = await loadCurrentGarments();
++      diagnostics.publish(module: DiagnosticModule.wardrobeContext,
++        level: AppDiagnosticLevel.info, state: 'Décodé', summary: '${garments.length} vêtement(s) valide(s)',
++        source: 'WardrobeAiContextService', correlationId: correlationId,
++        duration: stopwatch.elapsed, details: {'rowsRead': garments.length, 'validGarments': garments.length},
++        pipeline: [DiagnosticStep('databaseRead', duration: stopwatch.elapsed),
++          const DiagnosticStep('rowToGarment'), const DiagnosticStep('styleAnalysisDecode'),
++          const DiagnosticStep('thermalProfileDecode')]);
++    } catch (error) {
++      diagnostics.publish(module: DiagnosticModule.wardrobeContext,
++        level: AppDiagnosticLevel.error, state: 'Échec', summary: 'Lecture ou décodage du dressing interrompu',
++        source: 'WardrobeAiContextService', correlationId: correlationId,
++        duration: stopwatch.elapsed, reason: 'wardrobeDatabaseOrDecodeFailure',
++        details: {'technical': error.runtimeType.toString(), 'decodedGarments': 0},
++        pipeline: [DiagnosticStep('databaseRead', level: AppDiagnosticLevel.error,
++          duration: stopwatch.elapsed, detail: error.runtimeType.toString())]);
++      rethrow;
++    }
+     PersonalizationSnapshot? personalization;
+     try {
+       personalization = await memoryService?.loadSnapshot();
+-    } catch (_) {
++    } catch (error) {
+       // Personalization is optional; current database garments are not.
++      diagnostics.publish(module: DiagnosticModule.wardrobeContext,
++        level: AppDiagnosticLevel.warning, state: 'Dégradé', summary: 'Préférences indisponibles',
++        source: 'WardrobeAiContextService', correlationId: correlationId,
++        reason: 'invalidPreferences', details: {'technical': error.runtimeType.toString()});
+     }
+-    return WardrobeAiContext(
++    final result = WardrobeAiContext(
+       generatedAt: clock(),
+       garments: garments,
+       personalization: personalization,
+       loadDuration: stopwatch.elapsed,
+     );
++    diagnostics.publish(module: DiagnosticModule.wardrobeContext,
++      level: AppDiagnosticLevel.success, state: 'Prêt', summary: 'Contexte dressing prêt',
++      source: 'WardrobeAiContextService', correlationId: correlationId,
++      duration: stopwatch.elapsed, details: {'garments': garments.length,
++        'preferencesAvailable': personalization != null});
++    return result;
+   }
+ }
+diff --git a/lib/core/diagnostics/diagnostic_service.dart b/lib/core/diagnostics/diagnostic_service.dart
+index 15c4b926b34cfb166ee37aff86954c01ba7fbcfc..f2c27365bd0d326ee556d5258b79efb1bcf09df4 100644
+--- a/lib/core/diagnostics/diagnostic_service.dart
++++ b/lib/core/diagnostics/diagnostic_service.dart
+@@ -1,197 +1,213 @@
+ import 'dart:convert';
+ 
+ import 'package:flutter/foundation.dart';
+ 
+ enum AppDiagnosticLevel { info, warning, error, success }
+ 
+ enum DiagnosticModule {
+   scanner('Scanner'),
+   wardrobeImport('Import Dressing'),
+   daily('Daily'),
+   wardrobeGpt('WardrobeGPT'),
+   agenda('Agenda'),
+   googleCalendar('Google Calendar'),
++  wardrobeContext('Contexte dressing'),
+   weather('Weather'),
+   outfits('Tenues'),
+   backup('Sauvegarde'),
+   database('Base locale');
+ 
+   const DiagnosticModule(this.label);
+   final String label;
+ }
+ 
+ class DiagnosticStep {
+   final String name;
+   final AppDiagnosticLevel level;
+   final Duration duration;
+   final String? detail;
+ 
+   const DiagnosticStep(this.name, {
+     this.level = AppDiagnosticLevel.success,
+     this.duration = Duration.zero,
+     this.detail,
+   });
+ 
+   Map<String, Object?> toJson() => {
+     'name': name,
+     'level': level.name.toUpperCase(),
+     'durationMs': duration.inMilliseconds,
+     if (detail != null) 'detail': detail,
+   };
+ }
+ 
+ class DiagnosticEntry {
+   final String id;
++  final String? correlationId;
+   final DiagnosticModule module;
+   final AppDiagnosticLevel level;
+   final String state;
+   final String summary;
+   final String? reason;
+   final String? warning;
+   final DateTime date;
+   final Duration duration;
+   final String version;
+   final String source;
+   final Map<String, Object?> details;
+   final List<DiagnosticStep> pipeline;
+ 
+   const DiagnosticEntry({
+     required this.id,
++    this.correlationId,
+     required this.module,
+     required this.level,
+     required this.state,
+     required this.summary,
+     required this.date,
+     required this.version,
+     required this.source,
+     this.reason,
+     this.warning,
+     this.duration = Duration.zero,
+     this.details = const {},
+     this.pipeline = const [],
+   });
+ 
+   Map<String, Object?> toJson() => {
+     'id': id,
++    if (correlationId != null) 'correlationId': correlationId,
+     'module': module.label,
+     'level': level.name.toUpperCase(),
+     'state': state,
+     'summary': summary,
+     if (reason != null) 'reason': reason,
+     if (warning != null) 'warning': warning,
+     'date': date.toUtc().toIso8601String(),
+     'durationMs': duration.inMilliseconds,
+     'version': version,
+     'source': source,
+     'details': details,
+     'pipeline': pipeline.map((step) => step.toJson()).toList(),
+   };
+ }
+ 
+ /// Unique, opt-in business diagnostics bus. Calls return before allocating an
+ /// entry while disabled, keeping the normal-user cost close to zero.
+ class DiagnosticService extends ChangeNotifier {
+   DiagnosticService._();
+   static final DiagnosticService instance = DiagnosticService._();
+   static const maxEntriesPerModule = 100;
+   static const appVersion = '0.8.0+9';
+ 
+   bool _enabled = false;
+   int _sequence = 0;
++  int _correlationSequence = 0;
+   final Map<DiagnosticModule, List<DiagnosticEntry>> _entries = {};
+ 
+   bool get enabled => _enabled;
++  String? newCorrelationId(String pipeline) => !_enabled
++      ? null
++      : '${_sanitizeText(pipeline).replaceAll(RegExp(r'[^A-Za-z0-9]'), '-')}-${++_correlationSequence}';
+   List<DiagnosticEntry> get entries => List.unmodifiable(
+     _entries.values.expand((items) => items).toList()
+       ..sort((a, b) => b.date.compareTo(a.date)),
+   );
+ 
+   void setEnabled(bool value) {
+     if (_enabled == value) return;
+     _enabled = value;
+     notifyListeners();
+   }
+ 
+   void publish({
+     required DiagnosticModule module,
+     required AppDiagnosticLevel level,
+     required String state,
+     required String summary,
+     required String source,
+     String? reason,
+     String? warning,
+     Duration duration = Duration.zero,
+     Map<String, Object?> details = const {},
+     List<DiagnosticStep> pipeline = const [],
++    String? correlationId,
+   }) {
+     if (!_enabled) return;
+     final safeDetails = _sanitizeMap(details);
+     final list = _entries.putIfAbsent(module, () => []);
+     list.add(DiagnosticEntry(
+       id: '${module.name}-${++_sequence}', module: module, level: level,
++      correlationId: correlationId == null ? null : _sanitizeText(correlationId),
+       state: _sanitizeText(state), summary: _sanitizeText(summary),
+       reason: reason == null ? null : _businessReason(reason),
+       warning: warning == null ? null : _sanitizeText(warning),
+       date: DateTime.now(), duration: duration, version: appVersion,
+       source: _sanitizeText(source), details: safeDetails,
+       pipeline: pipeline.map((step) => DiagnosticStep(
+         _sanitizeText(step.name), level: step.level, duration: step.duration,
+         detail: step.detail == null ? null : _sanitizeText(step.detail!),
+       )).toList(growable: false),
+     ));
+     if (list.length > maxEntriesPerModule) {
+       list.removeRange(0, list.length - maxEntriesPerModule);
+     }
+     notifyListeners();
+   }
+ 
+   List<DiagnosticEntry> filtered({
+     Set<AppDiagnosticLevel>? levels,
+     DiagnosticModule? module,
+   }) => entries.where((entry) =>
+       (levels == null || levels.contains(entry.level)) &&
+       (module == null || entry.module == module)).toList(growable: false);
+ 
+   void clear([DiagnosticModule? module]) {
+     module == null ? _entries.clear() : _entries.remove(module);
+     notifyListeners();
+   }
+ 
+   String exportReport({Set<AppDiagnosticLevel>? levels, DiagnosticModule? module}) {
+     final report = {
+       'reportVersion': 1,
+       'applicationVersion': appVersion,
+       'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
+       'generatedAt': DateTime.now().toUtc().toIso8601String(),
+       'privacy': 'Photos, chemins, identifiants, prompts, clés et tokens exclus.',
+       'diagnostics': filtered(levels: levels, module: module)
+           .map((entry) => entry.toJson()).toList(),
+     };
+     return const JsonEncoder.withIndent('  ').convert(report);
+   }
+ 
++  String exportEntry(DiagnosticEntry entry) => const JsonEncoder.withIndent(' ').convert({
++    'reportVersion': 1,
++    'privacy': 'Photos, chemins, identifiants, prompts, clés et tokens exclus.',
++    'diagnostic': entry.toJson(),
++  });
++
+   static const _sensitiveKeys = {
+     'token', 'accesstoken', 'refreshtoken', 'authorization', 'apikey', 'api_key',
+     'key', 'prompt', 'photo', 'photos', 'photopath', 'path', 'filepath', 'email',
+     'accountemail', 'userid', 'account', 'latitude', 'longitude', 'location',
+     'description',
+   };
+ 
+   Map<String, Object?> _sanitizeMap(Map<String, Object?> source) => {
+     for (final entry in source.entries)
+       if (!_sensitiveKeys.contains(entry.key.toLowerCase().replaceAll(RegExp('[^a-z_]'), '')))
+         _sanitizeText(entry.key): _sanitizeValue(entry.value),
+   };
+ 
+   Object? _sanitizeValue(Object? value) {
+     if (value is Map) return _sanitizeMap(value.cast<String, Object?>());
+     if (value is Iterable) return value.map(_sanitizeValue).toList();
+     if (value is String) return _sanitizeText(value);
+     return value;
+   }
+ 
+   String _businessReason(String value) {
+     final safe = _sanitizeText(value);
+     if (safe.toLowerCase().contains('exception') || safe.contains('StackTrace')) {
+       return 'Le moteur n’a pas terminé son opération. Consultez l’étape en erreur.';
+     }
+diff --git a/lib/features/agenda/agenda_controller.dart b/lib/features/agenda/agenda_controller.dart
+index 99ef3dfbece4a2a9b67afb5e401d37d5c60a63f4..1bb3150abc8c9bf4c48b57a051f2725e99fd4f35 100644
+--- a/lib/features/agenda/agenda_controller.dart
++++ b/lib/features/agenda/agenda_controller.dart
+@@ -1,62 +1,88 @@
+ import 'package:flutter/foundation.dart';
+ import '../../models/outfit.dart';
+ import '../calendar/google_calendar_service.dart';
+ import 'agenda_models.dart';
+ import 'agenda_service.dart';
++import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ class AgendaController extends ChangeNotifier {
+   final AgendaService service;
+   DateTime weekStart;
+   AgendaPreferences preferences;
+   List<PlannedOutfit> plans = const [];
+   bool loading = false;
+   Object? error;
+   final Map<DateTime, AgendaDayState> dayStates = {};
+   final Map<DateTime, String> dayErrors = {};
+   bool calendarAvailable = true;
+   GoogleCalendarService? googleCalendarService;
+ 
+   AgendaController({required this.service, this.googleCalendarService, AgendaPreferences preferences = const AgendaPreferences(), DateTime? initialDay})
+     : preferences = preferences, weekStart = _monday(initialDay ?? DateTime.now());
+ 
+   Future<void> load() async {
++    final stopwatch = Stopwatch()..start();
++    final diagnostics = DiagnosticService.instance;
++    final correlationId = diagnostics.newCorrelationId('agenda-week');
++    diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.info,
++      state: 'Démarré', summary: 'Semaine Agenda demandée', source: 'AgendaController.load',
++      correlationId: correlationId, details: {'weekStart': weekStart.toIso8601String().substring(0, 10)});
+     loading = true; error = null; notifyListeners();
+     try {
+       plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
+       _syncStates();
+       final missing = _days.where((day) => forDay(day) == null).toList();
+       if (missing.isNotEmpty) {
+         for (final day in missing) dayStates[_key(day)] = AgendaDayState.generating;
+         notifyListeners();
+         await service.proposePeriod(weekStart, 7, preferences, existing: plans);
+         _applyReport();
+         plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
+         _syncStates();
+       }
++      diagnostics.publish(module: DiagnosticModule.agenda,
++        level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
++        state: 'Rendu', summary: '${plans.length} journée(s) planifiée(s)', source: 'AgendaController.load',
++        correlationId: correlationId, duration: stopwatch.elapsed,
++        reason: calendarAvailable ? null : 'calendarUnavailableFallbackWithoutEvents',
++        warning: calendarAvailable ? null : 'Calendrier indisponible : génération de repli sans événements.',
++        details: {'calendarAvailable': calendarAvailable, 'plans': plans.length,
++          'dayFailures': dayErrors.length}, pipeline: [
++          const DiagnosticStep('loadStoredWeek'),
++          DiagnosticStep('calendar', level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
++          const DiagnosticStep('wardrobeContext'), const DiagnosticStep('weather'),
++          DiagnosticStep('generationByDay', level: dayErrors.isEmpty ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
++          const DiagnosticStep('render')]);
++    }
++    catch (value) {
++      diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.error,
++        state: 'Échec', summary: 'Chargement Agenda interrompu', source: 'AgendaController.load',
++        correlationId: correlationId, duration: stopwatch.elapsed, reason: 'agendaWeekLoadFailure',
++        details: {'technical': value.runtimeType.toString()});
++      error = value;
+     }
+-    catch (value) { error = value; }
+     finally { loading = false; notifyListeners(); }
+   }
+ 
+   Future<void> changeWeek(int offset) async { weekStart = weekStart.add(Duration(days: offset * 7)); await load(); }
+   void setStrategy(PlanningStrategy strategy) { preferences = preferences.copyWith(strategy: strategy); notifyListeners(); }
+   PlannedOutfit? forDay(DateTime day) => plans.where((item) => _sameDay(item.date, day)).firstOrNull;
+   AgendaDayState stateFor(DateTime day) => dayStates[_key(day)] ?? AgendaDayState.noOutfit;
+ 
+   Future<void> proposeWeek() async {
+     loading = true; error = null; notifyListeners();
+     try { await service.proposePeriod(weekStart, 7, preferences, existing: plans); _applyReport(); plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); _syncStates(); }
+     catch (value) { error = value; }
+     finally { loading = false; notifyListeners(); }
+   }
+ 
+   Future<void> plan(DateTime date, Outfit outfit) async { await service.plan(date: date, outfit: outfit, strategy: preferences.strategy); await load(); }
+   Future<void> replace(PlannedOutfit value, Outfit outfit, {OutfitReuseKind kind = OutfitReuseKind.none}) async { await service.replace(value, outfit, reuseKind: kind); await load(); }
+   Future<void> another(DateTime date, PlannedOutfit? current) async {
+     dayStates[_key(date)] = AgendaDayState.generating; notifyListeners();
+     try {
+       // The same stable plan id is overwritten only after generation succeeds.
+       await service.proposeDay(date, preferences,
+         previous: plans.where((item) => item.date.isBefore(date)).toList());
+       await load();
+     } catch (value) {
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index aec80529220e70a2f28126499aea409d3f266859..3bd2e0d59b5a779c736075e57f804263d74a8220 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -135,80 +135,94 @@ class AssistantService {
+     final needsSupport = words < 28 || !hasReason;
+     if (!needsSupport) return null;
+ 
+     final buffer = StringBuffer('\n\nPourquoi : je m’appuie sur les vêtements disponibles dans ton dressing');
+     final proposals = _lastOutfitProposals;
+     if (proposals.isNotEmpty) {
+       final first = proposals.first;
+       if (first.reasons.isNotEmpty) {
+         buffer.write(', notamment ${first.reasons.take(2).join(' et ').toLowerCase()}');
+       }
+       final names = first.garments.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
+       if (names.isNotEmpty) buffer.write('. Proposition concrète : $names');
+       if (!hasAlternative && proposals.length > 1) {
+         final altNames = proposals[1].garments.map((item) => item.name).where((name) => name.trim().isNotEmpty).take(4).join(', ');
+         if (altNames.isNotEmpty) buffer.write('. Alternative : $altNames');
+       }
+     } else {
+       buffer.write(', tes préférences connues et le contexte météo ou agenda disponible');
+     }
+     buffer.write('.');
+     return buffer.toString();
+   }
+ 
+   Stream<String> generateMessageStream({String? userMessage}) async* {
+     final stopwatch = Stopwatch()..start();
++    final diagnostics = DiagnosticService.instance;
++    final correlationId = diagnostics.newCorrelationId('wardrobe-gpt');
++    diagnostics.publish(module: DiagnosticModule.wardrobeGpt, level: AppDiagnosticLevel.info,
++      state: 'Reçue', summary: 'Demande WardrobeGPT reçue', source: 'AssistantService',
++      correlationId: correlationId, details: {'hasMessage': userMessage?.trim().isNotEmpty == true});
++    var firstChunkReceived = false;
+     try {
+       final prompt = await generatePrompt(userMessage: userMessage);
+       if (_lastIntent != null && _lastGenerationDiagnostic?.failure != null) {
+         yield _outfitFailureResponse(_lastGenerationDiagnostic!.failure!);
+         return;
+       }
+       if (_llmProvider case final StreamingLlmProvider provider) {
+         final chunks = <String>[];
+         await for (final chunk in provider.generateStream(prompt)) {
++          firstChunkReceived = true;
+           chunks.add(chunk);
+           yield chunk;
+         }
+         final completion = _qualityCompletion(chunks.join());
+         if (completion != null) yield completion;
+       } else {
+         yield _ensureUsefulResponse(await _llmProvider.generate(prompt));
+       }
+       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
+         level: AppDiagnosticLevel.success, state: 'Réponse générée', summary: 'Demande traitée',
+         source: 'AssistantService', duration: stopwatch.elapsed,
++        correlationId: correlationId,
+         details: {'intention': _lastIntent?.type.name ?? 'conversation',
+           'tenuesGénérées': _lastOutfitProposals.length},
+         pipeline: [
+-          const DiagnosticStep('Intention'),
++          DiagnosticStep('Intention', detail: _lastIntent?.type.name ?? 'conversation'),
+           const DiagnosticStep('WardrobeContext'),
+           DiagnosticStep('OutfitGeneration', level: _lastGenerationDiagnostic?.failure == null
+             ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+-          DiagnosticStep('Résultat', duration: stopwatch.elapsed),
++          const DiagnosticStep('LlmProviderCall'),
++          DiagnosticStep('FirstStreamChunk', level: firstChunkReceived || _llmProvider is! StreamingLlmProvider
++            ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
++          DiagnosticStep('StreamCompleted', duration: stopwatch.elapsed),
+         ]);
+     } on LlmException catch (error) {
+       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
+         level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
+         source: 'AssistantService', duration: stopwatch.elapsed,
++        correlationId: correlationId,
+         reason: error.message);
+       yield error.message;
+-    } catch (_) {
++    } catch (error) {
+       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
+         level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
+         source: 'AssistantService', duration: stopwatch.elapsed,
+-        reason: 'Le contexte ou le fournisseur de réponse n’a pas terminé.');
++        correlationId: correlationId, reason: 'localContextProviderOrStreamFailure',
++        details: {'technical': error.runtimeType.toString(),
++          'intent': _lastIntent?.type.name ?? 'unknown', 'firstChunkReceived': firstChunkReceived});
+       yield 'WardrobeGPT est temporairement indisponible. Réessayez.';
+     }
+   }
+ 
+   static String _outfitFailureResponse(OutfitGenerationFailure failure) => switch (failure) {
+     OutfitGenerationFailure.emptyWardrobe =>
+       'Je ne peux pas encore créer une tenue complète : ton dressing est vide. Ajoute au moins un haut et un bas.',
+     OutfitGenerationFailure.missingTop =>
+       'Je ne peux pas encore créer une tenue complète : aucun haut compatible n’est enregistré. Ajoute un haut puis réessaie.',
+     OutfitGenerationFailure.missingBottom =>
+       'Je ne peux pas encore créer une tenue complète : ton dressing contient des hauts, mais aucun bas compatible n’est enregistré.',
+     OutfitGenerationFailure.incompatibleCombinations =>
+       'Je ne peux pas composer une tenue complète avec ces pièces : toutes les combinaisons disponibles sont incompatibles. Ajoute un haut ou un bas différent.',
+   };
+ }
+diff --git a/lib/features/calendar/google_calendar_service.dart b/lib/features/calendar/google_calendar_service.dart
+index 21ca8434a44540dfe9d126dbf74080e774b3e140..0db89f2e62aeb9ee1e6d1a658735eccdb3c4e924 100644
+--- a/lib/features/calendar/google_calendar_service.dart
++++ b/lib/features/calendar/google_calendar_service.dart
+@@ -1,33 +1,34 @@
+ import 'dart:convert';
+ 
+ import 'package:http/http.dart' as http;
+ 
+ import 'calendar_event.dart';
+ import 'calendar_event_context_mapper.dart';
+ import 'calendar_service.dart';
+ import 'google_calendar_auth_store.dart';
++import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ enum GoogleCalendarStatus { disconnected, connected, permissionDenied, unavailable, networkError }
+ 
+ class GoogleCalendarInfo {
+   final String id;
+   final String summary;
+   final bool primary;
+   const GoogleCalendarInfo({required this.id, required this.summary, this.primary = false});
+ }
+ 
+ class GoogleCalendarSyncState {
+   final GoogleCalendarStatus status;
+   final String? accountEmail;
+   final Set<String> selectedCalendarIds;
+   final DateTime? lastRefreshAt;
+   final String? userMessage;
+   const GoogleCalendarSyncState({
+     this.status = GoogleCalendarStatus.disconnected,
+     this.accountEmail,
+     this.selectedCalendarIds = const {},
+     this.lastRefreshAt,
+     this.userMessage,
+   });
+ }
+ 
+@@ -41,82 +42,115 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
+   Set<String> _selectedCalendarIds = const {};
+   List<CalendarEvent> _cache = const [];
+   DateTime? _lastRefreshAt;
+   GoogleCalendarStatus _status = GoogleCalendarStatus.disconnected;
+   String? _message;
+ 
+   GoogleCalendarService({
+     required this.authStore,
+     http.Client? client,
+     DateTime Function() clock = DateTime.now,
+     CalendarEventContextMapper mapper = const CalendarEventContextMapper(),
+   }) : _client = client ?? http.Client(), _clock = clock, _mapper = mapper;
+ 
+   GoogleCalendarSyncState get syncState => GoogleCalendarSyncState(
+     status: _status,
+     accountEmail: _connection?.accountEmail,
+     selectedCalendarIds: _selectedCalendarIds,
+     lastRefreshAt: _lastRefreshAt,
+     userMessage: _message,
+   );
+ 
+   List<GoogleCalendarInfo> get calendars => List.unmodifiable(_calendars);
+   @override bool get isCalendarAvailable => _status == GoogleCalendarStatus.connected && _selectedCalendarIds.isNotEmpty;
+ 
+   Future<void> loadConnection() async {
++    final diagnostics = DiagnosticService.instance;
++    final correlationId = diagnostics.newCorrelationId('google-calendar-connection');
+     _connection = await authStore.read();
+     _selectedCalendarIds = await authStore.readSelectedCalendarIds();
+     _status = _connection == null ? GoogleCalendarStatus.disconnected
+         : _connection!.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.permissionDenied;
++    diagnostics.publish(module: DiagnosticModule.googleCalendar,
++      level: _connection == null ? AppDiagnosticLevel.warning : AppDiagnosticLevel.info,
++      state: _status.name, summary: 'État de connexion calendrier chargé',
++      source: 'GoogleCalendarService.loadConnection', correlationId: correlationId,
++      reason: _connection == null ? 'connectionFlowNotImplemented' : null,
++      details: {'connectionButtonAvailable': false,
++        'oauthUnavailableReason': 'connectionFlowNotImplemented',
++        'selectedCalendars': _selectedCalendarIds.length});
+   }
+ 
+   Future<void> connect(GoogleCalendarConnection connection) async {
+     await authStore.save(connection); _connection = connection;
+     _status = connection.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.permissionDenied;
+   }
+ 
+   Future<void> disconnect() async {
+     await authStore.clear(); _connection = null; _cache = const []; _calendars = const []; _selectedCalendarIds = const {}; _lastRefreshAt = null;
+     _status = GoogleCalendarStatus.disconnected;
+   }
+ 
+   Future<void> selectCalendars(Set<String> ids) async {
+     _selectedCalendarIds = Set.unmodifiable(ids);
+     await authStore.saveSelectedCalendarIds(_selectedCalendarIds);
+   }
+ 
+   Future<void> refresh({DateTime? from, DateTime? to}) async {
++    final stopwatch = Stopwatch()..start();
++    final diagnostics = DiagnosticService.instance;
++    final correlationId = diagnostics.newCorrelationId('google-calendar-refresh');
++    diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.info,
++      state: 'Démarré', summary: 'Actualisation calendrier demandée',
++      source: 'GoogleCalendarService.refresh', correlationId: correlationId);
+     final connection = _connection ?? await authStore.read();
+-    if (connection == null) { _status = GoogleCalendarStatus.disconnected; _message = 'Connectez Google Calendar pour voir vos événements.'; return; }
+-    if (!connection.calendarReadGranted) { _status = GoogleCalendarStatus.permissionDenied; _message = 'Autorisation calendrier refusée.'; return; }
++    if (connection == null) { diagnostics.publish(module: DiagnosticModule.googleCalendar,
++      level: AppDiagnosticLevel.warning, state: 'Non connecté', summary: 'Actualisation ignorée',
++      source: 'GoogleCalendarService.refresh', correlationId: correlationId,
++      reason: 'notConnected', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.disconnected; _message = 'Connectez Google Calendar pour voir vos événements.'; return; }
++    if (!connection.calendarReadGranted) { diagnostics.publish(module: DiagnosticModule.googleCalendar,
++      level: AppDiagnosticLevel.error, state: 'Permission refusée', summary: 'Actualisation interrompue',
++      source: 'GoogleCalendarService.refresh', correlationId: correlationId,
++      reason: 'authenticationPermissionDenied', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.permissionDenied; _message = 'Autorisation calendrier refusée.'; return; }
+     _connection = connection;
+     try {
+       await _loadCalendars(connection);
+       if (_selectedCalendarIds.isEmpty) { _message = 'Sélectionnez au moins un calendrier.'; return; }
+       _cache = await _loadEvents(connection, from ?? _clock().subtract(const Duration(days: 1)), to ?? _clock().add(const Duration(days: 30)));
+       _lastRefreshAt = _clock(); _status = GoogleCalendarStatus.connected; _message = null;
++      diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.success,
++        state: 'Actualisé', summary: '${_cache.length} événement(s) reçu(s)',
++        source: 'GoogleCalendarService.refresh', correlationId: correlationId,
++        duration: stopwatch.elapsed, details: {'selectedCalendars': _selectedCalendarIds.length,
++          'events': _cache.length});
+     } catch (error) {
++      diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.error,
++        state: 'Échec', summary: 'Réponse calendrier inexploitable',
++        source: 'GoogleCalendarService.refresh', correlationId: correlationId,
++        duration: stopwatch.elapsed, reason: _status == GoogleCalendarStatus.permissionDenied
++          ? 'authenticationError' : error is FormatException ? 'parsingError' : 'networkOrApiError',
++        details: {'technical': error.runtimeType.toString()});
+       if (_status == GoogleCalendarStatus.permissionDenied) {
+         _message = 'Autorisation calendrier refusée.';
+       } else {
+         _status = GoogleCalendarStatus.networkError;
+         _message = 'Google Calendar est momentanément indisponible. Les derniers événements synchronisés restent affichés.';
+       }
+     }
+   }
+ 
+   Future<void> _loadCalendars(GoogleCalendarConnection connection) async {
+     final uri = Uri.https('www.googleapis.com', '/calendar/v3/users/me/calendarList');
+     final response = await _client.get(uri, headers: _headers(connection));
+     if (response.statusCode == 403) { _status = GoogleCalendarStatus.permissionDenied; throw StateError('permission'); }
+     if (response.statusCode >= 400) throw StateError('calendar');
+     final items = (jsonDecode(response.body) as Map<String, Object?>)['items'] as List? ?? const [];
+     _calendars = items.map((item) { final map = (item as Map).cast<String, Object?>(); return GoogleCalendarInfo(id: map['id'] as String? ?? '', summary: map['summary'] as String? ?? 'Calendrier', primary: map['primary'] as bool? ?? false); }).toList();
+     if (_selectedCalendarIds.isEmpty) {
+       _selectedCalendarIds = _calendars.where((c) => c.primary).map((c) => c.id).toSet();
+       await authStore.saveSelectedCalendarIds(_selectedCalendarIds);
+     }
+   }
+ 
+   Future<List<CalendarEvent>> _loadEvents(GoogleCalendarConnection connection, DateTime from, DateTime to) async {
+     final events = <CalendarEvent>[];
+     for (final calendarId in _selectedCalendarIds) {
+diff --git a/lib/features/daily_brief/daily_brief_service.dart b/lib/features/daily_brief/daily_brief_service.dart
+index dce35dd361ce8fb5d89c4eee83b3f21d105f7239..b82a11210e840d0c2bf8c5924182679904430099 100644
+--- a/lib/features/daily_brief/daily_brief_service.dart
++++ b/lib/features/daily_brief/daily_brief_service.dart
+@@ -22,86 +22,95 @@ class DailyBriefService {
+   final MemoryService memoryService;
+   final RecommendationEngine recommendationEngine;
+   final WardrobeIntelligenceEngine intelligenceEngine;
+   final OutfitGenerationEngine outfitEngine;
+   final DateTime Function() _clock;
+   final WardrobeAiContextService? aiContextService;
+ 
+   DailyBriefService({
+     required this.weatherService,
+     required this.memoryService,
+     Object? assistantService, // Kept source-compatible; Daily no longer calls GPT.
+     this.recommendationEngine = const RecommendationEngine(),
+     WardrobeIntelligenceEngine? intelligenceEngine,
+     OutfitGenerationEngine? outfitEngine,
+     DateTime Function()? clock,
+     this.aiContextService,
+   }) : intelligenceEngine = intelligenceEngine ?? WardrobeIntelligenceEngine(),
+        outfitEngine = outfitEngine ??
+            OutfitGenerationEngine(recommendationEngine: recommendationEngine),
+        _clock = clock ?? DateTime.now;
+ 
+   /// Emits wardrobe/outfit content first, then weather-enriched content. A
+   /// weather failure is an explicit state and never prevents a wardrobe result.
+   Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
+     final stopwatch = Stopwatch()..start();
++    final diagnostics = DiagnosticService.instance;
++    final correlationId = diagnostics.newCorrelationId('daily');
++    diagnostics.publish(module: DiagnosticModule.daily, level: AppDiagnosticLevel.info,
++      state: 'Démarré', summary: 'Préparation du Daily demandée', source: 'DailyBriefService',
++      correlationId: correlationId, pipeline: const [DiagnosticStep('dailyStarted', level: AppDiagnosticLevel.info)]);
+     final weatherFuture = _optionalWeather();
+     try {
+-      final liveContext = await aiContextService?.build();
++      final liveContext = await aiContextService?.build(correlationId: correlationId);
+       final garments = liveContext?.garments ??
+           List<Garment>.unmodifiable(wardrobe);
+       final memory = liveContext?.personalization ??
+           await memoryService.loadSnapshot();
+ 
+       var brief = _compose(garments, memory, weather: null,
+         contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
+       yield brief;
+ 
+       final weather = await weatherFuture;
+       brief = weather.data == null
+           ? _compose(garments, memory, weather: null, weatherError: weather.error,
+               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero)
+           : _compose(garments, memory, weather: weather.data,
+               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
+       yield brief;
+       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
+         level: brief.state == DailyBriefState.available ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
+         state: brief.state.name, summary: '${brief.outfitProposals.length} proposition(s)',
+         source: 'DailyBriefService', duration: stopwatch.elapsed, reason: brief.detail,
++        correlationId: correlationId,
+         details: {'vêtements': garments.length, 'cartes': brief.cards.length},
+         pipeline: [
+           DiagnosticStep('Weather', level: weather.data == null ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
+           DiagnosticStep('WardrobeContext', duration: liveContext?.loadDuration ?? Duration.zero),
+           const DiagnosticStep('Generation'),
+           const DiagnosticStep('Recommendation'),
+           DiagnosticStep('Résultat', level: brief.outfitProposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
+         ]);
+-    } catch (_) {
++    } catch (error) {
+       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
+         level: AppDiagnosticLevel.error, state: 'Interrompu', summary: 'Daily non généré',
+         source: 'DailyBriefService', duration: stopwatch.elapsed,
+-        reason: 'Le contexte dressing n’a pas pu être préparé.');
++        correlationId: correlationId, reason: 'wardrobeContextFailure',
++        details: {'technical': error.runtimeType.toString()},
++        pipeline: [DiagnosticStep('wardrobeContext', level: AppDiagnosticLevel.error,
++          duration: stopwatch.elapsed, detail: error.runtimeType.toString())]);
+       // Stream errors are converted into an explicit UI state by the screen.
+       rethrow;
+     }
+   }
+ 
+   /// Compatibility API for non-progressive consumers.
+   Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
+     DailyBrief? latest;
+     await for (final brief in watch(wardrobe)) {
+       latest = brief;
+     }
+     return latest ?? DailyBrief(generatedAt: _clock(), cards: const [], outfitProposals: const []);
+   }
+ 
+   DailyBrief _compose(
+     List<Garment> garments,
+     PersonalizationSnapshot memory, {
+     required WeatherData? weather,
+     Object? weatherError,
+     Duration contextLoadDuration = Duration.zero,
+   }) {
+     final preferences = _preferences(memory);
+     final report = intelligenceEngine.analyze(garments);
+     final generation = outfitEngine.generate(OutfitGenerationRequest(
+       wardrobe: garments,
+diff --git a/lib/features/developer/developer_diagnostics_screen.dart b/lib/features/developer/developer_diagnostics_screen.dart
+index 91c0931abfb40cd7644f58d26eb2a49ff7386686..9eef192538a830a6262ba6f045e31c75cd668a6e 100644
+--- a/lib/features/developer/developer_diagnostics_screen.dart
++++ b/lib/features/developer/developer_diagnostics_screen.dart
+@@ -96,50 +96,59 @@ class _DiagnosticCard extends StatelessWidget {
+         style: const TextStyle(fontWeight: FontWeight.w800)),
+       subtitle: Text('${value.summary}\n${_date(value.date)} · ${value.duration.inMilliseconds} ms'),
+       childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+       expandedCrossAxisAlignment: CrossAxisAlignment.start,
+       children: [
+         _line('État', value.state),
+         _line('Source', value.source),
+         _line('Version', value.version),
+         if (value.reason != null) _line('Raison', value.reason!),
+         if (value.warning != null) _line('Avertissement', value.warning!),
+         if (value.pipeline.isNotEmpty) ...[
+           const Divider(),
+           const Text('Pipeline réel', style: TextStyle(fontWeight: FontWeight.w800)),
+           for (final step in value.pipeline) ListTile(
+             dense: true, contentPadding: EdgeInsets.zero,
+             leading: Icon(_levelIcon(step.level), color: _levelColor(step.level)),
+             title: Text(step.name),
+             subtitle: step.detail == null ? null : Text(step.detail!),
+             trailing: Text('${step.duration.inMilliseconds} ms'),
+           ),
+         ],
+         if (value.details.isNotEmpty) ...[
+           const Divider(),
+           for (final detail in value.details.entries) _line(detail.key, '${detail.value}'),
+         ],
++        Align(alignment: Alignment.centerRight, child: TextButton.icon(
++          icon: const Icon(Icons.copy_outlined), label: const Text('Copier le diagnostic'),
++          onPressed: () async {
++            await Clipboard.setData(ClipboardData(
++              text: DiagnosticService.instance.exportEntry(value)));
++            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
++              const SnackBar(content: Text('Diagnostic anonymisé copié.')));
++          },
++        )),
+       ],
+     ),
+   );
+ 
+   static Widget _line(String label, String text) => Padding(
+     padding: const EdgeInsets.only(top: 5),
+     child: Text('$label : $text'),
+   );
+ 
+   static String _date(DateTime value) => value.toLocal().toIso8601String().replaceFirst('T', ' ').split('.').first;
+ }
+ 
+ IconData _levelIcon(AppDiagnosticLevel level) => switch (level) {
+   AppDiagnosticLevel.info => Icons.info_outline,
+   AppDiagnosticLevel.warning => Icons.warning_amber_rounded,
+   AppDiagnosticLevel.error => Icons.cancel_outlined,
+   AppDiagnosticLevel.success => Icons.check_circle_outline,
+ };
+ 
+ Color _levelColor(AppDiagnosticLevel level) => switch (level) {
+   AppDiagnosticLevel.info => Colors.blue,
+   AppDiagnosticLevel.warning => Colors.orange,
+   AppDiagnosticLevel.error => Colors.red,
+   AppDiagnosticLevel.success => Colors.green,
+ };
+diff --git a/lib/features/outfits/outfits_controller.dart b/lib/features/outfits/outfits_controller.dart
+index fec0d0dbe26d77b04da97341cea0b142ccae126f..c2331ae750a254d4587b22fa8fc5bda11db67d09 100644
+--- a/lib/features/outfits/outfits_controller.dart
++++ b/lib/features/outfits/outfits_controller.dart
+@@ -1,103 +1,143 @@
+ import 'package:flutter/foundation.dart';
+ 
+ import '../../data/database_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/outfit.dart';
+ import '../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../core/ai_context/wardrobe_ai_context_service.dart';
++import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ typedef WardrobeLoader = Future<List<Garment>> Function();
+ 
+ class OutfitsController extends ChangeNotifier {
+   static const int neverWornScore = 100000;
+   final DatabaseService _database;
+   final OutfitGenerationEngine _generationEngine;
+   final WardrobeLoader _wardrobeLoader;
+   final WardrobeAiContextService? _aiContextService;
+ 
+   OutfitsController({DatabaseService? database, OutfitGenerationEngine? generationEngine,
+     WardrobeLoader? wardrobeLoader, WardrobeAiContextService? aiContextService})
+     : _database = database ?? DatabaseService.instance,
+       _generationEngine = generationEngine ?? const OutfitGenerationEngine(),
+       _wardrobeLoader = wardrobeLoader ?? (() => (database ?? DatabaseService.instance).getGarments()),
+       _aiContextService = aiContextService;
+ 
+   List<Outfit> outfits = [];
+   final Map<String, List<Garment>> garmentsByOutfit = {};
+   bool loading = true;
+   Object? error;
+   List<OutfitGenerationProposal> proposals = const [];
+   bool generating = false;
+   bool _disposed = false;
+   OutfitGenerationDiagnostic? generationDiagnostic;
+   String? generationMessage;
+ 
+   Future<void> generate() async {
++    final stopwatch = Stopwatch()..start();
++    final diagnostics = DiagnosticService.instance;
++    final correlationId = diagnostics.newCorrelationId('outfits-generate');
++    diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.info,
++      state: 'Démarré', summary: 'Génération demandée', source: 'OutfitsController.generate',
++      correlationId: correlationId);
+     generating = true;
+     error = null;
+     _notifyListenersIfActive();
+     try {
+-      final context = await _aiContextService?.build();
++      final context = await _aiContextService?.build(correlationId: correlationId);
+       final wardrobe = context?.garments ?? await _wardrobeLoader();
+       final result = _generationEngine.generate(OutfitGenerationRequest(
+         wardrobe: wardrobe, proposalCount: 3,
+         contextLoadDuration: context?.loadDuration ?? Duration.zero,
+       ));
+       proposals = result.proposals;
+       generationDiagnostic = result.diagnostic;
+       generationMessage = result.diagnostic.userReason;
++      diagnostics.publish(module: DiagnosticModule.outfits,
++        level: proposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success,
++        state: proposals.isEmpty ? 'Sans proposition' : 'Prêt',
++        summary: '${proposals.length} proposition(s)', source: 'OutfitsController.generate',
++        correlationId: correlationId, duration: stopwatch.elapsed,
++        reason: proposals.isEmpty ? result.diagnostic.userReason : null,
++        details: {'garments': wardrobe.length, 'proposals': proposals.length,
++          'pipeline': 'generate'}, pipeline: [
++          DiagnosticStep('wardrobeContext', duration: context?.loadDuration ?? Duration.zero),
++          const DiagnosticStep('outfitGeneration'),
++          DiagnosticStep('result', level: proposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
++        ]);
+     } catch (exception) {
++      diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.error,
++        state: 'Échec', summary: 'Génération interrompue', source: 'OutfitsController.generate',
++        correlationId: correlationId, duration: stopwatch.elapsed,
++        reason: 'outfitGenerationFailure', details: {'technical': exception.runtimeType.toString(), 'pipeline': 'generate'});
+       error = exception;
+     } finally {
+       generating = false;
+       _notifyListenersIfActive();
+     }
+   }
+ 
+   Future<void> saveProposal(OutfitGenerationProposal proposal) async {
+     await create(proposal.outfit, proposal.outfit.allGarments.map((item) => item.id));
+   }
+ 
+   Future<void> load() async {
++    final stopwatch = Stopwatch()..start();
++    final diagnostics = DiagnosticService.instance;
++    final correlationId = diagnostics.newCorrelationId('outfits-load');
++    diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.info,
++      state: 'Démarré', summary: 'Chargement des tenues demandé', source: 'OutfitsController.load',
++      correlationId: correlationId, details: const {'pipeline': 'load'});
+     loading = true;
+     error = null;
+     _notifyListenersIfActive();
+     try {
+       outfits = await _database.getAllOutfits();
+       final entries = await Future.wait(
+         outfits.map(
+           (outfit) async => MapEntry(
+             outfit.id,
+             await _database.getGarmentsInOutfit(outfit.id),
+           ),
+         ),
+       );
+       garmentsByOutfit
+         ..clear()
+         ..addEntries(entries);
++      final itemCount = entries.fold<int>(0, (sum, entry) => sum + entry.value.length);
++      diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.success,
++        state: 'Prêt', summary: '${outfits.length} tenue(s) chargée(s)', source: 'OutfitsController.load',
++        correlationId: correlationId, duration: stopwatch.elapsed,
++        details: {'pipeline': 'load', 'outfits': outfits.length, 'items': itemCount,
++          'missingGarments': 0, 'decodeErrors': 0});
+     } catch (exception) {
++      diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.error,
++        state: 'Échec', summary: 'Chargement des tenues interrompu', source: 'OutfitsController.load',
++        correlationId: correlationId, duration: stopwatch.elapsed,
++        reason: 'storedOutfitReadOrDecodeFailure',
++        details: {'pipeline': 'load', 'technical': exception.runtimeType.toString()});
+       error = exception;
+     } finally {
+       loading = false;
+       _notifyListenersIfActive();
+     }
+   }
+ 
+   Future<void> create(Outfit outfit, Iterable<String> garmentIds) async {
+     await _database.createOutfit(outfit);
+     for (final garmentId in garmentIds) {
+       await _database.addGarmentToOutfit(outfit.id, garmentId);
+     }
+     await load();
+   }
+ 
+   Future<void> update(
+     Outfit outfit,
+     Set<String> originalGarmentIds,
+     Set<String> garmentIds,
+   ) async {
+     await _database.updateOutfit(outfit);
+     for (final id in garmentIds.difference(originalGarmentIds)) {
+       await _database.addGarmentToOutfit(outfit.id, id);
+     }
+     for (final id in originalGarmentIds.difference(garmentIds)) {
+diff --git a/test/core/diagnostics/diagnostic_service_rc7_12_2_test.dart b/test/core/diagnostics/diagnostic_service_rc7_12_2_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..c454d4e97e722bb0ef223cb66307a4c8bbaf7be8
+--- /dev/null
++++ b/test/core/diagnostics/diagnostic_service_rc7_12_2_test.dart
+@@ -0,0 +1,48 @@
++import 'dart:convert';
++
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/core/diagnostics/diagnostic_service.dart';
++
++void main() {
++  final service = DiagnosticService.instance;
++
++  tearDown(() {
++    service.clear();
++    service.setEnabled(false);
++  });
++
++  test('disabled diagnostics allocate no correlation id and publish nothing', () {
++    service.setEnabled(false);
++    expect(service.newCorrelationId('daily'), isNull);
++    service.publish(module: DiagnosticModule.daily, level: AppDiagnosticLevel.error,
++      state: 'error', summary: 'hidden', source: 'test');
++    expect(service.entries, isEmpty);
++  });
++
++  test('pipeline entries share a correlation id', () {
++    service.setEnabled(true);
++    final id = service.newCorrelationId('daily');
++    for (final step in ['started', 'rendered']) {
++      service.publish(module: DiagnosticModule.daily, level: AppDiagnosticLevel.info,
++        state: step, summary: step, source: 'test', correlationId: id);
++    }
++    expect(service.entries.map((entry) => entry.correlationId).toSet(), {id});
++  });
++
++  test('single-entry export excludes other modules and secrets', () {
++    service.setEnabled(true);
++    service.publish(module: DiagnosticModule.daily, level: AppDiagnosticLevel.error,
++      state: 'failed', summary: 'daily', source: 'test',
++      details: const {'accessToken': 'secret', 'safeCount': 2});
++    service.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.info,
++      state: 'ready', summary: 'agenda', source: 'test');
++
++    final report = jsonDecode(service.exportEntry(
++      service.filtered(module: DiagnosticModule.daily).single)) as Map;
++    final encoded = jsonEncode(report);
++    expect(encoded, contains('Daily'));
++    expect(encoded, isNot(contains('Agenda')));
++    expect(encoded, isNot(contains('secret')));
++    expect(encoded, contains('safeCount'));
++  });
++}

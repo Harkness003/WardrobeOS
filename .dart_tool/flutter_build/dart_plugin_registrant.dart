@@ -6,12 +6,14 @@
 // @dart = 3.7
 
 import 'dart:io'; // flutter_ignore: dart_io_import.
+import 'package:camera_android_camerax/camera_android_camerax.dart' as camera_android_camerax;
 import 'package:file_picker/file_picker.dart' as file_picker;
 import 'package:geocoding_android/geocoding_android.dart' as geocoding_android;
 import 'package:geolocator_android/geolocator_android.dart' as geolocator_android;
 import 'package:image_picker_android/image_picker_android.dart' as image_picker_android;
 import 'package:path_provider_android/path_provider_android.dart' as path_provider_android;
 import 'package:sqflite_android/sqflite_android.dart' as sqflite_android;
+import 'package:camera_avfoundation/camera_avfoundation.dart' as camera_avfoundation;
 import 'package:file_picker/file_picker.dart' as file_picker;
 import 'package:geocoding_ios/geocoding_ios.dart' as geocoding_ios;
 import 'package:geolocator_apple/geolocator_apple.dart' as geolocator_apple;
@@ -43,6 +45,15 @@ class _PluginRegistrant {
   @pragma('vm:entry-point')
   static void register() {
     if (Platform.isAndroid) {
+      try {
+        camera_android_camerax.AndroidCameraCameraX.registerWith();
+      } catch (err) {
+        print(
+          '`camera_android_camerax` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
       try {
         file_picker.FilePickerIO.registerWith();
       } catch (err) {
@@ -98,6 +109,15 @@ class _PluginRegistrant {
       }
 
     } else if (Platform.isIOS) {
+      try {
+        camera_avfoundation.AVFoundationCamera.registerWith();
+      } catch (err) {
+        print(
+          '`camera_avfoundation` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
       try {
         file_picker.FilePickerIO.registerWith();
       } catch (err) {

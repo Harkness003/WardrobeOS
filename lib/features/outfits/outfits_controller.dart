@@ -5,6 +5,7 @@ import '../../models/garment.dart';
 import '../../models/outfit.dart';
 import '../../core/outfit_generation/outfit_generation_engine.dart';
 import '../../core/ai_context/wardrobe_ai_context_service.dart';
+import '../../core/diagnostics/diagnostic_service.dart';
 
 typedef WardrobeLoader = Future<List<Garment>> Function();
 
@@ -33,11 +34,17 @@ class OutfitsController extends ChangeNotifier {
   String? generationMessage;
 
   Future<void> generate() async {
+    final stopwatch = Stopwatch()..start();
+    final diagnostics = DiagnosticService.instance;
+    final correlationId = diagnostics.newCorrelationId('outfits-generate');
+    diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.info,
+      state: 'Démarré', summary: 'Génération demandée', source: 'OutfitsController.generate',
+      correlationId: correlationId);
     generating = true;
     error = null;
     _notifyListenersIfActive();
     try {
-      final context = await _aiContextService?.build();
+      final context = await _aiContextService?.build(correlationId: correlationId);
       final wardrobe = context?.garments ?? await _wardrobeLoader();
       final result = _generationEngine.generate(OutfitGenerationRequest(
         wardrobe: wardrobe, proposalCount: 3,
@@ -46,7 +53,23 @@ class OutfitsController extends ChangeNotifier {
       proposals = result.proposals;
       generationDiagnostic = result.diagnostic;
       generationMessage = result.diagnostic.userReason;
+      diagnostics.publish(module: DiagnosticModule.outfits,
+        level: proposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success,
+        state: proposals.isEmpty ? 'Sans proposition' : 'Prêt',
+        summary: '${proposals.length} proposition(s)', source: 'OutfitsController.generate',
+        correlationId: correlationId, duration: stopwatch.elapsed,
+        reason: proposals.isEmpty ? result.diagnostic.userReason : null,
+        details: {'garments': wardrobe.length, 'proposals': proposals.length,
+          'pipeline': 'generate'}, pipeline: [
+          DiagnosticStep('wardrobeContext', duration: context?.loadDuration ?? Duration.zero),
+          const DiagnosticStep('outfitGeneration'),
+          DiagnosticStep('result', level: proposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
+        ]);
     } catch (exception) {
+      diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.error,
+        state: 'Échec', summary: 'Génération interrompue', source: 'OutfitsController.generate',
+        correlationId: correlationId, duration: stopwatch.elapsed,
+        reason: 'outfitGenerationFailure', details: {'technical': exception.runtimeType.toString(), 'pipeline': 'generate'});
       error = exception;
     } finally {
       generating = false;
@@ -59,6 +82,12 @@ class OutfitsController extends ChangeNotifier {
   }
 
   Future<void> load() async {
+    final stopwatch = Stopwatch()..start();
+    final diagnostics = DiagnosticService.instance;
+    final correlationId = diagnostics.newCorrelationId('outfits-load');
+    diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.info,
+      state: 'Démarré', summary: 'Chargement des tenues demandé', source: 'OutfitsController.load',
+      correlationId: correlationId, details: const {'pipeline': 'load'});
     loading = true;
     error = null;
     _notifyListenersIfActive();
@@ -75,7 +104,18 @@ class OutfitsController extends ChangeNotifier {
       garmentsByOutfit
         ..clear()
         ..addEntries(entries);
+      final itemCount = entries.fold<int>(0, (sum, entry) => sum + entry.value.length);
+      diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.success,
+        state: 'Prêt', summary: '${outfits.length} tenue(s) chargée(s)', source: 'OutfitsController.load',
+        correlationId: correlationId, duration: stopwatch.elapsed,
+        details: {'pipeline': 'load', 'outfits': outfits.length, 'items': itemCount,
+          'missingGarments': 0, 'decodeErrors': 0});
     } catch (exception) {
+      diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.error,
+        state: 'Échec', summary: 'Chargement des tenues interrompu', source: 'OutfitsController.load',
+        correlationId: correlationId, duration: stopwatch.elapsed,
+        reason: 'storedOutfitReadOrDecodeFailure',
+        details: {'pipeline': 'load', 'technical': exception.runtimeType.toString()});
       error = exception;
     } finally {
       loading = false;

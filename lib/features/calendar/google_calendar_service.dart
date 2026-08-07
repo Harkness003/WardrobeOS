@@ -6,6 +6,7 @@ import 'calendar_event.dart';
 import 'calendar_event_context_mapper.dart';
 import 'calendar_service.dart';
 import 'google_calendar_auth_store.dart';
+import '../../core/diagnostics/diagnostic_service.dart';
 
 enum GoogleCalendarStatus { disconnected, connected, permissionDenied, unavailable, networkError }
 
@@ -63,10 +64,20 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
   @override bool get isCalendarAvailable => _status == GoogleCalendarStatus.connected && _selectedCalendarIds.isNotEmpty;
 
   Future<void> loadConnection() async {
+    final diagnostics = DiagnosticService.instance;
+    final correlationId = diagnostics.newCorrelationId('google-calendar-connection');
     _connection = await authStore.read();
     _selectedCalendarIds = await authStore.readSelectedCalendarIds();
     _status = _connection == null ? GoogleCalendarStatus.disconnected
         : _connection!.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.permissionDenied;
+    diagnostics.publish(module: DiagnosticModule.googleCalendar,
+      level: _connection == null ? AppDiagnosticLevel.warning : AppDiagnosticLevel.info,
+      state: _status.name, summary: 'État de connexion calendrier chargé',
+      source: 'GoogleCalendarService.loadConnection', correlationId: correlationId,
+      reason: _connection == null ? 'connectionFlowNotImplemented' : null,
+      details: {'connectionButtonAvailable': false,
+        'oauthUnavailableReason': 'connectionFlowNotImplemented',
+        'selectedCalendars': _selectedCalendarIds.length});
   }
 
   Future<void> connect(GoogleCalendarConnection connection) async {
@@ -85,16 +96,39 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
   }
 
   Future<void> refresh({DateTime? from, DateTime? to}) async {
+    final stopwatch = Stopwatch()..start();
+    final diagnostics = DiagnosticService.instance;
+    final correlationId = diagnostics.newCorrelationId('google-calendar-refresh');
+    diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.info,
+      state: 'Démarré', summary: 'Actualisation calendrier demandée',
+      source: 'GoogleCalendarService.refresh', correlationId: correlationId);
     final connection = _connection ?? await authStore.read();
-    if (connection == null) { _status = GoogleCalendarStatus.disconnected; _message = 'Connectez Google Calendar pour voir vos événements.'; return; }
-    if (!connection.calendarReadGranted) { _status = GoogleCalendarStatus.permissionDenied; _message = 'Autorisation calendrier refusée.'; return; }
+    if (connection == null) { diagnostics.publish(module: DiagnosticModule.googleCalendar,
+      level: AppDiagnosticLevel.warning, state: 'Non connecté', summary: 'Actualisation ignorée',
+      source: 'GoogleCalendarService.refresh', correlationId: correlationId,
+      reason: 'notConnected', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.disconnected; _message = 'Connectez Google Calendar pour voir vos événements.'; return; }
+    if (!connection.calendarReadGranted) { diagnostics.publish(module: DiagnosticModule.googleCalendar,
+      level: AppDiagnosticLevel.error, state: 'Permission refusée', summary: 'Actualisation interrompue',
+      source: 'GoogleCalendarService.refresh', correlationId: correlationId,
+      reason: 'authenticationPermissionDenied', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.permissionDenied; _message = 'Autorisation calendrier refusée.'; return; }
     _connection = connection;
     try {
       await _loadCalendars(connection);
       if (_selectedCalendarIds.isEmpty) { _message = 'Sélectionnez au moins un calendrier.'; return; }
       _cache = await _loadEvents(connection, from ?? _clock().subtract(const Duration(days: 1)), to ?? _clock().add(const Duration(days: 30)));
       _lastRefreshAt = _clock(); _status = GoogleCalendarStatus.connected; _message = null;
+      diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.success,
+        state: 'Actualisé', summary: '${_cache.length} événement(s) reçu(s)',
+        source: 'GoogleCalendarService.refresh', correlationId: correlationId,
+        duration: stopwatch.elapsed, details: {'selectedCalendars': _selectedCalendarIds.length,
+          'events': _cache.length});
     } catch (error) {
+      diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.error,
+        state: 'Échec', summary: 'Réponse calendrier inexploitable',
+        source: 'GoogleCalendarService.refresh', correlationId: correlationId,
+        duration: stopwatch.elapsed, reason: _status == GoogleCalendarStatus.permissionDenied
+          ? 'authenticationError' : error is FormatException ? 'parsingError' : 'networkOrApiError',
+        details: {'technical': error.runtimeType.toString()});
       if (_status == GoogleCalendarStatus.permissionDenied) {
         _message = 'Autorisation calendrier refusée.';
       } else {

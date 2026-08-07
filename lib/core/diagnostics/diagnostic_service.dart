@@ -11,6 +11,7 @@ enum DiagnosticModule {
   wardrobeGpt('WardrobeGPT'),
   agenda('Agenda'),
   googleCalendar('Google Calendar'),
+  wardrobeContext('Contexte dressing'),
   weather('Weather'),
   outfits('Tenues'),
   backup('Sauvegarde'),
@@ -42,6 +43,7 @@ class DiagnosticStep {
 
 class DiagnosticEntry {
   final String id;
+  final String? correlationId;
   final DiagnosticModule module;
   final AppDiagnosticLevel level;
   final String state;
@@ -57,6 +59,7 @@ class DiagnosticEntry {
 
   const DiagnosticEntry({
     required this.id,
+    this.correlationId,
     required this.module,
     required this.level,
     required this.state,
@@ -73,6 +76,7 @@ class DiagnosticEntry {
 
   Map<String, Object?> toJson() => {
     'id': id,
+    if (correlationId != null) 'correlationId': correlationId,
     'module': module.label,
     'level': level.name.toUpperCase(),
     'state': state,
@@ -98,9 +102,13 @@ class DiagnosticService extends ChangeNotifier {
 
   bool _enabled = false;
   int _sequence = 0;
+  int _correlationSequence = 0;
   final Map<DiagnosticModule, List<DiagnosticEntry>> _entries = {};
 
   bool get enabled => _enabled;
+  String? newCorrelationId(String pipeline) => !_enabled
+      ? null
+      : '${_sanitizeText(pipeline).replaceAll(RegExp(r'[^A-Za-z0-9]'), '-')}-${++_correlationSequence}';
   List<DiagnosticEntry> get entries => List.unmodifiable(
     _entries.values.expand((items) => items).toList()
       ..sort((a, b) => b.date.compareTo(a.date)),
@@ -123,12 +131,14 @@ class DiagnosticService extends ChangeNotifier {
     Duration duration = Duration.zero,
     Map<String, Object?> details = const {},
     List<DiagnosticStep> pipeline = const [],
+    String? correlationId,
   }) {
     if (!_enabled) return;
     final safeDetails = _sanitizeMap(details);
     final list = _entries.putIfAbsent(module, () => []);
     list.add(DiagnosticEntry(
       id: '${module.name}-${++_sequence}', module: module, level: level,
+      correlationId: correlationId == null ? null : _sanitizeText(correlationId),
       state: _sanitizeText(state), summary: _sanitizeText(summary),
       reason: reason == null ? null : _businessReason(reason),
       warning: warning == null ? null : _sanitizeText(warning),
@@ -169,6 +179,12 @@ class DiagnosticService extends ChangeNotifier {
     };
     return const JsonEncoder.withIndent('  ').convert(report);
   }
+
+  String exportEntry(DiagnosticEntry entry) => const JsonEncoder.withIndent(' ').convert({
+    'reportVersion': 1,
+    'privacy': 'Photos, chemins, identifiants, prompts, clés et tokens exclus.',
+    'diagnostic': entry.toJson(),
+  });
 
   static const _sensitiveKeys = {
     'token', 'accesstoken', 'refreshtoken', 'authorization', 'apikey', 'api_key',
