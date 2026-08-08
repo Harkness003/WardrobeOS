@@ -186,7 +186,13 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final saved = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (_, update) => AlertDialog(
       title: const Text('Corriger l’analyse de style'), content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(children: [
         Align(alignment: Alignment.centerLeft, child: Text('Compatibilités (aucun style principal imposé)', style: Theme.of(context).textTheme.titleSmall)),
-        ...all.map((e) => CheckboxListTile(dense: true, value: selected.contains(e.id), title: Text(e.name), onChanged: (v) => update(() { if (v == true) selected.add(e.id); else selected.remove(e.id); }))),
+        ...all.map((e) => CheckboxListTile(dense: true, value: selected.contains(e.id), title: Text(e.name), onChanged: (v) => update(() {
+          if (v == true) {
+            selected.add(e.id);
+          } else {
+            selected.remove(e.id);
+          }
+        }))),
         TextField(controller: characteristics, decoration: const InputDecoration(labelText: 'Caractéristiques (séparées par des virgules)')),
       ]))), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
         FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Enregistrer'))])));

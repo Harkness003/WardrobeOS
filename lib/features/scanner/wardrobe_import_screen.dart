@@ -92,10 +92,12 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
       final task = await service.enqueue(persisted, captureDuration: watch.elapsed);
       persisted = null;
       await HapticFeedback.mediumImpact();
-      if (mounted) setState(() {
-        lastCapture = task;
-        message = 'Photo enregistrée — vous pouvez continuer.';
-      });
+      if (mounted) {
+        setState(() {
+          lastCapture = task;
+          message = 'Photo enregistrée — vous pouvez continuer.';
+        });
+      }
     } catch (_) {
       if (persisted != null) { await File(persisted).delete().catchError((_) => File(persisted!)); }
       if (mounted) { setState(() => message = 'Impossible d’enregistrer la photo. Réessayez.'); }

@@ -198,8 +198,10 @@ class WardrobeImportService extends ChangeNotifier {
         attempt: original.attempt + 1, userMessage: null));
       final preparation = Stopwatch()..start();
       final validation = await const GarmentImageValidator().validateFile(task.photoPath);
-      if (!validation.isValid) throw GarmentAnalysisException(GarmentAnalysisError.rejectedImage,
-        validation.rejectionReason ?? 'Cette photo ne permet pas d’identifier un vêtement.');
+      if (!validation.isValid) {
+        throw GarmentAnalysisException(GarmentAnalysisError.rejectedImage,
+          validation.rejectionReason ?? 'Cette photo ne permet pas d’identifier un vêtement.');
+      }
       final bytes = await File(task.photoPath).readAsBytes();
       final request = GarmentAnalysisRequest(imageBytes: bytes,
         mimeType: GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',

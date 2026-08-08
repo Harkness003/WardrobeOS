@@ -1,0 +1,189 @@
+diff --git a/lib/features/scanner/analysis/wardrobe_import_service.dart b/lib/features/scanner/analysis/wardrobe_import_service.dart
+index 399e3d1639c12c3cfa779932362338909d13dac1..3bb8ef444641e6dcb3e6c19904c054555c8a7422 100644
+--- a/lib/features/scanner/analysis/wardrobe_import_service.dart
++++ b/lib/features/scanner/analysis/wardrobe_import_service.dart
+@@ -176,52 +176,54 @@ class WardrobeImportService extends ChangeNotifier {
+ 
+   void _pump() {
+     if (!_loaded) { return; }
+     while (_running < maxConcurrency) {
+       final index = _tasks.indexWhere((task) => task.status == WardrobeImportStatus.pending);
+       if (index < 0) { break; }
+       _running++;
+       final taskId = _tasks[index].id;
+       unawaited(_process(_tasks[index]).whenComplete(() {
+         _running--;
+         _pump();
+         if (_running == 0 && pending == 0) {
+           _events.add(WardrobeImportEvent(WardrobeImportEventType.importFinished, taskId));
+         }
+       }));
+     }
+   }
+ 
+   Future<void> _process(WardrobeImportTask original) async {
+     final total = Stopwatch()..start();
+     try {
+       var task = await _replace(original.copyWith(status: WardrobeImportStatus.quickAnalysis,
+         attempt: original.attempt + 1, userMessage: null));
+       final preparation = Stopwatch()..start();
+       final validation = await const GarmentImageValidator().validateFile(task.photoPath);
+-      if (!validation.isValid) throw GarmentAnalysisException(GarmentAnalysisError.rejectedImage,
+-        validation.rejectionReason ?? 'Cette photo ne permet pas d’identifier un vêtement.');
++      if (!validation.isValid) {
++        throw GarmentAnalysisException(GarmentAnalysisError.rejectedImage,
++          validation.rejectionReason ?? 'Cette photo ne permet pas d’identifier un vêtement.');
++      }
+       final bytes = await File(task.photoPath).readAsBytes();
+       final request = GarmentAnalysisRequest(imageBytes: bytes,
+         mimeType: GarmentImageValidator.detectMimeType(bytes) ?? 'image/jpeg',
+         allowedCategories: importCategories, allowedColors: importColors,
+         allowedMaterials: importMaterials,
+         allowedSeasons: const <String>[],
+         requestedFields: importEnrichmentFields);
+       preparation.stop();
+       final quickWatch = Stopwatch()..start();
+       final quick = _validated(await analyzer.analyzeQuick(request));
+       quickWatch.stop();
+       if (!quick.isUsableImage || (quick.category == null && quick.preciseType == null)) {
+         throw GarmentAnalysisException(GarmentAnalysisError.rejectedImage,
+           quick.rejectionReason ?? 'Le vêtement n’est pas suffisamment visible.');
+       }
+       final creation = Stopwatch()..start();
+       final garment = _quickGarment(task, quick);
+       await database.insertGarment(garment);
+       creation.stop();
+       task = await _replace(task.copyWith(status: WardrobeImportStatus.enriching,
+         garmentId: garment.id, quickResult: quick, timings: {...task.timings,
+           'preparation': preparation.elapsedMilliseconds, 'quick': quickWatch.elapsedMilliseconds,
+           'creation': creation.elapsedMilliseconds}));
+ 
+       final enrichmentWatch = Stopwatch()..start();
+diff --git a/lib/features/scanner/wardrobe_import_screen.dart b/lib/features/scanner/wardrobe_import_screen.dart
+index 1f69a607ad6ebc3da60cea8402a4b492ff4f9582..ce686b1db637e6d9aea328947d8fad9d720809c6 100644
+--- a/lib/features/scanner/wardrobe_import_screen.dart
++++ b/lib/features/scanner/wardrobe_import_screen.dart
+@@ -70,54 +70,56 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
+   }
+ 
+   void _refresh() { if (mounted) setState(() {}); }
+ 
+   @override
+   void dispose() {
+     WidgetsBinding.instance.removeObserver(this);
+     service.removeListener(_refresh);
+     unawaited(capture.dispose());
+     super.dispose();
+   }
+ 
+   Future<void> _capture({bool useFallback = false}) async {
+     if (capturing) { return; }
+     final watch = Stopwatch()..start();
+     setState(() => capturing = true);
+     String? persisted;
+     try {
+       final photoPath = await (useFallback ? fallbackCapture : capture).capture();
+       if (photoPath == null) { return; }
+       persisted = await ImageStorageService.persist(photoPath);
+       watch.stop();
+       final task = await service.enqueue(persisted, captureDuration: watch.elapsed);
+       persisted = null;
+       await HapticFeedback.mediumImpact();
+-      if (mounted) setState(() {
+-        lastCapture = task;
+-        message = 'Photo enregistrée — vous pouvez continuer.';
+-      });
++      if (mounted) {
++        setState(() {
++          lastCapture = task;
++          message = 'Photo enregistrée — vous pouvez continuer.';
++        });
++      }
+     } catch (_) {
+       if (persisted != null) { await File(persisted).delete().catchError((_) => File(persisted!)); }
+       if (mounted) { setState(() => message = 'Impossible d’enregistrer la photo. Réessayez.'); }
+     } finally {
+       if (mounted) { setState(() => capturing = false); }
+     }
+   }
+ 
+   Future<void> _toggleFlash() async {
+     final next = switch (flashMode) {
+       FlashMode.auto => FlashMode.always,
+       FlashMode.always || FlashMode.torch => FlashMode.off,
+       FlashMode.off => FlashMode.auto,
+     };
+     try {
+       await capture.setFlashMode(next);
+       if (mounted) { setState(() => flashMode = next); }
+     } catch (_) {
+       if (mounted) { setState(() => message = 'Ce mode de flash n’est pas disponible.'); }
+     }
+   }
+ 
+   Future<void> _focus(TapDownDetails details, BoxConstraints constraints) async {
+     final point = Offset(
+       (details.localPosition.dx / constraints.maxWidth).clamp(0.0, 1.0),
+diff --git a/lib/features/wardrobe/garment_detail_screen.dart b/lib/features/wardrobe/garment_detail_screen.dart
+index b351cb033df63ad8d308c72591606517f3b1e755..e2b37ccc5e04f562fa91bafba812fec509d92c98 100644
+--- a/lib/features/wardrobe/garment_detail_screen.dart
++++ b/lib/features/wardrobe/garment_detail_screen.dart
+@@ -164,51 +164,57 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+     final l10n = AppLocalizations.of(context);
+     final visibleStyle = style.localized(l10n);
+     await showModalBottomSheet<void>(context: context, showDragHandle: true,
+       builder: (sheetContext) => Padding(padding: const EdgeInsets.all(20), child: Column(
+         mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+           Text(visibleStyle.name, style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
+           Text(_cleanDisplayText(visibleStyle.definition) ?? _cleanDisplayText(visibleStyle.description) ?? l10n.text('ui.descriptionUnavailable', fallback: 'Description unavailable.')),
+           if (visibleStyle.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('${l10n.text('ui.characteristics')} : ${visibleStyle.characteristics.take(5).join(', ')}')],
+           if (visibleStyle.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.examples', fallback: 'Examples')} : ${visibleStyle.examples.take(4).join(', ')}')],
+           if (visibleStyle.colors.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.associatedColors')} : ${visibleStyle.colors.take(5).join(', ')}')],
+           if (visibleStyle.materials.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.frequentMaterials')} : ${visibleStyle.materials.take(5).join(', ')}')],
+           if (visibleStyle.relatedStyleIds.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.relatedStyles')} : ${visibleStyle.relatedStyleIds.map((id) => _styleName(l10n, id)).take(4).join(', ')}')],
+           const SizedBox(height: 12), FilledButton(onPressed: () { Navigator.pop(sheetContext); Navigator.push(context,
+             MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: _styles))); }, child: const Text('Voir la fiche complète')),
+         ])));
+   }
+ 
+   Future<void> _editStyleAnalysis() async {
+     final all = await _styles.all(); if (!mounted) return;
+     final selected = garment.effectiveStyleAnalysis.compatibilities
+         .map((value) => value.styleId).toSet();
+     final characteristics = TextEditingController(text: garment.effectiveStyleAnalysis.characteristics.join(', '));
+     final saved = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (_, update) => AlertDialog(
+       title: const Text('Corriger l’analyse de style'), content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(children: [
+         Align(alignment: Alignment.centerLeft, child: Text('Compatibilités (aucun style principal imposé)', style: Theme.of(context).textTheme.titleSmall)),
+-        ...all.map((e) => CheckboxListTile(dense: true, value: selected.contains(e.id), title: Text(e.name), onChanged: (v) => update(() { if (v == true) selected.add(e.id); else selected.remove(e.id); }))),
++        ...all.map((e) => CheckboxListTile(dense: true, value: selected.contains(e.id), title: Text(e.name), onChanged: (v) => update(() {
++          if (v == true) {
++            selected.add(e.id);
++          } else {
++            selected.remove(e.id);
++          }
++        }))),
+         TextField(controller: characteristics, decoration: const InputDecoration(labelText: 'Caractéristiques (séparées par des virgules)')),
+       ]))), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
+         FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Enregistrer'))])));
+     if (saved != true) { return; }
+     final old = {for (final value in garment.effectiveStyleAnalysis.compatibilities) value.styleId: value};
+     final corrected = garment.effectiveStyleAnalysis.withUserCorrections(
+       compatibilities: selected.map((id) => old[id] ?? StyleCompatibility(styleId: id,
+         score: 1, confidence: 1, justification: 'Compatibilité ajoutée par l’utilisateur')).toList(),
+       characteristics: characteristics.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList());
+     await widget.controller.save(garment.copyWith(styleAnalysis: corrected, updatedAt: DateTime.now()), isNew: false);
+     _refreshGarment();
+   }
+ 
+   GarmentReanalysisType? get _missingAnalysisType {
+     if (!_hasText(garment.sousCategorie)) { return GarmentReanalysisType.category; }
+     if (!_hasText(garment.composition) && !_hasText(garment.compositionEstimee)) {
+       return GarmentReanalysisType.composition;
+     }
+     if (garment.styleAnalysis == null) { return GarmentReanalysisType.style; }
+     if (garment.thermalProfile == null) { return GarmentReanalysisType.thermal; }
+     return null;
+   }
+ 
+   Future<void> _reanalyze() async {
+     if (_reanalyzing) { return; }
