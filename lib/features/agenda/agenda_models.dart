@@ -8,6 +8,26 @@ enum PlanningOrigin { manual, automatic, assistant }
 enum OutfitReuseKind { complete, partial, variant, none }
 enum AgendaVarietyLevel { low, balanced, high }
 enum AgendaRuleType { maximumCategoryDays, maximumFullOutfitDays, refreshCategory, alternateCategory }
+enum AgendaRuleEvaluationStatus { satisfied, unsatisfied, conflicting, notApplicable }
+
+/// One evaluation of one enabled custom rule for one generated day.
+/// Parameters and garment identifiers are deliberately excluded so diagnostics
+/// can aggregate these values without exposing wardrobe data.
+class AgendaRuleEvaluation {
+  final AgendaRuleType ruleType;
+  final AgendaRuleEvaluationStatus status;
+  final String reason;
+  final DateTime date;
+  const AgendaRuleEvaluation({required this.ruleType, required this.status,
+    required this.reason, required this.date});
+}
+
+class AgendaRuleConflict {
+  final Set<AgendaRuleType> ruleTypes;
+  final String reason;
+  const AgendaRuleConflict({required this.ruleTypes,
+    this.reason = 'conflictingAgendaRules'});
+}
 
 class AgendaDayFailure {
   final int dayIndex;
@@ -53,12 +73,16 @@ class AgendaGenerationReport {
   final int customRulesActive;
   final int rulesSatisfied;
   final int rulesUnsatisfied;
+  final int rulesNotApplicable;
   final bool ruleConflict;
+  final int conflictCount;
+  final List<AgendaRuleEvaluation> ruleEvaluations;
   const AgendaGenerationReport({this.generated = const [], this.failures = const [], this.calendarAvailable = true,
     this.fullReuse = 0, this.partialReuse = 0, this.newOutfits = 0,
     this.uniqueGarments = 0, this.customRulesActive = 0,
     this.rulesSatisfied = 0, this.rulesUnsatisfied = 0,
-    this.ruleConflict = false});
+    this.rulesNotApplicable = 0, this.ruleConflict = false,
+    this.conflictCount = 0, this.ruleEvaluations = const []});
 }
 
 extension PlanningStrategyLabel on PlanningStrategy {

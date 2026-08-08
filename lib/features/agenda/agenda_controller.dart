@@ -64,6 +64,13 @@ class AgendaController extends ChangeNotifier {
         warning: calendarAvailable ? null : 'Calendrier indisponible : génération de repli sans événements.',
         details: {'calendarAvailable': calendarAvailable, 'plans': plans.length,
           'dayFailures': technicalFailures,
+          // Occurrence counters only: no rule parameters or garment identity.
+          'customRulesActive': service.lastReport.customRulesActive,
+          'rulesSatisfied': service.lastReport.rulesSatisfied,
+          'rulesUnsatisfied': service.lastReport.rulesUnsatisfied,
+          'rulesNotApplicable': service.lastReport.rulesNotApplicable,
+          'ruleConflict': service.lastReport.ruleConflict,
+          'conflictCount': service.lastReport.conflictCount,
           'dayBusinessUnavailable': service.lastReport.failures
             .where((failure) => failure.result == AgendaDayResult.businessUnavailable).length}, pipeline: [
           const DiagnosticStep('loadStoredWeek'),

@@ -10,6 +10,7 @@ import '../calendar/calendar_event.dart';
 import '../calendar/calendar_event_context_mapper.dart';
 import '../calendar/calendar_service.dart';
 import 'agenda_models.dart';
+import 'agenda_rule_evaluator.dart';
 import '../../core/diagnostics/diagnostic_service.dart';
 
 typedef AgendaClock = DateTime Function();
@@ -222,6 +223,15 @@ class AgendaService {
 
   Future<PlannedOutfit> markWorn(PlannedOutfit value) async {
     if (value.wearRecordedAt != null || value.status == PlannedOutfitStatus.worn) return value;
+    // Re-read the durable guard: callers may retry with the original stale
+    // PlannedOutfit instance after the first request already committed.
+    final persisted = (await database.getPlannedOutfits(
+      _day(value.date), _day(value.date).add(const Duration(days: 1))))
+      .where((plan) => plan.id == value.id).firstOrNull;
+    if (persisted?.wearRecordedAt != null ||
+        persisted?.status == PlannedOutfitStatus.worn) {
+      return persisted!;
+    }
     final wornAt = value.date.isAfter(clock()) ? clock() : value.date;
     final recorded = await database.recordOutfitWear(value.outfitId, wornAt: wornAt);
     if (!recorded) throw StateError('La tenue ne contient plus de vêtements disponibles.');
@@ -288,9 +298,33 @@ class AgendaService {
   }
 
   Future<List<PlannedOutfit>> proposePeriod(DateTime from, int days,
-      AgendaPreferences preferences, {List<PlannedOutfit> existing = const []}) async {
+      AgendaPreferences preferences, {List<PlannedOutfit> existing = const [],
+      Set<OutfitCategory> lockedCategories = const {}}) async {
     final generated = <PlannedOutfit>[];
     final failures = <AgendaDayFailure>[];
+    final evaluations = <AgendaRuleEvaluation>[];
+    final conflicts = const AgendaRuleConflictDetector().detect(
+      rules: preferences.customRules, lockedCategories: lockedCategories,
+      lockedConsecutiveDays: days);
+    if (conflicts.isNotEmpty) {
+      final date = _day(from);
+      failures.add(AgendaDayFailure(dayIndex: 1, date: date,
+        phase: AgendaDayPhase.proposalSelection,
+        result: AgendaDayResult.businessUnavailable,
+        reason: 'conflictingAgendaRules'));
+      for (final conflict in conflicts) {
+        for (final type in conflict.ruleTypes) {
+          evaluations.add(AgendaRuleEvaluation(ruleType: type,
+            status: AgendaRuleEvaluationStatus.conflicting,
+            reason: conflict.reason, date: date));
+        }
+      }
+      lastReport = AgendaGenerationReport(failures: List.unmodifiable(failures),
+        customRulesActive: preferences.customRules.where((r) => r.enabled).length,
+        ruleConflict: true, conflictCount: conflicts.length,
+        ruleEvaluations: List.unmodifiable(evaluations));
+      return const [];
+    }
     var calendarAvailable = true;
     final history = [...existing]..sort((a, b) => a.date.compareTo(b.date));
     // One immutable wardrobe snapshot and one weather request per generation.
@@ -338,6 +372,9 @@ class AgendaService {
           calendarAvailable: calendar.available,
           beforePersistence: () => phase = AgendaDayPhase.persistOutfit);
         generated.add(value);
+        evaluations.addAll(const AgendaRuleEvaluator().evaluate(date: date,
+          rules: preferences.customRules, previous: history,
+          selected: proposal.outfit, lockedCategories: lockedCategories));
         history.add(value);
       } catch (error) {
         final engineError = error is OutfitGenerationException ? error : null;
@@ -371,10 +408,12 @@ class AgendaService {
       fullReuse: fullReuse, partialReuse: partialReuse,
       newOutfits: generated.length - fullReuse - partialReuse,
       uniqueGarments: uniqueGarments, customRulesActive: activeRules,
-      rulesSatisfied: activeRules == 0 ? 0 : activeRules - failures.where((failure) =>
-        failure.reason == 'agendaRuleUnsatisfied').length,
-      rulesUnsatisfied: failures.where((failure) => failure.reason == 'agendaRuleUnsatisfied').length,
-      ruleConflict: failures.any((failure) => failure.reason == 'conflictingAgendaRules'));
+      rulesSatisfied: evaluations.where((item) => item.status == AgendaRuleEvaluationStatus.satisfied).length,
+      rulesUnsatisfied: evaluations.where((item) => item.status == AgendaRuleEvaluationStatus.unsatisfied).length,
+      rulesNotApplicable: evaluations.where((item) => item.status == AgendaRuleEvaluationStatus.notApplicable).length,
+      ruleConflict: evaluations.any((item) => item.status == AgendaRuleEvaluationStatus.conflicting),
+      conflictCount: conflicts.length,
+      ruleEvaluations: List.unmodifiable(evaluations));
     return List.unmodifiable(generated);
   }
 
