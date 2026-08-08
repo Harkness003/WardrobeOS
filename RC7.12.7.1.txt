@@ -1,0 +1,73 @@
+diff --git a/lib/features/daily_brief/daily_brief_service.dart b/lib/features/daily_brief/daily_brief_service.dart
+index f8bc5d9f7471067ea1a40688bfd6d1a52ea11c78..d3a011346c4115fe3e600ac87cc4ce0063829224 100644
+--- a/lib/features/daily_brief/daily_brief_service.dart
++++ b/lib/features/daily_brief/daily_brief_service.dart
+@@ -1,32 +1,33 @@
+ import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ import '../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../core/recommendation/recommendation_context.dart';
+ import '../../core/recommendation/recommendation_engine.dart';
+ import '../../core/wardrobe_intelligence/wardrobe_intelligence_engine.dart';
+ import '../../features/assistant/memory/personalization_snapshot.dart';
+ import '../../models/garment.dart';
++import '../../models/outfit.dart';
+ import '../../weather/models/weather_data.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/memory/memory_service.dart';
+ import '../assistant/memory/personal_goal.dart';
+ import 'daily_brief_models.dart';
+ import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ /// Composes the Daily Brief exclusively from the shared AI context and outfit
+ /// engine. Expensive I/O is performed once and intermediate states are emitted
+ /// as soon as they are useful to the UI.
+ class DailyBriefService {
+   static const maxVisibleCards = 5;
+ 
+   final WeatherService weatherService;
+   final MemoryService memoryService;
+   final RecommendationEngine recommendationEngine;
+   final WardrobeIntelligenceEngine intelligenceEngine;
+   final OutfitGenerationEngine outfitEngine;
+   final DateTime Function() _clock;
+   final WardrobeAiContextService? aiContextService;
+ 
+   DailyBriefService({
+     required this.weatherService,
+     required this.memoryService,
+     Object? assistantService, // Kept source-compatible; Daily no longer calls GPT.
+diff --git a/test/core/outfit_generation/outfit_generation_engine_test.dart b/test/core/outfit_generation/outfit_generation_engine_test.dart
+index 32a3abe79f410778097a22715be1102429b8e1d6..fa3bc4fe4ed5ab6c550ec1d0f2bd7484a3befea9 100644
+--- a/test/core/outfit_generation/outfit_generation_engine_test.dart
++++ b/test/core/outfit_generation/outfit_generation_engine_test.dart
+@@ -1,29 +1,30 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/core/outfit_generation/outfit_generation_engine.dart';
+ import 'package:wardrobeos/core/recommendation/recommendation_context.dart';
+ import 'package:wardrobeos/models/garment.dart';
++import 'package:wardrobeos/models/outfit.dart';
+ import 'package:wardrobeos/models/thermal_profile.dart';
+ 
+ void main() {
+   final now = DateTime(2026, 8, 4);
+   Garment garment(String id, String category, {int wearCount = 0}) => Garment(
+     id: id,
+     name: id,
+     category: category,
+     wearCount: wearCount,
+     createdAt: now,
+     updatedAt: now,
+   );
+   OutfitGenerationEngine engine() => OutfitGenerationEngine(clock: () => now);
+ 
+   ThermalProfile thermal({
+     required double min,
+     required double max,
+     required LayerRole role,
+     required double contribution,
+     WeatherProtection rain = WeatherProtection.none,
+     WeatherProtection wind = WeatherProtection.none,
+   }) => ThermalProfile(
+     insulation: contribution >= 10 ? InsulationLevel.veryHigh : contribution >= 5 ? InsulationLevel.medium : InsulationLevel.veryLow, thickness: ThicknessLevel.medium, breathability: BreathabilityLevel.medium,
+     windProtection: wind, rainProtection: rain, primaryRole: role,
+     acceptsUnder: role == LayerRole.outer ? const [LayerRole.base, LayerRole.mid] : const [],

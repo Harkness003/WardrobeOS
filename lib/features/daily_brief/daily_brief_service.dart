@@ -5,6 +5,7 @@ import '../../core/recommendation/recommendation_engine.dart';
 import '../../core/wardrobe_intelligence/wardrobe_intelligence_engine.dart';
 import '../../features/assistant/memory/personalization_snapshot.dart';
 import '../../models/garment.dart';
+import '../../models/outfit.dart';
 import '../../weather/models/weather_data.dart';
 import '../../weather/services/weather_service.dart';
 import '../assistant/memory/memory_service.dart';

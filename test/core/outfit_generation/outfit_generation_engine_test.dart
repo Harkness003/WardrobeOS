@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/core/outfit_generation/outfit_generation_engine.dart';
 import 'package:wardrobeos/core/recommendation/recommendation_context.dart';
 import 'package:wardrobeos/models/garment.dart';
+import 'package:wardrobeos/models/outfit.dart';
 import 'package:wardrobeos/models/thermal_profile.dart';
 
 void main() {
