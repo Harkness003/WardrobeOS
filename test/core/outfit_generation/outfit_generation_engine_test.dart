@@ -165,6 +165,54 @@ void main() {
     expect(result.diagnostic.classifications.first.subcategoryCanonical, 't-shirt');
   });
 
+  test('génère depuis des lignes DB avec collections et nombres JSON typés', () {
+    Map<String, Object?> row(String id, String category, num confidence,
+        num styleScore) => {
+      'id': id,
+      'name': 'Fixture DB',
+      'category': category,
+      'wear_count': confidence,
+      'confiance_globale': confidence,
+      'created_at': '2026-08-08T00:00:00.000Z',
+      'updated_at': '2026-08-08T00:00:00.000Z',
+      'style_analysis': jsonEncode({
+        'inputFingerprint': 'fixture',
+        'suggestedRegister': 'casual',
+        'suggestedCompatibilities': [
+          {'styleId': 'casual', 'score': styleScore, 'confidence': confidence,
+            'justification': 'fixture'},
+        ],
+        'calculatedAt': '2026-08-08T00:00:00.000Z',
+      }),
+      'thermal_profile': jsonEncode({
+        'breathability': 'medium',
+        'windProtection': 'none',
+        'rainProtection': 'none',
+        'primaryRole': category == 'Hauts' ? 'base' : 'mid',
+        'inputFingerprint': 'fixture',
+        'confidence': confidence,
+        'calculatedAt': '2026-08-08T00:00:00.000Z',
+      }),
+    };
+
+    final wardrobe = <Garment>[
+      Garment.fromMap(row('db-top', 'Hauts', 1, 1)),
+      Garment.fromMap(row('db-bottom', 'Pantalons', .5, .75)),
+      Garment.fromMap(row('db-shoes', 'Chaussures', 0, 0)),
+    ];
+    final result = engine().generate(OutfitGenerationRequest(
+      wardrobe: wardrobe,
+      proposalCount: 1,
+    ));
+
+    expect(result.proposals, hasLength(1));
+    expect(result.proposals.single.garmentIds,
+      containsAll(<String>['db-top', 'db-bottom', 'db-shoes']));
+    expect(result.proposals.single.outfit.garments,
+      isA<Map<OutfitCategory, List<Garment>>>());
+    expect(result.proposals.single.score, isA<double>());
+  });
+
   test('couvre les séparateurs legacy sans contains générique', () {
     for (final value in ['tshirt', 't-shirt', 't_shirt', 'polo_shirt']) {
       final restored = Garment.fromMap({

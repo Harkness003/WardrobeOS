@@ -126,6 +126,8 @@ class DailyBriefService {
         reason: contextFailed ? 'wardrobeContextFailure' : 'outfitGenerationFailure',
         details: {
           'exceptionType': engineError?.exceptionType ?? error.runtimeType.toString(),
+          if (engineError?.technicalTypeMessage != null)
+            'technicalTypeMessage': engineError!.technicalTypeMessage,
           'phase': engineError?.phase.name ?? phase,
           'garmentsCount': engineError?.garmentsCount ?? garmentsCount,
         },

@@ -191,6 +191,8 @@ void main() {
     expect(failure.reason, isNot('wardrobeContextFailure'));
     expect(failure.details['phase'], 'recommendation');
     expect(failure.details['garmentsCount'], 2);
+    expect(failure.details['technicalTypeMessage'],
+      "type 'List<dynamic>' is not a subtype of type 'List<Garment>'");
     diagnostics.setEnabled(false);
   });
 }
@@ -244,6 +246,8 @@ class _FailingOutfitEngine extends OutfitGenerationEngine {
     throw OutfitGenerationException(
       phase: OutfitGenerationPhase.recommendation,
       exceptionType: '_TypeError',
+      technicalTypeMessage:
+          "type 'List<dynamic>' is not a subtype of type 'List<Garment>'",
       garmentsCount: request.wardrobe.length,
     );
   }

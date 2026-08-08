@@ -87,6 +87,8 @@ class OutfitsController extends ChangeNotifier {
         correlationId: correlationId, duration: stopwatch.elapsed,
         reason: 'outfitGenerationFailure', details: {
           'exceptionType': engineError?.exceptionType ?? exception.runtimeType.toString(),
+          if (engineError?.technicalTypeMessage != null)
+            'technicalTypeMessage': engineError!.technicalTypeMessage,
           'phase': engineError?.phase.name ?? 'candidateConstruction',
           'garmentsCount': engineError?.garmentsCount ?? 0,
           'pipeline': 'generate',

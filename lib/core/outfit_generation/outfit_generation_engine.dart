@@ -69,10 +69,12 @@ enum OutfitGenerationPhase {
 class OutfitGenerationException implements Exception {
   final OutfitGenerationPhase phase;
   final String exceptionType;
+  final String? technicalTypeMessage;
   final int garmentsCount;
 
   const OutfitGenerationException({required this.phase,
-    required this.exceptionType, required this.garmentsCount});
+    required this.exceptionType, this.technicalTypeMessage,
+    required this.garmentsCount});
 }
 
 class OutfitGenerationDiagnostic {
@@ -170,6 +172,7 @@ class OutfitGenerationEngine {
       if (error is OutfitGenerationException) rethrow;
       throw OutfitGenerationException(phase: tracker.phase,
         exceptionType: error.runtimeType.toString(),
+        technicalTypeMessage: _safeTypeMessage(error),
         garmentsCount: tracker.garmentsCount);
     }
   }
@@ -239,7 +242,9 @@ class OutfitGenerationEngine {
         alternativeCount: request.proposalCount + 2,
       );
       if (ranked.choices.isNotEmpty) {
-        pools[category] = ranked.choices.map((item) => item.garment).toList(growable: false);
+        pools[category] = ranked.choices
+            .map<Garment>((item) => item.garment)
+            .toList(growable: false);
       }
     }
 
@@ -255,7 +260,10 @@ class OutfitGenerationEngine {
         if (pool == null || pool.isEmpty) { continue; }
         selected[category] = [pool[offset % pool.length]];
       }
-      final ids = selected.values.expand((items) => items).map((item) => item.id).toList()..sort();
+      final ids = selected.values
+          .expand<Garment>((items) => items)
+          .map<String>((item) => item.id)
+          .toList(growable: false)..sort();
       if (ids.isEmpty || !signatures.add(ids.join('|'))) { continue; }
       final now = clock();
       generated.add(Outfit(
@@ -275,7 +283,9 @@ class OutfitGenerationEngine {
       }
       return valid;
     }).toList(growable: false);
-    final scored = validGenerated.map((outfit) => _score(outfit, request)).toList()
+    final scored = validGenerated
+        .map<OutfitGenerationProposal>((outfit) => _score(outfit, request))
+        .toList()
       ..sort((a, b) {
         final score = b.score.compareTo(a.score);
         return score != 0 ? score : _signature(a.outfit).compareTo(_signature(b.outfit));
@@ -488,7 +498,22 @@ class OutfitGenerationEngine {
     return ids.join('|');
   }
   static Map<OutfitCategory, List<Garment>> _freeze(Map<OutfitCategory, List<Garment>> source) =>
-      Map.unmodifiable(source.map((key, value) => MapEntry(key, List.unmodifiable(value))));
+      Map<OutfitCategory, List<Garment>>.unmodifiable(
+        source.map<OutfitCategory, List<Garment>>((key, value) =>
+          MapEntry<OutfitCategory, List<Garment>>(
+            key, List<Garment>.unmodifiable(value))),
+      );
+
+  /// Retains only Dart's type descriptors. Values, ids, paths and stack data
+  /// cannot pass this deliberately narrow diagnostic boundary.
+  static String? _safeTypeMessage(Object error) {
+    if (error.runtimeType.toString() != '_TypeError') return null;
+    final match = RegExp(
+      r"type '([A-Za-z0-9_<>,? ()\[\].]+)' is not a subtype of type '([A-Za-z0-9_<>,? ()\[\].]+)'",
+    ).firstMatch(error.toString());
+    if (match == null) return 'runtimeTypeMismatch';
+    return "type '${match.group(1)}' is not a subtype of type '${match.group(2)}'";
+  }
 }
 
 class _GenerationPhaseTracker {
