@@ -142,14 +142,13 @@ class AgendaService {
       return null;
     }
     final choice = _withAgendaId(proposal.outfit, date);
-    await _ensureStored(choice);
     final now = clock();
     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
       justification: _justification(proposal, calendarAvailable: calendar.available), weather: weather, event: events.firstOrNull,
       createdAt: now, updatedAt: now);
-    await database.savePlannedOutfit(value);
+    await database.persistAgendaProposal(choice, value);
     diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.success,
       state: 'Générée', summary: 'Proposition quotidienne générée',
       source: 'AgendaService.proposeDay', correlationId: correlationId,
@@ -199,15 +198,20 @@ class AgendaService {
         phase = AgendaDayPhase.plannedOutfitConstruction;
         final value = await _saveProposal(date, preferences, proposal, weather, events.firstOrNull,
           calendarAvailable: calendar.available,
-          beforePersistence: () => phase = AgendaDayPhase.persistence);
+          beforePersistence: () => phase = AgendaDayPhase.persistOutfit);
         generated.add(value);
         history.add(value);
       } catch (error) {
         final engineError = error is OutfitGenerationException ? error : null;
+        final persistenceError = error is AgendaPersistenceException ? error : null;
+        phase = persistenceError?.phase ?? phase;
         final failure = AgendaDayFailure(dayIndex: offset + 1, date: date,
           phase: phase, result: AgendaDayResult.technicalFailure,
           reason: _technicalReason(phase, error),
-          technicalType: engineError?.exceptionType ?? error.runtimeType.toString());
+          technicalType: engineError?.exceptionType ??
+            persistenceError?.technicalType ?? error.runtimeType.toString(),
+          databaseTable: persistenceError?.table,
+          databaseConstraint: persistenceError?.constraint);
         failures.add(failure);
         _publishDayFailure(offset, date, failure,
           enginePhase: engineError?.phase.name);
@@ -267,19 +271,21 @@ class AgendaService {
       justification: _justification(proposal, calendarAvailable: calendarAvailable), weather: weather, event: event,
       createdAt: now, updatedAt: now);
     beforePersistence?.call();
-    await _ensureStored(choice);
-    await database.savePlannedOutfit(value);
+    await database.persistAgendaProposal(choice, value);
     return value;
   }
 
   static String _technicalReason(AgendaDayPhase phase, Object error) {
+    if (error is AgendaPersistenceException) return error.reason;
     if (error is OutfitGenerationException) return 'outfitGenerationFailure';
     return switch (phase) {
       AgendaDayPhase.agendaContext => 'agendaContextFailure',
       AgendaDayPhase.outfitGeneration => 'outfitGenerationFailure',
       AgendaDayPhase.proposalSelection => 'proposalSelectionFailure',
       AgendaDayPhase.plannedOutfitConstruction => 'mappingFailure',
-      AgendaDayPhase.persistence => 'databaseFailure',
+      AgendaDayPhase.persistOutfit ||
+      AgendaDayPhase.persistOutfitItems ||
+      AgendaDayPhase.persistPlannedOutfit => 'databaseWriteFailure',
     };
   }
 
@@ -298,6 +304,9 @@ class AgendaService {
         'phase': failure.phase.name,
         'result': failure.result.name,
         if (failure.technicalType != null) 'technicalType': failure.technicalType,
+        if (failure.databaseTable != null) 'databaseTable': failure.databaseTable,
+        if (failure.databaseConstraint != null)
+          'databaseConstraint': failure.databaseConstraint,
         if (enginePhase != null) 'enginePhase': enginePhase,
       });
   }

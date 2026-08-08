@@ -14,9 +14,11 @@ class AgendaDayFailure {
   final AgendaDayResult result;
   final String reason;
   final String? technicalType;
+  final String? databaseTable;
+  final String? databaseConstraint;
   const AgendaDayFailure({required this.dayIndex, required this.date,
     required this.phase, required this.result, required this.reason,
-    this.technicalType});
+    this.technicalType, this.databaseTable, this.databaseConstraint});
 }
 
 enum AgendaDayPhase {
@@ -24,7 +26,9 @@ enum AgendaDayPhase {
   outfitGeneration,
   proposalSelection,
   plannedOutfitConstruction,
-  persistence,
+  persistOutfit,
+  persistOutfitItems,
+  persistPlannedOutfit,
 }
 
 enum AgendaDayResult { businessUnavailable, technicalFailure }

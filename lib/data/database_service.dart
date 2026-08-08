@@ -14,6 +14,23 @@ class StoredOutfitReadResult {
   const StoredOutfitReadResult(this.outfits, this.decodeErrors);
 }
 
+/// A privacy-safe description of a failed Agenda write. The original database
+/// message is deliberately not retained because sqflite messages can contain
+/// SQL arguments and the database path.
+class AgendaPersistenceException implements Exception {
+  final AgendaDayPhase phase;
+  final String reason;
+  final String table;
+  final String? constraint;
+  final String technicalType;
+
+  const AgendaPersistenceException({required this.phase, required this.reason,
+    required this.table, this.constraint, required this.technicalType});
+
+  @override
+  String toString() => 'AgendaPersistenceException($reason, ${phase.name})';
+}
+
 class DatabaseService {
   DatabaseService._();
   static final DatabaseService instance = DatabaseService._();
@@ -25,7 +42,9 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'wardrobeos.db'),
-      version: 2,
+      // Keep this monotonic with the historical schema, which reached v13
+      // before a refactor accidentally reset the value to v1 (then v2).
+      version: 14,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -116,6 +135,18 @@ class DatabaseService {
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createWardrobeImportTable(db);
+        // Agenda and outfit tables were added while the database was still at
+        // version 1. Devices which had already created that earlier v1 schema
+        // therefore never ran their CREATE statements. Re-applying all
+        // idempotent creators makes upgraded and fresh databases equivalent.
+        if (oldVersion < 14) {
+          await _createWearHistoryTable(db);
+          await _createOutfitTables(db);
+          await _createPersonalizationTables(db);
+          await _createAgendaTables(db);
+          await _createIndexes(db);
+          await _createWardrobeImportTable(db);
+        }
       },
     );
   }
@@ -345,7 +376,72 @@ class DatabaseService {
 
   Future<void> savePlannedOutfit(PlannedOutfit value) async {
     final db = await database;
-    await db.insert('planned_outfits', value.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.transaction((txn) => _upsertPlannedOutfit(txn, value));
+  }
+
+  /// Persists the three parts of an automatically generated Agenda proposal as
+  /// one unit. sqflite rolls the transaction back if any step throws, so a
+  /// missing/invalid planned_outfits table can no longer leak orphan outfits.
+  Future<void> persistAgendaProposal(Outfit outfit, PlannedOutfit plan) async {
+    final db = await database;
+    var phase = AgendaDayPhase.persistOutfit;
+    try {
+      await db.transaction((txn) async {
+        await txn.insert('outfits', outfit.toMap());
+        phase = AgendaDayPhase.persistOutfitItems;
+        for (final garment in outfit.allGarments) {
+          await txn.insert('outfit_items',
+            OutfitItem(outfitId: outfit.id, garmentId: garment.id).toMap(),
+            conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
+        phase = AgendaDayPhase.persistPlannedOutfit;
+        await _upsertPlannedOutfit(txn, plan);
+      });
+    } on DatabaseException catch (error) {
+      throw _agendaDatabaseException(error, phase);
+    }
+  }
+
+  Future<void> _upsertPlannedOutfit(DatabaseExecutor db, PlannedOutfit value) async {
+    final map = value.toMap();
+    final updated = await db.update('planned_outfits', map,
+      where: 'planned_date = ?', whereArgs: [map['planned_date']]);
+    if (updated == 0) await db.insert('planned_outfits', map);
+  }
+
+  static AgendaPersistenceException _agendaDatabaseException(
+      DatabaseException error, AgendaDayPhase phase) {
+    final message = error.toString().toLowerCase();
+    final table = switch (phase) {
+      AgendaDayPhase.persistOutfit => 'outfits',
+      AgendaDayPhase.persistOutfitItems => 'outfit_items',
+      AgendaDayPhase.persistPlannedOutfit => 'planned_outfits',
+      _ => 'agenda',
+    };
+    var reason = 'databaseWriteFailure';
+    String? constraint;
+    if (message.contains('no such table')) {
+      reason = 'databaseMissingTable';
+    } else if (message.contains('no column named') ||
+        message.contains('has no column named')) {
+      reason = 'databaseMissingColumn';
+      final match = RegExp(r'(?:no column named|has no column named) ([a-z0-9_]+)')
+          .firstMatch(message);
+      constraint = match?.group(1);
+    } else if (message.contains('foreign key constraint failed')) {
+      reason = 'databaseForeignKeyFailure';
+      constraint = 'foreignKey';
+    } else if (message.contains('unique constraint failed')) {
+      reason = 'databaseUniqueFailure';
+      constraint = 'unique';
+    } else if (message.contains('constraint failed') ||
+        message.contains('not null constraint failed')) {
+      reason = 'databaseConstraintFailure';
+      constraint = message.contains('not null') ? 'notNull' : 'constraint';
+    }
+    return AgendaPersistenceException(phase: phase, reason: reason,
+      table: table, constraint: constraint,
+      technicalType: error.runtimeType.toString());
   }
 
   Future<void> deletePlannedOutfit(String id) async {

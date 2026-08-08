@@ -47,15 +47,18 @@ class AgendaController extends ChangeNotifier {
         plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
         _syncStates();
       }
+      final technicalFailures = service.lastReport.failures
+        .where((failure) => failure.result == AgendaDayResult.technicalFailure).length;
       diagnostics.publish(module: DiagnosticModule.agenda,
-        level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
+        level: technicalFailures > 0 ? AppDiagnosticLevel.error
+          : calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
         state: 'Rendu', summary: '${plans.length} journée(s) planifiée(s)', source: 'AgendaController.load',
         correlationId: correlationId, duration: stopwatch.elapsed,
-        reason: calendarAvailable ? null : 'calendarUnavailableFallbackWithoutEvents',
+        reason: technicalFailures > 0 ? 'generationFailures'
+          : calendarAvailable ? null : 'calendarUnavailableFallbackWithoutEvents',
         warning: calendarAvailable ? null : 'Calendrier indisponible : génération de repli sans événements.',
         details: {'calendarAvailable': calendarAvailable, 'plans': plans.length,
-          'dayFailures': service.lastReport.failures
-            .where((failure) => failure.result == AgendaDayResult.technicalFailure).length,
+          'dayFailures': technicalFailures,
           'dayBusinessUnavailable': service.lastReport.failures
             .where((failure) => failure.result == AgendaDayResult.businessUnavailable).length}, pipeline: [
           const DiagnosticStep('loadStoredWeek'),
