@@ -8,10 +8,26 @@ enum PlanningOrigin { manual, automatic, assistant }
 enum OutfitReuseKind { complete, partial, variant, none }
 
 class AgendaDayFailure {
+  final int dayIndex;
   final DateTime date;
+  final AgendaDayPhase phase;
+  final AgendaDayResult result;
   final String reason;
-  const AgendaDayFailure(this.date, this.reason);
+  final String? technicalType;
+  const AgendaDayFailure({required this.dayIndex, required this.date,
+    required this.phase, required this.result, required this.reason,
+    this.technicalType});
 }
+
+enum AgendaDayPhase {
+  agendaContext,
+  outfitGeneration,
+  proposalSelection,
+  plannedOutfitConstruction,
+  persistence,
+}
+
+enum AgendaDayResult { businessUnavailable, technicalFailure }
 
 class AgendaGenerationReport {
   final List<PlannedOutfit> generated;

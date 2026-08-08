@@ -49,4 +49,19 @@ void main() {
     expect(restored.type, rule.type);
     expect(restored.parameters['days'], 3);
   });
+
+  test('un échec Agenda distingue phase, résultat métier et index', () {
+    final failure = AgendaDayFailure(
+      dayIndex: 3,
+      date: DateTime(2026, 8, 5),
+      phase: AgendaDayPhase.proposalSelection,
+      result: AgendaDayResult.businessUnavailable,
+      reason: 'missingBottom',
+    );
+
+    expect(failure.dayIndex, 3);
+    expect(failure.phase, AgendaDayPhase.proposalSelection);
+    expect(failure.result, AgendaDayResult.businessUnavailable);
+    expect(failure.technicalType, isNull);
+  });
 }

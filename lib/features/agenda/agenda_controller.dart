@@ -15,6 +15,7 @@ class AgendaController extends ChangeNotifier {
   Object? error;
   final Map<DateTime, AgendaDayState> dayStates = {};
   final Map<DateTime, String> dayErrors = {};
+  final Map<DateTime, String> dayBusinessReasons = {};
   bool calendarAvailable = true;
   GoogleCalendarService? googleCalendarService;
   bool _calendarInitialized = false;
@@ -53,7 +54,10 @@ class AgendaController extends ChangeNotifier {
         reason: calendarAvailable ? null : 'calendarUnavailableFallbackWithoutEvents',
         warning: calendarAvailable ? null : 'Calendrier indisponible : génération de repli sans événements.',
         details: {'calendarAvailable': calendarAvailable, 'plans': plans.length,
-          'dayFailures': dayErrors.length}, pipeline: [
+          'dayFailures': service.lastReport.failures
+            .where((failure) => failure.result == AgendaDayResult.technicalFailure).length,
+          'dayBusinessUnavailable': service.lastReport.failures
+            .where((failure) => failure.result == AgendaDayResult.businessUnavailable).length}, pipeline: [
           const DiagnosticStep('loadStoredWeek'),
           DiagnosticStep('calendar', level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
           const DiagnosticStep('wardrobeContext'), const DiagnosticStep('weather'),
@@ -138,9 +142,15 @@ class AgendaController extends ChangeNotifier {
   void _applyReport() {
     calendarAvailable = service.lastReport.calendarAvailable;
     dayErrors.clear();
+    dayBusinessReasons.clear();
     for (final failure in service.lastReport.failures) {
-      dayErrors[_key(failure.date)] = failure.reason;
-      dayStates[_key(failure.date)] = AgendaDayState.error;
+      if (failure.result == AgendaDayResult.technicalFailure) {
+        dayErrors[_key(failure.date)] = failure.reason;
+        dayStates[_key(failure.date)] = AgendaDayState.error;
+      } else {
+        dayBusinessReasons[_key(failure.date)] = failure.reason;
+        dayStates[_key(failure.date)] = AgendaDayState.noOutfit;
+      }
     }
   }
   static DateTime _key(DateTime value) => DateTime(value.year, value.month, value.day);

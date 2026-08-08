@@ -169,23 +169,48 @@ class AgendaService {
     for (var offset = 0; offset < days; offset++) {
       final date = _day(from).add(Duration(days: offset));
       if (history.any((item) => _sameDay(item.date, date))) continue;
+      var phase = AgendaDayPhase.agendaContext;
       try {
         final calendar = await _events(date);
         calendarAvailable = calendarAvailable && calendar.available;
         final events = calendar.available ? calendar.events : const <CalendarEvent>[];
         final conflict = _eventConflict(events);
-        if (conflict != null) throw StateError(conflict);
+        if (conflict != null) {
+          failures.add(AgendaDayFailure(dayIndex: offset + 1, date: date,
+            phase: AgendaDayPhase.agendaContext,
+            result: AgendaDayResult.businessUnavailable,
+            reason: 'incompatibleEventContexts'));
+          _publishDayFailure(offset, date, failures.last);
+          continue;
+        }
+        phase = AgendaDayPhase.outfitGeneration;
         final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
           wardrobe: wardrobe, context: _recommendationContext(date, events, weather),
           preferences: _recommendationPreferences(preferences), proposalCount: 3));
+        phase = AgendaDayPhase.proposalSelection;
         final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
-        if (proposal == null) throw StateError('Dressing insuffisant pour composer une tenue.');
+        if (proposal == null) {
+          failures.add(AgendaDayFailure(dayIndex: offset + 1, date: date,
+            phase: phase, result: AgendaDayResult.businessUnavailable,
+            reason: result.diagnostic.failure?.name ?? 'noCompleteOutfit'));
+          _publishDayFailure(offset, date, failures.last);
+          continue;
+        }
+        phase = AgendaDayPhase.plannedOutfitConstruction;
         final value = await _saveProposal(date, preferences, proposal, weather, events.firstOrNull,
-          calendarAvailable: calendar.available);
+          calendarAvailable: calendar.available,
+          beforePersistence: () => phase = AgendaDayPhase.persistence);
         generated.add(value);
         history.add(value);
       } catch (error) {
-        failures.add(AgendaDayFailure(date, _errorMessage(error)));
+        final engineError = error is OutfitGenerationException ? error : null;
+        final failure = AgendaDayFailure(dayIndex: offset + 1, date: date,
+          phase: phase, result: AgendaDayResult.technicalFailure,
+          reason: _technicalReason(phase, error),
+          technicalType: engineError?.exceptionType ?? error.runtimeType.toString());
+        failures.add(failure);
+        _publishDayFailure(offset, date, failure,
+          enginePhase: engineError?.phase.name);
       }
     }
     lastReport = AgendaGenerationReport(generated: List.unmodifiable(generated),
@@ -233,17 +258,48 @@ class AgendaService {
   }
   Future<PlannedOutfit> _saveProposal(DateTime date, AgendaPreferences preferences,
       OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event,
-      {required bool calendarAvailable}) async {
+      {required bool calendarAvailable, void Function()? beforePersistence}) async {
     final choice = _withAgendaId(proposal.outfit, date);
-    await _ensureStored(choice);
     final now = clock();
     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
       justification: _justification(proposal, calendarAvailable: calendarAvailable), weather: weather, event: event,
       createdAt: now, updatedAt: now);
+    beforePersistence?.call();
+    await _ensureStored(choice);
     await database.savePlannedOutfit(value);
     return value;
+  }
+
+  static String _technicalReason(AgendaDayPhase phase, Object error) {
+    if (error is OutfitGenerationException) return 'outfitGenerationFailure';
+    return switch (phase) {
+      AgendaDayPhase.agendaContext => 'agendaContextFailure',
+      AgendaDayPhase.outfitGeneration => 'outfitGenerationFailure',
+      AgendaDayPhase.proposalSelection => 'proposalSelectionFailure',
+      AgendaDayPhase.plannedOutfitConstruction => 'mappingFailure',
+      AgendaDayPhase.persistence => 'databaseFailure',
+    };
+  }
+
+  static void _publishDayFailure(int offset, DateTime date,
+      AgendaDayFailure failure, {String? enginePhase}) {
+    DiagnosticService.instance.publish(module: DiagnosticModule.agenda,
+      level: failure.result == AgendaDayResult.businessUnavailable
+        ? AppDiagnosticLevel.warning : AppDiagnosticLevel.error,
+      state: failure.result == AgendaDayResult.businessUnavailable
+        ? 'Impossible' : 'Échec',
+      summary: 'Journée Agenda non planifiée',
+      source: 'AgendaService.proposePeriod', reason: failure.reason,
+      details: {
+        'dayIndex': offset + 1,
+        'date': _day(date).toIso8601String(),
+        'phase': failure.phase.name,
+        'result': failure.result.name,
+        if (failure.technicalType != null) 'technicalType': failure.technicalType,
+        if (enginePhase != null) 'enginePhase': enginePhase,
+      });
   }
   static String _justification(OutfitGenerationProposal proposal, {required bool calendarAvailable}) {
     final reasons = proposal.reasons.join(' ');
@@ -262,8 +318,6 @@ class AgendaService {
     }
     return null;
   }
-  static String _errorMessage(Object error) => error is StateError
-      ? error.message.toString() : error.toString();
   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
   static DateTime _day(DateTime value) => DateTime(value.year, value.month, value.day);
 }

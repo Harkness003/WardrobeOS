@@ -1,0 +1,437 @@
+diff --git a/lib/features/agenda/agenda_controller.dart b/lib/features/agenda/agenda_controller.dart
+index 07c451241c98b92e7fa3f28a971e361abe124c21..25754acabc08cb105499d5edf8e410c14f75310a 100644
+--- a/lib/features/agenda/agenda_controller.dart
++++ b/lib/features/agenda/agenda_controller.dart
+@@ -1,81 +1,85 @@
+ import 'package:flutter/foundation.dart';
+ import '../../models/outfit.dart';
+ import '../calendar/google_calendar_service.dart';
+ import 'agenda_models.dart';
+ import 'agenda_service.dart';
+ import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ class AgendaController extends ChangeNotifier {
+   final AgendaService service;
+   DateTime weekStart;
+   AgendaPreferences preferences;
+   List<PlannedOutfit> plans = const [];
+   bool loading = false;
+   bool calendarBusy = false;
+   Object? error;
+   final Map<DateTime, AgendaDayState> dayStates = {};
+   final Map<DateTime, String> dayErrors = {};
++  final Map<DateTime, String> dayBusinessReasons = {};
+   bool calendarAvailable = true;
+   GoogleCalendarService? googleCalendarService;
+   bool _calendarInitialized = false;
+ 
+   AgendaController({required this.service, this.googleCalendarService, this.preferences = const AgendaPreferences(), DateTime? initialDay})
+     : weekStart = _monday(initialDay ?? DateTime.now());
+ 
+   Future<void> load() async {
+     final stopwatch = Stopwatch()..start();
+     final diagnostics = DiagnosticService.instance;
+     final correlationId = diagnostics.newCorrelationId('agenda-week');
+     diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.info,
+       state: 'Démarré', summary: 'Semaine Agenda demandée', source: 'AgendaController.load',
+       correlationId: correlationId, details: {'weekStart': weekStart.toIso8601String().substring(0, 10)});
+     loading = true; error = null; notifyListeners();
+     try {
+       if (!_calendarInitialized && googleCalendarService != null) {
+         await googleCalendarService!.loadConnection();
+         _calendarInitialized = true;
+       }
+       plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
+       _syncStates();
+       final missing = _days.where((day) => forDay(day) == null).toList();
+       if (missing.isNotEmpty) {
+         for (final day in missing) { dayStates[_key(day)] = AgendaDayState.generating; }
+         notifyListeners();
+         await service.proposePeriod(weekStart, 7, preferences, existing: plans);
+         _applyReport();
+         plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
+         _syncStates();
+       }
+       diagnostics.publish(module: DiagnosticModule.agenda,
+         level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
+         state: 'Rendu', summary: '${plans.length} journée(s) planifiée(s)', source: 'AgendaController.load',
+         correlationId: correlationId, duration: stopwatch.elapsed,
+         reason: calendarAvailable ? null : 'calendarUnavailableFallbackWithoutEvents',
+         warning: calendarAvailable ? null : 'Calendrier indisponible : génération de repli sans événements.',
+         details: {'calendarAvailable': calendarAvailable, 'plans': plans.length,
+-          'dayFailures': dayErrors.length}, pipeline: [
++          'dayFailures': service.lastReport.failures
++            .where((failure) => failure.result == AgendaDayResult.technicalFailure).length,
++          'dayBusinessUnavailable': service.lastReport.failures
++            .where((failure) => failure.result == AgendaDayResult.businessUnavailable).length}, pipeline: [
+           const DiagnosticStep('loadStoredWeek'),
+           DiagnosticStep('calendar', level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+           const DiagnosticStep('wardrobeContext'), const DiagnosticStep('weather'),
+           DiagnosticStep('generationByDay', level: dayErrors.isEmpty ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+           const DiagnosticStep('render')]);
+     }
+     catch (value) {
+       diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.error,
+         state: 'Échec', summary: 'Chargement Agenda interrompu', source: 'AgendaController.load',
+         correlationId: correlationId, duration: stopwatch.elapsed, reason: 'agendaWeekLoadFailure',
+         details: {'technical': value.runtimeType.toString()});
+       error = value;
+     }
+     finally { loading = false; notifyListeners(); }
+   }
+ 
+   Future<void> changeWeek(int offset) async { weekStart = weekStart.add(Duration(days: offset * 7)); await load(); }
+   void setStrategy(PlanningStrategy strategy) { preferences = preferences.copyWith(strategy: strategy); notifyListeners(); }
+   PlannedOutfit? forDay(DateTime day) => plans.where((item) => _sameDay(item.date, day)).firstOrNull;
+   AgendaDayState stateFor(DateTime day) => dayStates[_key(day)] ?? AgendaDayState.noOutfit;
+ 
+   Future<void> proposeWeek() async {
+     loading = true; error = null; notifyListeners();
+     try { await service.proposePeriod(weekStart, 7, preferences, existing: plans); _applyReport(); plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); _syncStates(); }
+     catch (value) { error = value; }
+@@ -116,37 +120,43 @@ class AgendaController extends ChangeNotifier {
+   }
+ 
+   Future<void> disconnectCalendar() async {
+     final google = googleCalendarService;
+     if (google == null) { return; }
+     if (calendarBusy) { return; }
+     calendarBusy = true; notifyListeners();
+     try { await google.disconnect(); }
+     finally { calendarBusy = false; }
+     calendarAvailable = false;
+     notifyListeners();
+   }
+ 
+   Iterable<DateTime> get _days => Iterable.generate(7, (index) => weekStart.add(Duration(days: index)));
+   void _syncStates() {
+     for (final day in _days) {
+       final plan = forDay(day);
+       dayStates[_key(day)] = dayErrors.containsKey(_key(day)) ? AgendaDayState.error
+           : plan == null ? AgendaDayState.noOutfit
+           : plan.origin == PlanningOrigin.automatic ? AgendaDayState.generated : AgendaDayState.planned;
+     }
+   }
+   void _applyReport() {
+     calendarAvailable = service.lastReport.calendarAvailable;
+     dayErrors.clear();
++    dayBusinessReasons.clear();
+     for (final failure in service.lastReport.failures) {
+-      dayErrors[_key(failure.date)] = failure.reason;
+-      dayStates[_key(failure.date)] = AgendaDayState.error;
++      if (failure.result == AgendaDayResult.technicalFailure) {
++        dayErrors[_key(failure.date)] = failure.reason;
++        dayStates[_key(failure.date)] = AgendaDayState.error;
++      } else {
++        dayBusinessReasons[_key(failure.date)] = failure.reason;
++        dayStates[_key(failure.date)] = AgendaDayState.noOutfit;
++      }
+     }
+   }
+   static DateTime _key(DateTime value) => DateTime(value.year, value.month, value.day);
+ 
+   static DateTime _monday(DateTime value) { final day = DateTime(value.year, value.month, value.day); return day.subtract(Duration(days: day.weekday - 1)); }
+   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+ }
+ enum AgendaDayState { generating, noOutfit, generated, planned, error }
+ extension<T> on Iterable<T> { T? get firstOrNull => isEmpty ? null : first; }
+diff --git a/lib/features/agenda/agenda_models.dart b/lib/features/agenda/agenda_models.dart
+index d7a20fadea6cb7a4f635c1b26e0758b50c7d1aeb..d1012a346eff0427848f8d862656bc13d547b18a 100644
+--- a/lib/features/agenda/agenda_models.dart
++++ b/lib/features/agenda/agenda_models.dart
+@@ -1,40 +1,56 @@
+ import '../../features/calendar/calendar_event.dart';
+ import '../../models/outfit.dart';
+ import '../../weather/models/weather_data.dart';
+ 
+ enum PlanningStrategy { minimal, economical, rotation, variety, elegance, comfort, weather, professional, custom }
+ enum PlannedOutfitStatus { proposed, confirmed, worn, ignored, cancelled }
+ enum PlanningOrigin { manual, automatic, assistant }
+ enum OutfitReuseKind { complete, partial, variant, none }
+ 
+ class AgendaDayFailure {
++  final int dayIndex;
+   final DateTime date;
++  final AgendaDayPhase phase;
++  final AgendaDayResult result;
+   final String reason;
+-  const AgendaDayFailure(this.date, this.reason);
++  final String? technicalType;
++  const AgendaDayFailure({required this.dayIndex, required this.date,
++    required this.phase, required this.result, required this.reason,
++    this.technicalType});
+ }
+ 
++enum AgendaDayPhase {
++  agendaContext,
++  outfitGeneration,
++  proposalSelection,
++  plannedOutfitConstruction,
++  persistence,
++}
++
++enum AgendaDayResult { businessUnavailable, technicalFailure }
++
+ class AgendaGenerationReport {
+   final List<PlannedOutfit> generated;
+   final List<AgendaDayFailure> failures;
+   final bool calendarAvailable;
+   const AgendaGenerationReport({this.generated = const [], this.failures = const [], this.calendarAvailable = true});
+ }
+ 
+ extension PlanningStrategyLabel on PlanningStrategy {
+   String get label => switch (this) {
+     PlanningStrategy.minimal => 'Minimal', PlanningStrategy.economical => 'Économique',
+     PlanningStrategy.rotation => 'Rotation', PlanningStrategy.variety => 'Variété',
+     PlanningStrategy.elegance => 'Élégance', PlanningStrategy.comfort => 'Confort',
+     PlanningStrategy.weather => 'Météo', PlanningStrategy.professional => 'Professionnel',
+     PlanningStrategy.custom => 'Personnalisé',
+   };
+ }
+ 
+ class AgendaRule {
+   final String type;
+   final Map<String, Object?> parameters;
+   final bool enabled;
+   const AgendaRule({required this.type, this.parameters = const {}, this.enabled = true});
+ 
+   Map<String, Object?> toJson() => {'type': type, 'parameters': parameters, 'enabled': enabled};
+   factory AgendaRule.fromJson(Map<String, Object?> json) => AgendaRule(
+diff --git a/lib/features/agenda/agenda_service.dart b/lib/features/agenda/agenda_service.dart
+index 0fb19f32484bb470a77d94ef15b93c8ffe9aa1af..66ae39d98d9f5844deb41274bf154f27dc0bc4cb 100644
+--- a/lib/features/agenda/agenda_service.dart
++++ b/lib/features/agenda/agenda_service.dart
+@@ -147,125 +147,179 @@ class AgendaService {
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+       justification: _justification(proposal, calendarAvailable: calendar.available), weather: weather, event: events.firstOrNull,
+       createdAt: now, updatedAt: now);
+     await database.savePlannedOutfit(value);
+     diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.success,
+       state: 'Générée', summary: 'Proposition quotidienne générée',
+       source: 'AgendaService.proposeDay', correlationId: correlationId,
+       details: {'calendarApplied': events.isNotEmpty, 'weatherApplied': weather != null});
+     return value;
+   }
+ 
+   Future<List<PlannedOutfit>> proposePeriod(DateTime from, int days,
+       AgendaPreferences preferences, {List<PlannedOutfit> existing = const []}) async {
+     final generated = <PlannedOutfit>[];
+     final failures = <AgendaDayFailure>[];
+     var calendarAvailable = true;
+     final history = [...existing]..sort((a, b) => a.date.compareTo(b.date));
+     // One immutable wardrobe snapshot and one weather request per generation.
+     final wardrobe = (await aiContextService.build()).garments;
+     final weather = await _optionalWeather();
+     for (var offset = 0; offset < days; offset++) {
+       final date = _day(from).add(Duration(days: offset));
+       if (history.any((item) => _sameDay(item.date, date))) continue;
++      var phase = AgendaDayPhase.agendaContext;
+       try {
+         final calendar = await _events(date);
+         calendarAvailable = calendarAvailable && calendar.available;
+         final events = calendar.available ? calendar.events : const <CalendarEvent>[];
+         final conflict = _eventConflict(events);
+-        if (conflict != null) throw StateError(conflict);
++        if (conflict != null) {
++          failures.add(AgendaDayFailure(dayIndex: offset + 1, date: date,
++            phase: AgendaDayPhase.agendaContext,
++            result: AgendaDayResult.businessUnavailable,
++            reason: 'incompatibleEventContexts'));
++          _publishDayFailure(offset, date, failures.last);
++          continue;
++        }
++        phase = AgendaDayPhase.outfitGeneration;
+         final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
+           wardrobe: wardrobe, context: _recommendationContext(date, events, weather),
+           preferences: _recommendationPreferences(preferences), proposalCount: 3));
++        phase = AgendaDayPhase.proposalSelection;
+         final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
+-        if (proposal == null) throw StateError('Dressing insuffisant pour composer une tenue.');
++        if (proposal == null) {
++          failures.add(AgendaDayFailure(dayIndex: offset + 1, date: date,
++            phase: phase, result: AgendaDayResult.businessUnavailable,
++            reason: result.diagnostic.failure?.name ?? 'noCompleteOutfit'));
++          _publishDayFailure(offset, date, failures.last);
++          continue;
++        }
++        phase = AgendaDayPhase.plannedOutfitConstruction;
+         final value = await _saveProposal(date, preferences, proposal, weather, events.firstOrNull,
+-          calendarAvailable: calendar.available);
++          calendarAvailable: calendar.available,
++          beforePersistence: () => phase = AgendaDayPhase.persistence);
+         generated.add(value);
+         history.add(value);
+       } catch (error) {
+-        failures.add(AgendaDayFailure(date, _errorMessage(error)));
++        final engineError = error is OutfitGenerationException ? error : null;
++        final failure = AgendaDayFailure(dayIndex: offset + 1, date: date,
++          phase: phase, result: AgendaDayResult.technicalFailure,
++          reason: _technicalReason(phase, error),
++          technicalType: engineError?.exceptionType ?? error.runtimeType.toString());
++        failures.add(failure);
++        _publishDayFailure(offset, date, failure,
++          enginePhase: engineError?.phase.name);
+       }
+     }
+     lastReport = AgendaGenerationReport(generated: List.unmodifiable(generated),
+       failures: List.unmodifiable(failures), calendarAvailable: calendarAvailable);
+     return List.unmodifiable(generated);
+   }
+ 
+   RecommendationContext _recommendationContext(DateTime date, List<CalendarEvent> events,
+       WeatherData? weather) => calendarEventContextMapper.map(
+     date: date,
+     events: events,
+     weather: weather == null ? null : RecommendationWeather(
+       temperature: weather.temperature, condition: weather.description,
+       windSpeed: weather.windSpeed,
+       isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
+   );
+ 
+   static RecommendationPreferences _recommendationPreferences(AgendaPreferences value) =>
+       const RecommendationPreferences();
+ 
+   Future<void> _ensureStored(Outfit outfit) async {
+     if (await database.getOutfitById(outfit.id) == null) await database.createOutfit(outfit);
+     final garments = List<Garment>.from(outfit.allGarments, growable: false);
+     for (final garment in garments) {
+       await database.addGarmentToOutfit(outfit.id, garment.id);
+     }
+   }
+ 
+   Future<({bool available, List<CalendarEvent> events})> _events(DateTime date) async {
+     try { return (events: await calendarService.getTodayEvents(day: date),
+       available: calendarService is! CalendarAvailability ||
+           (calendarService as CalendarAvailability).isCalendarAvailable); }
+     catch (_) { return (events: const <CalendarEvent>[], available: false); }
+   }
+   Future<WeatherData?> _optionalWeather() async {
+     try { return await weatherService?.getCurrentWeather(); } catch (_) { return null; }
+   }
+ 
+   Outfit _withAgendaId(Outfit source, DateTime date) {
+     final now = clock();
+     return Outfit(id: 'agenda-${_day(date).millisecondsSinceEpoch}-${now.microsecondsSinceEpoch}',
+       name: source.name, season: source.season, favorite: source.favorite,
+       createdAt: now, updatedAt: now, garments: source.garments,
+       score: source.score, justification: source.justification);
+   }
+   Future<PlannedOutfit> _saveProposal(DateTime date, AgendaPreferences preferences,
+       OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event,
+-      {required bool calendarAvailable}) async {
++      {required bool calendarAvailable, void Function()? beforePersistence}) async {
+     final choice = _withAgendaId(proposal.outfit, date);
+-    await _ensureStored(choice);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+       justification: _justification(proposal, calendarAvailable: calendarAvailable), weather: weather, event: event,
+       createdAt: now, updatedAt: now);
++    beforePersistence?.call();
++    await _ensureStored(choice);
+     await database.savePlannedOutfit(value);
+     return value;
+   }
++
++  static String _technicalReason(AgendaDayPhase phase, Object error) {
++    if (error is OutfitGenerationException) return 'outfitGenerationFailure';
++    return switch (phase) {
++      AgendaDayPhase.agendaContext => 'agendaContextFailure',
++      AgendaDayPhase.outfitGeneration => 'outfitGenerationFailure',
++      AgendaDayPhase.proposalSelection => 'proposalSelectionFailure',
++      AgendaDayPhase.plannedOutfitConstruction => 'mappingFailure',
++      AgendaDayPhase.persistence => 'databaseFailure',
++    };
++  }
++
++  static void _publishDayFailure(int offset, DateTime date,
++      AgendaDayFailure failure, {String? enginePhase}) {
++    DiagnosticService.instance.publish(module: DiagnosticModule.agenda,
++      level: failure.result == AgendaDayResult.businessUnavailable
++        ? AppDiagnosticLevel.warning : AppDiagnosticLevel.error,
++      state: failure.result == AgendaDayResult.businessUnavailable
++        ? 'Impossible' : 'Échec',
++      summary: 'Journée Agenda non planifiée',
++      source: 'AgendaService.proposePeriod', reason: failure.reason,
++      details: {
++        'dayIndex': offset + 1,
++        'date': _day(date).toIso8601String(),
++        'phase': failure.phase.name,
++        'result': failure.result.name,
++        if (failure.technicalType != null) 'technicalType': failure.technicalType,
++        if (enginePhase != null) 'enginePhase': enginePhase,
++      });
++  }
+   static String _justification(OutfitGenerationProposal proposal, {required bool calendarAvailable}) {
+     final reasons = proposal.reasons.join(' ');
+     if (calendarAvailable) return reasons;
+     return [
+       'Calendrier indisponible, proposition générée sans contexte événement.',
+       if (reasons.trim().isNotEmpty) reasons,
+     ].join(' ');
+   }
+ 
+   static String? _eventConflict(List<CalendarEvent> events) {
+     final formalities = events.map((event) => event.formality).toSet();
+     if (formalities.contains(EventFormality.sport) &&
+         (formalities.contains(EventFormality.formal) || formalities.contains(EventFormality.business))) {
+       return 'Conflit entre un événement sportif et un événement formel : aucune tenue unique cohérente.';
+     }
+     return null;
+   }
+-  static String _errorMessage(Object error) => error is StateError
+-      ? error.message.toString() : error.toString();
+   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+   static DateTime _day(DateTime value) => DateTime(value.year, value.month, value.day);
+ }
+ 
+ extension<T> on Iterable<T> { T? get firstOrNull => isEmpty ? null : first; }
+diff --git a/test/features/agenda/agenda_models_test.dart b/test/features/agenda/agenda_models_test.dart
+index 37b389981eff419256b54eb28c7ac5538a7962ed..0d8930e42fc2c4006a2f75a05e0a58a1fc45c3cb 100644
+--- a/test/features/agenda/agenda_models_test.dart
++++ b/test/features/agenda/agenda_models_test.dart
+@@ -27,26 +27,41 @@ void main() {
+ 
+   test('mode minimal autorise explicitement cinq jours consécutifs', () {
+     const value = AgendaPreferences(strategy: PlanningStrategy.minimal,
+       allowCompleteOutfitReuse: true, maximumConsecutiveDays: 5);
+     expect(value.allowCompleteOutfitReuse, isTrue);
+     expect(value.maximumConsecutiveDays, 5);
+   });
+ 
+   test('mode économique configure une réutilisation partielle sûre', () {
+     const value = AgendaPreferences(strategy: PlanningStrategy.economical);
+     expect(value.reusableCategories, containsAll(<OutfitCategory>[
+       OutfitCategory.bottom, OutfitCategory.jacket,
+       OutfitCategory.coat, OutfitCategory.shoes,
+     ]));
+     expect(value.dailyRefreshCategories, contains(OutfitCategory.top));
+   });
+ 
+   test('règle personnalisée conserve des paramètres extensibles', () {
+     const rule = AgendaRule(type: 'maximum_category_days', parameters: {
+       'category': 'bottom', 'days': 3,
+     });
+     final restored = AgendaRule.fromJson(rule.toJson());
+     expect(restored.type, rule.type);
+     expect(restored.parameters['days'], 3);
+   });
++
++  test('un échec Agenda distingue phase, résultat métier et index', () {
++    final failure = AgendaDayFailure(
++      dayIndex: 3,
++      date: DateTime(2026, 8, 5),
++      phase: AgendaDayPhase.proposalSelection,
++      result: AgendaDayResult.businessUnavailable,
++      reason: 'missingBottom',
++    );
++
++    expect(failure.dayIndex, 3);
++    expect(failure.phase, AgendaDayPhase.proposalSelection);
++    expect(failure.result, AgendaDayResult.businessUnavailable);
++    expect(failure.technicalType, isNull);
++  });
+ }
