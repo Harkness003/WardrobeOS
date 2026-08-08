@@ -46,18 +46,18 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
       _initializeCamera();
     } else if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
       unawaited(capture.suspend());
-      if (mounted) setState(() => cameraLoading = true);
+      if (mounted) { setState(() => cameraLoading = true); }
     }
   }
 
   Future<void> _initializeCamera() async {
-    if (!mounted) return;
+    if (!mounted) { return; }
     setState(() { cameraLoading = true; cameraError = null; });
     try {
       await capture.resume();
-      if (mounted) setState(() => cameraLoading = false);
+      if (mounted) { setState(() => cameraLoading = false); }
     } on CameraException catch (error) {
-      if (!mounted) return;
+      if (!mounted) { return; }
       setState(() {
         cameraLoading = false;
         cameraError = error.code == 'CameraAccessDenied' || error.code == 'CameraAccessDeniedWithoutPrompt'
@@ -65,7 +65,7 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
             : 'La caméra intégrée est indisponible. Vous pouvez poursuivre avec la caméra système.';
       });
     } catch (_) {
-      if (mounted) setState(() { cameraLoading = false; cameraError = 'Impossible d’initialiser la caméra intégrée.'; });
+      if (mounted) { setState(() { cameraLoading = false; cameraError = 'Impossible d’initialiser la caméra intégrée.'; }); }
     }
   }
 
@@ -80,13 +80,13 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
   }
 
   Future<void> _capture({bool useFallback = false}) async {
-    if (capturing) return;
+    if (capturing) { return; }
     final watch = Stopwatch()..start();
     setState(() => capturing = true);
     String? persisted;
     try {
       final photoPath = await (useFallback ? fallbackCapture : capture).capture();
-      if (photoPath == null) return;
+      if (photoPath == null) { return; }
       persisted = await ImageStorageService.persist(photoPath);
       watch.stop();
       final task = await service.enqueue(persisted, captureDuration: watch.elapsed);
@@ -97,10 +97,10 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
         message = 'Photo enregistrée — vous pouvez continuer.';
       });
     } catch (_) {
-      if (persisted != null) await File(persisted).delete().catchError((_) => File(persisted!));
-      if (mounted) setState(() => message = 'Impossible d’enregistrer la photo. Réessayez.');
+      if (persisted != null) { await File(persisted).delete().catchError((_) => File(persisted!)); }
+      if (mounted) { setState(() => message = 'Impossible d’enregistrer la photo. Réessayez.'); }
     } finally {
-      if (mounted) setState(() => capturing = false);
+      if (mounted) { setState(() => capturing = false); }
     }
   }
 
@@ -112,9 +112,9 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
     };
     try {
       await capture.setFlashMode(next);
-      if (mounted) setState(() => flashMode = next);
+      if (mounted) { setState(() => flashMode = next); }
     } catch (_) {
-      if (mounted) setState(() => message = 'Ce mode de flash n’est pas disponible.');
+      if (mounted) { setState(() => message = 'Ce mode de flash n’est pas disponible.'); }
     }
   }
 
@@ -128,14 +128,14 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
 
   Future<void> _cancelLast({bool retake = false}) async {
     final task = lastCapture;
-    if (task == null) return;
+    if (task == null) { return; }
     final cancelled = await service.cancel(task.id);
-    if (!mounted) return;
+    if (!mounted) { return; }
     setState(() {
-      if (cancelled) lastCapture = null;
+      if (cancelled) { lastCapture = null; }
       message = cancelled ? 'Capture annulée.' : 'L’analyse a déjà commencé ; la fiche reste en cours.';
     });
-    if (cancelled && retake) await _capture();
+    if (cancelled && retake) { await _capture(); }
   }
 
   Future<void> _finish() async {
@@ -177,7 +177,7 @@ class _WardrobeImportScreenState extends State<WardrobeImportScreen> with Widget
   );
 
   Widget _cameraBody() {
-    if (cameraLoading) return const Center(child: CircularProgressIndicator());
+    if (cameraLoading) { return const Center(child: CircularProgressIndicator()); }
     if (cameraError case final error?) {
       return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Icon(Icons.no_photography_outlined, color: Colors.white, size: 56),

@@ -222,7 +222,7 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
     final endMap = (json['end'] as Map).cast<String, Object?>();
     final allDay = startMap['dateTime'] == null;
     return _mapper.applyInferredConstraints(CalendarEvent(
-      id: '${calendarId}:${json['id']}', title: json['summary'] as String? ?? 'Sans titre',
+      id: '$calendarId:${json['id']}', title: json['summary'] as String? ?? 'Sans titre',
       startsAt: parse(startMap), endsAt: parse(endMap), isAllDay: allDay,
       location: json['location'] as String?, description: json['description'] as String?,
       type: CalendarEventType.other, formality: EventFormality.casual,

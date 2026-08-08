@@ -49,15 +49,15 @@ void main() {
   final translatedComparison = RegExp(r'''(?:name|label|displayName)\s*(?:==|!=)\s*['\"]''');
   for (final file in dartFiles) {
     final source = file.readAsStringSync();
-    if (canonicalDisplay.hasMatch(source)) errors.add('${file.path}: possible canonical identifier rendered by Text');
-    if (translatedComparison.hasMatch(source)) errors.add('${file.path}: possible comparison against displayed text');
+    if (canonicalDisplay.hasMatch(source)) { errors.add('${file.path}: possible canonical identifier rendered by Text'); }
+    if (translatedComparison.hasMatch(source)) { errors.add('${file.path}: possible comparison against displayed text'); }
     if (source.contains("rootBundle.loadString('assets/i18n/") && !file.path.endsWith('lib/l10n/app_localizations.dart')) {
       errors.add('${file.path}: competing localization loader');
     }
   }
   if (errors.isNotEmpty) {
     stderr.writeln('i18n audit failed (${errors.length} issue(s)):');
-    for (final error in errors) stderr.writeln(' - $error');
+    for (final error in errors) { stderr.writeln(' - $error'); }
     exitCode = 1;
   } else {
     stdout.writeln('i18n audit passed: resources and architecture are consistent.');

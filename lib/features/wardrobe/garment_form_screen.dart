@@ -247,7 +247,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
       const SizedBox(height: 18),
       TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Nom *', helperText: 'Proposé par l’IA · corrigez seulement si nécessaire'), validator: (v) => v == null || v.trim().isEmpty ? 'Le nom est obligatoire' : null),
       const SizedBox(height: 10), TextFormField(controller: _brand, decoration: const InputDecoration(labelText: 'Marque')),
-      const SizedBox(height: 10), DropdownButtonFormField(value: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory.clear(); })),
+      const SizedBox(height: 10), DropdownButtonFormField(initialValue: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory.clear(); })),
       if (_category == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherCategory, decoration: const InputDecoration(labelText: 'Votre catégorie *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la catégorie' : null)],
       const SizedBox(height: 10), RawAutocomplete<String>(
         textEditingController: _subCategory,
@@ -266,7 +266,7 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
             children: options.map((value) => ListTile(title: Text(value), onTap: () => onSelected(value))).toList())))),
       ),
       const SizedBox(height: 10), TextFormField(controller: _color, decoration: const InputDecoration(labelText: 'Couleur')),
-      const SizedBox(height: 10), DropdownButtonFormField<String>(value: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _material = v)),
+      const SizedBox(height: 10), DropdownButtonFormField<String>(initialValue: _material, decoration: const InputDecoration(labelText: 'Matière'), items: materials.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => _material = v)),
       if (_material == 'Autre...') ...[const SizedBox(height: 10), TextFormField(controller: _otherMaterial, decoration: const InputDecoration(labelText: 'Votre matière *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la matière' : null)],
       const SizedBox(height: 10), _MultiChoice(label: 'Saisons', values: seasons, selected: _seasons, onChanged: (v) => setState(() => _seasons = v)),
       const SizedBox(height: 10), TextFormField(controller: _size, decoration: const InputDecoration(labelText: 'Taille (facultative)', helperText: 'Jamais estimée par l’IA')),

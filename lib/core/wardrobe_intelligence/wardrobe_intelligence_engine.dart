@@ -82,7 +82,7 @@ class WardrobeIntelligenceEngine {
   }
 
   static List<Garment> _underused(List<Garment> garments) {
-    if (!garments.any((item) => item.wearCount > 0 || item.lastWorn != null)) return const [];
+    if (!garments.any((item) => item.wearCount > 0 || item.lastWorn != null)) { return const []; }
     final used = garments.where((item) => item.wearCount > 0).map((item) => item.wearCount).toList()..sort();
     final threshold = used.isEmpty ? 0 : used[(used.length - 1) ~/ 4];
     return List.unmodifiable(garments.where((item) => item.wearCount <= threshold));
@@ -95,7 +95,7 @@ class WardrobeIntelligenceEngine {
         item.couleurPrincipale ?? item.color,
         item.styleAnalysis?.register]
           .map(_key).where((value) => value.isNotEmpty).toList();
-      if (parts.length < 3) continue;
+      if (parts.length < 3) { continue; }
       groups.putIfAbsent(parts.join('|'), () => []).add(item);
     }
     return List.unmodifiable(groups.entries
@@ -114,7 +114,7 @@ class WardrobeIntelligenceEngine {
     List<WardrobeGap> gaps,
     List<WardrobeDuplicateGroup> duplicates,
   ) {
-    if (garments.isEmpty) return const WardrobeBalanceScore(value: 0, components: []);
+    if (garments.isEmpty) { return const WardrobeBalanceScore(value: 0, components: []); }
     double diversity(WardrobeDistribution value, int target) =>
         (value.counts.length / target).clamp(0, 1);
     final components = <WardrobeBalanceComponent>[
@@ -140,12 +140,14 @@ class WardrobeIntelligenceEngine {
     final result = <WardrobeInsight>[];
     if (styles.counts.isNotEmpty) {
       final dominant = styles.counts.entries.first;
-      if (styles.shareOf(dominant.key) >= .4) result.add(WardrobeInsight(
-        code: 'dominant_style', type: WardrobeInsightType.dominant,
-        severity: WardrobeInsightSeverity.info, title: 'Style dominant',
-        message: 'Votre dressing est principalement ${dominant.key}.',
-        evidence: {'style': dominant.key, 'count': dominant.value, 'share': styles.shareOf(dominant.key)},
-      ));
+      if (styles.shareOf(dominant.key) >= .4) {
+        result.add(WardrobeInsight(
+          code: 'dominant_style', type: WardrobeInsightType.dominant,
+          severity: WardrobeInsightSeverity.info, title: 'Style dominant',
+          message: 'Votre dressing est principalement ${dominant.key}.',
+          evidence: {'style': dominant.key, 'count': dominant.value, 'share': styles.shareOf(dominant.key)},
+        ));
+      }
     }
     for (final gap in gaps) {
       result.add(WardrobeInsight(code: gap.code, type: WardrobeInsightType.gap,
@@ -159,24 +161,28 @@ class WardrobeIntelligenceEngine {
         evidence: {'role': group.role, 'count': group.garments.length},
         garmentIds: group.garments.map((item) => item.id).toList(growable: false)));
     }
-    if (underused.isNotEmpty) result.add(WardrobeInsight(
-      code: 'underused_items', type: WardrobeInsightType.usage,
-      severity: WardrobeInsightSeverity.info, title: 'Pièces peu portées',
-      message: '${underused.length} pièce(s) sont peu portées par rapport au dressing.',
-      evidence: {'count': underused.length},
-      garmentIds: underused.map((item) => item.id).toList(growable: false),
-    ));
+    if (underused.isNotEmpty) {
+      result.add(WardrobeInsight(
+        code: 'underused_items', type: WardrobeInsightType.usage,
+        severity: WardrobeInsightSeverity.info, title: 'Pièces peu portées',
+        message: '${underused.length} pièce(s) sont peu portées par rapport au dressing.',
+        evidence: {'count': underused.length},
+        garmentIds: underused.map((item) => item.id).toList(growable: false),
+      ));
+    }
     final hotWeather = garments.where((item) {
       final thermal = item.thermalProfile;
       return thermal != null && thermal.insulation.index <= InsulationLevel.low.index &&
           thermal.breathability == BreathabilityLevel.high;
     }).length;
-    if (garments.length >= 5 && hotWeather / garments.length < .15) result.add(WardrobeInsight(
-      code: 'low_hot_weather_coverage', type: WardrobeInsightType.gap,
-      severity: WardrobeInsightSeverity.recommendation, title: 'Fortes chaleurs',
-      message: 'Vous disposez de peu de vêtements explicitement adaptés aux fortes chaleurs.',
-      evidence: {'count': hotWeather, 'total': garments.length},
-    ));
+    if (garments.length >= 5 && hotWeather / garments.length < .15) {
+      result.add(WardrobeInsight(
+        code: 'low_hot_weather_coverage', type: WardrobeInsightType.gap,
+        severity: WardrobeInsightSeverity.recommendation, title: 'Fortes chaleurs',
+        message: 'Vous disposez de peu de vêtements explicitement adaptés aux fortes chaleurs.',
+        evidence: {'count': hotWeather, 'total': garments.length},
+      ));
+    }
     return List.unmodifiable(result);
   }
 

@@ -117,13 +117,15 @@ class OutfitGenerationEngine {
       return OutfitGenerationResult._(
         const [], diagnostic, message == null ? const [] : [message]);
     }
-    if (wardrobe.isEmpty) return failure(OutfitGenerationFailure.emptyWardrobe);
-    if (!availableCategories.contains(OutfitCategory.top)) return failure(OutfitGenerationFailure.missingTop);
-    if (!availableCategories.contains(OutfitCategory.bottom)) return failure(OutfitGenerationFailure.missingBottom);
-    if (request.proposalCount == 0) return OutfitGenerationResult._(const [],
-      OutfitGenerationDiagnostic(garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
-        candidateCount: 0, producedCount: 0, rejectedCount: 0,
-        contextLoadDuration: request.contextLoadDuration, generationDuration: stopwatch.elapsed));
+    if (wardrobe.isEmpty) { return failure(OutfitGenerationFailure.emptyWardrobe); }
+    if (!availableCategories.contains(OutfitCategory.top)) { return failure(OutfitGenerationFailure.missingTop); }
+    if (!availableCategories.contains(OutfitCategory.bottom)) { return failure(OutfitGenerationFailure.missingBottom); }
+    if (request.proposalCount == 0) {
+      return OutfitGenerationResult._(const [],
+        OutfitGenerationDiagnostic(garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
+          candidateCount: 0, producedCount: 0, rejectedCount: 0,
+          contextLoadDuration: request.contextLoadDuration, generationDuration: stopwatch.elapsed));
+    }
 
     // Rank each category once. This bounds work to O(n log n), rather than
     // enumerating the Cartesian product (which does not scale to large closets).
@@ -150,11 +152,11 @@ class OutfitGenerationEngine {
       final selected = <OutfitCategory, List<Garment>>{};
       for (final category in OutfitCategory.values) {
         final pool = pools[category];
-        if (pool == null || pool.isEmpty) continue;
+        if (pool == null || pool.isEmpty) { continue; }
         selected[category] = [pool[offset % pool.length]];
       }
       final ids = selected.values.expand((items) => items).map((item) => item.id).toList()..sort();
-      if (ids.isEmpty || !signatures.add(ids.join('|'))) continue;
+      if (ids.isEmpty || !signatures.add(ids.join('|'))) { continue; }
       final now = clock();
       generated.add(Outfit(
         id: 'generated-${now.microsecondsSinceEpoch}-${generated.length}',
@@ -230,7 +232,7 @@ class OutfitGenerationEngine {
         'La rotation évite les pièces portées le plus récemment.',
       if (diversity >= .6) 'La tenue combine des catégories complémentaires.',
     ];
-    if (reasons.isEmpty) reasons.add('Meilleur équilibre disponible dans le dressing actuel.');
+    if (reasons.isEmpty) { reasons.add('Meilleur équilibre disponible dans le dressing actuel.'); }
     final criterion = OutfitScore(
       styleCoherence: OutfitCriterionScore(value: style, explanation: 'Cohérence des styles et couleurs.'),
       weatherSuitability: OutfitCriterionScore(value: thermal, explanation: 'Compatibilité avec la météo disponible.'),
@@ -261,7 +263,7 @@ class OutfitGenerationEngine {
   /// including Daily. No garment temperature range is consulted.
   OutfitThermalAssessment? evaluateThermal(List<Garment> items, RecommendationContext context) {
     final apparent = context.weather?.apparentTemperature;
-    if (apparent == null || items.isEmpty) return null;
+    if (apparent == null || items.isEmpty) { return null; }
     final profiles = items.map(_thermal).toList(growable: false);
     double insulationOf(InsulationLevel value) => const [.25, .55, 1.0, 1.7, 2.5][value.index];
     double breathabilityOf(BreathabilityLevel value) => const [.25, .6, 1.0][value.index];
@@ -278,7 +280,7 @@ class OutfitGenerationEngine {
         : difference > .7 ? ThermalVerdict.tooWarm
         : difference < -1 ? ThermalVerdict.tooLight : ThermalVerdict.ideal;
     final reasons = <String>[];
-    if (hasMid) reasons.add('La couche intermédiaire apporte l’isolation nécessaire.');
+    if (hasMid) { reasons.add('La couche intermédiaire apporte l’isolation nécessaire.'); }
     if (hasOuter && (context.weather?.windSpeed ?? 0) >= 15 &&
         profiles.any((p) => p.primaryRole == LayerRole.outer && p.windProtection != WeatherProtection.none)) {
       reasons.add('La couche extérieure protège du vent.');
@@ -297,10 +299,10 @@ class OutfitGenerationEngine {
     if ((context.weather?.humidity ?? 0) >= 75 && apparent >= 20 && breathability < .65) {
       score = (score - .2).clamp(0, 1).toDouble(); reasons.add('La respirabilité cumulée est faible pour cette forte humidité.');
     }
-    if (verdict == ThermalVerdict.tooWarm) reasons.add('Cette tenue est trop chaude pour la température ressentie.');
-    if (verdict == ThermalVerdict.excessiveInsulation) reasons.add('L’isolation cumulée est excessive.');
-    if (verdict == ThermalVerdict.tooLight) reasons.add('Cette tenue est trop légère : une couche isolante est nécessaire.');
-    if (verdict == ThermalVerdict.ideal && reasons.isEmpty) reasons.add('L’isolation et la respirabilité cumulées sont adaptées.');
+    if (verdict == ThermalVerdict.tooWarm) { reasons.add('Cette tenue est trop chaude pour la température ressentie.'); }
+    if (verdict == ThermalVerdict.excessiveInsulation) { reasons.add('L’isolation cumulée est excessive.'); }
+    if (verdict == ThermalVerdict.tooLight) { reasons.add('Cette tenue est trop légère : une couche isolante est nécessaire.'); }
+    if (verdict == ThermalVerdict.ideal && reasons.isEmpty) { reasons.add('L’isolation et la respirabilité cumulées sont adaptées.'); }
     return OutfitThermalAssessment(score: score, verdict: verdict,
       accumulatedInsulation: insulation, accumulatedBreathability: breathability,
       reasons: List.unmodifiable(reasons));
@@ -308,8 +310,8 @@ class OutfitGenerationEngine {
 
   static OutfitCompleteness validateOutfit(Outfit outfit) {
     final count = outfit.allGarments.length;
-    if (count <= 1) return OutfitCompleteness.incomplete;
-    if (count == 2) return OutfitCompleteness.acceptable;
+    if (count <= 1) { return OutfitCompleteness.incomplete; }
+    if (count == 2) { return OutfitCompleteness.acceptable; }
     return OutfitCompleteness.recommended;
   }
 
@@ -317,14 +319,14 @@ class OutfitGenerationEngine {
 
   static OutfitCategory categoryFor(Garment garment) {
     final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.thermalProfile?.primaryRole.name ?? garment.layerType ?? ''}'.toLowerCase();
-    if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) return OutfitCategory.shoes;
-    if (value.contains('pantal') || value.contains('jean') || value.contains('jupe') || value.contains('short') || value.contains('bas') || value.contains('bottom')) return OutfitCategory.bottom;
-    if (value.contains('manteau') || value.contains('parka') || value.contains('doudoune')) return OutfitCategory.coat;
-    if (value.contains('veste') || value.contains('blazer') || value.contains('trench') || value.contains('outer') || value.contains('outerwear')) return OutfitCategory.jacket;
-    if (value.contains('sac')) return OutfitCategory.bag;
-    if (value.contains('bijou') || value.contains('collier') || value.contains('bracelet')) return OutfitCategory.jewelry;
-    if (value.contains('access')) return OutfitCategory.accessory;
-    if (value.contains('haut') || value.contains('top') || value.contains('chemise') || value.contains('pull') || value.contains('polo') || value.contains('t-shirt') || value.contains('tshirt')) return OutfitCategory.top;
+    if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) { return OutfitCategory.shoes; }
+    if (value.contains('pantal') || value.contains('jean') || value.contains('jupe') || value.contains('short') || value.contains('bas') || value.contains('bottom')) { return OutfitCategory.bottom; }
+    if (value.contains('manteau') || value.contains('parka') || value.contains('doudoune')) { return OutfitCategory.coat; }
+    if (value.contains('veste') || value.contains('blazer') || value.contains('trench') || value.contains('outer') || value.contains('outerwear')) { return OutfitCategory.jacket; }
+    if (value.contains('sac')) { return OutfitCategory.bag; }
+    if (value.contains('bijou') || value.contains('collier') || value.contains('bracelet')) { return OutfitCategory.jewelry; }
+    if (value.contains('access')) { return OutfitCategory.accessory; }
+    if (value.contains('haut') || value.contains('top') || value.contains('chemise') || value.contains('pull') || value.contains('polo') || value.contains('t-shirt') || value.contains('tshirt')) { return OutfitCategory.top; }
     return OutfitCategory.otherLayer;
   }
 

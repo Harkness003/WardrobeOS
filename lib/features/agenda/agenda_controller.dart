@@ -19,8 +19,8 @@ class AgendaController extends ChangeNotifier {
   GoogleCalendarService? googleCalendarService;
   bool _calendarInitialized = false;
 
-  AgendaController({required this.service, this.googleCalendarService, AgendaPreferences preferences = const AgendaPreferences(), DateTime? initialDay})
-    : preferences = preferences, weekStart = _monday(initialDay ?? DateTime.now());
+  AgendaController({required this.service, this.googleCalendarService, this.preferences = const AgendaPreferences(), DateTime? initialDay})
+    : weekStart = _monday(initialDay ?? DateTime.now());
 
   Future<void> load() async {
     final stopwatch = Stopwatch()..start();
@@ -39,7 +39,7 @@ class AgendaController extends ChangeNotifier {
       _syncStates();
       final missing = _days.where((day) => forDay(day) == null).toList();
       if (missing.isNotEmpty) {
-        for (final day in missing) dayStates[_key(day)] = AgendaDayState.generating;
+        for (final day in missing) { dayStates[_key(day)] = AgendaDayState.generating; }
         notifyListeners();
         await service.proposePeriod(weekStart, 7, preferences, existing: plans);
         _applyReport();
@@ -101,7 +101,7 @@ class AgendaController extends ChangeNotifier {
 
   Future<void> refreshCalendar() async {
     final google = googleCalendarService;
-    if (google == null || calendarBusy) return;
+    if (google == null || calendarBusy) { return; }
     calendarBusy = true; notifyListeners();
     try { await google.refresh(from: weekStart, to: weekStart.add(const Duration(days: 7))); }
     finally { calendarBusy = false; calendarAvailable = google.isCalendarAvailable; notifyListeners(); }
@@ -109,7 +109,7 @@ class AgendaController extends ChangeNotifier {
 
   Future<void> connectCalendar() async {
     final google = googleCalendarService;
-    if (google == null || calendarBusy) return;
+    if (google == null || calendarBusy) { return; }
     calendarBusy = true; notifyListeners();
     try { await google.authenticate(); }
     finally { calendarBusy = false; calendarAvailable = google.isCalendarAvailable; notifyListeners(); }
@@ -117,8 +117,8 @@ class AgendaController extends ChangeNotifier {
 
   Future<void> disconnectCalendar() async {
     final google = googleCalendarService;
-    if (google == null) return;
-    if (calendarBusy) return;
+    if (google == null) { return; }
+    if (calendarBusy) { return; }
     calendarBusy = true; notifyListeners();
     try { await google.disconnect(); }
     finally { calendarBusy = false; }

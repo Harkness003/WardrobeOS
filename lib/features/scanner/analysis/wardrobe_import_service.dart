@@ -154,7 +154,7 @@ class WardrobeImportService extends ChangeNotifier {
 
   Future<bool> cancel(String id) async {
     final index = _tasks.indexWhere((task) => task.id == id);
-    if (index < 0 || _tasks[index].status != WardrobeImportStatus.pending) return false;
+    if (index < 0 || _tasks[index].status != WardrobeImportStatus.pending) { return false; }
     final task = _tasks[index].copyWith(status: WardrobeImportStatus.cancelled);
     _tasks[index] = task;
     await _persist(task);
@@ -165,7 +165,7 @@ class WardrobeImportService extends ChangeNotifier {
 
   Future<void> retry(String id) async {
     final index = _tasks.indexWhere((task) => task.id == id);
-    if (index < 0 || _tasks[index].status != WardrobeImportStatus.failed) return;
+    if (index < 0 || _tasks[index].status != WardrobeImportStatus.failed) { return; }
     _tasks[index] = _tasks[index].copyWith(status: WardrobeImportStatus.pending, attempt: 0, userMessage: null);
     await _persist(_tasks[index]);
     notifyListeners();
@@ -175,10 +175,10 @@ class WardrobeImportService extends ChangeNotifier {
   void resume() => _pump();
 
   void _pump() {
-    if (!_loaded) return;
+    if (!_loaded) { return; }
     while (_running < maxConcurrency) {
       final index = _tasks.indexWhere((task) => task.status == WardrobeImportStatus.pending);
-      if (index < 0) break;
+      if (index < 0) { break; }
       _running++;
       final taskId = _tasks[index].id;
       unawaited(_process(_tasks[index]).whenComplete(() {
@@ -237,7 +237,7 @@ class WardrobeImportService extends ChangeNotifier {
         timings: {...task.timings, 'enrichment': enrichmentWatch.elapsedMilliseconds,
           'total': total.elapsedMilliseconds}));
       _events.add(WardrobeImportEvent(WardrobeImportEventType.enrichmentFinished, task.id));
-      if (review) _events.add(WardrobeImportEvent(WardrobeImportEventType.needsReview, task.id));
+      if (review) { _events.add(WardrobeImportEvent(WardrobeImportEventType.needsReview, task.id)); }
       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeImport,
         level: review ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success,
         state: review ? 'À vérifier' : 'Terminé', summary: 'Vêtement importé',
@@ -343,7 +343,7 @@ class WardrobeImportService extends ChangeNotifier {
 
   Future<void> _mergeEnrichment(String id, GarmentAnalysisResult quick, GarmentAnalysisResult enriched) async {
     final current = await database.getGarmentById(id);
-    if (current == null) return;
+    if (current == null) { return; }
     final protected = current.userModifiedFields;
     final material = protected.contains('material') ? current.material
       : GarmentNormalizer.classification(enriched.material);
@@ -410,7 +410,7 @@ class WardrobeImportService extends ChangeNotifier {
 
   Future<WardrobeImportTask> _replace(WardrobeImportTask task) async {
     final index = _tasks.indexWhere((value) => value.id == task.id);
-    if (index >= 0) _tasks[index] = task;
+    if (index >= 0) { _tasks[index] = task; }
     await _persist(task);
     notifyListeners();
     return task;

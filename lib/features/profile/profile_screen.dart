@@ -181,13 +181,21 @@ class _LocationSettingsState extends State<_LocationSettings> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text('📍 Localisation', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-              RadioListTile<LocationMode>(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Utiliser ma position actuelle'),
-                value: LocationMode.gps,
+              RadioGroup<LocationMode>(
                 groupValue: service.mode,
-                onChanged: (_) => service.useGps(),
-              ),
+                onChanged: (value) {
+                  if (value == LocationMode.gps) {
+                    service.useGps();
+                  } else if (value == LocationMode.manual) {
+                    service.useManualMode();
+                  }
+                },
+                child: Column(children: [
+                  RadioListTile<LocationMode>(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Utiliser ma position actuelle'),
+                    value: LocationMode.gps,
+                  ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(service.mode == LocationMode.gps ? Icons.gps_fixed : Icons.location_city),
@@ -198,12 +206,12 @@ class _LocationSettingsState extends State<_LocationSettings> {
                     ? 'La ville sera résolue depuis la position actuelle lors de la météo.'
                     : manual == null ? 'Sélectionne une ville ci-dessous.' : 'Sélection manuelle'),
               ),
-              RadioListTile<LocationMode>(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Choisir une ville manuellement'),
-                value: LocationMode.manual,
-                groupValue: service.mode,
-                onChanged: (_) => service.useManualMode(),
+                  RadioListTile<LocationMode>(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Choisir une ville manuellement'),
+                    value: LocationMode.manual,
+                  ),
+                ]),
               ),
               if (service.mode == LocationMode.manual) ...[
                 TextField(

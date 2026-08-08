@@ -46,7 +46,7 @@ class _DeveloperDiagnosticsScreenState extends State<DeveloperDiagnosticsScreen>
             const Text('Les secrets, prompts, photos, chemins et identifiants privés sont toujours exclus.'),
             const SizedBox(height: 12),
             DropdownButtonFormField<DiagnosticModule?>(
-              value: module,
+              initialValue: module,
               decoration: const InputDecoration(labelText: 'Module'),
               items: [
                 const DropdownMenuItem(value: null, child: Text('Tous les modules')),
@@ -123,8 +123,10 @@ class _DiagnosticCard extends StatelessWidget {
           onPressed: () async {
             await Clipboard.setData(ClipboardData(
               text: DiagnosticService.instance.exportEntry(value)));
-            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Diagnostic anonymisé copié.')));
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Diagnostic anonymisé copié.')));
+            }
           },
         )),
       ],

@@ -44,10 +44,14 @@ class CameraGarmentCapture implements CameraCaptureSession {
   bool _capturing = false;
   int _generation = 0;
 
+  @override
   CameraController? get controller => _controller;
+  @override
   bool get isInitialized => _controller?.value.isInitialized ?? false;
+  @override
   bool get isCapturing => _capturing;
 
+  @override
   Future<void> initialize() async {
     if (_disposed || isInitialized) return;
     final pending = _initialization;
@@ -97,16 +101,19 @@ class CameraGarmentCapture implements CameraCaptureSession {
     }
   }
 
+  @override
   Future<void> setFlashMode(FlashMode mode) async {
     final active = _controller;
     if (!_disposed && active != null && active.value.isInitialized) await active.setFlashMode(mode);
   }
 
+  @override
   Future<void> setFocusPoint(Offset point) async {
     final active = _controller;
     if (!_disposed && active != null && active.value.isInitialized) await active.setFocusPoint(point);
   }
 
+  @override
   Future<void> suspend() async {
     _generation++;
     final previous = _controller;
@@ -114,6 +121,7 @@ class CameraGarmentCapture implements CameraCaptureSession {
     await previous?.dispose();
   }
 
+  @override
   Future<void> resume() async {
     await initialize();
     // A permission dialog may send the app inactive while initialization is in
@@ -124,6 +132,7 @@ class CameraGarmentCapture implements CameraCaptureSession {
     }
   }
 
+  @override
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;

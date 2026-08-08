@@ -14,7 +14,7 @@ import '../styles/style_repository.dart';
 
 String? _cleanDisplayText(String? value) {
   final trimmed = value?.trim();
-  if (trimmed == null || trimmed.isEmpty) return null;
+  if (trimmed == null || trimmed.isEmpty) { return null; }
   final normalized = trimmed.toLowerCase();
   if (normalized == 'null' ||
       normalized == 'n/a' ||
@@ -81,19 +81,27 @@ class _AiComparisonDialogState extends State<_AiComparisonDialog> {
                         children: [
                           Text(_fieldLabel(difference.field), style: const TextStyle(fontWeight: FontWeight.w900)),
                           if (difference.conflict) const Text('Conflit avec une modification utilisateur', style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold)),
-                          RadioListTile<bool>(
-                            value: false,
+                          RadioGroup<bool>(
                             groupValue: accepted.contains(difference.field),
-                            onChanged: (_) => setState(() => accepted.remove(difference.field)),
-                            title: const Text('Conserver ma valeur'),
-                            subtitle: Text('${difference.currentValue ?? '—'}'),
-                          ),
-                          RadioListTile<bool>(
-                            value: true,
-                            groupValue: accepted.contains(difference.field),
-                            onChanged: (_) => setState(() => accepted.add(difference.field)),
-                            title: const Text('Accepter la proposition IA'),
-                            subtitle: Text('${difference.proposedValue ?? '—'}'),
+                            onChanged: (value) => setState(() {
+                              if (value == true) {
+                                accepted.add(difference.field);
+                              } else {
+                                accepted.remove(difference.field);
+                              }
+                            }),
+                            child: Column(children: [
+                              RadioListTile<bool>(
+                                value: false,
+                                title: const Text('Conserver ma valeur'),
+                                subtitle: Text('${difference.currentValue ?? '—'}'),
+                              ),
+                              RadioListTile<bool>(
+                                value: true,
+                                title: const Text('Accepter la proposition IA'),
+                                subtitle: Text('${difference.proposedValue ?? '—'}'),
+                              ),
+                            ]),
                           ),
                         ],
                       ),
@@ -148,7 +156,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
 
   Future<void> _styleHelp(String id) async {
     final style = await _styles.find(id);
-    if (!mounted) return;
+    if (!mounted) { return; }
     if (style == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ce style n’est pas encore présent dans la bibliothèque.')));
       return;
@@ -182,7 +190,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
         TextField(controller: characteristics, decoration: const InputDecoration(labelText: 'Caractéristiques (séparées par des virgules)')),
       ]))), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
         FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Enregistrer'))])));
-    if (saved != true) return;
+    if (saved != true) { return; }
     final old = {for (final value in garment.effectiveStyleAnalysis.compatibilities) value.styleId: value};
     final corrected = garment.effectiveStyleAnalysis.withUserCorrections(
       compatibilities: selected.map((id) => old[id] ?? StyleCompatibility(styleId: id,
@@ -193,17 +201,17 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   }
 
   GarmentReanalysisType? get _missingAnalysisType {
-    if (!_hasText(garment.sousCategorie)) return GarmentReanalysisType.category;
+    if (!_hasText(garment.sousCategorie)) { return GarmentReanalysisType.category; }
     if (!_hasText(garment.composition) && !_hasText(garment.compositionEstimee)) {
       return GarmentReanalysisType.composition;
     }
-    if (garment.styleAnalysis == null) return GarmentReanalysisType.style;
-    if (garment.thermalProfile == null) return GarmentReanalysisType.thermal;
+    if (garment.styleAnalysis == null) { return GarmentReanalysisType.style; }
+    if (garment.thermalProfile == null) { return GarmentReanalysisType.thermal; }
     return null;
   }
 
   Future<void> _reanalyze() async {
-    if (_reanalyzing) return;
+    if (_reanalyzing) { return; }
     final target = _missingAnalysisType;
     if (target == null) {
       _showReanalysisMessage('La fiche contient déjà toutes les informations automatisables.');
@@ -220,7 +228,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
         garment.id,
         target,
       );
-      if (!mounted) return;
+      if (!mounted) { return; }
       final accepted = await showDialog<Set<String>>(
         context: context,
         barrierDismissible: false,
@@ -233,18 +241,18 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
       await widget.reanalysisService.apply(proposal, accepted);
       await widget.controller.load();
       _refreshGarment();
-      if (mounted) _showReanalysisMessage('Réanalyse terminée. La fiche est à jour.');
+      if (mounted) { _showReanalysisMessage('Réanalyse terminée. La fiche est à jour.'); }
     } catch (error) {
-      if (mounted) _showReanalysisMessage(error is Exception ? _friendlyReanalysisError(error) : 'Analyse impossible. Tes données sont intactes.');
+      if (mounted) { _showReanalysisMessage(error is Exception ? _friendlyReanalysisError(error) : 'Analyse impossible. Tes données sont intactes.'); }
     } finally {
-      if (mounted) setState(() => _reanalyzing = false);
+      if (mounted) { setState(() => _reanalyzing = false); }
     }
   }
 
   String _friendlyReanalysisError(Exception error) {
     final text = error.toString();
-    if (text.contains('photo') || text.contains('Photo')) return 'Photos manquantes ou illisibles. Tes données sont intactes.';
-    if (text.contains('annul')) return 'Réanalyse annulée. Aucune donnée n’a été modifiée.';
+    if (text.contains('photo') || text.contains('Photo')) { return 'Photos manquantes ou illisibles. Tes données sont intactes.'; }
+    if (text.contains('annul')) { return 'Réanalyse annulée. Aucune donnée n’a été modifiée.'; }
     return 'Erreur IA : analyse impossible pour le moment. Tes données sont intactes.';
   }
 
@@ -271,11 +279,11 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
             ),
       ),
     );
-    if (changed == true) _refreshGarment();
+    if (changed == true) { _refreshGarment(); }
   }
 
   void _openPhoto() {
-    if (!_hasText((garment.effectivePhotos.isEmpty ? null : garment.effectivePhotos.first.path))) return;
+    if (!_hasText((garment.effectivePhotos.isEmpty ? null : garment.effectivePhotos.first.path))) { return; }
     showDialog<void>(
       context: context,
       barrierColor: Colors.black,
@@ -321,10 +329,10 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final match = widget.controller.garments.where(
       (item) => item.id == garment.id,
     );
-    if (!mounted) return;
+    if (!mounted) { return; }
 
     setState(() {
-      if (match.isNotEmpty) garment = match.first;
+      if (match.isNotEmpty) { garment = match.first; }
       if (reloadHistory) {
         _wearHistoryFuture = _loadWearHistory();
         _firstWearFuture = _loadFirstWear();
@@ -333,18 +341,18 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   }
 
   Future<void> recordWear() async {
-    if (_recordingWear) return;
+    if (_recordingWear) { return; }
 
     setState(() => _recordingWear = true);
 
     try {
       final wornAt = await _pickWearDate();
-      if (wornAt == null) return;
+      if (wornAt == null) { return; }
 
       final wear = await widget.controller.recordWear(garment, wornAt: wornAt);
       _refreshGarment(reloadHistory: true);
 
-      if (!mounted) return;
+      if (!mounted) { return; }
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -356,7 +364,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
         ),
       );
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) { return; }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -395,8 +403,8 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
           ),
     );
 
-    if (!mounted || choice == null) return null;
-    if (choice == _WearDateChoice.today) return DateTime.now();
+    if (!mounted || choice == null) { return null; }
+    if (choice == _WearDateChoice.today) { return DateTime.now(); }
 
     final now = DateTime.now();
     final selectedDate = await showDatePicker(
@@ -406,7 +414,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
       lastDate: DateTime(now.year, now.month, now.day),
     );
 
-    if (selectedDate == null) return null;
+    if (selectedDate == null) { return null; }
 
     return DateTime(
       selectedDate.year,
@@ -425,12 +433,12 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
       final removed = await widget.controller.deleteWear(garment, wear);
       _refreshGarment(reloadHistory: true);
 
-      if (!mounted || !removed) return;
+      if (!mounted || !removed) { return; }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Port annulé.')));
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) { return; }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Impossible d’annuler ce port.")),
       );
@@ -459,18 +467,18 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
           ),
     );
 
-    if (confirmed != true) return;
+    if (confirmed != true) { return; }
 
     try {
       final removed = await widget.controller.deleteWear(garment, wear);
       _refreshGarment(reloadHistory: true);
 
-      if (!mounted || !removed) return;
+      if (!mounted || !removed) { return; }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Port supprimé.')));
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) { return; }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Impossible de supprimer ce port.')),
       );
@@ -501,7 +509,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
 
     if (confirmed == true) {
       await widget.controller.delete(garment);
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) { Navigator.pop(context, true); }
     }
   }
 
@@ -535,7 +543,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
           ),
           PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'delete') remove();
+              if (value == 'delete') { remove(); }
             },
             itemBuilder:
                 (_) => const [
@@ -727,13 +735,13 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
   }
 
   static String _daysSinceLastWearLabel(DateTime? lastWorn) {
-    if (lastWorn == null) return 'Jamais porté';
+    if (lastWorn == null) { return 'Jamais porté'; }
 
     final today = _dateOnly(DateTime.now());
     final lastWearDay = _dateOnly(lastWorn);
     final days = today.difference(lastWearDay).inDays;
-    if (days <= 0) return 'Aujourd’hui';
-    if (days == 1) return '1 jour';
+    if (days <= 0) { return 'Aujourd’hui'; }
+    if (days == 1) { return '1 jour'; }
     return '$days jours';
   }
 
@@ -742,16 +750,16 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final start = _dateOnly(since);
     final days = today.difference(start).inDays;
 
-    if (days <= 0) return 'Aujourd’hui';
-    if (days == 1) return '1 jour';
-    if (days < 30) return '$days jours';
+    if (days <= 0) { return 'Aujourd’hui'; }
+    if (days == 1) { return '1 jour'; }
+    if (days < 30) { return '$days jours'; }
 
     final months = days ~/ 30;
-    if (months < 12) return months == 1 ? '1 mois' : '$months mois';
+    if (months < 12) { return months == 1 ? '1 mois' : '$months mois'; }
 
     final years = days ~/ 365;
     final remainingMonths = (days % 365) ~/ 30;
-    if (remainingMonths == 0) return years == 1 ? '1 an' : '$years ans';
+    if (remainingMonths == 0) { return years == 1 ? '1 an' : '$years ans'; }
     final yearLabel = years == 1 ? '1 an' : '$years ans';
     final monthLabel =
         remainingMonths == 1 ? '1 mois' : '$remainingMonths mois';
@@ -1090,21 +1098,21 @@ class _GarmentStatsGrid extends StatelessWidget {
                   icon: Icons.today_outlined,
                   label: 'Depuis dernier port',
                   value: daysSinceLastWearLabel(garment.lastWorn),
-                  color: colorScheme.surfaceVariant,
+                  color: colorScheme.surfaceContainerHighest,
                   foregroundColor: colorScheme.onSurfaceVariant,
                 ),
                 _StatCard(
                   icon: Icons.calculate_outlined,
                   label: 'Coût par port',
                   value: costPerWear,
-                  color: colorScheme.surfaceVariant,
+                  color: colorScheme.surfaceContainerHighest,
                   foregroundColor: colorScheme.onSurfaceVariant,
                 ),
                 _StatCard(
                   icon: Icons.hourglass_bottom_outlined,
                   label: 'Ancienneté dressing',
                   value: formatCalendarAge(ageStart),
-                  color: colorScheme.surfaceVariant,
+                  color: colorScheme.surfaceContainerHighest,
                   foregroundColor: colorScheme.onSurfaceVariant,
                 ),
               ],
@@ -1148,7 +1156,7 @@ class _StatCard extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: foregroundColor.withOpacity(.78),
+                color: foregroundColor.withValues(alpha: .78),
                 fontWeight: FontWeight.w700,
               ),
             ),

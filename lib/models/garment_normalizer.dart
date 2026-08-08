@@ -55,8 +55,7 @@ class GarmentNormalizer {
     return List.unmodifiable(result);
   }
 
-  static double? confidence(double? input) =>
-      input == null ? null : input.clamp(0.0, 1.0);
+  static double? confidence(double? input) => input?.clamp(0.0, 1.0);
 
   /// Reconciles all type signals without restricting AI values to a catalogue.
   /// An explicit subcategory always wins over inferred text.

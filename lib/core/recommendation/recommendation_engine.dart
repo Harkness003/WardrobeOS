@@ -97,53 +97,57 @@ class RecommendationEngine {
   double _style(_Profile item, _Profile? anchor, RecommendationContext context,
       RecommendationPreferences preferences) {
     final desired = _normalize(context.desiredStyle);
-    if (desired.isNotEmpty) return item.styleScores[desired] ?? .35;
+    if (desired.isNotEmpty) { return item.styleScores[desired] ?? .35; }
     if (anchor != null) {
       final shared = item.styles.intersection(anchor.styles);
-      if (shared.isNotEmpty) return shared.map((id) =>
-        ((item.styleScores[id] ?? .5) + (anchor.styleScores[id] ?? .5)) / 2
-      ).reduce((a, b) => a > b ? a : b);
+      if (shared.isNotEmpty) {
+        return shared.map((id) =>
+          ((item.styleScores[id] ?? .5) + (anchor.styleScores[id] ?? .5)) / 2
+        ).reduce((a, b) => a > b ? a : b);
+      }
     }
     final preferred = preferences.preferredStyles.map(_normalize)
         .map((id) => item.styleScores[id] ?? 0).fold<double>(0, (a, b) => a > b ? a : b);
-    if (preferred > 0) return preferred;
+    if (preferred > 0) { return preferred; }
     return item.styles.isEmpty ? .65 : .55;
   }
 
   double _same(String? left, String? right) {
     final a = _normalize(left);
     final b = _normalize(right);
-    if (a.isEmpty || b.isEmpty) return .65;
+    if (a.isEmpty || b.isEmpty) { return .65; }
     return a == b ? 1 : .3;
   }
 
   double _season(_Profile item, RecommendationContext context) {
     final season = _normalize(context.season);
-    if (season.isEmpty || item.seasons.isEmpty) return .7;
+    if (season.isEmpty || item.seasons.isEmpty) { return .7; }
     return item.seasons.contains(season) ? 1 : .15;
   }
 
   double _color(_Profile item, _Profile? anchor, RecommendationPreferences preferences) {
-    if (preferences.preferredColors.map(_normalize).contains(item.color)) return 1;
-    if (anchor == null || item.color.isEmpty || anchor.color.isEmpty) return .7;
+    if (preferences.preferredColors.map(_normalize).contains(item.color)) { return 1; }
+    if (anchor == null || item.color.isEmpty || anchor.color.isEmpty) { return .7; }
     if (item.compatibleColors.contains(anchor.color) ||
-        anchor.compatibleColors.contains(item.color)) return 1;
-    if (item.incompatibleColors.contains(anchor.color)) return .15;
+        anchor.compatibleColors.contains(item.color)) {
+      return 1;
+    }
+    if (item.incompatibleColors.contains(anchor.color)) { return .15; }
     const neutrals = {'noir', 'blanc', 'gris', 'beige', 'marine', 'bleu marine'};
     return neutrals.contains(item.color) || neutrals.contains(anchor.color) ? .9 : .6;
   }
 
   double _material(_Profile item, _Profile? anchor, RecommendationPreferences preferences) {
-    if (preferences.avoidedMaterials.map(_normalize).contains(item.material)) return 0;
-    if (anchor == null || item.material.isEmpty || anchor.material.isEmpty) return .7;
+    if (preferences.avoidedMaterials.map(_normalize).contains(item.material)) { return 0; }
+    if (anchor == null || item.material.isEmpty || anchor.material.isEmpty) { return .7; }
     return item.material == anchor.material ? .85 : .75;
   }
 
   double _layering(_Profile item, _Profile? anchor) {
-    if (anchor == null) return .8;
+    if (anchor == null) { return .8; }
     final itemThermal = item.thermal;
     final anchorThermal = anchor.thermal;
-    if (itemThermal.primaryRole == anchorThermal.primaryRole) return .3;
+    if (itemThermal.primaryRole == anchorThermal.primaryRole) { return .3; }
     final itemOverAnchor = itemThermal.acceptsUnder.contains(anchorThermal.primaryRole) &&
         anchorThermal.acceptsOver.contains(itemThermal.primaryRole);
     final anchorOverItem = anchorThermal.acceptsUnder.contains(itemThermal.primaryRole) &&
@@ -153,8 +157,8 @@ class RecommendationEngine {
 
   double _occasion(_Profile item, RecommendationContext context) {
     final occasion = _normalize(context.occasion);
-    if (occasion.isEmpty || item.occasions.isEmpty) return .7;
-    if (item.discouragedOccasions.contains(occasion)) return 0;
+    if (occasion.isEmpty || item.occasions.isEmpty) { return .7; }
+    if (item.discouragedOccasions.contains(occasion)) { return 0; }
     return item.occasions.contains(occasion) ? 1 : .3;
   }
 
@@ -204,12 +208,14 @@ class _Profile {
   _Profile(this.garment, this.correction);
 
   Map<String, double> get styleScores {
-    if (correction?.style != null) return {RecommendationEngine._normalize(correction!.style): 1};
+    if (correction?.style != null) { return {RecommendationEngine._normalize(correction!.style): 1}; }
     final analysis = garment.styleAnalysis;
-    if (analysis != null) return {
-      for (final compatibility in analysis.compatibilities)
-        RecommendationEngine._normalize(compatibility.styleId): compatibility.score,
-    };
+    if (analysis != null) {
+      return {
+        for (final compatibility in analysis.compatibilities)
+          RecommendationEngine._normalize(compatibility.styleId): compatibility.score,
+      };
+    }
     return {};
   }
   Set<String> get styles => {

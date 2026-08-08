@@ -28,13 +28,13 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
   }
 
   void _refresh() {
-    if (mounted) setState(() {});
+    if (mounted) { setState(() {}); }
   }
 
   @override
   void dispose() {
     controller.removeListener(_refresh);
-    if (_ownsController) controller.dispose();
+    if (_ownsController) { controller.dispose(); }
     super.dispose();
   }
 
@@ -123,8 +123,10 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
               proposal: proposal,
               onSave: () async {
                 await controller.saveProposal(proposal);
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Tenue enregistrée.')));
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Tenue enregistrée.')));
+                }
               },
             )),
             const SizedBox(height: 14),

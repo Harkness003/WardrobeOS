@@ -45,21 +45,21 @@ class StyleClassifier {
 
     final secondary = <String>[];
     void add(String id, String reason) { secondary.add(id); evidence.add(reason); }
-    if (has(r'oxford|chino|polo|mocassin|preppy')) add('preppy', 'Codes preppy visibles');
-    if (has(r'cargo|toile|denim|poche.*plaqu[eé]e|workwear')) add('workwear', 'Détails utilitaires/workwear');
-    if (has(r'oversize|graphique|streetwear') && !has(r'costume|smoking')) add('streetwear', 'Volume ou graphisme streetwear');
-    if (has(r'outdoor|randonn[eé]e|parka|polaire')) add('outdoor', 'Usage outdoor identifiable');
-    if (has(r'vintage|ann[eé]es? [0-9]|r[eé]tro')) add('vintage', 'Référence rétro explicite');
-    if (has(r'cuir|clou|rock')) add('rock', 'Codes rock visibles');
-    if (has(r'uni|neutre|minimal')) add('minimalist', 'Palette ou motif minimaliste');
+    if (has(r'oxford|chino|polo|mocassin|preppy')) { add('preppy', 'Codes preppy visibles'); }
+    if (has(r'cargo|toile|denim|poche.*plaqu[eé]e|workwear')) { add('workwear', 'Détails utilitaires/workwear'); }
+    if (has(r'oversize|graphique|streetwear') && !has(r'costume|smoking')) { add('streetwear', 'Volume ou graphisme streetwear'); }
+    if (has(r'outdoor|randonn[eé]e|parka|polaire')) { add('outdoor', 'Usage outdoor identifiable'); }
+    if (has(r'vintage|ann[eé]es? [0-9]|r[eé]tro')) { add('vintage', 'Référence rétro explicite'); }
+    if (has(r'cuir|clou|rock')) { add('rock', 'Codes rock visibles'); }
+    if (has(r'uni|neutre|minimal')) { add('minimalist', 'Palette ou motif minimaliste'); }
 
     final characteristics = <String>[];
-    if (has(r'uni|marine|noir|gris|beige|sobre')) characteristics.add('understated');
-    if (has(r'blazer|costume|tailleur|structur[eé]|revers')) characteristics.add('structured');
-    if (has(r'moderne|contemporain|technique')) characteristics.add('modern');
-    if (has(r'vintage|r[eé]tro')) characteristics.add('retro');
-    if (register == 'dressy' || has(r'[eé]l[eé]gant')) characteristics.add('elegant');
-    if (has(r'cargo|poche|utilitaire|workwear')) characteristics.add('utility');
+    if (has(r'uni|marine|noir|gris|beige|sobre')) { characteristics.add('understated'); }
+    if (has(r'blazer|costume|tailleur|structur[eé]|revers')) { characteristics.add('structured'); }
+    if (has(r'moderne|contemporain|technique')) { characteristics.add('modern'); }
+    if (has(r'vintage|r[eé]tro')) { characteristics.add('retro'); }
+    if (register == 'dressy' || has(r'[eé]l[eé]gant')) { characteristics.add('elegant'); }
+    if (has(r'cargo|poche|utilitaire|workwear')) { characteristics.add('utility'); }
 
     final compatibilityReasons = <String, String>{register: evidence.first};
     for (final id in secondary) {
@@ -97,7 +97,9 @@ class StyleClassifier {
       {DateTime? calculatedAt}) {
     if (current != null && current.modelVersion == StyleAnalysis.currentModelVersion &&
         current.taxonomyVersion == StyleTaxonomy.version &&
-        current.inputFingerprint == input.fingerprint) return current;
+        current.inputFingerprint == input.fingerprint) {
+      return current;
+    }
     return classify(input, previous: current, calculatedAt: calculatedAt);
   }
 }

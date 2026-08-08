@@ -27,7 +27,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           Row(children: [IconButton(onPressed: c.loading ? null : () => c.changeWeek(-1), icon: const Icon(Icons.chevron_left)),
             Expanded(child: Text('${_date(c.weekStart)} — ${_date(c.weekStart.add(const Duration(days: 6)))}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium)),
             IconButton(onPressed: c.loading ? null : () => c.changeWeek(1), icon: const Icon(Icons.chevron_right))]),
-          Row(children: [Expanded(child: DropdownButtonFormField<PlanningStrategy>(value: c.preferences.strategy,
+          Row(children: [Expanded(child: DropdownButtonFormField<PlanningStrategy>(initialValue: c.preferences.strategy,
             decoration: const InputDecoration(labelText: 'Stratégie', isDense: true),
             items: PlanningStrategy.values.map((v) => DropdownMenuItem(value: v, child: Text(v.label))).toList(), onChanged: (v) { if (v != null) c.setStrategy(v); })),
             const SizedBox(width: 8), FilledButton.icon(onPressed: c.loading ? null : c.proposeWeek,
@@ -51,7 +51,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
   }
 
   Future<void> _showDetails(PlannedOutfit? plan) async {
-    if (plan == null) return;
+    if (plan == null) { return; }
     await showModalBottomSheet<void>(context: context, isScrollControlled: true,
       builder: (context) => SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
@@ -77,8 +77,12 @@ class _AgendaScreenState extends State<AgendaScreen> {
           for (final outfit in outfits) ListTile(title: Text(outfit.name), onTap: () => Navigator.pop(context, outfit)),
           if (outfits.isEmpty) const ListTile(title: Text('Aucune tenue enregistrée'), subtitle: Text('La proposition automatique peut composer une tenue depuis le dressing.')),
         ])));
-        if (choice == null) return;
-        if (plan == null) await widget.controller.plan(day, choice); else await widget.controller.replace(plan, choice);
+        if (choice == null) { return; }
+        if (plan == null) {
+          await widget.controller.plan(day, choice);
+        } else {
+          await widget.controller.replace(plan, choice);
+        }
         return;
       case 'another': await widget.controller.another(day, plan); return;
       case 'confirm': if (plan != null) await widget.controller.confirm(plan); return;

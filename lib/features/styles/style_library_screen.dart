@@ -47,23 +47,29 @@ class _StyleLibraryScreenState extends State<StyleLibraryScreen> {
     body: Column(children: [Padding(padding: const EdgeInsets.all(16), child: SearchBar(
       hintText: AppLocalizations.of(context).text('ui.styleSearchHint'), leading: const Icon(Icons.search), onChanged: (v) => setState(() => query = v))),
       Expanded(child: FutureBuilder<List<LibraryStyle>>(future: _styles, builder: (_, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) return const Center(child: ContentState.loading(
-          title: 'Chargement des styles', message: 'Préparation du catalogue et de ses définitions…'));
-        if (snapshot.hasError) return Center(child: ContentState.error(
-          title: 'Catalogue indisponible', message: 'Les styles n’ont pas pu être chargés.', onAction: _refresh));
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: ContentState.loading(
+            title: 'Chargement des styles', message: 'Préparation du catalogue et de ses définitions…'));
+        }
+        if (snapshot.hasError) {
+          return Center(child: ContentState.error(
+            title: 'Catalogue indisponible', message: 'Les styles n’ont pas pu être chargés.', onAction: _refresh));
+        }
         final l10n = AppLocalizations.of(context);
         final values = snapshot.data!.where((e) => StyleCatalog.matches(e, query, localizations: l10n)).map((e) => e.localized(l10n)).toList();
-        if (values.isEmpty) return Center(child: ContentState.empty(
-          title: query.trim().isEmpty ? 'Bibliothèque vide' : 'Aucun style trouvé',
-          message: query.trim().isEmpty ? 'Crée ton premier style personnel pour commencer.' : 'Essaie un autre nom, synonyme ou mot de la définition.',
-          actionLabel: query.trim().isEmpty ? 'Créer un style' : 'Effacer la recherche',
-          onAction: query.trim().isEmpty ? create : () => setState(() => query = '')));
+        if (values.isEmpty) {
+          return Center(child: ContentState.empty(
+            title: query.trim().isEmpty ? 'Bibliothèque vide' : 'Aucun style trouvé',
+            message: query.trim().isEmpty ? 'Crée ton premier style personnel pour commencer.' : 'Essaie un autre nom, synonyme ou mot de la définition.',
+            actionLabel: query.trim().isEmpty ? 'Créer un style' : 'Effacer la recherche',
+            onAction: query.trim().isEmpty ? create : () => setState(() => query = '')));
+        }
         return ListView.builder(itemCount: values.length, itemBuilder: (_, index) { final style = values[index];
           return ListTile(key: Key('style-${style.id}'), title: Text(style.name), subtitle: Text(style.definition, maxLines: 2),
             leading: Icon(style.isSystem ? Icons.lock_outline : Icons.person_outline), onTap: () => open(style),
             trailing: style.isSystem ? null : PopupMenuButton<String>(onSelected: (action) async {
-              if (action == 'edit') await edit(style);
-              if (action == 'delete') await remove(style);
+              if (action == 'edit') { await edit(style); }
+              if (action == 'delete') { await remove(style); }
             }, itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Modifier')),
               PopupMenuItem(value: 'delete', child: Text('Supprimer'))])); });
       }))]));
