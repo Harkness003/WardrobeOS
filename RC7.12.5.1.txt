@@ -1,0 +1,78 @@
+diff --git a/lib/features/agenda/agenda_screen.dart b/lib/features/agenda/agenda_screen.dart
+index f1e3168bc5b9d1d6cfc043b889b86a66503cc0f1..007a7b63b6da9214e81e4afe7027a29486c50861 100644
+--- a/lib/features/agenda/agenda_screen.dart
++++ b/lib/features/agenda/agenda_screen.dart
+@@ -1,29 +1,30 @@
+ import 'package:flutter/material.dart';
+ import '../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../widgets/outfit_proposal_card.dart';
+ import '../../widgets/content_state.dart';
++import '../calendar/google_calendar_service.dart';
+ import '../outfits/outfits_controller.dart';
+ import 'agenda_controller.dart';
+ import 'agenda_models.dart';
+ 
+ class AgendaScreen extends StatefulWidget {
+   final AgendaController controller;
+   final OutfitsController outfitsController;
+   const AgendaScreen({super.key, required this.controller, required this.outfitsController});
+   @override State<AgendaScreen> createState() => _AgendaScreenState();
+ }
+ 
+ class _AgendaScreenState extends State<AgendaScreen> {
+   @override void initState() { super.initState(); widget.controller.addListener(_refresh); widget.controller.load(); widget.outfitsController.load(); }
+   void _refresh() { if (mounted) setState(() {}); }
+   @override void dispose() { widget.controller.removeListener(_refresh); super.dispose(); }
+ 
+   @override Widget build(BuildContext context) {
+     final c = widget.controller;
+     return Scaffold(appBar: AppBar(title: const Text('Agenda vestimentaire')),
+       body: SafeArea(child: Column(children: [
+         Padding(padding: const EdgeInsets.fromLTRB(12, 4, 12, 8), child: Column(children: [
+           Row(children: [IconButton(onPressed: c.loading ? null : () => c.changeWeek(-1), icon: const Icon(Icons.chevron_left)),
+             Expanded(child: Text('${_date(c.weekStart)} — ${_date(c.weekStart.add(const Duration(days: 6)))}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium)),
+             IconButton(onPressed: c.loading ? null : () => c.changeWeek(1), icon: const Icon(Icons.chevron_right))]),
+           Row(children: [Expanded(child: DropdownButtonFormField<PlanningStrategy>(value: c.preferences.strategy,
+@@ -158,41 +159,41 @@ class _CalendarSection extends StatelessWidget {
+         state?.status == GoogleCalendarStatus.syncing;
+     final busy = controller.calendarBusy;
+     return Card(
+       margin: const EdgeInsets.only(top: 8),
+       child: Padding(
+         padding: const EdgeInsets.all(12),
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+           Row(children: [
+             const Icon(Icons.event_available_outlined),
+             const SizedBox(width: 8),
+             Expanded(child: Text('Calendrier', style: Theme.of(context).textTheme.titleSmall)),
+             TextButton.icon(
+               onPressed: google == null || busy || !connected ? null : controller.refreshCalendar,
+               icon: const Icon(Icons.refresh, size: 18),
+               label: const Text('Actualiser'),
+             ),
+           ]),
+           Text(connected ? 'Compte connecté : ${state?.accountEmail ?? 'Google'}' :
+             'Google Calendar non connecté — Agenda fonctionne normalement.'),
+           if (connected) Text(selected == 0 ? 'Aucun calendrier actif sélectionné.' : '$selected calendrier(s) actif(s).'),
+           if (connected) Text(last == null ? 'Synchronisation : jamais' :
+             state!.eventCount == 0 ? 'Synchronisation réussie : aucun événement pertinent.' :
+             'Dernière synchronisation : ${_dateTime(last)} · ${state.eventCount} événement(s)'),
+           if (busy) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
+           if (state?.userMessage != null) Text(state!.userMessage!, style: TextStyle(
+-            color: state?.status == GoogleCalendarStatus.connected ? null : Theme.of(context).colorScheme.error)),
++            color: state.status == GoogleCalendarStatus.connected ? null : Theme.of(context).colorScheme.error)),
+           Wrap(spacing: 8, children: [
+             OutlinedButton.icon(
+               onPressed: google == null || busy || connected ? null : controller.connectCalendar,
+               icon: const Icon(Icons.login, size: 18),
+               label: Text(connected ? 'Google connecté' : 'Connecter Google Calendar'),
+             ),
+             if (connected) TextButton(onPressed: busy ? null : controller.disconnectCalendar, child: const Text('Déconnecter')),
+           ]),
+         ]),
+       ),
+     );
+   }
+ 
+   static String _dateTime(DateTime value) => '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')} ${value.hour.toString().padLeft(2, '0')}h${value.minute.toString().padLeft(2, '0')}';
+ }

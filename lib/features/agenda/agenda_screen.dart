@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/outfit_generation/outfit_generation_engine.dart';
 import '../../widgets/outfit_proposal_card.dart';
 import '../../widgets/content_state.dart';
+import '../calendar/google_calendar_service.dart';
 import '../outfits/outfits_controller.dart';
 import 'agenda_controller.dart';
 import 'agenda_models.dart';
@@ -180,7 +181,7 @@ class _CalendarSection extends StatelessWidget {
             'Dernière synchronisation : ${_dateTime(last)} · ${state.eventCount} événement(s)'),
           if (busy) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
           if (state?.userMessage != null) Text(state!.userMessage!, style: TextStyle(
-            color: state?.status == GoogleCalendarStatus.connected ? null : Theme.of(context).colorScheme.error)),
+            color: state.status == GoogleCalendarStatus.connected ? null : Theme.of(context).colorScheme.error)),
           Wrap(spacing: 8, children: [
             OutlinedButton.icon(
               onPressed: google == null || busy || connected ? null : controller.connectCalendar,
