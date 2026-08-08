@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/outfit_generation/outfit_generation_engine.dart';
+import '../../models/outfit.dart';
 import '../../widgets/outfit_proposal_card.dart';
 import '../../widgets/content_state.dart';
 import '../calendar/google_calendar_service.dart';
@@ -64,7 +65,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
         Expanded(child: ListView.builder(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), itemCount: 7, itemBuilder: (_, i) {
           final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day,
             plan: c.forDay(day), state: c.stateFor(day),
-            failure: c.dayErrors[DateTime(day.year, day.month, day.day)],
+            failure: c.dayErrors[DateTime(day.year, day.month, day.day)] ??
+              c.dayBusinessReasons[DateTime(day.year, day.month, day.day)],
             onDetails: () => _showDetails(c.forDay(day)),
             onAction: (action) => _act(day, c.forDay(day), action));
         })),
@@ -91,6 +93,21 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
   Future<void> _act(DateTime day, PlannedOutfit? plan, String action) async {
     switch (action) {
+      case 'regenerate':
+        if (plan == null) return;
+        final selection = await showModalBottomSheet<Object>(context: context,
+          builder: (context) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const ListTile(title: Text('Remplacer')),
+            ListTile(title: const Text('Toute la tenue'), onTap: () => Navigator.pop(context, 'all')),
+            ListTile(title: const Text('Haut'), onTap: () => Navigator.pop(context, OutfitCategory.top)),
+            ListTile(title: const Text('Bas'), onTap: () => Navigator.pop(context, OutfitCategory.bottom)),
+            ListTile(title: const Text('Chaussures'), onTap: () => Navigator.pop(context, OutfitCategory.shoes)),
+            ListTile(title: const Text('Couche extérieure'), onTap: () => Navigator.pop(context, OutfitCategory.jacket)),
+          ])));
+        if (!context.mounted || selection == null) return;
+        await widget.controller.changeCategory(plan,
+          selection == 'all' ? null : selection as OutfitCategory);
+        return;
       case 'choose': case 'replace':
         final outfits = widget.outfitsController.outfits;
         final choice = await showModalBottomSheet(context: context, builder: (_) => SafeArea(child: ListView(shrinkWrap: true, children: [
@@ -140,6 +157,7 @@ class _DayCard extends StatelessWidget {
           maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)),
         PopupMenuButton<String>(tooltip: 'Actions', onSelected: onAction, itemBuilder: (_) => [
           const PopupMenuItem(value: 'another', child: Text('Autre proposition')),
+          const PopupMenuItem(value: 'regenerate', child: Text('Remplacer…')),
           const PopupMenuItem(value: 'replace', child: Text('Choisir une tenue enregistrée')),
           if (plan!.status == PlannedOutfitStatus.proposed) const PopupMenuItem(value: 'confirm', child: Text('Confirmer')),
           if (plan!.status != PlannedOutfitStatus.worn) const PopupMenuItem(value: 'worn', child: Text('Marquer portée')),

@@ -342,4 +342,52 @@ void main() {
     expect(proposal.reasons.join(' '), contains('pluie'));
     expect(proposal.reasons.join(' '), contains('vent'));
   });
+
+  test('verrouille bas et chaussures pendant le remplacement du haut', () {
+    final topA = garment('top-a', 'Hauts');
+    final topB = garment('top-b', 'Hauts');
+    final bottom = garment('bottom', 'Pantalons');
+    final shoes = garment('shoes', 'Chaussures');
+    final currentSignature = ['bottom', 'shoes', 'top-a']..sort();
+    final result = engine().generate(OutfitGenerationRequest(
+      wardrobe: [topA, topB, bottom, shoes],
+      lockedGarments: {bottom, shoes},
+      lockedCategories: const {OutfitCategory.bottom, OutfitCategory.shoes},
+      replaceCategory: OutfitCategory.top,
+      excludedGarmentIds: {'top-a'},
+      excludedOutfitSignatures: {currentSignature.join('|')},
+    ));
+    final ids = result.proposals.single.garmentIds;
+    expect(ids, containsAll(['top-b', 'bottom', 'shoes']));
+    expect(ids, isNot(contains('top-a')));
+  });
+
+  test('un verrou absent produit une impossibilité métier explicite', () {
+    final missing = garment('missing', 'Pantalons');
+    final result = engine().generate(OutfitGenerationRequest(
+      wardrobe: [garment('top', 'Hauts'), garment('bottom', 'Pantalons')],
+      lockedGarments: {missing},
+      lockedCategories: const {OutfitCategory.bottom},
+    ));
+    expect(result.proposals, isEmpty);
+    expect(result.diagnostic.failure,
+      OutfitGenerationFailure.lockedGarmentUnavailable);
+  });
+
+  test('exclut canoniquement la proposition affichée', () {
+    final wardrobe = [garment('top-a', 'Hauts'), garment('top-b', 'Hauts'),
+      garment('bottom-a', 'Pantalons'), garment('bottom-b', 'Pantalons')];
+    final first = engine().generate(OutfitGenerationRequest(
+      wardrobe: wardrobe, proposalCount: 1)).proposals.single;
+    final signatureIds = first.garmentIds.toList()..sort();
+    final signature = signatureIds.join('|');
+    final result = engine().generate(OutfitGenerationRequest(
+      wardrobe: wardrobe, proposalCount: 3,
+      excludedOutfitSignatures: {signature},
+    ));
+    expect(result.proposals.any((item) {
+      final ids = item.garmentIds.toList()..sort();
+      return ids.join('|') == signature;
+    }), isFalse);
+  });
 }

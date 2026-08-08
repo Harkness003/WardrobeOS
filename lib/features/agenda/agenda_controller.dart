@@ -109,12 +109,33 @@ class AgendaController extends ChangeNotifier {
     dayStates[_key(date)] = AgendaDayState.generating; notifyListeners();
     try {
       // The same stable plan id is overwritten only after generation succeeds.
-      await service.proposeDay(date, preferences,
-        previous: plans.where((item) => item.date.isBefore(date)).toList());
+      final changed = await service.proposeDay(date, preferences,
+        previous: plans.where((item) => item.date.isBefore(date)).toList(),
+        excluding: current);
+      if (changed == null && current != null) {
+        dayBusinessReasons[_key(date)] =
+          'Aucune autre tenue compatible n’est disponible avec les contraintes actuelles.';
+        dayStates[_key(date)] = AgendaDayState.generated;
+        notifyListeners();
+        return;
+      }
       await load();
     } catch (value) {
       error = value; dayStates[_key(date)] = AgendaDayState.error; notifyListeners();
     }
+  }
+  Future<void> changeCategory(PlannedOutfit value, OutfitCategory? category) async {
+    dayStates[_key(value.date)] = AgendaDayState.generating;
+    notifyListeners();
+    final changed = await service.changePlannedOutfit(value, category: category);
+    if (changed == null) {
+      dayBusinessReasons[_key(value.date)] =
+        'Aucune autre tenue compatible n’est disponible avec les contraintes actuelles.';
+      dayStates[_key(value.date)] = AgendaDayState.generated;
+      notifyListeners();
+      return;
+    }
+    await load();
   }
   Future<void> confirm(PlannedOutfit value) async { await service.confirm(value); await load(); }
   Future<void> markWorn(PlannedOutfit value) async { await service.markWorn(value); await load(); }

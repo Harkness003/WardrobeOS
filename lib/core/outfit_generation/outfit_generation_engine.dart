@@ -16,6 +16,14 @@ class OutfitGenerationRequest {
   final Iterable<GarmentRecommendationCorrection> corrections;
   final int proposalCount;
   final Duration contextLoadDuration;
+  /// Hard user choices. Every generated proposal must contain these garments.
+  final Set<Garment> lockedGarments;
+  /// Categories whose current garments (supplied in [lockedGarments]) may not change.
+  final Set<OutfitCategory> lockedCategories;
+  /// Category for which an alternative to the current garment is requested.
+  final OutfitCategory? replaceCategory;
+  final Set<String> excludedOutfitSignatures;
+  final Set<String> excludedGarmentIds;
 
   const OutfitGenerationRequest({
     required this.wardrobe,
@@ -24,6 +32,11 @@ class OutfitGenerationRequest {
     this.corrections = const [],
     this.proposalCount = 3,
     this.contextLoadDuration = Duration.zero,
+    this.lockedGarments = const {},
+    this.lockedCategories = const {},
+    this.replaceCategory,
+    this.excludedOutfitSignatures = const {},
+    this.excludedGarmentIds = const {},
   }) : assert(proposalCount >= 0);
 }
 
@@ -54,7 +67,7 @@ class OutfitGenerationResult {
   const OutfitGenerationResult._(this.proposals, this.diagnostic, [this.messages = const []]);
 }
 
-enum OutfitGenerationFailure { emptyWardrobe, missingTop, missingBottom, incompatibleCombinations }
+enum OutfitGenerationFailure { emptyWardrobe, missingTop, missingBottom, incompatibleCombinations, lockedGarmentUnavailable, noAlternative }
 
 enum OutfitGenerationPhase {
   roleClassification,
@@ -105,6 +118,8 @@ class OutfitGenerationDiagnostic {
     OutfitGenerationFailure.missingTop => 'Aucun haut compatible n’est enregistré.',
     OutfitGenerationFailure.missingBottom => 'Aucun bas compatible n’est enregistré.',
     OutfitGenerationFailure.incompatibleCombinations => 'Toutes les combinaisons disponibles sont incompatibles.',
+    OutfitGenerationFailure.lockedGarmentUnavailable => 'Une pièce verrouillée n’est pas disponible dans le dressing.',
+    OutfitGenerationFailure.noAlternative => 'Aucune autre tenue compatible n’est disponible avec les contraintes actuelles.',
     null => null,
   };
 }
@@ -214,6 +229,14 @@ class OutfitGenerationEngine {
         const [], diagnostic, message == null ? const [] : [message]);
     }
     if (wardrobe.isEmpty) { return failure(OutfitGenerationFailure.emptyWardrobe); }
+    final wardrobeIds = wardrobe.map((item) => item.id).toSet();
+    if (request.lockedGarments.any((item) => !wardrobeIds.contains(item.id))) {
+      return failure(OutfitGenerationFailure.lockedGarmentUnavailable);
+    }
+    final lockedRoles = request.lockedGarments.map(categoryFor).toSet();
+    if (!lockedRoles.containsAll(request.lockedCategories)) {
+      return failure(OutfitGenerationFailure.lockedGarmentUnavailable);
+    }
     if (!availableCategories.contains(OutfitCategory.top)) { return failure(OutfitGenerationFailure.missingTop); }
     if (!availableCategories.contains(OutfitCategory.bottom)) { return failure(OutfitGenerationFailure.missingBottom); }
     if (request.proposalCount == 0) {
@@ -232,7 +255,12 @@ class OutfitGenerationEngine {
     tracker.phase = OutfitGenerationPhase.candidateConstruction;
     final pools = <OutfitCategory, List<Garment>>{};
     for (final category in OutfitCategory.values) {
-      final items = wardrobe.where((item) => categoryFor(item) == category);
+      final locked = request.lockedGarments
+          .where((item) => categoryFor(item) == category).toList(growable: false);
+      final items = locked.isNotEmpty
+          ? locked
+          : wardrobe.where((item) => categoryFor(item) == category &&
+              !request.excludedGarmentIds.contains(item.id));
       tracker.phase = OutfitGenerationPhase.recommendation;
       final ranked = recommendationEngine.recommend(
         wardrobe: items,
@@ -264,7 +292,9 @@ class OutfitGenerationEngine {
           .expand<Garment>((items) => items)
           .map<String>((item) => item.id)
           .toList(growable: false)..sort();
-      if (ids.isEmpty || !signatures.add(ids.join('|'))) { continue; }
+      final signature = ids.join('|');
+      if (ids.isEmpty || request.excludedOutfitSignatures.contains(signature) ||
+          !signatures.add(signature)) { continue; }
       final now = clock();
       generated.add(Outfit(
         id: 'generated-${now.microsecondsSinceEpoch}-${generated.length}',
@@ -295,7 +325,9 @@ class OutfitGenerationEngine {
       garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
       candidateCount: generated.length, producedCount: scored.length,
       rejectedCount: generated.length - scored.length,
-      failure: scored.isEmpty ? OutfitGenerationFailure.incompatibleCombinations : null,
+      failure: scored.isEmpty ? (request.excludedOutfitSignatures.isNotEmpty
+        ? OutfitGenerationFailure.noAlternative
+        : OutfitGenerationFailure.incompatibleCombinations) : null,
       contextLoadDuration: request.contextLoadDuration,
       generationDuration: stopwatch.elapsed,
       recognizedByRole: Map<OutfitCategory, int>.unmodifiable(recognizedByRole),

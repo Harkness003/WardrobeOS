@@ -38,7 +38,7 @@ class DefaultAgendaProposalSelector implements AgendaProposalSelector {
     double agendaScore(OutfitGenerationProposal proposal) {
       final overlap = _overlap(prior, proposal.outfit);
       final repeated = used.contains(_signature(proposal.outfit));
-      return switch (preferences.strategy) {
+      final strategyScore = switch (preferences.strategy) {
         PlanningStrategy.minimal => proposal.score + overlap * .35,
         PlanningStrategy.economical => proposal.score + _reusableOverlap(prior, proposal.outfit, preferences) * .25,
         PlanningStrategy.rotation => proposal.score,
@@ -48,6 +48,34 @@ class DefaultAgendaProposalSelector implements AgendaProposalSelector {
         PlanningStrategy.weather => proposal.score,
         PlanningStrategy.professional || PlanningStrategy.custom => proposal.score - (repeated ? .03 : 0),
       };
+      // Custom rules are strong selection preferences, but deliberately remain
+      // non-blocking for small wardrobes.
+      var customScore = 0.0;
+      for (final rule in preferences.customRules.where((item) => item.enabled)) {
+        if (rule.type == AgendaRuleType.maximumFullOutfitDays) {
+          final maximum = (rule.parameters['days'] as num?)?.toInt() ?? 1;
+          if (_consecutiveOutfit(previous) >= maximum) {
+            customScore += repeated ? -1 : 1;
+          }
+          continue;
+        }
+        final category = _ruleCategory(rule);
+        if (category == null || prior == null) continue;
+        final same = _sameCategoryItems(prior, proposal.outfit, category);
+        switch (rule.type) {
+          case AgendaRuleType.refreshCategory:
+          case AgendaRuleType.alternateCategory:
+            customScore += same ? -.8 : .8;
+          case AgendaRuleType.maximumCategoryDays:
+            final maximum = (rule.parameters['days'] as num?)?.toInt() ?? 1;
+            if (_consecutiveCategory(previous, category) >= maximum) {
+              customScore += same ? -1 : 1;
+            }
+          case AgendaRuleType.maximumFullOutfitDays:
+            break;
+        }
+      }
+      return strategyScore + customScore;
     }
     final ranked = [...result.proposals]..sort((a, b) => agendaScore(b).compareTo(agendaScore(a)));
     return ranked.first;
@@ -72,6 +100,35 @@ class DefaultAgendaProposalSelector implements AgendaProposalSelector {
   static double _varietyWeight(AgendaVarietyLevel value) => switch (value) {
     AgendaVarietyLevel.low => .08, AgendaVarietyLevel.balanced => .18, AgendaVarietyLevel.high => .30,
   };
+  static OutfitCategory? _ruleCategory(AgendaRule rule) {
+    final raw = rule.parameters['category'];
+    return OutfitCategory.values.where((item) => item.name == raw).firstOrNull;
+  }
+  static bool _sameCategoryItems(Outfit a, Outfit b, OutfitCategory category) {
+    final before = a.itemsFor(category).map((item) => item.id).toSet();
+    final after = b.itemsFor(category).map((item) => item.id).toSet();
+    return before.length == after.length && before.containsAll(after);
+  }
+  static int _consecutiveCategory(List<PlannedOutfit> history, OutfitCategory category) {
+    if (history.isEmpty || history.last.outfit == null) return 0;
+    final last = history.last.outfit!;
+    var count = 0;
+    for (final plan in history.reversed) {
+      if (plan.outfit == null || !_sameCategoryItems(last, plan.outfit!, category)) break;
+      count++;
+    }
+    return count;
+  }
+  static int _consecutiveOutfit(List<PlannedOutfit> history) {
+    if (history.isEmpty) return 0;
+    final signature = _signature(history.last.outfit);
+    var count = 0;
+    for (final plan in history.reversed) {
+      if (_signature(plan.outfit) != signature) break;
+      count++;
+    }
+    return count;
+  }
 }
 
 class AgendaService {
@@ -120,6 +177,46 @@ class AgendaService {
     return changed;
   }
 
+  /// Regenerates one day through the canonical engine while retaining every
+  /// category except [category]. Passing null changes the complete outfit.
+  Future<PlannedOutfit?> changePlannedOutfit(PlannedOutfit current,
+      {OutfitCategory? category}) async {
+    final existing = current.outfit;
+    if (existing == null) return null;
+    final wardrobe = (await aiContextService.build()).garments;
+    final calendar = await _events(current.date);
+    final weather = await _optionalWeather();
+    final events = calendar.available ? calendar.events : const <CalendarEvent>[];
+    final locked = category == null
+        ? const <Garment>{}
+        : existing.allGarments
+            .where((item) => !_matchesReplacementCategory(item, category))
+            .toSet();
+    final lockedCategories = locked
+        .map(OutfitGenerationEngine.categoryFor).toSet();
+    final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
+      wardrobe: wardrobe,
+      context: _recommendationContext(current.date, events, weather),
+      preferences: _recommendationPreferences(
+        (await loadPreferences())),
+      proposalCount: 5,
+      lockedGarments: locked,
+      lockedCategories: lockedCategories,
+      replaceCategory: category,
+      excludedOutfitSignatures: {_outfitSignature(existing)},
+      excludedGarmentIds: category == null ? const {} : existing.allGarments
+        .where((item) => _matchesReplacementCategory(item, category))
+        .map((item) => item.id).toSet(),
+    ));
+    if (result.proposals.isEmpty) return null;
+    final proposal = result.proposals.first;
+    final replacement = _withAgendaId(proposal.outfit, current.date);
+    return replace(current, replacement,
+      reuseKind: _reuseKind(existing, replacement),
+      justification: _justification(proposal,
+        calendarAvailable: calendar.available));
+  }
+
   Future<void> remove(PlannedOutfit value) => database.deletePlannedOutfit(value.id);
   Future<PlannedOutfit> confirm(PlannedOutfit value) => _setStatus(value, PlannedOutfitStatus.confirmed);
 
@@ -141,7 +238,7 @@ class AgendaService {
   }
 
   Future<PlannedOutfit?> proposeDay(DateTime date, AgendaPreferences preferences,
-      {List<PlannedOutfit> previous = const []}) async {
+      {List<PlannedOutfit> previous = const [], PlannedOutfit? excluding}) async {
     final diagnostics = DiagnosticService.instance;
     final correlationId = diagnostics.newCorrelationId('agenda-day');
     diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.info,
@@ -162,6 +259,9 @@ class AgendaService {
       context: context,
       preferences: _recommendationPreferences(preferences),
       proposalCount: 3,
+      excludedOutfitSignatures: {
+        if (excluding?.outfit case final outfit?) _outfitSignature(outfit),
+      },
     ));
     final proposal = proposalSelector.select(date: date, result: result,
       previous: previous, preferences: preferences);
@@ -260,8 +360,21 @@ class AgendaService {
           enginePhase: engineError?.phase.name);
       }
     }
+    final activeRules = preferences.customRules.where((rule) => rule.enabled).length;
+    final fullReuse = generated.where((item) => item.reuseKind == OutfitReuseKind.complete).length;
+    final partialReuse = generated.where((item) => item.reuseKind == OutfitReuseKind.partial ||
+      item.reuseKind == OutfitReuseKind.variant).length;
+    final uniqueGarments = generated.expand((item) => item.outfit?.allGarments ?? const <Garment>[])
+      .map((item) => item.id).toSet().length;
     lastReport = AgendaGenerationReport(generated: List.unmodifiable(generated),
-      failures: List.unmodifiable(failures), calendarAvailable: calendarAvailable);
+      failures: List.unmodifiable(failures), calendarAvailable: calendarAvailable,
+      fullReuse: fullReuse, partialReuse: partialReuse,
+      newOutfits: generated.length - fullReuse - partialReuse,
+      uniqueGarments: uniqueGarments, customRulesActive: activeRules,
+      rulesSatisfied: activeRules == 0 ? 0 : activeRules - failures.where((failure) =>
+        failure.reason == 'agendaRuleUnsatisfied').length,
+      rulesUnsatisfied: failures.where((failure) => failure.reason == 'agendaRuleUnsatisfied').length,
+      ruleConflict: failures.any((failure) => failure.reason == 'conflictingAgendaRules'));
     return List.unmodifiable(generated);
   }
 
@@ -327,6 +440,17 @@ class AgendaService {
 
   static Outfit? _completeReuse(List<PlannedOutfit> history, AgendaPreferences preferences) {
     if (preferences.strategy != PlanningStrategy.minimal || !preferences.allowCompleteOutfitReuse || history.isEmpty) return null;
+    final active = preferences.customRules.where((rule) => rule.enabled);
+    if (active.any((rule) => rule.type == AgendaRuleType.refreshCategory ||
+        rule.type == AgendaRuleType.alternateCategory)) return null;
+    for (final rule in active.where((rule) => rule.type == AgendaRuleType.maximumCategoryDays)) {
+      final category = DefaultAgendaProposalSelector._ruleCategory(rule);
+      final maximum = (rule.parameters['days'] as num?)?.toInt() ?? 1;
+      if (category != null &&
+          DefaultAgendaProposalSelector._consecutiveCategory(history, category) >= maximum) {
+        return null;
+      }
+    }
     final last = history.last.outfit;
     if (last == null) return null;
     final signature = DefaultAgendaProposalSelector._signature(last);
@@ -335,7 +459,13 @@ class AgendaService {
       if (DefaultAgendaProposalSelector._signature(plan.outfit) != signature) break;
       consecutive++;
     }
-    return consecutive < preferences.maximumConsecutiveDays ? last : null;
+    final customMaximums = preferences.customRules.where((rule) => rule.enabled &&
+      rule.type == AgendaRuleType.maximumFullOutfitDays)
+      .map((rule) => (rule.parameters['days'] as num?)?.toInt())
+      .whereType<int>();
+    final maximum = customMaximums.isEmpty ? preferences.maximumConsecutiveDays
+      : customMaximums.reduce((a, b) => a < b ? a : b);
+    return consecutive < maximum ? last : null;
   }
   static OutfitReuseKind _reuseKind(Outfit? previous, Outfit current) {
     if (previous == null) return OutfitReuseKind.none;
@@ -409,6 +539,17 @@ class AgendaService {
     return null;
   }
   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+  static String _outfitSignature(Outfit outfit) {
+    final ids = outfit.allGarments.map((item) => item.id).toList()..sort();
+    return ids.join('|');
+  }
+  static bool _matchesReplacementCategory(Garment item, OutfitCategory category) {
+    final actual = OutfitGenerationEngine.categoryFor(item);
+    if (category == OutfitCategory.jacket || category == OutfitCategory.coat) {
+      return actual == OutfitCategory.jacket || actual == OutfitCategory.coat;
+    }
+    return actual == category;
+  }
   static DateTime _day(DateTime value) => DateTime(value.year, value.month, value.day);
 }
 

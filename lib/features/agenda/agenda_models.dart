@@ -46,7 +46,19 @@ class AgendaGenerationReport {
   final List<PlannedOutfit> generated;
   final List<AgendaDayFailure> failures;
   final bool calendarAvailable;
-  const AgendaGenerationReport({this.generated = const [], this.failures = const [], this.calendarAvailable = true});
+  final int fullReuse;
+  final int partialReuse;
+  final int newOutfits;
+  final int uniqueGarments;
+  final int customRulesActive;
+  final int rulesSatisfied;
+  final int rulesUnsatisfied;
+  final bool ruleConflict;
+  const AgendaGenerationReport({this.generated = const [], this.failures = const [], this.calendarAvailable = true,
+    this.fullReuse = 0, this.partialReuse = 0, this.newOutfits = 0,
+    this.uniqueGarments = 0, this.customRulesActive = 0,
+    this.rulesSatisfied = 0, this.rulesUnsatisfied = 0,
+    this.ruleConflict = false});
 }
 
 extension PlanningStrategyLabel on PlanningStrategy {
