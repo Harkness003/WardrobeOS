@@ -72,6 +72,36 @@ void main() {
     expect(restored.dailyRefreshCategories, contains(OutfitCategory.top));
   });
 
+  test('jours travaillés relit une liste de nombres', () {
+    final restored = AgendaPreferences.fromJson(const {
+      'workDays': <int>[DateTime.monday, DateTime.wednesday],
+    });
+
+    expect(restored.workDays, {DateTime.monday, DateTime.wednesday});
+  });
+
+  test('jours travaillés ignore les éléments dynamiques invalides', () {
+    final restored = AgendaPreferences.fromJson(const {
+      'workDays': <Object?>[DateTime.monday, 'top', null, DateTime.friday],
+    });
+
+    expect(restored.workDays, {DateTime.monday, DateTime.friday});
+  });
+
+  test('jours travaillés utilise la valeur par défaut si absent ou null', () {
+    final absent = AgendaPreferences.fromJson(const {});
+    final withNull = AgendaPreferences.fromJson(const {'workDays': null});
+
+    expect(absent.workDays, const AgendaPreferences().workDays);
+    expect(withNull.workDays, const AgendaPreferences().workDays);
+  });
+
+  test('jours travaillés utilise la valeur par défaut pour un mauvais type', () {
+    final restored = AgendaPreferences.fromJson(const {'workDays': 'top'});
+
+    expect(restored.workDays, const AgendaPreferences().workDays);
+  });
+
   test('un échec Agenda distingue phase, résultat métier et index', () {
     final failure = AgendaDayFailure(
       dayIndex: 3,

@@ -1,0 +1,144 @@
+diff --git a/lib/features/agenda/agenda_models.dart b/lib/features/agenda/agenda_models.dart
+index b6c90dede16b2e4a1f59886f97e7acc84a7ac273..b0e8f653a724cda08e273fe048ddf341f13af10b 100644
+--- a/lib/features/agenda/agenda_models.dart
++++ b/lib/features/agenda/agenda_models.dart
+@@ -103,59 +103,63 @@ class AgendaPreferences {
+     allowCompleteOutfitReuse: allowCompleteOutfitReuse ?? this.allowCompleteOutfitReuse,
+     maximumConsecutiveDays: maximumConsecutiveDays ?? this.maximumConsecutiveDays,
+     reusableCategories: reusableCategories ?? this.reusableCategories,
+     dailyRefreshCategories: dailyRefreshCategories ?? this.dailyRefreshCategories,
+     workDays: workDays ?? this.workDays, varietyLevel: varietyLevel ?? this.varietyLevel,
+   );
+ 
+   Map<String, Object?> toJson() => {
+     'strategy': strategy.name,
+     'customRules': customRules.map((rule) => rule.toJson()).toList(),
+     'allowCompleteOutfitReuse': allowCompleteOutfitReuse,
+     'maximumConsecutiveDays': maximumConsecutiveDays,
+     'reusableCategories': reusableCategories.map((value) => value.name).toList(),
+     'dailyRefreshCategories': dailyRefreshCategories.map((value) => value.name).toList(),
+     'workDays': workDays.toList(), 'varietyLevel': varietyLevel.name,
+   };
+ 
+   factory AgendaPreferences.fromJson(Map<String, Object?> json) {
+     T named<T extends Enum>(List<T> values, Object? raw, T fallback) =>
+       values.where((value) => value.name == raw).firstOrNull ?? fallback;
+     Set<OutfitCategory> categories(Object? raw, Set<OutfitCategory> fallback) {
+       if (raw is! List) return fallback;
+       return raw.map((item) => named(OutfitCategory.values, item, OutfitCategory.otherLayer)).toSet();
+     }
+     const defaults = AgendaPreferences();
++    final rawWorkDays = json['workDays'];
++    final workDays = rawWorkDays is Iterable
++      ? rawWorkDays.whereType<num>().map((value) => value.toInt()).toSet()
++      : defaults.workDays;
+     return AgendaPreferences(
+       strategy: named(PlanningStrategy.values, json['strategy'], defaults.strategy),
+       customRules: (json['customRules'] as List? ?? const []).whereType<Map>()
+         .map((value) => AgendaRule.fromJson(value.cast<String, Object?>())).toList(),
+       allowCompleteOutfitReuse: json['allowCompleteOutfitReuse'] as bool? ?? defaults.allowCompleteOutfitReuse,
+       maximumConsecutiveDays: (json['maximumConsecutiveDays'] as num?)?.toInt() ?? defaults.maximumConsecutiveDays,
+       reusableCategories: categories(json['reusableCategories'], defaults.reusableCategories),
+       dailyRefreshCategories: categories(json['dailyRefreshCategories'], defaults.dailyRefreshCategories),
+-      workDays: (json['workDays'] as List? ?? defaults.workDays).whereType<num>().map((v) => v.toInt()).toSet(),
++      workDays: workDays,
+       varietyLevel: named(AgendaVarietyLevel.values, json['varietyLevel'], defaults.varietyLevel),
+     );
+   }
+ }
+ 
+ class PlannedOutfit {
+   final String id;
+   final DateTime date;
+   final String outfitId;
+   final Outfit? outfit;
+   final PlanningOrigin origin;
+   final PlanningStrategy strategy;
+   final PlannedOutfitStatus status;
+   final String justification;
+   final WeatherData? weather;
+   final CalendarEvent? event;
+   final OutfitReuseKind reuseKind;
+   final DateTime createdAt;
+   final DateTime updatedAt;
+   final DateTime? wearRecordedAt;
+ 
+   const PlannedOutfit({required this.id, required this.date, required this.outfitId,
+     this.outfit, this.origin = PlanningOrigin.manual, this.strategy = PlanningStrategy.rotation,
+     this.status = PlannedOutfitStatus.proposed, this.justification = '', this.weather,
+     this.event, this.reuseKind = OutfitReuseKind.none, required this.createdAt,
+diff --git a/test/features/agenda/agenda_models_test.dart b/test/features/agenda/agenda_models_test.dart
+index 4c20ee3a6e24353f2251e92cf55e013d80ff685d..9cac76367ad5391bd17d048f9e9a269bdff81b2c 100644
+--- a/test/features/agenda/agenda_models_test.dart
++++ b/test/features/agenda/agenda_models_test.dart
+@@ -50,40 +50,70 @@ void main() {
+     expect(restored.parameters['days'], 3);
+   });
+ 
+   test('préférences Agenda persistent et relisent tous les réglages', () {
+     const source = AgendaPreferences(strategy: PlanningStrategy.custom,
+       allowCompleteOutfitReuse: false, maximumConsecutiveDays: 5,
+       varietyLevel: AgendaVarietyLevel.high, workDays: {1, 3},
+       customRules: [AgendaRule(type: AgendaRuleType.refreshCategory,
+         parameters: {'category': 'top'})]);
+     final restored = AgendaPreferences.fromJson(source.toJson());
+     expect(restored.strategy, PlanningStrategy.custom);
+     expect(restored.allowCompleteOutfitReuse, isFalse);
+     expect(restored.maximumConsecutiveDays, 5);
+     expect(restored.varietyLevel, AgendaVarietyLevel.high);
+     expect(restored.workDays, {1, 3});
+     expect(restored.customRules.single.type, AgendaRuleType.refreshCategory);
+   });
+ 
+   test('ancien payload de préférences conserve les valeurs équilibrées', () {
+     final restored = AgendaPreferences.fromJson(const {});
+     expect(restored.strategy, PlanningStrategy.rotation);
+     expect(restored.varietyLevel, AgendaVarietyLevel.balanced);
+     expect(restored.dailyRefreshCategories, contains(OutfitCategory.top));
+   });
+ 
++  test('jours travaillés relit une liste de nombres', () {
++    final restored = AgendaPreferences.fromJson(const {
++      'workDays': <int>[DateTime.monday, DateTime.wednesday],
++    });
++
++    expect(restored.workDays, {DateTime.monday, DateTime.wednesday});
++  });
++
++  test('jours travaillés ignore les éléments dynamiques invalides', () {
++    final restored = AgendaPreferences.fromJson(const {
++      'workDays': <Object?>[DateTime.monday, 'top', null, DateTime.friday],
++    });
++
++    expect(restored.workDays, {DateTime.monday, DateTime.friday});
++  });
++
++  test('jours travaillés utilise la valeur par défaut si absent ou null', () {
++    final absent = AgendaPreferences.fromJson(const {});
++    final withNull = AgendaPreferences.fromJson(const {'workDays': null});
++
++    expect(absent.workDays, const AgendaPreferences().workDays);
++    expect(withNull.workDays, const AgendaPreferences().workDays);
++  });
++
++  test('jours travaillés utilise la valeur par défaut pour un mauvais type', () {
++    final restored = AgendaPreferences.fromJson(const {'workDays': 'top'});
++
++    expect(restored.workDays, const AgendaPreferences().workDays);
++  });
++
+   test('un échec Agenda distingue phase, résultat métier et index', () {
+     final failure = AgendaDayFailure(
+       dayIndex: 3,
+       date: DateTime(2026, 8, 5),
+       phase: AgendaDayPhase.proposalSelection,
+       result: AgendaDayResult.businessUnavailable,
+       reason: 'missingBottom',
+     );
+ 
+     expect(failure.dayIndex, 3);
+     expect(failure.phase, AgendaDayPhase.proposalSelection);
+     expect(failure.result, AgendaDayResult.businessUnavailable);
+     expect(failure.technicalType, isNull);
+   });
+ }

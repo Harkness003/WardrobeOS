@@ -125,6 +125,10 @@ class AgendaPreferences {
       return raw.map((item) => named(OutfitCategory.values, item, OutfitCategory.otherLayer)).toSet();
     }
     const defaults = AgendaPreferences();
+    final rawWorkDays = json['workDays'];
+    final workDays = rawWorkDays is Iterable
+      ? rawWorkDays.whereType<num>().map((value) => value.toInt()).toSet()
+      : defaults.workDays;
     return AgendaPreferences(
       strategy: named(PlanningStrategy.values, json['strategy'], defaults.strategy),
       customRules: (json['customRules'] as List? ?? const []).whereType<Map>()
@@ -133,7 +137,7 @@ class AgendaPreferences {
       maximumConsecutiveDays: (json['maximumConsecutiveDays'] as num?)?.toInt() ?? defaults.maximumConsecutiveDays,
       reusableCategories: categories(json['reusableCategories'], defaults.reusableCategories),
       dailyRefreshCategories: categories(json['dailyRefreshCategories'], defaults.dailyRefreshCategories),
-      workDays: (json['workDays'] as List? ?? defaults.workDays).whereType<num>().map((v) => v.toInt()).toSet(),
+      workDays: workDays,
       varietyLevel: named(AgendaVarietyLevel.values, json['varietyLevel'], defaults.varietyLevel),
     );
   }
