@@ -1,0 +1,1041 @@
+diff --git a/lib/features/agenda/agenda_controller.dart b/lib/features/agenda/agenda_controller.dart
+index 1bb3150abc8c9bf4c48b57a051f2725e99fd4f35..40cb1c54f1c111222ef26b3feb954ef567f274e6 100644
+--- a/lib/features/agenda/agenda_controller.dart
++++ b/lib/features/agenda/agenda_controller.dart
+@@ -1,56 +1,62 @@
+ import 'package:flutter/foundation.dart';
+ import '../../models/outfit.dart';
+ import '../calendar/google_calendar_service.dart';
+ import 'agenda_models.dart';
+ import 'agenda_service.dart';
+ import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ class AgendaController extends ChangeNotifier {
+   final AgendaService service;
+   DateTime weekStart;
+   AgendaPreferences preferences;
+   List<PlannedOutfit> plans = const [];
+   bool loading = false;
++  bool calendarBusy = false;
+   Object? error;
+   final Map<DateTime, AgendaDayState> dayStates = {};
+   final Map<DateTime, String> dayErrors = {};
+   bool calendarAvailable = true;
+   GoogleCalendarService? googleCalendarService;
++  bool _calendarInitialized = false;
+ 
+   AgendaController({required this.service, this.googleCalendarService, AgendaPreferences preferences = const AgendaPreferences(), DateTime? initialDay})
+     : preferences = preferences, weekStart = _monday(initialDay ?? DateTime.now());
+ 
+   Future<void> load() async {
+     final stopwatch = Stopwatch()..start();
+     final diagnostics = DiagnosticService.instance;
+     final correlationId = diagnostics.newCorrelationId('agenda-week');
+     diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.info,
+       state: 'Démarré', summary: 'Semaine Agenda demandée', source: 'AgendaController.load',
+       correlationId: correlationId, details: {'weekStart': weekStart.toIso8601String().substring(0, 10)});
+     loading = true; error = null; notifyListeners();
+     try {
++      if (!_calendarInitialized && googleCalendarService != null) {
++        await googleCalendarService!.loadConnection();
++        _calendarInitialized = true;
++      }
+       plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
+       _syncStates();
+       final missing = _days.where((day) => forDay(day) == null).toList();
+       if (missing.isNotEmpty) {
+         for (final day in missing) dayStates[_key(day)] = AgendaDayState.generating;
+         notifyListeners();
+         await service.proposePeriod(weekStart, 7, preferences, existing: plans);
+         _applyReport();
+         plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
+         _syncStates();
+       }
+       diagnostics.publish(module: DiagnosticModule.agenda,
+         level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
+         state: 'Rendu', summary: '${plans.length} journée(s) planifiée(s)', source: 'AgendaController.load',
+         correlationId: correlationId, duration: stopwatch.elapsed,
+         reason: calendarAvailable ? null : 'calendarUnavailableFallbackWithoutEvents',
+         warning: calendarAvailable ? null : 'Calendrier indisponible : génération de repli sans événements.',
+         details: {'calendarAvailable': calendarAvailable, 'plans': plans.length,
+           'dayFailures': dayErrors.length}, pipeline: [
+           const DiagnosticStep('loadStoredWeek'),
+           DiagnosticStep('calendar', level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+           const DiagnosticStep('wardrobeContext'), const DiagnosticStep('weather'),
+           DiagnosticStep('generationByDay', level: dayErrors.isEmpty ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+           const DiagnosticStep('render')]);
+     }
+@@ -73,61 +79,71 @@ class AgendaController extends ChangeNotifier {
+     loading = true; error = null; notifyListeners();
+     try { await service.proposePeriod(weekStart, 7, preferences, existing: plans); _applyReport(); plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); _syncStates(); }
+     catch (value) { error = value; }
+     finally { loading = false; notifyListeners(); }
+   }
+ 
+   Future<void> plan(DateTime date, Outfit outfit) async { await service.plan(date: date, outfit: outfit, strategy: preferences.strategy); await load(); }
+   Future<void> replace(PlannedOutfit value, Outfit outfit, {OutfitReuseKind kind = OutfitReuseKind.none}) async { await service.replace(value, outfit, reuseKind: kind); await load(); }
+   Future<void> another(DateTime date, PlannedOutfit? current) async {
+     dayStates[_key(date)] = AgendaDayState.generating; notifyListeners();
+     try {
+       // The same stable plan id is overwritten only after generation succeeds.
+       await service.proposeDay(date, preferences,
+         previous: plans.where((item) => item.date.isBefore(date)).toList());
+       await load();
+     } catch (value) {
+       error = value; dayStates[_key(date)] = AgendaDayState.error; notifyListeners();
+     }
+   }
+   Future<void> confirm(PlannedOutfit value) async { await service.confirm(value); await load(); }
+   Future<void> markWorn(PlannedOutfit value) async { await service.markWorn(value); await load(); }
+   Future<void> remove(PlannedOutfit value) async { await service.remove(value); await load(); }
+ 
+   Future<void> refreshCalendar() async {
+     final google = googleCalendarService;
+-    if (google == null) return;
+-    loading = true; error = null; notifyListeners();
+-    try { await google.refresh(from: weekStart, to: weekStart.add(const Duration(days: 7))); await load(); }
+-    catch (value) { error = value; }
+-    finally { loading = false; notifyListeners(); }
++    if (google == null || calendarBusy) return;
++    calendarBusy = true; notifyListeners();
++    try { await google.refresh(from: weekStart, to: weekStart.add(const Duration(days: 7))); }
++    finally { calendarBusy = false; calendarAvailable = google.isCalendarAvailable; notifyListeners(); }
++  }
++
++  Future<void> connectCalendar() async {
++    final google = googleCalendarService;
++    if (google == null || calendarBusy) return;
++    calendarBusy = true; notifyListeners();
++    try { await google.authenticate(); }
++    finally { calendarBusy = false; calendarAvailable = google.isCalendarAvailable; notifyListeners(); }
+   }
+ 
+   Future<void> disconnectCalendar() async {
+     final google = googleCalendarService;
+     if (google == null) return;
+-    await google.disconnect();
++    if (calendarBusy) return;
++    calendarBusy = true; notifyListeners();
++    try { await google.disconnect(); }
++    finally { calendarBusy = false; }
+     calendarAvailable = false;
+     notifyListeners();
+   }
+ 
+   Iterable<DateTime> get _days => Iterable.generate(7, (index) => weekStart.add(Duration(days: index)));
+   void _syncStates() {
+     for (final day in _days) {
+       final plan = forDay(day);
+       dayStates[_key(day)] = dayErrors.containsKey(_key(day)) ? AgendaDayState.error
+           : plan == null ? AgendaDayState.noOutfit
+           : plan.origin == PlanningOrigin.automatic ? AgendaDayState.generated : AgendaDayState.planned;
+     }
+   }
+   void _applyReport() {
+     calendarAvailable = service.lastReport.calendarAvailable;
+     dayErrors.clear();
+     for (final failure in service.lastReport.failures) {
+       dayErrors[_key(failure.date)] = failure.reason;
+       dayStates[_key(failure.date)] = AgendaDayState.error;
+     }
+   }
+   static DateTime _key(DateTime value) => DateTime(value.year, value.month, value.day);
+ 
+   static DateTime _monday(DateTime value) { final day = DateTime(value.year, value.month, value.day); return day.subtract(Duration(days: day.weekday - 1)); }
+   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+diff --git a/lib/features/agenda/agenda_screen.dart b/lib/features/agenda/agenda_screen.dart
+index 90ad3c7b0db90436d9bdf3aeb1c2afd07f59ace9..f1e3168bc5b9d1d6cfc043b889b86a66503cc0f1 100644
+--- a/lib/features/agenda/agenda_screen.dart
++++ b/lib/features/agenda/agenda_screen.dart
+@@ -10,54 +10,50 @@ class AgendaScreen extends StatefulWidget {
+   final AgendaController controller;
+   final OutfitsController outfitsController;
+   const AgendaScreen({super.key, required this.controller, required this.outfitsController});
+   @override State<AgendaScreen> createState() => _AgendaScreenState();
+ }
+ 
+ class _AgendaScreenState extends State<AgendaScreen> {
+   @override void initState() { super.initState(); widget.controller.addListener(_refresh); widget.controller.load(); widget.outfitsController.load(); }
+   void _refresh() { if (mounted) setState(() {}); }
+   @override void dispose() { widget.controller.removeListener(_refresh); super.dispose(); }
+ 
+   @override Widget build(BuildContext context) {
+     final c = widget.controller;
+     return Scaffold(appBar: AppBar(title: const Text('Agenda vestimentaire')),
+       body: SafeArea(child: Column(children: [
+         Padding(padding: const EdgeInsets.fromLTRB(12, 4, 12, 8), child: Column(children: [
+           Row(children: [IconButton(onPressed: c.loading ? null : () => c.changeWeek(-1), icon: const Icon(Icons.chevron_left)),
+             Expanded(child: Text('${_date(c.weekStart)} — ${_date(c.weekStart.add(const Duration(days: 6)))}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium)),
+             IconButton(onPressed: c.loading ? null : () => c.changeWeek(1), icon: const Icon(Icons.chevron_right))]),
+           Row(children: [Expanded(child: DropdownButtonFormField<PlanningStrategy>(value: c.preferences.strategy,
+             decoration: const InputDecoration(labelText: 'Stratégie', isDense: true),
+             items: PlanningStrategy.values.map((v) => DropdownMenuItem(value: v, child: Text(v.label))).toList(), onChanged: (v) { if (v != null) c.setStrategy(v); })),
+             const SizedBox(width: 8), FilledButton.icon(onPressed: c.loading ? null : c.proposeWeek,
+               icon: const Icon(Icons.auto_awesome, size: 18), label: const Text('Proposer ma semaine'))]),
+           _CalendarSection(controller: c),
+-          if (!c.calendarAvailable) const Padding(padding: EdgeInsets.only(top: 8), child: ContentState.error(
+-            title: 'Calendrier indisponible',
+-            message: 'Les journées restent visibles, mais leurs événements ne peuvent pas être pris en compte.',
+-            actionLabel: null)),
+           if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: ContentState.error(
+             title: 'Impossible de charger cette semaine',
+             message: 'L’agenda n’a pas pu être actualisé. Vérifie l’accès au calendrier puis réessaie.',
+             onAction: c.load)),
+         ])),
+         if (c.loading) const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: ContentState.loading(
+           title: 'Chargement de l’agenda', message: 'Préparation des événements et des tenues de la semaine…')),
+         Expanded(child: ListView.builder(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), itemCount: 7, itemBuilder: (_, i) {
+           final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day,
+             plan: c.forDay(day), state: c.stateFor(day),
+             failure: c.dayErrors[DateTime(day.year, day.month, day.day)],
+             onDetails: () => _showDetails(c.forDay(day)),
+             onAction: (action) => _act(day, c.forDay(day), action));
+         })),
+       ])));
+   }
+ 
+   Future<void> _showDetails(PlannedOutfit? plan) async {
+     if (plan == null) return;
+     await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+       builder: (context) => SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+           if (plan.outfit case final outfit?)
+             OutfitProposalCard(proposal: OutfitGenerationProposal(
+               outfit: outfit,
+@@ -136,60 +132,67 @@ class _DayCard extends StatelessWidget {
+   };
+   static String _status(PlannedOutfitStatus value) => switch(value) { PlannedOutfitStatus.proposed => 'Proposée', PlannedOutfitStatus.confirmed => 'Confirmée', PlannedOutfitStatus.worn => 'Portée', PlannedOutfitStatus.ignored => 'Ignorée', PlannedOutfitStatus.cancelled => 'Annulée' };
+ }
+ 
+ class _StateBadge extends StatelessWidget {
+   final AgendaDayState state; final PlannedOutfitStatus? status;
+   const _StateBadge({required this.state, required this.status});
+   @override Widget build(BuildContext context) => Chip(label: Text(switch (state) {
+     AgendaDayState.generating => 'Génération', AgendaDayState.noOutfit => 'Vide',
+     AgendaDayState.error => 'Erreur', AgendaDayState.generated => 'Générée',
+     AgendaDayState.planned => _DayCard._status(status!),
+   }), visualDensity: VisualDensity.compact);
+ }
+ 
+ 
+ class _CalendarSection extends StatelessWidget {
+   final AgendaController controller;
+   const _CalendarSection({required this.controller});
+ 
+   @override
+   Widget build(BuildContext context) {
+     final google = controller.googleCalendarService;
+     final state = google?.syncState;
+     final selected = state?.selectedCalendarIds.length ?? 0;
+     final last = state?.lastRefreshAt;
+-    final connected = state?.accountEmail != null;
++    final connected = state?.status == GoogleCalendarStatus.connected ||
++        state?.status == GoogleCalendarStatus.syncing;
++    final busy = controller.calendarBusy;
+     return Card(
+       margin: const EdgeInsets.only(top: 8),
+       child: Padding(
+         padding: const EdgeInsets.all(12),
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+           Row(children: [
+             const Icon(Icons.event_available_outlined),
+             const SizedBox(width: 8),
+             Expanded(child: Text('Calendrier', style: Theme.of(context).textTheme.titleSmall)),
+             TextButton.icon(
+-              onPressed: google == null || controller.loading ? null : controller.refreshCalendar,
++              onPressed: google == null || busy || !connected ? null : controller.refreshCalendar,
+               icon: const Icon(Icons.refresh, size: 18),
+               label: const Text('Actualiser'),
+             ),
+           ]),
+-          Text(connected ? 'Compte connecté : ${state!.accountEmail}' : 'Google Calendar non connecté'),
+-          Text(selected == 0 ? 'Aucun calendrier actif sélectionné.' : '$selected calendrier(s) actif(s).'),
+-          Text(last == null ? 'Dernière synchronisation : jamais' : 'Dernière synchronisation : ${_dateTime(last)}'),
+-          if (state?.userMessage != null) Text(state!.userMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
++          Text(connected ? 'Compte connecté : ${state?.accountEmail ?? 'Google'}' :
++            'Google Calendar non connecté — Agenda fonctionne normalement.'),
++          if (connected) Text(selected == 0 ? 'Aucun calendrier actif sélectionné.' : '$selected calendrier(s) actif(s).'),
++          if (connected) Text(last == null ? 'Synchronisation : jamais' :
++            state!.eventCount == 0 ? 'Synchronisation réussie : aucun événement pertinent.' :
++            'Dernière synchronisation : ${_dateTime(last)} · ${state.eventCount} événement(s)'),
++          if (busy) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
++          if (state?.userMessage != null) Text(state!.userMessage!, style: TextStyle(
++            color: state?.status == GoogleCalendarStatus.connected ? null : Theme.of(context).colorScheme.error)),
+           Wrap(spacing: 8, children: [
+             OutlinedButton.icon(
+-              onPressed: null,
++              onPressed: google == null || busy || connected ? null : controller.connectCalendar,
+               icon: const Icon(Icons.login, size: 18),
+               label: Text(connected ? 'Google connecté' : 'Connecter Google Calendar'),
+             ),
+-            if (connected) TextButton(onPressed: controller.disconnectCalendar, child: const Text('Déconnecter')),
++            if (connected) TextButton(onPressed: busy ? null : controller.disconnectCalendar, child: const Text('Déconnecter')),
+           ]),
+         ]),
+       ),
+     );
+   }
+ 
+   static String _dateTime(DateTime value) => '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')} ${value.hour.toString().padLeft(2, '0')}h${value.minute.toString().padLeft(2, '0')}';
+ }
+diff --git a/lib/features/agenda/agenda_service.dart b/lib/features/agenda/agenda_service.dart
+index d6da7dede4b2bc4fbcc5d425fd43b48f6e5c3b97..0fb19f32484bb470a77d94ef15b93c8ffe9aa1af 100644
+--- a/lib/features/agenda/agenda_service.dart
++++ b/lib/features/agenda/agenda_service.dart
+@@ -1,37 +1,38 @@
+ import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ import '../../core/outfit_generation/outfit_generation_engine.dart';
+ import '../../core/recommendation/recommendation_context.dart';
+ import '../../data/database_service.dart';
+ import '../../models/outfit.dart';
+ import '../../models/garment.dart';
+ import '../../weather/models/weather_data.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../calendar/calendar_event.dart';
+ import '../calendar/calendar_event_context_mapper.dart';
+ import '../calendar/calendar_service.dart';
+ import 'agenda_models.dart';
++import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ typedef AgendaClock = DateTime Function();
+ 
+ /// Selection policy kept separate from generation so future work/weekend/travel
+ /// planners can select among central-engine proposals without duplicating it.
+ abstract interface class AgendaProposalSelector {
+   OutfitGenerationProposal? select({
+     required DateTime date,
+     required OutfitGenerationResult result,
+     required List<PlannedOutfit> previous,
+     required AgendaPreferences preferences,
+   });
+ }
+ 
+ class DefaultAgendaProposalSelector implements AgendaProposalSelector {
+   const DefaultAgendaProposalSelector();
+ 
+   @override
+   OutfitGenerationProposal? select({required DateTime date,
+       required OutfitGenerationResult result, required List<PlannedOutfit> previous,
+       required AgendaPreferences preferences}) {
+     if (result.proposals.isEmpty) return null;
+     final used = previous.map((plan) => _signature(plan.outfit)).whereType<String>().toSet();
+     return result.proposals.where((proposal) => !used.contains(_signature(proposal.outfit))).firstOrNull
+         ?? result.proposals.first;
+@@ -88,77 +89,93 @@ class AgendaService {
+     return changed;
+   }
+ 
+   Future<void> remove(PlannedOutfit value) => database.deletePlannedOutfit(value.id);
+   Future<PlannedOutfit> confirm(PlannedOutfit value) => _setStatus(value, PlannedOutfitStatus.confirmed);
+ 
+   Future<PlannedOutfit> markWorn(PlannedOutfit value) async {
+     if (value.wearRecordedAt != null || value.status == PlannedOutfitStatus.worn) return value;
+     final wornAt = value.date.isAfter(clock()) ? clock() : value.date;
+     final recorded = await database.recordOutfitWear(value.outfitId, wornAt: wornAt);
+     if (!recorded) throw StateError('La tenue ne contient plus de vêtements disponibles.');
+     final updated = value.copyWith(status: PlannedOutfitStatus.worn,
+       wearRecordedAt: clock(), updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit> _setStatus(PlannedOutfit value, PlannedOutfitStatus status) async {
+     final updated = value.copyWith(status: status, updatedAt: clock());
+     await database.savePlannedOutfit(updated);
+     return updated;
+   }
+ 
+   Future<PlannedOutfit?> proposeDay(DateTime date, AgendaPreferences preferences,
+       {List<PlannedOutfit> previous = const []}) async {
++    final diagnostics = DiagnosticService.instance;
++    final correlationId = diagnostics.newCorrelationId('agenda-day');
++    diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.info,
++      state: 'Demandée', summary: 'Génération quotidienne demandée',
++      source: 'AgendaService.proposeDay', correlationId: correlationId,
++      details: {'date': _day(date).toIso8601String()});
+     // build() deliberately reloads database garments on every proposal. Never
+     // substitute saved-outfit garments: they may predate a recent edit.
+     final wardrobe = (await aiContextService.build()).garments;
+     final calendar = await _events(date);
+     final weather = await _optionalWeather();
+     final events = calendar.available ? calendar.events : const <CalendarEvent>[];
+     final conflict = _eventConflict(events);
+     if (conflict != null) throw StateError(conflict);
+     final context = _recommendationContext(date, events, weather);
+     final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       context: context,
+       preferences: _recommendationPreferences(preferences),
+       proposalCount: 3,
+     ));
+     final proposal = proposalSelector.select(date: date, result: result,
+       previous: previous, preferences: preferences);
+-    if (proposal == null) return null;
++    if (proposal == null) {
++      diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.warning,
++        state: 'Impossible', summary: 'Aucune tenue complète compatible avec le dressing',
++        source: 'AgendaService.proposeDay', correlationId: correlationId,
++        reason: 'noCompleteOutfit');
++      return null;
++    }
+     final choice = _withAgendaId(proposal.outfit, date);
+     await _ensureStored(choice);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+       justification: _justification(proposal, calendarAvailable: calendar.available), weather: weather, event: events.firstOrNull,
+       createdAt: now, updatedAt: now);
+     await database.savePlannedOutfit(value);
++    diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.success,
++      state: 'Générée', summary: 'Proposition quotidienne générée',
++      source: 'AgendaService.proposeDay', correlationId: correlationId,
++      details: {'calendarApplied': events.isNotEmpty, 'weatherApplied': weather != null});
+     return value;
+   }
+ 
+   Future<List<PlannedOutfit>> proposePeriod(DateTime from, int days,
+       AgendaPreferences preferences, {List<PlannedOutfit> existing = const []}) async {
+     final generated = <PlannedOutfit>[];
+     final failures = <AgendaDayFailure>[];
+     var calendarAvailable = true;
+     final history = [...existing]..sort((a, b) => a.date.compareTo(b.date));
+     // One immutable wardrobe snapshot and one weather request per generation.
+     final wardrobe = (await aiContextService.build()).garments;
+     final weather = await _optionalWeather();
+     for (var offset = 0; offset < days; offset++) {
+       final date = _day(from).add(Duration(days: offset));
+       if (history.any((item) => _sameDay(item.date, date))) continue;
+       try {
+         final calendar = await _events(date);
+         calendarAvailable = calendarAvailable && calendar.available;
+         final events = calendar.available ? calendar.events : const <CalendarEvent>[];
+         final conflict = _eventConflict(events);
+         if (conflict != null) throw StateError(conflict);
+         final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
+           wardrobe: wardrobe, context: _recommendationContext(date, events, weather),
+           preferences: _recommendationPreferences(preferences), proposalCount: 3));
+         final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
+diff --git a/lib/features/calendar/calendar_event_context_mapper.dart b/lib/features/calendar/calendar_event_context_mapper.dart
+index 92c2ab325fd39566c41337106a023b4b09f5520c..3bf52897dbca340b70c511d18b8df824039c3cda 100644
+--- a/lib/features/calendar/calendar_event_context_mapper.dart
++++ b/lib/features/calendar/calendar_event_context_mapper.dart
+@@ -27,52 +27,53 @@ class CalendarEventContextMapper {
+           'title': event.title,
+           'start': event.startsAt.toIso8601String(),
+           'end': event.endsAt.toIso8601String(),
+           'durationMinutes': event.endsAt.difference(event.startsAt).inMinutes,
+           'context': event.type.label,
+           'formality': event.formality.label,
+           'allDay': event.isAllDay,
+           if (event.location != null) 'location': event.location,
+         }).toList(),
+         if (dominant != null) ...{
+           'eventContext': dominant.context,
+           'eventPriority': dominant.priority,
+           'eventScope': 'day',
+         },
+       },
+     );
+   }
+ 
+   CalendarEvent applyInferredConstraints(CalendarEvent event) {
+     final inferred = _classify(event);
+     return event.copyWith(type: inferred.type, formality: inferred.formality);
+   }
+ 
+   _InferredEventContext _classify(CalendarEvent event) {
+     final text = '${event.title} ${event.description ?? ''}'.toLowerCase();
+-    if (event.formality == EventFormality.business || event.type == CalendarEventType.work ||
+-        _containsAny(text, const ['réunion client', 'reunion client', 'client meeting', 'comité', 'comite', 'présentation', 'presentation'])) {
++    // Preserve explicit structured signals, but never turn a vague meeting
++    // title into a certainty about dress code.
++    if (event.formality == EventFormality.business || event.type == CalendarEventType.work) {
+       return const _InferredEventContext(CalendarEventType.work, EventFormality.business, 'contexte professionnel', 'professionnel', 100);
+     }
+     if (_containsAny(text, const ['mariage', 'wedding', 'gala', 'cérémonie', 'ceremonie'])) {
+       return const _InferredEventContext(CalendarEventType.party, EventFormality.formal, 'événement élégant', 'élégant', 90);
+     }
+     if (_containsAny(text, const ['sport', 'gym', 'running', 'course', 'yoga', 'entraînement', 'entrainement'])) {
+       return const _InferredEventContext(CalendarEventType.sport, EventFormality.sport, 'activité physique', 'confort', 60);
+     }
+     if (_containsAny(text, const ['restaurant', 'dîner', 'diner', 'déjeuner', 'dejeuner', 'brunch'])) {
+       return const _InferredEventContext(CalendarEventType.restaurant, EventFormality.smartCasual, 'sortie', 'casual chic', 70);
+     }
+     if (event.type == CalendarEventType.party || event.type == CalendarEventType.travel) {
+       return _InferredEventContext(event.type, event.formality, event.type.label, null, 90);
+     }
+     if (event.type == CalendarEventType.restaurant) {
+       return _InferredEventContext(event.type, event.formality, 'sortie', 'casual chic', 70);
+     }
+     if (event.type == CalendarEventType.sport || event.formality == EventFormality.sport) {
+       return const _InferredEventContext(CalendarEventType.sport, EventFormality.sport, 'activité physique', 'confort', 60);
+     }
+     return _InferredEventContext(event.type, event.formality, event.type.label, null, 10);
+   }
+ 
+   static bool _containsAny(String value, List<String> needles) => needles.any(value.contains);
+ }
+diff --git a/lib/features/calendar/google_calendar_authenticator.dart b/lib/features/calendar/google_calendar_authenticator.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e25166fb68f026c26b09099b2f0c3acf8453a720
+--- /dev/null
++++ b/lib/features/calendar/google_calendar_authenticator.dart
+@@ -0,0 +1,38 @@
++import 'package:google_sign_in/google_sign_in.dart';
++
++import 'google_calendar_auth_store.dart';
++
++abstract interface class GoogleCalendarAuthenticator {
++  Future<GoogleCalendarConnection?> authenticate({bool interactive = true});
++  Future<void> disconnect();
++}
++
++class GoogleSignInCalendarAuthenticator implements GoogleCalendarAuthenticator {
++  static const calendarReadonlyScope =
++      'https://www.googleapis.com/auth/calendar.readonly';
++  final GoogleSignIn _googleSignIn;
++
++  GoogleSignInCalendarAuthenticator({GoogleSignIn? googleSignIn})
++      : _googleSignIn = googleSignIn ??
++            GoogleSignIn(scopes: const [calendarReadonlyScope]);
++
++  @override
++  Future<GoogleCalendarConnection?> authenticate({bool interactive = true}) async {
++    final account = await _googleSignIn.signInSilently() ??
++        (interactive ? await _googleSignIn.signIn() : null);
++    if (account == null) return null;
++    final token = (await account.authentication).accessToken;
++    if (token == null || token.isEmpty) {
++      throw StateError('calendarAccessTokenUnavailable');
++    }
++    return GoogleCalendarConnection(
++      accountEmail: account.email,
++      accessToken: token,
++      connectedAt: DateTime.now(),
++      calendarReadGranted: true,
++    );
++  }
++
++  @override
++  Future<void> disconnect() => _googleSignIn.disconnect();
++}
+diff --git a/lib/features/calendar/google_calendar_service.dart b/lib/features/calendar/google_calendar_service.dart
+index 0db89f2e62aeb9ee1e6d1a658735eccdb3c4e924..8586cdb5cabf4920f5b67cbffff8952cbe014254 100644
+--- a/lib/features/calendar/google_calendar_service.dart
++++ b/lib/features/calendar/google_calendar_service.dart
+@@ -1,188 +1,240 @@
+ import 'dart:convert';
+ 
+ import 'package:http/http.dart' as http;
+ 
+ import 'calendar_event.dart';
+ import 'calendar_event_context_mapper.dart';
+ import 'calendar_service.dart';
+ import 'google_calendar_auth_store.dart';
++import 'google_calendar_authenticator.dart';
+ import '../../core/diagnostics/diagnostic_service.dart';
+ 
+-enum GoogleCalendarStatus { disconnected, connected, permissionDenied, unavailable, networkError }
++enum GoogleCalendarStatus { disconnected, connecting, connected, syncing, authenticationError, apiError, mappingError }
+ 
+ class GoogleCalendarInfo {
+   final String id;
+   final String summary;
+   final bool primary;
+   const GoogleCalendarInfo({required this.id, required this.summary, this.primary = false});
+ }
+ 
+ class GoogleCalendarSyncState {
+   final GoogleCalendarStatus status;
+   final String? accountEmail;
+   final Set<String> selectedCalendarIds;
+   final DateTime? lastRefreshAt;
++  final int eventCount;
+   final String? userMessage;
+   const GoogleCalendarSyncState({
+     this.status = GoogleCalendarStatus.disconnected,
+     this.accountEmail,
+     this.selectedCalendarIds = const {},
+     this.lastRefreshAt,
++    this.eventCount = 0,
+     this.userMessage,
+   });
+ }
+ 
+ class GoogleCalendarService implements CalendarService, CalendarAvailability {
+   final GoogleCalendarAuthStore authStore;
+   final http.Client _client;
+   final DateTime Function() _clock;
+   final CalendarEventContextMapper _mapper;
++  final GoogleCalendarAuthenticator authenticator;
+   GoogleCalendarConnection? _connection;
+   List<GoogleCalendarInfo> _calendars = const [];
+   Set<String> _selectedCalendarIds = const {};
+   List<CalendarEvent> _cache = const [];
+   DateTime? _lastRefreshAt;
+   GoogleCalendarStatus _status = GoogleCalendarStatus.disconnected;
+   String? _message;
++  bool _connecting = false;
++  bool _syncing = false;
+ 
+   GoogleCalendarService({
+     required this.authStore,
++    required this.authenticator,
+     http.Client? client,
+     DateTime Function() clock = DateTime.now,
+     CalendarEventContextMapper mapper = const CalendarEventContextMapper(),
+   }) : _client = client ?? http.Client(), _clock = clock, _mapper = mapper;
+ 
+   GoogleCalendarSyncState get syncState => GoogleCalendarSyncState(
+     status: _status,
+     accountEmail: _connection?.accountEmail,
+     selectedCalendarIds: _selectedCalendarIds,
+     lastRefreshAt: _lastRefreshAt,
++    eventCount: _cache.length,
+     userMessage: _message,
+   );
+ 
+   List<GoogleCalendarInfo> get calendars => List.unmodifiable(_calendars);
+-  @override bool get isCalendarAvailable => _status == GoogleCalendarStatus.connected && _selectedCalendarIds.isNotEmpty;
++  @override bool get isCalendarAvailable =>
++      (_status == GoogleCalendarStatus.connected ||
++       _status == GoogleCalendarStatus.syncing) &&
++      _selectedCalendarIds.isNotEmpty;
+ 
+   Future<void> loadConnection() async {
+     final diagnostics = DiagnosticService.instance;
+     final correlationId = diagnostics.newCorrelationId('google-calendar-connection');
+     _connection = await authStore.read();
+     _selectedCalendarIds = await authStore.readSelectedCalendarIds();
+     _status = _connection == null ? GoogleCalendarStatus.disconnected
+-        : _connection!.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.permissionDenied;
++        : _connection!.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.authenticationError;
+     diagnostics.publish(module: DiagnosticModule.googleCalendar,
+       level: _connection == null ? AppDiagnosticLevel.warning : AppDiagnosticLevel.info,
+       state: _status.name, summary: 'État de connexion calendrier chargé',
+       source: 'GoogleCalendarService.loadConnection', correlationId: correlationId,
+-      reason: _connection == null ? 'connectionFlowNotImplemented' : null,
+-      details: {'connectionButtonAvailable': false,
+-        'oauthUnavailableReason': 'connectionFlowNotImplemented',
++      reason: _connection == null ? 'notConnectedOptionalContext' : null,
++      details: {'connectionButtonAvailable': true,
+         'selectedCalendars': _selectedCalendarIds.length});
+   }
+ 
++  Future<bool> authenticate() async {
++    if (_connecting) return false;
++    _connecting = true;
++    _status = GoogleCalendarStatus.connecting;
++    final diagnostics = DiagnosticService.instance;
++    final correlationId = diagnostics.newCorrelationId('google-calendar-auth');
++    diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.info,
++      state: 'Connexion', summary: 'Authentification Google Calendar démarrée',
++      source: 'GoogleCalendarService.authenticate', correlationId: correlationId);
++    try {
++      final connection = await authenticator.authenticate();
++      if (connection == null) {
++        _status = GoogleCalendarStatus.disconnected;
++        _message = 'Connexion annulée. Agenda reste disponible sans Google Calendar.';
++        return false;
++      }
++      await connect(connection);
++      diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.success,
++        state: 'Connecté', summary: 'Authentification Google Calendar disponible',
++        source: 'GoogleCalendarService.authenticate', correlationId: correlationId);
++      await refresh();
++      return _status == GoogleCalendarStatus.connected;
++    } catch (error) {
++      _status = GoogleCalendarStatus.authenticationError;
++      _message = 'L’accès à Google Calendar a expiré. Reconnecte ton compte pour récupérer tes événements.';
++      diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.error,
++        state: 'Échec', summary: 'Authentification Google Calendar impossible',
++        source: 'GoogleCalendarService.authenticate', correlationId: correlationId,
++        reason: 'authenticationFailed', details: {'technical': error.runtimeType.toString()});
++      return false;
++    } finally { _connecting = false; }
++  }
++
+   Future<void> connect(GoogleCalendarConnection connection) async {
+     await authStore.save(connection); _connection = connection;
+-    _status = connection.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.permissionDenied;
++    _status = connection.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.authenticationError;
+   }
+ 
+   Future<void> disconnect() async {
++    await authenticator.disconnect();
+     await authStore.clear(); _connection = null; _cache = const []; _calendars = const []; _selectedCalendarIds = const {}; _lastRefreshAt = null;
+     _status = GoogleCalendarStatus.disconnected;
+   }
+ 
+   Future<void> selectCalendars(Set<String> ids) async {
+     _selectedCalendarIds = Set.unmodifiable(ids);
+     await authStore.saveSelectedCalendarIds(_selectedCalendarIds);
+   }
+ 
+   Future<void> refresh({DateTime? from, DateTime? to}) async {
++    if (_syncing) return;
++    _syncing = true;
+     final stopwatch = Stopwatch()..start();
+     final diagnostics = DiagnosticService.instance;
+     final correlationId = diagnostics.newCorrelationId('google-calendar-refresh');
+     diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.info,
+       state: 'Démarré', summary: 'Actualisation calendrier demandée',
+       source: 'GoogleCalendarService.refresh', correlationId: correlationId);
+     final connection = _connection ?? await authStore.read();
+     if (connection == null) { diagnostics.publish(module: DiagnosticModule.googleCalendar,
+       level: AppDiagnosticLevel.warning, state: 'Non connecté', summary: 'Actualisation ignorée',
+       source: 'GoogleCalendarService.refresh', correlationId: correlationId,
+-      reason: 'notConnected', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.disconnected; _message = 'Connectez Google Calendar pour voir vos événements.'; return; }
++      reason: 'notConnectedOptionalContext', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.disconnected; _message = 'Connecte Google Calendar pour adapter les propositions à tes événements.'; _syncing = false; return; }
+     if (!connection.calendarReadGranted) { diagnostics.publish(module: DiagnosticModule.googleCalendar,
+       level: AppDiagnosticLevel.error, state: 'Permission refusée', summary: 'Actualisation interrompue',
+       source: 'GoogleCalendarService.refresh', correlationId: correlationId,
+-      reason: 'authenticationPermissionDenied', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.permissionDenied; _message = 'Autorisation calendrier refusée.'; return; }
++      reason: 'authenticationRevoked', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.authenticationError; _message = 'L’accès à Google Calendar a expiré. Reconnecte ton compte pour récupérer tes événements.'; _syncing = false; return; }
+     _connection = connection;
++    _status = GoogleCalendarStatus.syncing;
+     try {
+       await _loadCalendars(connection);
+-      if (_selectedCalendarIds.isEmpty) { _message = 'Sélectionnez au moins un calendrier.'; return; }
++      if (_selectedCalendarIds.isEmpty) { _status = GoogleCalendarStatus.connected; _message = 'Aucun calendrier actif sélectionné.'; return; }
+       _cache = await _loadEvents(connection, from ?? _clock().subtract(const Duration(days: 1)), to ?? _clock().add(const Duration(days: 30)));
+       _lastRefreshAt = _clock(); _status = GoogleCalendarStatus.connected; _message = null;
+       diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.success,
+         state: 'Actualisé', summary: '${_cache.length} événement(s) reçu(s)',
+         source: 'GoogleCalendarService.refresh', correlationId: correlationId,
+         duration: stopwatch.elapsed, details: {'selectedCalendars': _selectedCalendarIds.length,
+           'events': _cache.length});
+     } catch (error) {
+       diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.error,
+         state: 'Échec', summary: 'Réponse calendrier inexploitable',
+         source: 'GoogleCalendarService.refresh', correlationId: correlationId,
+-        duration: stopwatch.elapsed, reason: _status == GoogleCalendarStatus.permissionDenied
+-          ? 'authenticationError' : error is FormatException ? 'parsingError' : 'networkOrApiError',
++        duration: stopwatch.elapsed, reason: _status == GoogleCalendarStatus.authenticationError
++          ? 'authenticationRevoked' : error is FormatException ? 'mappingDecodeFailure' : 'apiUnavailable',
+         details: {'technical': error.runtimeType.toString()});
+-      if (_status == GoogleCalendarStatus.permissionDenied) {
+-        _message = 'Autorisation calendrier refusée.';
++      if (_status == GoogleCalendarStatus.authenticationError) {
++        _message = 'L’accès à Google Calendar a expiré. Reconnecte ton compte pour récupérer tes événements.';
++      } else if (error is FormatException) {
++        _status = GoogleCalendarStatus.mappingError;
++        _message = 'Certains événements Google Calendar sont illisibles. Agenda reste disponible sans eux.';
+       } else {
+-        _status = GoogleCalendarStatus.networkError;
+-        _message = 'Google Calendar est momentanément indisponible. Les derniers événements synchronisés restent affichés.';
++        _status = GoogleCalendarStatus.apiError;
++        _message = 'Google Calendar est temporairement inaccessible. Agenda reste disponible sans tes événements.';
+       }
+-    }
++    } finally { _syncing = false; }
+   }
+ 
+   Future<void> _loadCalendars(GoogleCalendarConnection connection) async {
+     final uri = Uri.https('www.googleapis.com', '/calendar/v3/users/me/calendarList');
+     final response = await _client.get(uri, headers: _headers(connection));
+-    if (response.statusCode == 403) { _status = GoogleCalendarStatus.permissionDenied; throw StateError('permission'); }
++    if (response.statusCode == 401 || response.statusCode == 403) { _status = GoogleCalendarStatus.authenticationError; throw StateError('permission'); }
+     if (response.statusCode >= 400) throw StateError('calendar');
+     final items = (jsonDecode(response.body) as Map<String, Object?>)['items'] as List? ?? const [];
+     _calendars = items.map((item) { final map = (item as Map).cast<String, Object?>(); return GoogleCalendarInfo(id: map['id'] as String? ?? '', summary: map['summary'] as String? ?? 'Calendrier', primary: map['primary'] as bool? ?? false); }).toList();
+     if (_selectedCalendarIds.isEmpty) {
+       _selectedCalendarIds = _calendars.where((c) => c.primary).map((c) => c.id).toSet();
+       await authStore.saveSelectedCalendarIds(_selectedCalendarIds);
+     }
+   }
+ 
+   Future<List<CalendarEvent>> _loadEvents(GoogleCalendarConnection connection, DateTime from, DateTime to) async {
+     final events = <CalendarEvent>[];
+     for (final calendarId in _selectedCalendarIds) {
+       final uri = Uri.https('www.googleapis.com', '/calendar/v3/calendars/${Uri.encodeComponent(calendarId)}/events', {
+         'singleEvents': 'true', 'orderBy': 'startTime', 'timeMin': from.toUtc().toIso8601String(), 'timeMax': to.toUtc().toIso8601String(),
+       });
+       final response = await _client.get(uri, headers: _headers(connection));
+       if (response.statusCode >= 400) throw StateError('events');
+       final items = (jsonDecode(response.body) as Map<String, Object?>)['items'] as List? ?? const [];
+       events.addAll(items.map((item) => _fromGoogle((item as Map).cast<String, Object?>(), calendarId)));
+     }
+     events.sort((a, b) => a.startsAt.compareTo(b.startsAt));
+     return List.unmodifiable(events);
+   }
+ 
+   CalendarEvent _fromGoogle(Map<String, Object?> json, String calendarId) {
+     DateTime parse(Map<String, Object?> value) => DateTime.parse((value['dateTime'] ?? value['date']) as String);
+     final startMap = (json['start'] as Map).cast<String, Object?>();
+     final endMap = (json['end'] as Map).cast<String, Object?>();
+     final allDay = startMap['dateTime'] == null;
+     return _mapper.applyInferredConstraints(CalendarEvent(
+       id: '${calendarId}:${json['id']}', title: json['summary'] as String? ?? 'Sans titre',
+       startsAt: parse(startMap), endsAt: parse(endMap), isAllDay: allDay,
+       location: json['location'] as String?, description: json['description'] as String?,
+       type: CalendarEventType.other, formality: EventFormality.casual,
+       metadata: {'calendarId': calendarId},
+     ));
+   }
+ 
+   Map<String, String> _headers(GoogleCalendarConnection connection) => {'Authorization': 'Bearer ${connection.accessToken}', 'Accept': 'application/json'};
+ 
+   @override Future<List<CalendarEvent>> getTodayEvents({DateTime? day}) async { final d = day ?? _clock(); final start = DateTime(d.year, d.month, d.day); final end = start.add(const Duration(days: 1)); return _cache.where((e) => e.startsAt.isBefore(end) && e.endsAt.isAfter(start)).toList(); }
+   @override Future<List<CalendarEvent>> getUpcomingEvents({DateTime? from}) async { final start = from ?? _clock(); return _cache.where((e) => !e.endsAt.isBefore(start)).toList(); }
+   @override Future<CalendarEvent?> getNextImportantEvent({DateTime? from}) async { final events = await getUpcomingEvents(from: from); return events.isEmpty ? null : events.first; }
++
++  void dispose() => _client.close();
+ }
+diff --git a/lib/features/shell/main_shell.dart b/lib/features/shell/main_shell.dart
+index 34cebf6f8dfcf036a2777992824d0c174498a814..5bc9e7f52200bc061856b563073935fd598ae0c6 100644
+--- a/lib/features/shell/main_shell.dart
++++ b/lib/features/shell/main_shell.dart
+@@ -2,50 +2,51 @@ import 'dart:io';
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/assistant_screen.dart';
+ import '../assistant/conversation/assistant_conversation_controller.dart';
+ import '../dashboard/dashboard_screen.dart';
+ import '../outfits/outfits_screen.dart';
+ import '../outfits/outfits_controller.dart';
+ import '../profile/profile_screen.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../wardrobe/wardrobe_screen.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wishlist/wishlist_screen.dart';
+ import '../../weather/services/weather_service.dart';
+ import '../assistant/context/assistant_context_builder.dart';
+ import '../assistant/services/assistant_service.dart';
+ import '../assistant/ai/openai_provider.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import '../assistant/tools/assistant_tool_context_builder.dart';
+ import '../assistant/tools/weather_tool.dart';
+ import '../assistant/memory/database_memory_repository.dart';
+ import '../assistant/memory/memory_service.dart';
+ import '../calendar/calendar_context_builder.dart';
+ import '../calendar/google_calendar_auth_store.dart';
+ import '../calendar/google_calendar_service.dart';
++import '../calendar/google_calendar_authenticator.dart';
+ import '../../data/database_service.dart';
+ import '../backup/backup_controller.dart';
+ import '../backup/backup_service.dart';
+ import '../backup/restore_service.dart';
+ import '../daily_brief/daily_brief_service.dart';
+ import '../agenda/agenda_controller.dart';
+ import '../agenda/agenda_screen.dart';
+ import '../agenda/agenda_service.dart';
+ import '../assistant/tools/agenda_tool.dart';
+ import '../../core/ai_context/wardrobe_ai_context_service.dart';
+ import '../../weather/location/unified_location_service.dart';
+ import '../scanner/ai/openai_garment_vision_analyzer.dart';
+ import '../scanner/analysis/wardrobe_import_service.dart';
+ import '../wardrobe/reanalysis/database_garment_reanalysis_repository.dart';
+ import '../wardrobe/reanalysis/garment_reanalysis_models.dart';
+ import '../wardrobe/reanalysis/garment_reanalysis_service.dart';
+ import '../styles/style_repository.dart';
+ import '../styles/style_enrichment_service.dart';
+ import '../action_center/action_center_screen.dart';
+ import '../action_center/action_center_service.dart';
+ 
+ class MainShell extends StatefulWidget {
+   final AppSettings settings;
+   final WeatherService weatherService;
+   final UnifiedLocationService locationService;
+@@ -74,51 +75,52 @@ class _MainShellState extends State<MainShell> {
+   late final _aiSettings = AiSettingsController(
+     storage: _apiKeyStorage,
+     provider: _openAiProvider,
+   )..load();
+   late final _reanalysisAnalyzer = OpenAiGarmentVisionAnalyzer(apiKeyStorage: _apiKeyStorage);
+   late final _reanalysisRepository = DatabaseGarmentReanalysisRepository(DatabaseService.instance);
+   late final _reanalysisService = GarmentReanalysisService(
+     repository: _reanalysisRepository,
+     analyzer: _reanalysisAnalyzer,
+     loadPhoto: (path) => File(path).readAsBytes(),
+     versions: const GarmentReanalysisVersions(
+       aiModel: 'scanner-v1',
+       pipeline: 'scanner-pipeline-v1',
+       styleTaxonomy: '1',
+       thermalEngine: '2',
+     ),
+   );
+   late final _backupRepository = DatabaseBackupRepository(
+     DatabaseService.instance,
+   );
+   late final _memoryService = MemoryService(
+     repository: DatabaseMemoryRepository(DatabaseService.instance),
+   );
+   late final _agendaCalendar = GoogleCalendarService(
+     authStore: const GoogleCalendarAuthStore(),
+-  )..loadConnection();
++    authenticator: GoogleSignInCalendarAuthenticator(),
++  );
+   late final _aiContextService = WardrobeAiContextService(
+     loadCurrentGarments: DatabaseService.instance.getGarments,
+     memoryService: _memoryService,
+   );
+   late final _agendaService = AgendaService(
+     database: DatabaseService.instance,
+     calendarService: _agendaCalendar,
+     weatherService: widget.weatherService,
+     aiContextService: _aiContextService,
+   );
+   late final _actionCenter = ActionCenterService(importService: WardrobeImportService.instance);
+   late final _backupController = BackupController(
+     backupService: BackupService(repository: _backupRepository),
+     restoreService: RestoreService(repository: _backupRepository),
+     afterRestore: () async {
+       await Future.wait([
+         _assistantWardrobe.load(),
+         _outfitsController.load(),
+         _agendaController.load(),
+       ]);
+       if (mounted) setState(() {});
+     },
+   )..addListener(_relayBackupAction);
+   String? _lastBackupAction;
+   late final _assistantService = AssistantService(
+@@ -157,50 +159,51 @@ class _MainShellState extends State<MainShell> {
+ 
+   @override
+   void initState() {
+     super.initState();
+     // Restores persisted bulk-import work on every application launch. Work
+     // continues while the process is alive; no OS background claim is made.
+     WardrobeImportService.instance.initialize();
+   }
+ 
+   void _relayBackupAction() {
+     final result = _backupController.result;
+     if (_backupController.busy || result == null || result == _lastBackupAction || result == 'Sauvegarde annulée.') return;
+     _lastBackupAction = result;
+     _actionCenter.publishBackupResult(succeeded: !_backupController.resultIsError, detail: result);
+   }
+ 
+   @override
+   void dispose() {
+     _assistantWardrobe.dispose();
+     _assistantConversation.dispose();
+     _outfitsController.dispose();
+     _aiSettings.dispose();
+     _backupController.dispose();
+     _actionCenter.dispose();
+     _agendaController.dispose();
++    _agendaCalendar.dispose();
+     _reanalysisAnalyzer.close();
+     super.dispose();
+   }
+ 
+   void goTo(int newIndex) {
+     if (newIndex == index) return;
+     setState(() => index = newIndex);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final pages = [
+       DashboardScreen(
+         weatherService: widget.weatherService,
+         dailyBriefService: _dailyBriefService,
+         openWardrobe: () => goTo(1),
+         openOutfits: () => goTo(2),
+         openAssistant: () => goTo(4),
+         openScanner: () async {
+           final added = await Navigator.push<bool>(
+             context,
+             MaterialPageRoute(builder: (_) => const ScannerScreen()),
+           );
+           if (added == true && mounted) {
+             goTo(1);
+diff --git a/pubspec.yaml b/pubspec.yaml
+index 7e7e3ffc1e134d0dfeaaac432d3baf0405ef5756..24256899296d6e04156e7e1355026043fb2d9321 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -4,35 +4,36 @@ publish_to: "none"
+ version: 0.8.0+9
+ 
+ environment:
+   sdk: ">=3.7.0 <4.0.0"
+ 
+ dependencies:
+   flutter:
+     sdk: flutter
+   flutter_localizations:
+     sdk: flutter
+   cupertino_icons: ^1.0.8
+   sqflite: ^2.4.3
+   path: ^1.9.1
+   path_provider: ^2.1.5
+   image_picker: ^1.2.1
+   camera: ^0.11.2+1
+   uuid: ^4.5.3
+   image: ^4.9.1
+   geolocator: ^14.0.2
+   geocoding: ^4.0.0
+   http: ^1.4.0
+   flutter_secure_storage: ^9.2.4
+   file_picker: ^10.3.3
+   archive: ^4.0.9
+   crypto: ^3.0.6
++  google_sign_in: ^6.2.2
+ 
+ dev_dependencies:
+   flutter_test:
+     sdk: flutter
+   flutter_lints: ^5.0.0
+ 
+ flutter:
+   uses-material-design: true
+   assets:
+     - assets/i18n/
+diff --git a/test/features/calendar/calendar_test.dart b/test/features/calendar/calendar_test.dart
+index a4ccfe25d2144ee810b6bd37932b36816b65e9d1..e2c0dc9994d2092908906457c79a5883b88c6ec9 100644
+--- a/test/features/calendar/calendar_test.dart
++++ b/test/features/calendar/calendar_test.dart
+@@ -24,45 +24,46 @@ void main() {
+ 
+   test('récupère le prochain événement important', () async {
+     final service = FakeCalendarService(events: [event], clock: () => now);
+     expect(await service.getNextImportantEvent(), same(event));
+   });
+ 
+   test('construit le contexte calendrier', () async {
+     final context =
+         await CalendarContextBuilder(
+           service: FakeCalendarService(events: [event]),
+           clock: () => now,
+         ).build();
+     expect(context!.summary, contains('Restaurant à Lyon à 20h'));
+     expect(context.summary, contains('élégante décontractée'));
+   });
+ 
+   test("retourne null en l'absence d'événement", () async {
+     final context =
+         await CalendarContextBuilder(
+           service: FakeCalendarService(),
+           clock: () => now,
+         ).build();
+     expect(context, isNull);
+   });
+ 
+-  test('mappe réunion, sport et sortie en contraintes de recommandation', () {
++  test('mappe seulement les signaux vestimentaires suffisamment explicites', () {
+     const mapper = CalendarEventContextMapper();
+     final meeting = mapper.applyInferredConstraints(CalendarEvent(
+     id: 'meeting', title: 'Réunion client', startsAt: now, endsAt: now.add(const Duration(hours: 1)),
+     type: CalendarEventType.other, formality: EventFormality.casual,
+   ));
+     final sport = mapper.applyInferredConstraints(CalendarEvent(
+     id: 'sport', title: 'Sport yoga', startsAt: now, endsAt: now.add(const Duration(hours: 1)),
+     type: CalendarEventType.other, formality: EventFormality.casual,
+   ));
+     final dinner = mapper.applyInferredConstraints(CalendarEvent(
+     id: 'dinner2', title: 'Restaurant', startsAt: now, endsAt: now.add(const Duration(hours: 1)),
+     type: CalendarEventType.other, formality: EventFormality.casual,
+   ));
+ 
+-    expect(meeting.formality, EventFormality.business);
++    expect(meeting.formality, EventFormality.casual);
++    expect(meeting.type, CalendarEventType.other);
+     expect(sport.type, CalendarEventType.sport);
+     expect(dinner.formality, EventFormality.smartCasual);
+   });
+ }

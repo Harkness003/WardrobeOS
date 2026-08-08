@@ -11,11 +11,13 @@ class AgendaController extends ChangeNotifier {
   AgendaPreferences preferences;
   List<PlannedOutfit> plans = const [];
   bool loading = false;
+  bool calendarBusy = false;
   Object? error;
   final Map<DateTime, AgendaDayState> dayStates = {};
   final Map<DateTime, String> dayErrors = {};
   bool calendarAvailable = true;
   GoogleCalendarService? googleCalendarService;
+  bool _calendarInitialized = false;
 
   AgendaController({required this.service, this.googleCalendarService, AgendaPreferences preferences = const AgendaPreferences(), DateTime? initialDay})
     : preferences = preferences, weekStart = _monday(initialDay ?? DateTime.now());
@@ -29,6 +31,10 @@ class AgendaController extends ChangeNotifier {
       correlationId: correlationId, details: {'weekStart': weekStart.toIso8601String().substring(0, 10)});
     loading = true; error = null; notifyListeners();
     try {
+      if (!_calendarInitialized && googleCalendarService != null) {
+        await googleCalendarService!.loadConnection();
+        _calendarInitialized = true;
+      }
       plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
       _syncStates();
       final missing = _days.where((day) => forDay(day) == null).toList();
@@ -95,17 +101,27 @@ class AgendaController extends ChangeNotifier {
 
   Future<void> refreshCalendar() async {
     final google = googleCalendarService;
-    if (google == null) return;
-    loading = true; error = null; notifyListeners();
-    try { await google.refresh(from: weekStart, to: weekStart.add(const Duration(days: 7))); await load(); }
-    catch (value) { error = value; }
-    finally { loading = false; notifyListeners(); }
+    if (google == null || calendarBusy) return;
+    calendarBusy = true; notifyListeners();
+    try { await google.refresh(from: weekStart, to: weekStart.add(const Duration(days: 7))); }
+    finally { calendarBusy = false; calendarAvailable = google.isCalendarAvailable; notifyListeners(); }
+  }
+
+  Future<void> connectCalendar() async {
+    final google = googleCalendarService;
+    if (google == null || calendarBusy) return;
+    calendarBusy = true; notifyListeners();
+    try { await google.authenticate(); }
+    finally { calendarBusy = false; calendarAvailable = google.isCalendarAvailable; notifyListeners(); }
   }
 
   Future<void> disconnectCalendar() async {
     final google = googleCalendarService;
     if (google == null) return;
-    await google.disconnect();
+    if (calendarBusy) return;
+    calendarBusy = true; notifyListeners();
+    try { await google.disconnect(); }
+    finally { calendarBusy = false; }
     calendarAvailable = false;
     notifyListeners();
   }

@@ -24,6 +24,7 @@ import '../assistant/memory/memory_service.dart';
 import '../calendar/calendar_context_builder.dart';
 import '../calendar/google_calendar_auth_store.dart';
 import '../calendar/google_calendar_service.dart';
+import '../calendar/google_calendar_authenticator.dart';
 import '../../data/database_service.dart';
 import '../backup/backup_controller.dart';
 import '../backup/backup_service.dart';
@@ -96,7 +97,8 @@ class _MainShellState extends State<MainShell> {
   );
   late final _agendaCalendar = GoogleCalendarService(
     authStore: const GoogleCalendarAuthStore(),
-  )..loadConnection();
+    authenticator: GoogleSignInCalendarAuthenticator(),
+  );
   late final _aiContextService = WardrobeAiContextService(
     loadCurrentGarments: DatabaseService.instance.getGarments,
     memoryService: _memoryService,
@@ -179,6 +181,7 @@ class _MainShellState extends State<MainShell> {
     _backupController.dispose();
     _actionCenter.dispose();
     _agendaController.dispose();
+    _agendaCalendar.dispose();
     _reanalysisAnalyzer.close();
     super.dispose();
   }

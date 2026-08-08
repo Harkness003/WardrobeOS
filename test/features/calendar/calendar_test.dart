@@ -46,7 +46,7 @@ void main() {
     expect(context, isNull);
   });
 
-  test('mappe réunion, sport et sortie en contraintes de recommandation', () {
+  test('mappe seulement les signaux vestimentaires suffisamment explicites', () {
     const mapper = CalendarEventContextMapper();
     final meeting = mapper.applyInferredConstraints(CalendarEvent(
     id: 'meeting', title: 'Réunion client', startsAt: now, endsAt: now.add(const Duration(hours: 1)),
@@ -61,7 +61,8 @@ void main() {
     type: CalendarEventType.other, formality: EventFormality.casual,
   ));
 
-    expect(meeting.formality, EventFormality.business);
+    expect(meeting.formality, EventFormality.casual);
+    expect(meeting.type, CalendarEventType.other);
     expect(sport.type, CalendarEventType.sport);
     expect(dinner.formality, EventFormality.smartCasual);
   });

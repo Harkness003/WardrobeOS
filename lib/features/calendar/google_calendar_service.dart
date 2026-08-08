@@ -6,9 +6,10 @@ import 'calendar_event.dart';
 import 'calendar_event_context_mapper.dart';
 import 'calendar_service.dart';
 import 'google_calendar_auth_store.dart';
+import 'google_calendar_authenticator.dart';
 import '../../core/diagnostics/diagnostic_service.dart';
 
-enum GoogleCalendarStatus { disconnected, connected, permissionDenied, unavailable, networkError }
+enum GoogleCalendarStatus { disconnected, connecting, connected, syncing, authenticationError, apiError, mappingError }
 
 class GoogleCalendarInfo {
   final String id;
@@ -22,12 +23,14 @@ class GoogleCalendarSyncState {
   final String? accountEmail;
   final Set<String> selectedCalendarIds;
   final DateTime? lastRefreshAt;
+  final int eventCount;
   final String? userMessage;
   const GoogleCalendarSyncState({
     this.status = GoogleCalendarStatus.disconnected,
     this.accountEmail,
     this.selectedCalendarIds = const {},
     this.lastRefreshAt,
+    this.eventCount = 0,
     this.userMessage,
   });
 }
@@ -37,6 +40,7 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
   final http.Client _client;
   final DateTime Function() _clock;
   final CalendarEventContextMapper _mapper;
+  final GoogleCalendarAuthenticator authenticator;
   GoogleCalendarConnection? _connection;
   List<GoogleCalendarInfo> _calendars = const [];
   Set<String> _selectedCalendarIds = const {};
@@ -44,9 +48,12 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
   DateTime? _lastRefreshAt;
   GoogleCalendarStatus _status = GoogleCalendarStatus.disconnected;
   String? _message;
+  bool _connecting = false;
+  bool _syncing = false;
 
   GoogleCalendarService({
     required this.authStore,
+    required this.authenticator,
     http.Client? client,
     DateTime Function() clock = DateTime.now,
     CalendarEventContextMapper mapper = const CalendarEventContextMapper(),
@@ -57,11 +64,15 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
     accountEmail: _connection?.accountEmail,
     selectedCalendarIds: _selectedCalendarIds,
     lastRefreshAt: _lastRefreshAt,
+    eventCount: _cache.length,
     userMessage: _message,
   );
 
   List<GoogleCalendarInfo> get calendars => List.unmodifiable(_calendars);
-  @override bool get isCalendarAvailable => _status == GoogleCalendarStatus.connected && _selectedCalendarIds.isNotEmpty;
+  @override bool get isCalendarAvailable =>
+      (_status == GoogleCalendarStatus.connected ||
+       _status == GoogleCalendarStatus.syncing) &&
+      _selectedCalendarIds.isNotEmpty;
 
   Future<void> loadConnection() async {
     final diagnostics = DiagnosticService.instance;
@@ -69,23 +80,56 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
     _connection = await authStore.read();
     _selectedCalendarIds = await authStore.readSelectedCalendarIds();
     _status = _connection == null ? GoogleCalendarStatus.disconnected
-        : _connection!.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.permissionDenied;
+        : _connection!.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.authenticationError;
     diagnostics.publish(module: DiagnosticModule.googleCalendar,
       level: _connection == null ? AppDiagnosticLevel.warning : AppDiagnosticLevel.info,
       state: _status.name, summary: 'État de connexion calendrier chargé',
       source: 'GoogleCalendarService.loadConnection', correlationId: correlationId,
-      reason: _connection == null ? 'connectionFlowNotImplemented' : null,
-      details: {'connectionButtonAvailable': false,
-        'oauthUnavailableReason': 'connectionFlowNotImplemented',
+      reason: _connection == null ? 'notConnectedOptionalContext' : null,
+      details: {'connectionButtonAvailable': true,
         'selectedCalendars': _selectedCalendarIds.length});
+  }
+
+  Future<bool> authenticate() async {
+    if (_connecting) return false;
+    _connecting = true;
+    _status = GoogleCalendarStatus.connecting;
+    final diagnostics = DiagnosticService.instance;
+    final correlationId = diagnostics.newCorrelationId('google-calendar-auth');
+    diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.info,
+      state: 'Connexion', summary: 'Authentification Google Calendar démarrée',
+      source: 'GoogleCalendarService.authenticate', correlationId: correlationId);
+    try {
+      final connection = await authenticator.authenticate();
+      if (connection == null) {
+        _status = GoogleCalendarStatus.disconnected;
+        _message = 'Connexion annulée. Agenda reste disponible sans Google Calendar.';
+        return false;
+      }
+      await connect(connection);
+      diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.success,
+        state: 'Connecté', summary: 'Authentification Google Calendar disponible',
+        source: 'GoogleCalendarService.authenticate', correlationId: correlationId);
+      await refresh();
+      return _status == GoogleCalendarStatus.connected;
+    } catch (error) {
+      _status = GoogleCalendarStatus.authenticationError;
+      _message = 'L’accès à Google Calendar a expiré. Reconnecte ton compte pour récupérer tes événements.';
+      diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.error,
+        state: 'Échec', summary: 'Authentification Google Calendar impossible',
+        source: 'GoogleCalendarService.authenticate', correlationId: correlationId,
+        reason: 'authenticationFailed', details: {'technical': error.runtimeType.toString()});
+      return false;
+    } finally { _connecting = false; }
   }
 
   Future<void> connect(GoogleCalendarConnection connection) async {
     await authStore.save(connection); _connection = connection;
-    _status = connection.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.permissionDenied;
+    _status = connection.calendarReadGranted ? GoogleCalendarStatus.connected : GoogleCalendarStatus.authenticationError;
   }
 
   Future<void> disconnect() async {
+    await authenticator.disconnect();
     await authStore.clear(); _connection = null; _cache = const []; _calendars = const []; _selectedCalendarIds = const {}; _lastRefreshAt = null;
     _status = GoogleCalendarStatus.disconnected;
   }
@@ -96,6 +140,8 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
   }
 
   Future<void> refresh({DateTime? from, DateTime? to}) async {
+    if (_syncing) return;
+    _syncing = true;
     final stopwatch = Stopwatch()..start();
     final diagnostics = DiagnosticService.instance;
     final correlationId = diagnostics.newCorrelationId('google-calendar-refresh');
@@ -106,15 +152,16 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
     if (connection == null) { diagnostics.publish(module: DiagnosticModule.googleCalendar,
       level: AppDiagnosticLevel.warning, state: 'Non connecté', summary: 'Actualisation ignorée',
       source: 'GoogleCalendarService.refresh', correlationId: correlationId,
-      reason: 'notConnected', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.disconnected; _message = 'Connectez Google Calendar pour voir vos événements.'; return; }
+      reason: 'notConnectedOptionalContext', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.disconnected; _message = 'Connecte Google Calendar pour adapter les propositions à tes événements.'; _syncing = false; return; }
     if (!connection.calendarReadGranted) { diagnostics.publish(module: DiagnosticModule.googleCalendar,
       level: AppDiagnosticLevel.error, state: 'Permission refusée', summary: 'Actualisation interrompue',
       source: 'GoogleCalendarService.refresh', correlationId: correlationId,
-      reason: 'authenticationPermissionDenied', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.permissionDenied; _message = 'Autorisation calendrier refusée.'; return; }
+      reason: 'authenticationRevoked', duration: stopwatch.elapsed); _status = GoogleCalendarStatus.authenticationError; _message = 'L’accès à Google Calendar a expiré. Reconnecte ton compte pour récupérer tes événements.'; _syncing = false; return; }
     _connection = connection;
+    _status = GoogleCalendarStatus.syncing;
     try {
       await _loadCalendars(connection);
-      if (_selectedCalendarIds.isEmpty) { _message = 'Sélectionnez au moins un calendrier.'; return; }
+      if (_selectedCalendarIds.isEmpty) { _status = GoogleCalendarStatus.connected; _message = 'Aucun calendrier actif sélectionné.'; return; }
       _cache = await _loadEvents(connection, from ?? _clock().subtract(const Duration(days: 1)), to ?? _clock().add(const Duration(days: 30)));
       _lastRefreshAt = _clock(); _status = GoogleCalendarStatus.connected; _message = null;
       diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.success,
@@ -126,22 +173,25 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
       diagnostics.publish(module: DiagnosticModule.googleCalendar, level: AppDiagnosticLevel.error,
         state: 'Échec', summary: 'Réponse calendrier inexploitable',
         source: 'GoogleCalendarService.refresh', correlationId: correlationId,
-        duration: stopwatch.elapsed, reason: _status == GoogleCalendarStatus.permissionDenied
-          ? 'authenticationError' : error is FormatException ? 'parsingError' : 'networkOrApiError',
+        duration: stopwatch.elapsed, reason: _status == GoogleCalendarStatus.authenticationError
+          ? 'authenticationRevoked' : error is FormatException ? 'mappingDecodeFailure' : 'apiUnavailable',
         details: {'technical': error.runtimeType.toString()});
-      if (_status == GoogleCalendarStatus.permissionDenied) {
-        _message = 'Autorisation calendrier refusée.';
+      if (_status == GoogleCalendarStatus.authenticationError) {
+        _message = 'L’accès à Google Calendar a expiré. Reconnecte ton compte pour récupérer tes événements.';
+      } else if (error is FormatException) {
+        _status = GoogleCalendarStatus.mappingError;
+        _message = 'Certains événements Google Calendar sont illisibles. Agenda reste disponible sans eux.';
       } else {
-        _status = GoogleCalendarStatus.networkError;
-        _message = 'Google Calendar est momentanément indisponible. Les derniers événements synchronisés restent affichés.';
+        _status = GoogleCalendarStatus.apiError;
+        _message = 'Google Calendar est temporairement inaccessible. Agenda reste disponible sans tes événements.';
       }
-    }
+    } finally { _syncing = false; }
   }
 
   Future<void> _loadCalendars(GoogleCalendarConnection connection) async {
     final uri = Uri.https('www.googleapis.com', '/calendar/v3/users/me/calendarList');
     final response = await _client.get(uri, headers: _headers(connection));
-    if (response.statusCode == 403) { _status = GoogleCalendarStatus.permissionDenied; throw StateError('permission'); }
+    if (response.statusCode == 401 || response.statusCode == 403) { _status = GoogleCalendarStatus.authenticationError; throw StateError('permission'); }
     if (response.statusCode >= 400) throw StateError('calendar');
     final items = (jsonDecode(response.body) as Map<String, Object?>)['items'] as List? ?? const [];
     _calendars = items.map((item) { final map = (item as Map).cast<String, Object?>(); return GoogleCalendarInfo(id: map['id'] as String? ?? '', summary: map['summary'] as String? ?? 'Calendrier', primary: map['primary'] as bool? ?? false); }).toList();
@@ -185,4 +235,6 @@ class GoogleCalendarService implements CalendarService, CalendarAvailability {
   @override Future<List<CalendarEvent>> getTodayEvents({DateTime? day}) async { final d = day ?? _clock(); final start = DateTime(d.year, d.month, d.day); final end = start.add(const Duration(days: 1)); return _cache.where((e) => e.startsAt.isBefore(end) && e.endsAt.isAfter(start)).toList(); }
   @override Future<List<CalendarEvent>> getUpcomingEvents({DateTime? from}) async { final start = from ?? _clock(); return _cache.where((e) => !e.endsAt.isBefore(start)).toList(); }
   @override Future<CalendarEvent?> getNextImportantEvent({DateTime? from}) async { final events = await getUpcomingEvents(from: from); return events.isEmpty ? null : events.first; }
+
+  void dispose() => _client.close();
 }

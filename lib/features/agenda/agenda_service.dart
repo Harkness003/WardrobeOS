@@ -10,6 +10,7 @@ import '../calendar/calendar_event.dart';
 import '../calendar/calendar_event_context_mapper.dart';
 import '../calendar/calendar_service.dart';
 import 'agenda_models.dart';
+import '../../core/diagnostics/diagnostic_service.dart';
 
 typedef AgendaClock = DateTime Function();
 
@@ -110,6 +111,12 @@ class AgendaService {
 
   Future<PlannedOutfit?> proposeDay(DateTime date, AgendaPreferences preferences,
       {List<PlannedOutfit> previous = const []}) async {
+    final diagnostics = DiagnosticService.instance;
+    final correlationId = diagnostics.newCorrelationId('agenda-day');
+    diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.info,
+      state: 'Demandée', summary: 'Génération quotidienne demandée',
+      source: 'AgendaService.proposeDay', correlationId: correlationId,
+      details: {'date': _day(date).toIso8601String()});
     // build() deliberately reloads database garments on every proposal. Never
     // substitute saved-outfit garments: they may predate a recent edit.
     final wardrobe = (await aiContextService.build()).garments;
@@ -127,7 +134,13 @@ class AgendaService {
     ));
     final proposal = proposalSelector.select(date: date, result: result,
       previous: previous, preferences: preferences);
-    if (proposal == null) return null;
+    if (proposal == null) {
+      diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.warning,
+        state: 'Impossible', summary: 'Aucune tenue complète compatible avec le dressing',
+        source: 'AgendaService.proposeDay', correlationId: correlationId,
+        reason: 'noCompleteOutfit');
+      return null;
+    }
     final choice = _withAgendaId(proposal.outfit, date);
     await _ensureStored(choice);
     final now = clock();
@@ -137,6 +150,10 @@ class AgendaService {
       justification: _justification(proposal, calendarAvailable: calendar.available), weather: weather, event: events.firstOrNull,
       createdAt: now, updatedAt: now);
     await database.savePlannedOutfit(value);
+    diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.success,
+      state: 'Générée', summary: 'Proposition quotidienne générée',
+      source: 'AgendaService.proposeDay', correlationId: correlationId,
+      details: {'calendarApplied': events.isNotEmpty, 'weatherApplied': weather != null});
     return value;
   }
 

@@ -49,8 +49,9 @@ class CalendarEventContextMapper {
 
   _InferredEventContext _classify(CalendarEvent event) {
     final text = '${event.title} ${event.description ?? ''}'.toLowerCase();
-    if (event.formality == EventFormality.business || event.type == CalendarEventType.work ||
-        _containsAny(text, const ['réunion client', 'reunion client', 'client meeting', 'comité', 'comite', 'présentation', 'presentation'])) {
+    // Preserve explicit structured signals, but never turn a vague meeting
+    // title into a certainty about dress code.
+    if (event.formality == EventFormality.business || event.type == CalendarEventType.work) {
       return const _InferredEventContext(CalendarEventType.work, EventFormality.business, 'contexte professionnel', 'professionnel', 100);
     }
     if (_containsAny(text, const ['mariage', 'wedding', 'gala', 'cérémonie', 'ceremonie'])) {
