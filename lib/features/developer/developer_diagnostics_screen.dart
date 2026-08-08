@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/diagnostics/diagnostic_service.dart';
+import '../../widgets/app_feedback.dart';
 
 class DeveloperDiagnosticsScreen extends StatefulWidget {
   const DeveloperDiagnosticsScreen({super.key});
@@ -77,9 +78,7 @@ class _DeveloperDiagnosticsScreenState extends State<DeveloperDiagnosticsScreen>
   Future<void> _export() async {
     await Clipboard.setData(ClipboardData(text: service.exportReport(levels: levels, module: module)));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rapport anonymisé copié dans le presse-papiers.')),
-      );
+      AppFeedback.show(context, 'Rapport anonymisé copié dans le presse-papiers.');
     }
   }
 }
@@ -124,8 +123,7 @@ class _DiagnosticCard extends StatelessWidget {
             await Clipboard.setData(ClipboardData(
               text: DiagnosticService.instance.exportEntry(value)));
             if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Diagnostic anonymisé copié.')));
+              AppFeedback.show(context, 'Diagnostic anonymisé copié.');
             }
           },
         )),

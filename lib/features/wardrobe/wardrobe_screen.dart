@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/garment.dart';
 import '../../widgets/garment_image.dart';
+import '../../widgets/app_feedback.dart';
 import '../scanner/scanner_screen.dart';
 import '../scanner/wardrobe_import_screen.dart';
 import 'garment_detail_screen.dart';
@@ -116,8 +117,9 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
       await controller.load();
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Impossible de supprimer tous les vêtements sélectionnés.')),
+      AppFeedback.show(
+        context,
+        'Certains vêtements n’ont pas pu être supprimés. Vérifie le dressing puis réessaie.',
       );
       await controller.load();
     }
@@ -326,7 +328,12 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !selection.isActive,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && selection.isActive) selection.clear();
+      },
+      child: Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: ValueListenableBuilder<Set<String>>(
         valueListenable: selection,
@@ -389,6 +396,7 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
           ],
         ),
       ),
+      ),
     );
   }
 
@@ -432,46 +440,40 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   Widget _selectionHeader(int count) => Semantics(
         liveRegion: true,
         label: '$count vêtement${count > 1 ? 's' : ''} sélectionné${count > 1 ? 's' : ''}',
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: selection.clear,
-                    icon: const Icon(Icons.close),
-                    label: const Text('Annuler'),
-                  ),
-                  Expanded(
-                    child: Text(
-                      '$count sélectionné${count > 1 ? 's' : ''}',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  FilledButton.icon(
-                    onPressed: () => _runSelectionAction(SelectionAction.delete),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Supprimer'),
-                  ),
-                ],
-              ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  TextButton(
-                    onPressed: () => selection.selectAll(controller.garments.map((garment) => garment.id)),
-                    child: const Text('Tout sélectionner'),
-                  ),
-                  TextButton(
-                    onPressed: selection.clear,
-                    child: const Text('Tout désélectionner'),
-                  ),
-                ],
-              ),
-            ],
-          ),
+        child: SizedBox(
+          height: 56,
+          child: Row(children: [
+            IconButton(
+              tooltip: 'Quitter la sélection',
+              onPressed: selection.clear,
+              icon: const Icon(Icons.close),
+            ),
+            Expanded(child: Text(
+              '$count sélectionné${count > 1 ? 's' : ''}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            )),
+            IconButton.filledTonal(
+              tooltip: 'Supprimer la sélection',
+              onPressed: () => _runSelectionAction(SelectionAction.delete),
+              icon: const Icon(Icons.delete_outline),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Plus d’actions',
+              onSelected: (value) {
+                if (value == 'all') {
+                  selection.selectAll(controller.garments.map((garment) => garment.id));
+                } else {
+                  selection.clear();
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'all', child: Text('Tout sélectionner')),
+                PopupMenuItem(value: 'clear', child: Text('Tout désélectionner')),
+              ],
+            ),
+          ]),
         ),
       );
 

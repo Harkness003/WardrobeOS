@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../models/garment.dart';
 import '../../models/outfit.dart';
+import '../../widgets/app_feedback.dart';
 import '../../widgets/garment_image.dart';
 import '../wardrobe/wardrobe_controller.dart';
 import 'outfits_controller.dart';
@@ -179,15 +180,12 @@ class _OutfitFormScreenState extends State<OutfitFormScreen> {
           ..clear()
           ..addAll(selectedGarments.keys);
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tenue enregistrée avec succès.')),
-      );
+      AppFeedback.show(context, 'Tenue portée enregistrée.');
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Impossible d'enregistrer cette tenue."),
-          ),
+        AppFeedback.show(
+          context,
+          'Le port de cette tenue n’a pas pu être enregistré. Réessaie.',
         );
       }
     } finally {

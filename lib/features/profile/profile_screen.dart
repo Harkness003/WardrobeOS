@@ -8,6 +8,7 @@ import '../styles/style_library_screen.dart';
 import '../styles/style_repository.dart';
 import '../styles/style_enrichment_service.dart';
 import '../../widgets/content_state.dart';
+import '../../widgets/app_feedback.dart';
 import '../developer/developer_diagnostics_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -378,9 +379,7 @@ class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
 
   void _show(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    AppFeedback.show(context, message);
   }
 
   Future<void> _save() async {

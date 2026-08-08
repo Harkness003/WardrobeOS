@@ -11,6 +11,7 @@ import '../../models/garment_photo.dart';
 import '../../models/garment_normalizer.dart';
 import '../../models/thermal_profile_calculator.dart';
 import '../../widgets/garment_image.dart';
+import '../../widgets/app_feedback.dart';
 import '../wardrobe/wardrobe_controller.dart';
 import '../wardrobe/garment_form_screen.dart';
 import '../assistant/settings/api_key_storage.dart';
@@ -660,7 +661,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   void _toast(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    AppFeedback.show(context, text);
   }
 
   @override

@@ -5,6 +5,7 @@ import '../../models/outfit.dart';
 import '../../widgets/garment_image.dart';
 import '../../widgets/outfit_proposal_card.dart';
 import '../../widgets/content_state.dart';
+import '../../widgets/app_feedback.dart';
 import 'outfit_form_screen.dart';
 import 'outfits_controller.dart';
 
@@ -124,8 +125,7 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
               onSave: () async {
                 await controller.saveProposal(proposal);
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Tenue enregistrée.')));
+                  AppFeedback.show(context, 'Tenue enregistrée.');
                 }
               },
             )),

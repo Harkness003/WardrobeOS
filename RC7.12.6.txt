@@ -1,0 +1,1441 @@
+diff --git a/lib/features/action_center/action_center_screen.dart b/lib/features/action_center/action_center_screen.dart
+index 2ace6964ae31c0633ddabe1569410862b946b4a6..9da938c328729dab9a6982c174fe0a4d27d36d8f 100644
+--- a/lib/features/action_center/action_center_screen.dart
++++ b/lib/features/action_center/action_center_screen.dart
+@@ -1,28 +1,29 @@
+ import 'package:flutter/material.dart';
+ 
+ import 'action_center_service.dart';
++import '../../widgets/app_feedback.dart';
+ 
+ class ActionCenterScreen extends StatelessWidget {
+   final ActionCenterService service;
+   final VoidCallback openWardrobe;
+   final VoidCallback retryBackup;
+   const ActionCenterScreen({super.key, required this.service, required this.openWardrobe, required this.retryBackup});
+ 
+   @override
+   Widget build(BuildContext context) => Scaffold(
+     appBar: AppBar(title: const Text('Actions')),
+     body: ListenableBuilder(listenable: service, builder: (context, _) {
+       final items = service.items;
+       if (items.isEmpty) {
+         return Center(child: Semantics(liveRegion: true,
+           label: 'Aucune action en attente', child: const Column(mainAxisSize: MainAxisSize.min, children: [
+             Icon(Icons.task_alt, size: 48), SizedBox(height: 12), Text('Tout est à jour'),
+             SizedBox(height: 4), Text('Aucune action n’attend ton intervention.'),
+           ])));
+       }
+       return ListView.separated(padding: const EdgeInsets.all(16), itemCount: items.length,
+         separatorBuilder: (_, __) => const SizedBox(height: 12), itemBuilder: (context, index) => _card(context, items[index]));
+     }),
+   );
+ 
+   Widget _card(BuildContext context, ActionCenterItem item) => Semantics(
+@@ -39,50 +40,50 @@ class ActionCenterScreen extends StatelessWidget {
+         TextButton(onPressed: () => _dismiss(context, item), child: const Text('Ignorer')),
+       ]),
+     ])),
+   ));
+ 
+   Future<void> _primary(ActionCenterItem item) async {
+     switch (item.kind) {
+       case ActionCenterKind.importFailed:
+         await service.retryFailedImports();
+         return;
+       case ActionCenterKind.backupFailed:
+         retryBackup();
+         return;
+       case ActionCenterKind.garmentsToReview:
+       case ActionCenterKind.importCompleted:
+         openWardrobe();
+         return;
+       default:
+         service.dismiss(item.id);
+         return;
+     }
+   }
+ 
+   void _dismiss(BuildContext context, ActionCenterItem item) {
+     service.dismiss(item.id);
+-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Action ignorée'), action: SnackBarAction(
+-      label: 'Annuler', onPressed: () => service.restoreDismissed(item))));
++    AppFeedback.show(context, 'Action ignorée', action: SnackBarAction(
++      label: 'Annuler', onPressed: () => service.restoreDismissed(item)));
+   }
+ 
+   static String _priority(ActionCenterPriority value) => switch (value) {
+     ActionCenterPriority.urgent => 'urgente', ActionCenterPriority.high => 'haute',
+     ActionCenterPriority.normal => 'normale', ActionCenterPriority.low => 'basse'};
+   static IconData _icon(ActionCenterKind kind) => switch (kind) {
+     ActionCenterKind.garmentsToReview => Icons.fact_check_outlined,
+     ActionCenterKind.importFailed => Icons.file_upload_outlined,
+     ActionCenterKind.importCompleted => Icons.inventory_2_outlined,
+     ActionCenterKind.backupSucceeded => Icons.cloud_done_outlined,
+     ActionCenterKind.backupFailed => Icons.cloud_off_outlined,
+     ActionCenterKind.calendarSyncFailed => Icons.event_busy_outlined,
+     ActionCenterKind.weatherUnavailable => Icons.cloud_off_outlined,
+     ActionCenterKind.conflict => Icons.compare_arrows,
+     ActionCenterKind.reanalysisAvailable => Icons.auto_awesome_outlined,
+   };
+   static Color _color(BuildContext context, ActionCenterPriority value) => switch (value) {
+     ActionCenterPriority.urgent => Theme.of(context).colorScheme.error,
+     ActionCenterPriority.high => Colors.orange.shade800,
+     ActionCenterPriority.normal => Theme.of(context).colorScheme.primary,
+     ActionCenterPriority.low => Theme.of(context).colorScheme.secondary,
+   };
+ }
+diff --git a/lib/features/developer/developer_diagnostics_screen.dart b/lib/features/developer/developer_diagnostics_screen.dart
+index 31a114ae7a7b4ecafc81a46e02f1009e55f95994..5d80cfc7fd23fef4fec599d8ec15fbaab1208afa 100644
+--- a/lib/features/developer/developer_diagnostics_screen.dart
++++ b/lib/features/developer/developer_diagnostics_screen.dart
+@@ -1,29 +1,30 @@
+ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart';
+ 
+ import '../../core/diagnostics/diagnostic_service.dart';
++import '../../widgets/app_feedback.dart';
+ 
+ class DeveloperDiagnosticsScreen extends StatefulWidget {
+   const DeveloperDiagnosticsScreen({super.key});
+ 
+   @override
+   State<DeveloperDiagnosticsScreen> createState() => _DeveloperDiagnosticsScreenState();
+ }
+ 
+ class _DeveloperDiagnosticsScreenState extends State<DeveloperDiagnosticsScreen> {
+   final service = DiagnosticService.instance;
+   final Set<AppDiagnosticLevel> levels = AppDiagnosticLevel.values.toSet();
+   DiagnosticModule? module;
+ 
+   @override
+   Widget build(BuildContext context) => Scaffold(
+     appBar: AppBar(
+       title: const Text('Centre de diagnostic'),
+       actions: [
+         IconButton(
+           tooltip: 'Exporter un rapport',
+           icon: const Icon(Icons.ios_share),
+           onPressed: _export,
+         ),
+         IconButton(
+           tooltip: 'Vider l’historique',
+@@ -55,99 +56,96 @@ class _DeveloperDiagnosticsScreenState extends State<DeveloperDiagnosticsScreen>
+               onChanged: (value) => setState(() => module = value),
+             ),
+             const SizedBox(height: 8),
+             Wrap(spacing: 6, children: AppDiagnosticLevel.values.map((level) => FilterChip(
+               selected: levels.contains(level), label: Text(level.name.toUpperCase()),
+               avatar: Icon(_levelIcon(level), size: 18, color: _levelColor(level)),
+               onSelected: (selected) => setState(() => selected ? levels.add(level) : levels.remove(level)),
+             )).toList()),
+             const SizedBox(height: 12),
+             if (visible.isEmpty)
+               const Card(child: ListTile(
+                 leading: Icon(Icons.monitor_heart_outlined),
+                 title: Text('Aucun diagnostic'),
+                 subtitle: Text('Utilisez l’application : les prochains résultats métier apparaîtront ici.'),
+               )),
+             for (final value in visible) _DiagnosticCard(value: value),
+           ],
+         );
+       },
+     ),
+   );
+ 
+   Future<void> _export() async {
+     await Clipboard.setData(ClipboardData(text: service.exportReport(levels: levels, module: module)));
+     if (mounted) {
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        const SnackBar(content: Text('Rapport anonymisé copié dans le presse-papiers.')),
+-      );
++      AppFeedback.show(context, 'Rapport anonymisé copié dans le presse-papiers.');
+     }
+   }
+ }
+ 
+ class _DiagnosticCard extends StatelessWidget {
+   final DiagnosticEntry value;
+   const _DiagnosticCard({required this.value});
+ 
+   @override
+   Widget build(BuildContext context) => Card(
+     child: ExpansionTile(
+       leading: Icon(_levelIcon(value.level), color: _levelColor(value.level)),
+       title: Text('${value.module.label} · ${value.level.name.toUpperCase()}',
+         style: const TextStyle(fontWeight: FontWeight.w800)),
+       subtitle: Text('${value.summary}\n${_date(value.date)} · ${value.duration.inMilliseconds} ms'),
+       childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+       expandedCrossAxisAlignment: CrossAxisAlignment.start,
+       children: [
+         _line('État', value.state),
+         _line('Source', value.source),
+         _line('Version', value.version),
+         if (value.reason != null) _line('Raison', value.reason!),
+         if (value.warning != null) _line('Avertissement', value.warning!),
+         if (value.pipeline.isNotEmpty) ...[
+           const Divider(),
+           const Text('Pipeline réel', style: TextStyle(fontWeight: FontWeight.w800)),
+           for (final step in value.pipeline) ListTile(
+             dense: true, contentPadding: EdgeInsets.zero,
+             leading: Icon(_levelIcon(step.level), color: _levelColor(step.level)),
+             title: Text(step.name),
+             subtitle: step.detail == null ? null : Text(step.detail!),
+             trailing: Text('${step.duration.inMilliseconds} ms'),
+           ),
+         ],
+         if (value.details.isNotEmpty) ...[
+           const Divider(),
+           for (final detail in value.details.entries) _line(detail.key, '${detail.value}'),
+         ],
+         Align(alignment: Alignment.centerRight, child: TextButton.icon(
+           icon: const Icon(Icons.copy_outlined), label: const Text('Copier le diagnostic'),
+           onPressed: () async {
+             await Clipboard.setData(ClipboardData(
+               text: DiagnosticService.instance.exportEntry(value)));
+             if (context.mounted) {
+-              ScaffoldMessenger.of(context).showSnackBar(
+-                const SnackBar(content: Text('Diagnostic anonymisé copié.')));
++              AppFeedback.show(context, 'Diagnostic anonymisé copié.');
+             }
+           },
+         )),
+       ],
+     ),
+   );
+ 
+   static Widget _line(String label, String text) => Padding(
+     padding: const EdgeInsets.only(top: 5),
+     child: Text('$label : $text'),
+   );
+ 
+   static String _date(DateTime value) => value.toLocal().toIso8601String().replaceFirst('T', ' ').split('.').first;
+ }
+ 
+ IconData _levelIcon(AppDiagnosticLevel level) => switch (level) {
+   AppDiagnosticLevel.info => Icons.info_outline,
+   AppDiagnosticLevel.warning => Icons.warning_amber_rounded,
+   AppDiagnosticLevel.error => Icons.cancel_outlined,
+   AppDiagnosticLevel.success => Icons.check_circle_outline,
+ };
+ 
+ Color _levelColor(AppDiagnosticLevel level) => switch (level) {
+   AppDiagnosticLevel.info => Colors.blue,
+   AppDiagnosticLevel.warning => Colors.orange,
+diff --git a/lib/features/outfits/outfit_form_screen.dart b/lib/features/outfits/outfit_form_screen.dart
+index 67daa2d98bbd789dd747e779be9086d4022764ce..6c0d15f1c9c115a6faf17ef82761bccd96f307f6 100644
+--- a/lib/features/outfits/outfit_form_screen.dart
++++ b/lib/features/outfits/outfit_form_screen.dart
+@@ -1,30 +1,31 @@
+ import 'package:flutter/material.dart';
+ import 'package:uuid/uuid.dart';
+ 
+ import '../../models/garment.dart';
+ import '../../models/outfit.dart';
++import '../../widgets/app_feedback.dart';
+ import '../../widgets/garment_image.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import 'outfits_controller.dart';
+ 
+ class OutfitFormScreen extends StatefulWidget {
+   final OutfitsController controller;
+   final Outfit? outfit;
+ 
+   const OutfitFormScreen({super.key, required this.controller, this.outfit});
+ 
+   @override
+   State<OutfitFormScreen> createState() => _OutfitFormScreenState();
+ }
+ 
+ class _OutfitFormScreenState extends State<OutfitFormScreen> {
+   final formKey = GlobalKey<FormState>();
+   late final TextEditingController nameController;
+   late final Set<String> selectedIds;
+   late final Map<String, Garment> selectedGarments;
+   late final Set<String> originalIds;
+   String? season;
+   bool favorite = false;
+   bool saving = false;
+   bool recordingWear = false;
+   Outfit? currentOutfit;
+@@ -157,59 +158,56 @@ class _OutfitFormScreenState extends State<OutfitFormScreen> {
+       final recorded = await widget.controller.recordWear(outfit);
+       if (!mounted) return;
+       if (!recorded) {
+         setState(() {
+           selectedIds.clear();
+           selectedGarments.clear();
+         });
+         return;
+       }
+       final refreshedOutfits = widget.controller.outfits.where(
+         (candidate) => candidate.id == outfit.id,
+       );
+       currentOutfit = refreshedOutfits.isEmpty ? null : refreshedOutfits.first;
+       final refreshedGarments =
+           widget.controller.garmentsByOutfit[outfit.id] ?? <Garment>[];
+       setState(() {
+         selectedGarments
+           ..clear()
+           ..addEntries(
+             refreshedGarments.map((item) => MapEntry(item.id, item)),
+           );
+         selectedIds
+           ..clear()
+           ..addAll(selectedGarments.keys);
+       });
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        const SnackBar(content: Text('Tenue enregistrée avec succès.')),
+-      );
++      AppFeedback.show(context, 'Tenue portée enregistrée.');
+     } catch (_) {
+       if (mounted) {
+-        ScaffoldMessenger.of(context).showSnackBar(
+-          const SnackBar(
+-            content: Text("Impossible d'enregistrer cette tenue."),
+-          ),
++        AppFeedback.show(
++          context,
++          'Le port de cette tenue n’a pas pu être enregistré. Réessaie.',
+         );
+       }
+     } finally {
+       if (mounted) setState(() => recordingWear = false);
+     }
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     final knownGarments = selectedGarments.values.toList();
+     return Scaffold(
+       appBar: AppBar(
+         title: Text(
+           widget.outfit == null ? 'Créer une tenue' : 'Modifier la tenue',
+         ),
+         actions: [
+           if (widget.outfit != null)
+             IconButton(
+               tooltip: 'Supprimer',
+               onPressed: _delete,
+               icon: const Icon(Icons.delete_outline),
+             ),
+         ],
+       ),
+       body: Form(
+diff --git a/lib/features/outfits/outfits_screen.dart b/lib/features/outfits/outfits_screen.dart
+index 1bdc6ca01e675d97108781f17070b59856fdfff4..e0c6ed63343e936bc50e60631276ff8ad50ee6ec 100644
+--- a/lib/features/outfits/outfits_screen.dart
++++ b/lib/features/outfits/outfits_screen.dart
+@@ -1,32 +1,33 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../core/theme/app_theme.dart';
+ import '../../models/outfit.dart';
+ import '../../widgets/garment_image.dart';
+ import '../../widgets/outfit_proposal_card.dart';
+ import '../../widgets/content_state.dart';
++import '../../widgets/app_feedback.dart';
+ import 'outfit_form_screen.dart';
+ import 'outfits_controller.dart';
+ 
+ class OutfitsScreen extends StatefulWidget {
+   final OutfitsController? controller;
+   const OutfitsScreen({super.key, this.controller});
+ 
+   @override
+   State<OutfitsScreen> createState() => _OutfitsScreenState();
+ }
+ 
+ class _OutfitsScreenState extends State<OutfitsScreen> {
+   late final controller = widget.controller ?? OutfitsController();
+   late final _ownsController = widget.controller == null;
+ 
+   @override
+   void initState() {
+     super.initState();
+     controller.addListener(_refresh);
+     controller.load();
+   }
+ 
+   void _refresh() {
+     if (mounted) { setState(() {}); }
+   }
+@@ -102,52 +103,51 @@ class _OutfitsScreenState extends State<OutfitsScreen> {
+         title: 'Chargement des tenues',
+         message: 'Les tenues enregistrées arrivent dans un instant.',
+       ));
+     }
+     if (controller.error != null) {
+       return Center(child: ContentState.error(
+         title: 'Impossible de charger les tenues',
+         message: 'Les données sont conservées. Vérifie le stockage puis réessaie.',
+         onAction: controller.load,
+       ));
+     }
+     return RefreshIndicator(
+       onRefresh: controller.load,
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 0, 18, 100),
+         children: [
+           if (controller.proposals.isNotEmpty) ...[
+             const Text('Propositions calculées',
+               style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+             const SizedBox(height: 8),
+             ...controller.proposals.map((proposal) => OutfitProposalCard(
+               proposal: proposal,
+               onSave: () async {
+                 await controller.saveProposal(proposal);
+                 if (mounted) {
+-                  ScaffoldMessenger.of(context).showSnackBar(
+-                    const SnackBar(content: Text('Tenue enregistrée.')));
++                  AppFeedback.show(context, 'Tenue enregistrée.');
+                 }
+               },
+             )),
+             const SizedBox(height: 14),
+           ] else if (controller.generationMessage != null) ...[
+             ContentState.empty(title: 'Aucune tenue complète',
+               message: controller.generationMessage == 'Le dressing est vide.'
+                 ? 'Ajoute au moins un haut et un bas pour générer une tenue.'
+                 : controller.generationMessage!),
+             const SizedBox(height: 14),
+           ],
+           const Text(
+             'Toutes les tenues',
+             style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
+           ),
+           const SizedBox(height: 8),
+           if (controller.outfits.isEmpty)
+             const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: ContentState.empty(
+               title: 'Aucune tenue enregistrée',
+               message: 'Génère une proposition à partir du dressing ou crée ta première tenue.',
+             ))
+           else ...controller.outfits.map(_outfitCard),
+         ],
+       ),
+     );
+diff --git a/lib/features/profile/profile_screen.dart b/lib/features/profile/profile_screen.dart
+index dd48fa4597022ae01b86e25b50a1186920c66f2c..564add556e0238f25d97cb3b576de7c0c2f926bb 100644
+--- a/lib/features/profile/profile_screen.dart
++++ b/lib/features/profile/profile_screen.dart
+@@ -1,35 +1,36 @@
+ import 'package:flutter/material.dart';
+ import '../../core/settings/app_settings.dart';
+ import '../assistant/settings/ai_settings_controller.dart';
+ import '../backup/backup_controller.dart';
+ import '../../weather/location/location_service.dart';
+ import '../../weather/location/unified_location_service.dart';
+ import '../styles/style_library_screen.dart';
+ import '../styles/style_repository.dart';
+ import '../styles/style_enrichment_service.dart';
+ import '../../widgets/content_state.dart';
++import '../../widgets/app_feedback.dart';
+ import '../developer/developer_diagnostics_screen.dart';
+ 
+ class ProfileScreen extends StatelessWidget {
+   final AppSettings settings;
+   final AiSettingsController aiSettings;
+   final BackupController backupController;
+   final UnifiedLocationService locationService;
+   final StyleRepository styleRepository;
+   final StyleEnrichmentService styleEnrichment;
+   const ProfileScreen({
+     super.key,
+     required this.settings,
+     required this.aiSettings,
+     required this.backupController,
+     required this.locationService,
+     required this.styleRepository,
+     required this.styleEnrichment,
+   });
+ 
+   @override
+   Widget build(BuildContext context) {
+     return SafeArea(
+       child: ListView(
+         padding: const EdgeInsets.fromLTRB(18, 18, 18, 30),
+         children: [
+@@ -356,53 +357,51 @@ class _BackupSettings extends StatelessWidget {
+         ),
+   );
+ }
+ 
+ class _WardrobeGptSettings extends StatefulWidget {
+   final AiSettingsController controller;
+ 
+   const _WardrobeGptSettings({required this.controller});
+ 
+   @override
+   State<_WardrobeGptSettings> createState() => _WardrobeGptSettingsState();
+ }
+ 
+ class _WardrobeGptSettingsState extends State<_WardrobeGptSettings> {
+   final _apiKeyController = TextEditingController();
+   bool _obscureKey = true;
+ 
+   @override
+   void dispose() {
+     _apiKeyController.dispose();
+     super.dispose();
+   }
+ 
+   void _show(String message) {
+     if (!mounted) return;
+-    ScaffoldMessenger.of(context)
+-      ..hideCurrentSnackBar()
+-      ..showSnackBar(SnackBar(content: Text(message)));
++    AppFeedback.show(context, message);
+   }
+ 
+   Future<void> _save() async {
+     try {
+       await widget.controller.save(_apiKeyController.text);
+       _apiKeyController.clear();
+       _show('Clé API enregistrée');
+     } catch (_) {
+       _show('Saisissez une clé API OpenAI valide.');
+     }
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return AnimatedBuilder(
+       animation: widget.controller,
+       builder: (context, _) {
+         final busy = widget.controller.busy;
+         return Card(
+           margin: const EdgeInsets.only(bottom: 10),
+           child: Padding(
+             padding: const EdgeInsets.all(16),
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.stretch,
+               children: [
+diff --git a/lib/features/scanner/scanner_screen.dart b/lib/features/scanner/scanner_screen.dart
+index c18597b86f95c9d45cd741fe966dbce858a94479..a20e369490788c2eb459c102a263cf83684e2035 100644
+--- a/lib/features/scanner/scanner_screen.dart
++++ b/lib/features/scanner/scanner_screen.dart
+@@ -1,38 +1,39 @@
+ import 'dart:async';
+ import 'dart:io';
+ 
+ import 'package:flutter/material.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/garment_photo.dart';
+ import '../../models/garment_normalizer.dart';
+ import '../../models/thermal_profile_calculator.dart';
+ import '../../widgets/garment_image.dart';
++import '../../widgets/app_feedback.dart';
+ import '../wardrobe/wardrobe_controller.dart';
+ import '../wardrobe/garment_form_screen.dart';
+ import '../assistant/settings/api_key_storage.dart';
+ import 'ai/garment_analysis_exception.dart';
+ import 'ai/garment_analysis_mapper.dart';
+ import 'ai/garment_analysis_normalizer.dart';
+ import 'ai/garment_analysis_request.dart';
+ import 'ai/garment_analysis_result.dart';
+ import 'ai/garment_analysis_validator.dart';
+ import 'ai/garment_image_processing.dart';
+ import 'ai/normalization/garment_value_normalizer.dart';
+ import 'ai/openai_garment_vision_analyzer.dart';
+ import 'ai/analysis_foundations.dart';
+ import 'analysis/garment_analysis_queue.dart';
+ import 'conversation/scan_conversation.dart';
+ 
+ class ScannerScreen extends StatefulWidget {
+   const ScannerScreen({super.key});
+ 
+   @override
+   State<ScannerScreen> createState() => _ScannerScreenState();
+ }
+ 
+ class _ScannerScreenState extends State<ScannerScreen> {
+   final picker = ImagePicker();
+@@ -638,51 +639,51 @@ class _ScannerScreenState extends State<ScannerScreen> {
+   List<String> _suggestUses(List<String> suggestions) {
+     const available = [
+       'Quotidien', 'Travail', 'Sport', 'Voyage', 'Maison', 'Soirée',
+       'Randonnée', 'Vacances',
+     ];
+     String normalize(String value) => value
+         .toLowerCase()
+         .replaceAll(RegExp('[éèêë]'), 'e')
+         .replaceAll(RegExp('[àâä]'), 'a');
+ 
+     return suggestions.map((suggestion) {
+       final normalized = normalize(suggestion);
+       return available.cast<String?>().firstWhere(
+             (value) => normalized.contains(normalize(value!)),
+             orElse: () => null,
+           ) ??
+           suggestion;
+     }).toSet().toList();
+   }
+ 
+   void _removeBestEffort(String? path) {
+     unawaited(ImageStorageService.remove(path).catchError((_) {}));
+   }
+ 
+   void _toast(String text) {
+-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
++    AppFeedback.show(context, text);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return PopScope(
+       canPop: !busy,
+       child: Scaffold(
+         appBar: AppBar(
+           title: const Text('Scanner une pièce'),
+           actions: [
+             IconButton(
+               tooltip: 'Conseils photo',
+               onPressed:
+                   () => showDialog<void>(
+                     context: context,
+                     builder:
+                         (_) => const AlertDialog(
+                           title: Text('Pour une meilleure analyse'),
+                           content: Text(
+                             'Photographie une seule pièce, bien éclairée, à plat ou sur un cintre, avec un fond aussi neutre que possible.',
+                           ),
+                         ),
+                   ),
+               icon: const Icon(Icons.help_outline),
+             ),
+diff --git a/lib/features/wardrobe/garment_detail_screen.dart b/lib/features/wardrobe/garment_detail_screen.dart
+index e2b37ccc5e04f562fa91bafba812fec509d92c98..5d6b87f9ba0882d23a97583037131096b6e2443f 100644
+--- a/lib/features/wardrobe/garment_detail_screen.dart
++++ b/lib/features/wardrobe/garment_detail_screen.dart
+@@ -1,32 +1,33 @@
+ import 'package:flutter/material.dart';
+ 
+ import '../../models/garment.dart';
+ import '../../models/style_analysis.dart';
+ import '../../models/wear_history.dart';
+ import '../../l10n/app_localizations.dart';
+ import '../../widgets/garment_image.dart';
++import '../../widgets/app_feedback.dart';
+ import 'garment_form_screen.dart';
+ import 'wardrobe_controller.dart';
+ import 'reanalysis/garment_reanalysis_models.dart';
+ import 'reanalysis/garment_reanalysis_service.dart';
+ import '../styles/style_detail_screen.dart';
+ import '../styles/style_repository.dart';
+ 
+ String? _cleanDisplayText(String? value) {
+   final trimmed = value?.trim();
+   if (trimmed == null || trimmed.isEmpty) { return null; }
+   final normalized = trimmed.toLowerCase();
+   if (normalized == 'null' ||
+       normalized == 'n/a' ||
+       normalized == 'vide' ||
+       normalized == 'inconnu' ||
+       normalized == 'inconnue') {
+     return null;
+   }
+   return trimmed;
+ }
+ 
+ List<String> _cleanDisplayList(Iterable<String>? values) =>
+     (values ?? const <String>[])
+         .map(_cleanDisplayText)
+         .whereType<String>()
+@@ -136,51 +137,51 @@ class GarmentDetailScreen extends StatefulWidget {
+ 
+   const GarmentDetailScreen({
+     super.key,
+     required this.controller,
+     required this.garment,
+     required this.reanalysisService,
+   });
+ 
+   @override
+   State<GarmentDetailScreen> createState() => _GarmentDetailScreenState();
+ }
+ 
+ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+   final StyleRepository _styles = StyleCatalog();
+   late Garment garment;
+   bool _recordingWear = false;
+   late Future<List<WearHistory>> _wearHistoryFuture;
+   late Future<WearHistory?> _firstWearFuture;
+ 
+   bool _reanalyzing = false;
+ 
+   Future<void> _styleHelp(String id) async {
+     final style = await _styles.find(id);
+     if (!mounted) { return; }
+     if (style == null) {
+-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ce style n’est pas encore présent dans la bibliothèque.')));
++      AppFeedback.show(context, 'Ce style n’est pas encore présent dans la bibliothèque.');
+       return;
+     }
+     final l10n = AppLocalizations.of(context);
+     final visibleStyle = style.localized(l10n);
+     await showModalBottomSheet<void>(context: context, showDragHandle: true,
+       builder: (sheetContext) => Padding(padding: const EdgeInsets.all(20), child: Column(
+         mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+           Text(visibleStyle.name, style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 8),
+           Text(_cleanDisplayText(visibleStyle.definition) ?? _cleanDisplayText(visibleStyle.description) ?? l10n.text('ui.descriptionUnavailable', fallback: 'Description unavailable.')),
+           if (visibleStyle.characteristics.isNotEmpty) ...[const SizedBox(height: 12), Text('${l10n.text('ui.characteristics')} : ${visibleStyle.characteristics.take(5).join(', ')}')],
+           if (visibleStyle.examples.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.examples', fallback: 'Examples')} : ${visibleStyle.examples.take(4).join(', ')}')],
+           if (visibleStyle.colors.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.associatedColors')} : ${visibleStyle.colors.take(5).join(', ')}')],
+           if (visibleStyle.materials.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.frequentMaterials')} : ${visibleStyle.materials.take(5).join(', ')}')],
+           if (visibleStyle.relatedStyleIds.isNotEmpty) ...[const SizedBox(height: 8), Text('${l10n.text('ui.relatedStyles')} : ${visibleStyle.relatedStyleIds.map((id) => _styleName(l10n, id)).take(4).join(', ')}')],
+           const SizedBox(height: 12), FilledButton(onPressed: () { Navigator.pop(sheetContext); Navigator.push(context,
+             MaterialPageRoute(builder: (_) => StyleDetailScreen(style: style, repository: _styles))); }, child: const Text('Voir la fiche complète')),
+         ])));
+   }
+ 
+   Future<void> _editStyleAnalysis() async {
+     final all = await _styles.all(); if (!mounted) return;
+     final selected = garment.effectiveStyleAnalysis.compatibilities
+         .map((value) => value.styleId).toSet();
+     final characteristics = TextEditingController(text: garment.effectiveStyleAnalysis.characteristics.join(', '));
+     final saved = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (_, update) => AlertDialog(
+@@ -240,53 +241,51 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+         barrierDismissible: false,
+         builder: (_) => _AiComparisonDialog(preview: proposal),
+       );
+       if (accepted == null) {
+         _showReanalysisMessage('Réanalyse annulée. Aucune donnée n’a été modifiée.');
+         return;
+       }
+       await widget.reanalysisService.apply(proposal, accepted);
+       await widget.controller.load();
+       _refreshGarment();
+       if (mounted) { _showReanalysisMessage('Réanalyse terminée. La fiche est à jour.'); }
+     } catch (error) {
+       if (mounted) { _showReanalysisMessage(error is Exception ? _friendlyReanalysisError(error) : 'Analyse impossible. Tes données sont intactes.'); }
+     } finally {
+       if (mounted) { setState(() => _reanalyzing = false); }
+     }
+   }
+ 
+   String _friendlyReanalysisError(Exception error) {
+     final text = error.toString();
+     if (text.contains('photo') || text.contains('Photo')) { return 'Photos manquantes ou illisibles. Tes données sont intactes.'; }
+     if (text.contains('annul')) { return 'Réanalyse annulée. Aucune donnée n’a été modifiée.'; }
+     return 'Erreur IA : analyse impossible pour le moment. Tes données sont intactes.';
+   }
+ 
+-  void _showReanalysisMessage(String message) => ScaffoldMessenger.of(context)
+-    ..hideCurrentSnackBar()
+-    ..showSnackBar(SnackBar(content: Text(message)));
++  void _showReanalysisMessage(String message) => AppFeedback.show(context, message);
+ 
+   @override
+   void initState() {
+     super.initState();
+     garment = widget.garment;
+     _wearHistoryFuture = _loadWearHistory();
+     _firstWearFuture = _loadFirstWear();
+   }
+ 
+   Future<void> edit() async {
+     final changed = await Navigator.push<bool>(
+       context,
+       MaterialPageRoute(
+         builder:
+             (_) => GarmentFormScreen(
+               controller: widget.controller,
+               garment: garment,
+             ),
+       ),
+     );
+     if (changed == true) { _refreshGarment(); }
+   }
+ 
+   void _openPhoto() {
+     if (!_hasText((garment.effectivePhotos.isEmpty ? null : garment.effectivePhotos.first.path))) { return; }
+@@ -337,69 +336,61 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+     );
+     if (!mounted) { return; }
+ 
+     setState(() {
+       if (match.isNotEmpty) { garment = match.first; }
+       if (reloadHistory) {
+         _wearHistoryFuture = _loadWearHistory();
+         _firstWearFuture = _loadFirstWear();
+       }
+     });
+   }
+ 
+   Future<void> recordWear() async {
+     if (_recordingWear) { return; }
+ 
+     setState(() => _recordingWear = true);
+ 
+     try {
+       final wornAt = await _pickWearDate();
+       if (wornAt == null) { return; }
+ 
+       final wear = await widget.controller.recordWear(garment, wornAt: wornAt);
+       _refreshGarment(reloadHistory: true);
+ 
+       if (!mounted) { return; }
+-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        SnackBar(
+-          content: Text('Port enregistré le ${_formatDate(wear.wornAt)}.'),
+-          action: SnackBarAction(
++      AppFeedback.show(
++        context,
++        'Port enregistré le ${_formatDate(wear.wornAt)}.',
++        action: SnackBarAction(
+             label: 'Annuler',
+             onPressed: () => undoWear(wear),
+           ),
+-        ),
+       );
+     } catch (_) {
+       if (!mounted) { return; }
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        const SnackBar(
+-          content: Text(
+-            "Impossible d’enregistrer ce port. Réessaie dans quelques instants.",
+-          ),
+-        ),
+-      );
++      AppFeedback.show(context, 'Le port n’a pas pu être enregistré. Réessaie.');
+     } finally {
+       if (mounted) {
+         setState(() => _recordingWear = false);
+       }
+     }
+   }
+ 
+   Future<DateTime?> _pickWearDate() async {
+     final choice = await showModalBottomSheet<_WearDateChoice>(
+       context: context,
+       showDragHandle: true,
+       builder:
+           (context) => SafeArea(
+             child: Column(
+               mainAxisSize: MainAxisSize.min,
+               children: [
+                 ListTile(
+                   leading: const Icon(Icons.today_outlined),
+                   title: const Text('Aujourd’hui'),
+                   onTap: () => Navigator.pop(context, _WearDateChoice.today),
+                 ),
+                 ListTile(
+                   leading: const Icon(Icons.event_outlined),
+                   title: const Text('Choisir une date'),
+                   onTap: () => Navigator.pop(context, _WearDateChoice.custom),
+@@ -418,98 +409,90 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
+       initialDate: now,
+       firstDate: DateTime(1900),
+       lastDate: DateTime(now.year, now.month, now.day),
+     );
+ 
+     if (selectedDate == null) { return null; }
+ 
+     return DateTime(
+       selectedDate.year,
+       selectedDate.month,
+       selectedDate.day,
+       now.hour,
+       now.minute,
+       now.second,
+       now.millisecond,
+       now.microsecond,
+     );
+   }
+ 
+   Future<void> undoWear(WearHistory wear) async {
+     try {
+       final removed = await widget.controller.deleteWear(garment, wear);
+       _refreshGarment(reloadHistory: true);
+ 
+       if (!mounted || !removed) { return; }
+-      ScaffoldMessenger.of(
+-        context,
+-      ).showSnackBar(const SnackBar(content: Text('Port annulé.')));
++      AppFeedback.show(context, 'Port annulé.');
+     } catch (_) {
+       if (!mounted) { return; }
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        const SnackBar(content: Text("Impossible d’annuler ce port.")),
+-      );
++      AppFeedback.show(context, 'Le port n’a pas pu être annulé. Réessaie.');
+     }
+   }
+ 
+   Future<void> deleteWear(WearHistory wear) async {
+     final confirmed = await showDialog<bool>(
+       context: context,
+       builder:
+           (_) => AlertDialog(
+             title: const Text('Supprimer ce port ?'),
+             content: Text(
+               'Le port du ${_formatDate(wear.wornAt)} à ${_formatTime(wear.wornAt)} sera supprimé définitivement.',
+             ),
+             actions: [
+               TextButton(
+                 onPressed: () => Navigator.pop(context, false),
+                 child: const Text('Annuler'),
+               ),
+               FilledButton(
+                 onPressed: () => Navigator.pop(context, true),
+                 child: const Text('Supprimer'),
+               ),
+             ],
+           ),
+     );
+ 
+     if (confirmed != true) { return; }
+ 
+     try {
+       final removed = await widget.controller.deleteWear(garment, wear);
+       _refreshGarment(reloadHistory: true);
+ 
+       if (!mounted || !removed) { return; }
+-      ScaffoldMessenger.of(
+-        context,
+-      ).showSnackBar(const SnackBar(content: Text('Port supprimé.')));
++      AppFeedback.show(context, 'Port supprimé.');
+     } catch (_) {
+       if (!mounted) { return; }
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        const SnackBar(content: Text('Impossible de supprimer ce port.')),
+-      );
++      AppFeedback.show(context, 'Le port n’a pas pu être supprimé. Réessaie.');
+     }
+   }
+ 
+   Future<void> remove() async {
+     final confirmed = await showDialog<bool>(
+       context: context,
+       builder:
+           (_) => AlertDialog(
+             title: const Text('Supprimer cette pièce ?'),
+             content: const Text(
+               'Le vêtement et sa photo locale seront supprimés définitivement.',
+             ),
+             actions: [
+               TextButton(
+                 onPressed: () => Navigator.pop(context, false),
+                 child: const Text('Annuler'),
+               ),
+               FilledButton(
+                 onPressed: () => Navigator.pop(context, true),
+                 child: const Text('Supprimer'),
+               ),
+             ],
+           ),
+     );
+ 
+diff --git a/lib/features/wardrobe/garment_form_screen.dart b/lib/features/wardrobe/garment_form_screen.dart
+index 5dce2428a2962a50eaec663ebb36592299872c22..a12f1f60150fe84b4c2b66888e1023ef09dc15da 100644
+--- a/lib/features/wardrobe/garment_form_screen.dart
++++ b/lib/features/wardrobe/garment_form_screen.dart
+@@ -1,36 +1,37 @@
+ import 'package:flutter/material.dart';
+ import 'package:image_picker/image_picker.dart';
+ import 'package:uuid/uuid.dart';
+ 
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/garment_photo.dart';
+ import '../../models/garment_normalizer.dart';
+ import '../../models/thermal_profile_calculator.dart';
+ import '../../models/style_analysis.dart';
+ import '../../widgets/garment_image.dart';
++import '../../widgets/app_feedback.dart';
+ import 'wardrobe_controller.dart';
+ import 'personal_catalog_repository.dart';
+ 
+ /// Complete review sheet used both after AI analysis and when editing a garment.
+ class GarmentFormScreen extends StatefulWidget {
+   final WardrobeController controller;
+   final Garment? garment;
+   /// A populated, not-yet-persisted garment produced by the scanner.
+   final bool isDraft;
+   const GarmentFormScreen({super.key, required this.controller, this.garment, this.isDraft = false});
+ 
+   @override
+   State<GarmentFormScreen> createState() => _GarmentFormScreenState();
+ }
+ 
+ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+   final _formKey = GlobalKey<FormState>();
+   final _picker = ImagePicker();
+   final _subCategoryFocus = FocusNode();
+   late final TextEditingController _name, _brand, _color, _size, _otherMaterial,
+       _otherUse, _otherCategory, _subCategory, _composition, _notes;
+   late String _category;
+   String? _material;
+   late Set<String> _seasons, _uses;
+   String? _imagePath;
+@@ -209,53 +210,64 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
+       logoVisible: old?.logoVisible, niveauFormalite: old?.niveauFormalite, coupe: old?.coupe, longueur: old?.longueur,
+       longueurManches: old?.longueurManches, typeCol: old?.typeCol, typeFermeture: old?.typeFermeture,
+       matieresSecondaires: old?.matieresSecondaires, confianceMatiere: old?.confianceMatiere, etatVisuel: old?.etatVisuel,
+       usureVisible: old?.usureVisible, defautsVisibles: old?.defautsVisibles, confianceGlobale: old?.confianceGlobale,
+       avertissementsIA: old?.avertissementsIA, pointsForts: old?.pointsForts,
+       pointsFaibles: old?.pointsFaibles, conseils: old?.conseils, verdict: old?.verdict, couleursCompatibles: old?.couleursCompatibles,
+       couleursMoinsAdaptees: old?.couleursMoinsAdaptees, basCompatibles: old?.basCompatibles, chaussuresCompatibles: old?.chaussuresCompatibles,
+       explicationPolyvalence: old?.explicationPolyvalence, occasionsDeconseillees: old?.occasionsDeconseillees,
+       compositionEstimee: old?.compositionEstimee, lavage: old?.lavage, sechage: old?.sechage, repassage: old?.repassage,
+       nettoyage: old?.nettoyage, boulochage: old?.boulochage, taches: old?.taches, limitesAnalyse: old?.limitesAnalyse,
+       condition: old?.condition, purchasePrice: old?.purchasePrice, purchaseDate: old?.purchaseDate, lastWorn: old?.lastWorn,
+       fit: old?.fit, composition: composition, wearCount: old?.wearCount ?? 0, isFavorite: old?.isFavorite ?? false,
+       lastAnalyzedAt: old?.lastAnalyzedAt, aiAnalysisVersion: old?.aiAnalysisVersion,
+       previousAnalysis: old?.previousAnalysis, currentAnalysis: old?.currentAnalysis,
+       userModifiedFields: old?.userModifiedFields ?? const {},
+       createdAt: old?.createdAt ?? now, updatedAt: now,
+     );
+     try {
+       await widget.controller.save(garment, isNew: old == null || widget.isDraft);
+       await Future.wait([
+         _personalCatalog.learn(PersonalCatalogField.subcategory, garment.sousCategorie),
+         _personalCatalog.learn(PersonalCatalogField.brand, garment.brand),
+         _personalCatalog.learn(PersonalCatalogField.material, garment.matierePrincipale),
+         _personalCatalog.learn(PersonalCatalogField.color, garment.couleurPrincipale),
+       ]);
+-      if (mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Modifications enregistrées'))); Navigator.pop(context, true); }
++      if (mounted) {
++        AppFeedback.show(context, 'Modifications enregistrées.');
++        Navigator.pop(context, true);
++      }
++    }
++    catch (_) {
++      if (mounted) {
++        setState(() => _saving = false);
++        AppFeedback.show(
++          context,
++          'La fiche n’a pas pu être enregistrée. Vérifie les informations puis réessaie.',
++        );
++      }
+     }
+-    catch (e) { if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Impossible d'enregistrer : $e"))); } }
+   }
+ 
+   @override
+   Widget build(BuildContext context) => Scaffold(
+     appBar: AppBar(
+       title: Text(widget.garment == null || widget.isDraft ? 'Valider la fiche' : 'Modifier la pièce'),
+       actions: [IconButton(onPressed: _showHelp, tooltip: 'Aide sur les champs', icon: const Icon(Icons.help_outline))],
+     ),
+     body: Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
+       GestureDetector(onTap: _imageActions, child: Stack(children: [GarmentImage(imagePath: _imagePath, width: double.infinity, height: 270, borderRadius: BorderRadius.circular(26)), Positioned(right: 12, bottom: 12, child: FilledButton.tonalIcon(onPressed: _imageActions, icon: const Icon(Icons.camera_alt_outlined), label: Text(_imagePath == null ? 'Ajouter' : 'Actions photo')))])),
+       const SizedBox(height: 18),
+       TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Nom *', helperText: 'Proposé par l’IA · corrigez seulement si nécessaire'), validator: (v) => v == null || v.trim().isEmpty ? 'Le nom est obligatoire' : null),
+       const SizedBox(height: 10), TextFormField(controller: _brand, decoration: const InputDecoration(labelText: 'Marque')),
+       const SizedBox(height: 10), DropdownButtonFormField(initialValue: _category, decoration: const InputDecoration(labelText: 'Catégorie'), items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() { _category = v!; _subCategory.clear(); })),
+       if (_category == 'Autre') ...[const SizedBox(height: 10), TextFormField(controller: _otherCategory, decoration: const InputDecoration(labelText: 'Votre catégorie *'), validator: (v) => v == null || v.trim().isEmpty ? 'Précisez la catégorie' : null)],
+       const SizedBox(height: 10), RawAutocomplete<String>(
+         textEditingController: _subCategory,
+         focusNode: _subCategoryFocus,
+         optionsBuilder: (value) {
+           final query = value.text.trim().toLowerCase();
+           return {...subCategories[_category] ?? const <String>[], ..._personalSubcategories}
+               .where((option) => query.isEmpty || option.toLowerCase().contains(query));
+         },
+         fieldViewBuilder: (_, controller, focusNode, onSubmitted) => TextFormField(
+           controller: controller, focusNode: focusNode,
+diff --git a/lib/features/wardrobe/wardrobe_screen.dart b/lib/features/wardrobe/wardrobe_screen.dart
+index b82878facf9222fe14efcc9815f3d9676948b4be..c020566436d4e214dec21162418b65c3f6e489ec 100644
+--- a/lib/features/wardrobe/wardrobe_screen.dart
++++ b/lib/features/wardrobe/wardrobe_screen.dart
+@@ -1,29 +1,30 @@
+ import 'package:flutter/material.dart';
+ import '../../core/theme/app_theme.dart';
+ import '../../models/garment.dart';
+ import '../../widgets/garment_image.dart';
++import '../../widgets/app_feedback.dart';
+ import '../scanner/scanner_screen.dart';
+ import '../scanner/wardrobe_import_screen.dart';
+ import 'garment_detail_screen.dart';
+ import 'garment_form_screen.dart';
+ import 'wardrobe_controller.dart';
+ import 'wardrobe_selection.dart';
+ import 'reanalysis/garment_reanalysis_service.dart';
+ 
+ class WardrobeScreen extends StatefulWidget {
+   final GarmentReanalysisService reanalysisService;
+   const WardrobeScreen({super.key, required this.reanalysisService});
+ 
+   @override
+   State<WardrobeScreen> createState() => _WardrobeScreenState();
+ }
+ 
+ class _WardrobeScreenState extends State<WardrobeScreen> {
+   final controller = WardrobeController();
+   final searchController = TextEditingController();
+   final scrollController = ScrollController();
+   final selection = WardrobeSelection();
+ 
+   static const seasons = [
+     'Printemps',
+     'Été',
+@@ -94,52 +95,53 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
+       builder: (dialogContext) => AlertDialog(
+         title: Text('Supprimer $count vêtements ?'),
+         content: const Text('Cette action est irréversible. Les vêtements et leurs photos locales seront supprimés définitivement.'),
+         actions: [
+           TextButton(
+             onPressed: () => Navigator.pop(dialogContext, false),
+             child: const Text('Annuler'),
+           ),
+           FilledButton(
+             onPressed: () => Navigator.pop(dialogContext, true),
+             child: const Text('Supprimer'),
+           ),
+         ],
+       ),
+     );
+     if (confirmed != true) return;
+ 
+     try {
+       for (final garment in selected) {
+         await controller.delete(garment, refresh: false);
+       }
+       selection.clear();
+       await controller.load();
+     } catch (_) {
+       if (!mounted) return;
+-      ScaffoldMessenger.of(context).showSnackBar(
+-        const SnackBar(content: Text('Impossible de supprimer tous les vêtements sélectionnés.')),
++      AppFeedback.show(
++        context,
++        'Certains vêtements n’ont pas pu être supprimés. Vérifie le dressing puis réessaie.',
+       );
+       await controller.load();
+     }
+   }
+ 
+   Future<void> _showAddOptions() async {
+     await showModalBottomSheet<void>(
+       context: context,
+       showDragHandle: true,
+       builder:
+           (sheetContext) => SafeArea(
+             child: Padding(
+               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+               child: Column(
+                 mainAxisSize: MainAxisSize.min,
+                 children: [
+                   const ListTile(
+                     title: Text(
+                       'Ajouter une pièce',
+                       style: TextStyle(
+                         fontSize: 20,
+                         fontWeight: FontWeight.w900,
+                       ),
+                     ),
+                     subtitle: Text('Choisis la méthode la plus rapide.'),
+@@ -304,51 +306,56 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
+                 ),
+           ),
+     );
+ 
+     if (action == _FilterAction.apply) {
+       await controller.applyAdvancedFilters(
+         season: selectedSeason,
+         brand: brand.text,
+         color: color.text,
+         material: material.text,
+         style: style.text,
+         occasion: occasion.text,
+       );
+     } else if (action == _FilterAction.reset) {
+       await controller.resetAdvancedFilters();
+     }
+     brand.dispose();
+     color.dispose();
+     material.dispose();
+     style.dispose();
+     occasion.dispose();
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+-    return Scaffold(
++    return PopScope(
++      canPop: !selection.isActive,
++      onPopInvokedWithResult: (didPop, _) {
++        if (!didPop && selection.isActive) selection.clear();
++      },
++      child: Scaffold(
+       backgroundColor: Colors.transparent,
+       floatingActionButton: ValueListenableBuilder<Set<String>>(
+         valueListenable: selection,
+         builder: (_, selected, __) => selected.isEmpty
+             ? FloatingActionButton.extended(
+                 onPressed: _showAddOptions,
+                 icon: const Icon(Icons.add),
+                 label: const Text('Ajouter'),
+               )
+             : const SizedBox.shrink(),
+       ),
+       body: SafeArea(
+         child: Column(
+           children: [
+             ValueListenableBuilder<Set<String>>(
+               valueListenable: selection,
+               builder: (_, selected, __) => selected.isEmpty
+                   ? _normalHeader()
+                   : _selectionHeader(selected.length),
+             ),
+             Padding(
+               padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+               child: TextField(
+                 controller: searchController,
+                 onChanged: controller.setSearch,
+@@ -367,133 +374,128 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
+                 ),
+               ),
+             ),
+             SizedBox(
+               height: 42,
+               child: ListView.separated(
+                 padding: const EdgeInsets.symmetric(horizontal: 18),
+                 scrollDirection: Axis.horizontal,
+                 itemBuilder: (_, index) {
+                   final item = categories[index];
+                   return ChoiceChip(
+                     label: Text(item),
+                     selected: controller.category == item,
+                     onSelected: (_) => controller.setCategory(item),
+                   );
+                 },
+                 separatorBuilder: (_, __) => const SizedBox(width: 8),
+                 itemCount: categories.length,
+               ),
+             ),
+             const SizedBox(height: 10),
+             Expanded(child: _body()),
+           ],
+         ),
+       ),
++      ),
+     );
+   }
+ 
+   Widget _normalHeader() => Padding(
+         padding: const EdgeInsets.fromLTRB(18, 16, 12, 8),
+         child: Row(
+                 children: [
+                   Expanded(
+                     child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: [
+                         const Text(
+                           'Mon dressing',
+                           style: TextStyle(
+                             fontSize: 30,
+                             fontWeight: FontWeight.w900,
+                             letterSpacing: -1,
+                           ),
+                         ),
+                         const SizedBox(height: 3),
+                         Text(
+                           '${controller.garments.length} pièce${controller.garments.length > 1 ? 's' : ''} affichée${controller.garments.length > 1 ? 's' : ''}',
+                           style: Theme.of(context).textTheme.bodyMedium,
+                         ),
+                       ],
+                     ),
+                   ),
+                   IconButton.filledTonal(
+                     tooltip: 'Favoris uniquement',
+                     onPressed: controller.toggleFavoritesFilter,
+                     icon: Icon(
+                       controller.favoritesOnly
+                           ? Icons.favorite
+                           : Icons.favorite_border,
+                     ),
+                   ),
+                 ],
+               ),
+             );
+ 
+   Widget _selectionHeader(int count) => Semantics(
+         liveRegion: true,
+         label: '$count vêtement${count > 1 ? 's' : ''} sélectionné${count > 1 ? 's' : ''}',
+-        child: Padding(
+-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+-          child: Column(
+-            crossAxisAlignment: CrossAxisAlignment.stretch,
+-            children: [
+-              Row(
+-                children: [
+-                  TextButton.icon(
+-                    onPressed: selection.clear,
+-                    icon: const Icon(Icons.close),
+-                    label: const Text('Annuler'),
+-                  ),
+-                  Expanded(
+-                    child: Text(
+-                      '$count sélectionné${count > 1 ? 's' : ''}',
+-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+-                    ),
+-                  ),
+-                  FilledButton.icon(
+-                    onPressed: () => _runSelectionAction(SelectionAction.delete),
+-                    icon: const Icon(Icons.delete_outline),
+-                    label: const Text('Supprimer'),
+-                  ),
+-                ],
+-              ),
+-              Wrap(
+-                spacing: 8,
+-                children: [
+-                  TextButton(
+-                    onPressed: () => selection.selectAll(controller.garments.map((garment) => garment.id)),
+-                    child: const Text('Tout sélectionner'),
+-                  ),
+-                  TextButton(
+-                    onPressed: selection.clear,
+-                    child: const Text('Tout désélectionner'),
+-                  ),
+-                ],
+-              ),
+-            ],
+-          ),
++        child: SizedBox(
++          height: 56,
++          child: Row(children: [
++            IconButton(
++              tooltip: 'Quitter la sélection',
++              onPressed: selection.clear,
++              icon: const Icon(Icons.close),
++            ),
++            Expanded(child: Text(
++              '$count sélectionné${count > 1 ? 's' : ''}',
++              maxLines: 1,
++              overflow: TextOverflow.ellipsis,
++              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
++            )),
++            IconButton.filledTonal(
++              tooltip: 'Supprimer la sélection',
++              onPressed: () => _runSelectionAction(SelectionAction.delete),
++              icon: const Icon(Icons.delete_outline),
++            ),
++            PopupMenuButton<String>(
++              tooltip: 'Plus d’actions',
++              onSelected: (value) {
++                if (value == 'all') {
++                  selection.selectAll(controller.garments.map((garment) => garment.id));
++                } else {
++                  selection.clear();
++                }
++              },
++              itemBuilder: (_) => const [
++                PopupMenuItem(value: 'all', child: Text('Tout sélectionner')),
++                PopupMenuItem(value: 'clear', child: Text('Tout désélectionner')),
++              ],
++            ),
++          ]),
+         ),
+       );
+ 
+   Widget _body() {
+     if (controller.loading) {
+       return const Center(child: CircularProgressIndicator());
+     }
+ 
+     if (controller.garments.isEmpty) {
+       final noSearch =
+           controller.search.isEmpty &&
+           controller.category == 'Tout' &&
+           !controller.favoritesOnly &&
+           controller.advancedFilterCount == 0;
+ 
+       return Center(
+         child: Padding(
+           padding: const EdgeInsets.all(34),
+           child: Column(
+             mainAxisSize: MainAxisSize.min,
+             children: [
+               Container(
+                 width: 92,
+                 height: 92,
+                 decoration: BoxDecoration(
+diff --git a/lib/widgets/app_feedback.dart b/lib/widgets/app_feedback.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..5efeb5dec47f9fc2ba8aff9f2a54cfc3c5252a7c
+--- /dev/null
++++ b/lib/widgets/app_feedback.dart
+@@ -0,0 +1,23 @@
++import 'package:flutter/material.dart';
++
++/// Shared, deliberately simple convention for transient user feedback.
++abstract final class AppFeedback {
++  static const briefDuration = Duration(milliseconds: 2500);
++  static const actionDuration = Duration(seconds: 6);
++
++  static ScaffoldFeatureController<SnackBar, SnackBarClosedReason> show(
++    BuildContext context,
++    String message, {
++    SnackBarAction? action,
++  }) {
++    final messenger = ScaffoldMessenger.of(context);
++    messenger.hideCurrentSnackBar();
++    return messenger.showSnackBar(
++      SnackBar(
++        content: Text(message),
++        duration: action == null ? briefDuration : actionDuration,
++        action: action,
++      ),
++    );
++  }
++}
+diff --git a/test/widgets/app_feedback_test.dart b/test/widgets/app_feedback_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..52d8ec7adad4e6f17858d44f7dfc2ad7024d0c38
+--- /dev/null
++++ b/test/widgets/app_feedback_test.dart
+@@ -0,0 +1,46 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/widgets/app_feedback.dart';
++
++void main() {
++  testWidgets('brief feedback replaces the previous message and disappears', (tester) async {
++    late BuildContext context;
++    await tester.pumpWidget(MaterialApp(home: Scaffold(body: Builder(
++      builder: (value) {
++        context = value;
++        return const SizedBox();
++      },
++    ))));
++
++    AppFeedback.show(context, 'Premier');
++    await tester.pump();
++    AppFeedback.show(context, 'Terminé');
++    await tester.pump(const Duration(milliseconds: 500));
++
++    expect(find.text('Premier'), findsNothing);
++    expect(find.text('Terminé'), findsOneWidget);
++    await tester.pump(AppFeedback.briefDuration);
++    await tester.pumpAndSettle();
++    expect(find.text('Terminé'), findsNothing);
++  });
++
++  testWidgets('feedback with an action leaves enough time to undo', (tester) async {
++    late BuildContext context;
++    var undone = false;
++    await tester.pumpWidget(MaterialApp(home: Scaffold(body: Builder(
++      builder: (value) {
++        context = value;
++        return const SizedBox();
++      },
++    ))));
++
++    AppFeedback.show(context, 'Supprimé', action: SnackBarAction(
++      label: 'Annuler', onPressed: () => undone = true,
++    ));
++    await tester.pump();
++    await tester.pump(const Duration(seconds: 4));
++    expect(find.text('Annuler'), findsOneWidget);
++    await tester.tap(find.text('Annuler'));
++    expect(undone, isTrue);
++  });
++}

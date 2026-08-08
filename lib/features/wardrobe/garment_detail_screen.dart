@@ -5,6 +5,7 @@ import '../../models/style_analysis.dart';
 import '../../models/wear_history.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/garment_image.dart';
+import '../../widgets/app_feedback.dart';
 import 'garment_form_screen.dart';
 import 'wardrobe_controller.dart';
 import 'reanalysis/garment_reanalysis_models.dart';
@@ -158,7 +159,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     final style = await _styles.find(id);
     if (!mounted) { return; }
     if (style == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ce style n’est pas encore présent dans la bibliothèque.')));
+      AppFeedback.show(context, 'Ce style n’est pas encore présent dans la bibliothèque.');
       return;
     }
     final l10n = AppLocalizations.of(context);
@@ -262,9 +263,7 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
     return 'Erreur IA : analyse impossible pour le moment. Tes données sont intactes.';
   }
 
-  void _showReanalysisMessage(String message) => ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message)));
+  void _showReanalysisMessage(String message) => AppFeedback.show(context, message);
 
   @override
   void initState() {
@@ -359,25 +358,17 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
       _refreshGarment(reloadHistory: true);
 
       if (!mounted) { return; }
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Port enregistré le ${_formatDate(wear.wornAt)}.'),
-          action: SnackBarAction(
+      AppFeedback.show(
+        context,
+        'Port enregistré le ${_formatDate(wear.wornAt)}.',
+        action: SnackBarAction(
             label: 'Annuler',
             onPressed: () => undoWear(wear),
           ),
-        ),
       );
     } catch (_) {
       if (!mounted) { return; }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Impossible d’enregistrer ce port. Réessaie dans quelques instants.",
-          ),
-        ),
-      );
+      AppFeedback.show(context, 'Le port n’a pas pu être enregistré. Réessaie.');
     } finally {
       if (mounted) {
         setState(() => _recordingWear = false);
@@ -440,14 +431,10 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
       _refreshGarment(reloadHistory: true);
 
       if (!mounted || !removed) { return; }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Port annulé.')));
+      AppFeedback.show(context, 'Port annulé.');
     } catch (_) {
       if (!mounted) { return; }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Impossible d’annuler ce port.")),
-      );
+      AppFeedback.show(context, 'Le port n’a pas pu être annulé. Réessaie.');
     }
   }
 
@@ -480,14 +467,10 @@ class _GarmentDetailScreenState extends State<GarmentDetailScreen> {
       _refreshGarment(reloadHistory: true);
 
       if (!mounted || !removed) { return; }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Port supprimé.')));
+      AppFeedback.show(context, 'Port supprimé.');
     } catch (_) {
       if (!mounted) { return; }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Impossible de supprimer ce port.')),
-      );
+      AppFeedback.show(context, 'Le port n’a pas pu être supprimé. Réessaie.');
     }
   }
 

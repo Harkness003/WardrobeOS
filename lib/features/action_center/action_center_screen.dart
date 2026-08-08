@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'action_center_service.dart';
+import '../../widgets/app_feedback.dart';
 
 class ActionCenterScreen extends StatelessWidget {
   final ActionCenterService service;
@@ -61,8 +62,8 @@ class ActionCenterScreen extends StatelessWidget {
 
   void _dismiss(BuildContext context, ActionCenterItem item) {
     service.dismiss(item.id);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Action ignorée'), action: SnackBarAction(
-      label: 'Annuler', onPressed: () => service.restoreDismissed(item))));
+    AppFeedback.show(context, 'Action ignorée', action: SnackBarAction(
+      label: 'Annuler', onPressed: () => service.restoreDismissed(item)));
   }
 
   static String _priority(ActionCenterPriority value) => switch (value) {

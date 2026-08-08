@@ -9,6 +9,7 @@ import '../../models/garment_normalizer.dart';
 import '../../models/thermal_profile_calculator.dart';
 import '../../models/style_analysis.dart';
 import '../../widgets/garment_image.dart';
+import '../../widgets/app_feedback.dart';
 import 'wardrobe_controller.dart';
 import 'personal_catalog_repository.dart';
 
@@ -231,9 +232,20 @@ class _GarmentFormScreenState extends State<GarmentFormScreen> {
         _personalCatalog.learn(PersonalCatalogField.material, garment.matierePrincipale),
         _personalCatalog.learn(PersonalCatalogField.color, garment.couleurPrincipale),
       ]);
-      if (mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Modifications enregistrées'))); Navigator.pop(context, true); }
+      if (mounted) {
+        AppFeedback.show(context, 'Modifications enregistrées.');
+        Navigator.pop(context, true);
+      }
     }
-    catch (e) { if (mounted) { setState(() => _saving = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Impossible d'enregistrer : $e"))); } }
+    catch (_) {
+      if (mounted) {
+        setState(() => _saving = false);
+        AppFeedback.show(
+          context,
+          'La fiche n’a pas pu être enregistrée. Vérifie les informations puis réessaie.',
+        );
+      }
+    }
   }
 
   @override
