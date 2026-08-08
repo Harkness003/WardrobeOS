@@ -6,6 +6,8 @@ enum PlanningStrategy { minimal, economical, rotation, variety, elegance, comfor
 enum PlannedOutfitStatus { proposed, confirmed, worn, ignored, cancelled }
 enum PlanningOrigin { manual, automatic, assistant }
 enum OutfitReuseKind { complete, partial, variant, none }
+enum AgendaVarietyLevel { low, balanced, high }
+enum AgendaRuleType { maximumCategoryDays, maximumFullOutfitDays, refreshCategory, alternateCategory }
 
 class AgendaDayFailure {
   final int dayIndex;
@@ -58,14 +60,15 @@ extension PlanningStrategyLabel on PlanningStrategy {
 }
 
 class AgendaRule {
-  final String type;
+  final AgendaRuleType type;
   final Map<String, Object?> parameters;
   final bool enabled;
   const AgendaRule({required this.type, this.parameters = const {}, this.enabled = true});
 
-  Map<String, Object?> toJson() => {'type': type, 'parameters': parameters, 'enabled': enabled};
+  Map<String, Object?> toJson() => {'type': type.name, 'parameters': parameters, 'enabled': enabled};
   factory AgendaRule.fromJson(Map<String, Object?> json) => AgendaRule(
-    type: json['type'] as String? ?? 'unknown',
+    type: AgendaRuleType.values.where((value) => value.name == json['type']).firstOrNull
+      ?? AgendaRuleType.maximumCategoryDays,
     parameters: (json['parameters'] as Map?)?.cast<String, Object?>() ?? const {},
     enabled: json['enabled'] as bool? ?? true,
   );
@@ -79,7 +82,7 @@ class AgendaPreferences {
   final Set<OutfitCategory> reusableCategories;
   final Set<OutfitCategory> dailyRefreshCategories;
   final Set<int> workDays;
-  final double varietyLevel;
+  final AgendaVarietyLevel varietyLevel;
 
   const AgendaPreferences({
     this.strategy = PlanningStrategy.rotation,
@@ -89,16 +92,51 @@ class AgendaPreferences {
     this.reusableCategories = const {OutfitCategory.bottom, OutfitCategory.shoes, OutfitCategory.jacket, OutfitCategory.coat},
     this.dailyRefreshCategories = const {OutfitCategory.top},
     this.workDays = const {DateTime.monday, DateTime.tuesday, DateTime.wednesday, DateTime.thursday, DateTime.friday},
-    this.varietyLevel = .5,
+    this.varietyLevel = AgendaVarietyLevel.balanced,
   });
 
-  AgendaPreferences copyWith({PlanningStrategy? strategy, int? maximumConsecutiveDays}) => AgendaPreferences(
-    strategy: strategy ?? this.strategy, customRules: customRules,
-    allowCompleteOutfitReuse: allowCompleteOutfitReuse,
+  AgendaPreferences copyWith({PlanningStrategy? strategy, List<AgendaRule>? customRules,
+    bool? allowCompleteOutfitReuse, int? maximumConsecutiveDays,
+    Set<OutfitCategory>? reusableCategories, Set<OutfitCategory>? dailyRefreshCategories,
+    Set<int>? workDays, AgendaVarietyLevel? varietyLevel}) => AgendaPreferences(
+    strategy: strategy ?? this.strategy, customRules: customRules ?? this.customRules,
+    allowCompleteOutfitReuse: allowCompleteOutfitReuse ?? this.allowCompleteOutfitReuse,
     maximumConsecutiveDays: maximumConsecutiveDays ?? this.maximumConsecutiveDays,
-    reusableCategories: reusableCategories, dailyRefreshCategories: dailyRefreshCategories,
-    workDays: workDays, varietyLevel: varietyLevel,
+    reusableCategories: reusableCategories ?? this.reusableCategories,
+    dailyRefreshCategories: dailyRefreshCategories ?? this.dailyRefreshCategories,
+    workDays: workDays ?? this.workDays, varietyLevel: varietyLevel ?? this.varietyLevel,
   );
+
+  Map<String, Object?> toJson() => {
+    'strategy': strategy.name,
+    'customRules': customRules.map((rule) => rule.toJson()).toList(),
+    'allowCompleteOutfitReuse': allowCompleteOutfitReuse,
+    'maximumConsecutiveDays': maximumConsecutiveDays,
+    'reusableCategories': reusableCategories.map((value) => value.name).toList(),
+    'dailyRefreshCategories': dailyRefreshCategories.map((value) => value.name).toList(),
+    'workDays': workDays.toList(), 'varietyLevel': varietyLevel.name,
+  };
+
+  factory AgendaPreferences.fromJson(Map<String, Object?> json) {
+    T named<T extends Enum>(List<T> values, Object? raw, T fallback) =>
+      values.where((value) => value.name == raw).firstOrNull ?? fallback;
+    Set<OutfitCategory> categories(Object? raw, Set<OutfitCategory> fallback) {
+      if (raw is! List) return fallback;
+      return raw.map((item) => named(OutfitCategory.values, item, OutfitCategory.otherLayer)).toSet();
+    }
+    const defaults = AgendaPreferences();
+    return AgendaPreferences(
+      strategy: named(PlanningStrategy.values, json['strategy'], defaults.strategy),
+      customRules: (json['customRules'] as List? ?? const []).whereType<Map>()
+        .map((value) => AgendaRule.fromJson(value.cast<String, Object?>())).toList(),
+      allowCompleteOutfitReuse: json['allowCompleteOutfitReuse'] as bool? ?? defaults.allowCompleteOutfitReuse,
+      maximumConsecutiveDays: (json['maximumConsecutiveDays'] as num?)?.toInt() ?? defaults.maximumConsecutiveDays,
+      reusableCategories: categories(json['reusableCategories'], defaults.reusableCategories),
+      dailyRefreshCategories: categories(json['dailyRefreshCategories'], defaults.dailyRefreshCategories),
+      workDays: (json['workDays'] as List? ?? defaults.workDays).whereType<num>().map((v) => v.toInt()).toSet(),
+      varietyLevel: named(AgendaVarietyLevel.values, json['varietyLevel'], defaults.varietyLevel),
+    );
+  }
 }
 
 class PlannedOutfit {

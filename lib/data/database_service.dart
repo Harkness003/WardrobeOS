@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import '../models/garment.dart';
@@ -65,7 +66,7 @@ class DatabaseService {
       p.join(dbPath, 'wardrobeos.db'),
       // Keep this monotonic with the historical schema, which reached v13
       // before a refactor accidentally reset the value to v1 (then v2).
-      version: 14,
+      version: 15,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -151,6 +152,7 @@ class DatabaseService {
         await _createOutfitTables(db);
         await _createPersonalizationTables(db);
         await _createAgendaTables(db);
+        await _createAgendaPreferencesTable(db);
         await _createIndexes(db);
         await _createWardrobeImportTable(db);
       },
@@ -168,8 +170,34 @@ class DatabaseService {
           await _createIndexes(db);
           await _createWardrobeImportTable(db);
         }
+        if (oldVersion < 15) await _createAgendaPreferencesTable(db);
       },
     );
+  }
+
+  Future<void> _createAgendaPreferencesTable(Database db) => db.execute('''
+    CREATE TABLE IF NOT EXISTS agenda_preferences(
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  ''');
+
+  Future<AgendaPreferences> getAgendaPreferences() async {
+    final db = await database;
+    final rows = await db.query('agenda_preferences', where: 'id = 1', limit: 1);
+    if (rows.isEmpty) return const AgendaPreferences();
+    try {
+      return AgendaPreferences.fromJson((jsonDecode(rows.single['payload'] as String) as Map).cast<String, Object?>());
+    } on Object {
+      return const AgendaPreferences();
+    }
+  }
+
+  Future<void> saveAgendaPreferences(AgendaPreferences value) async {
+    final db = await database;
+    await db.insert('agenda_preferences', {'id': 1, 'payload': jsonEncode(value.toJson()),
+      'updated_at': DateTime.now().toIso8601String()}, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> _createWardrobeImportTable(Database db) => db.execute('''
@@ -973,6 +1001,7 @@ class DatabaseService {
           txn,
           'planned_outfits',
         ),
+        'agendaPreferences': await _queryOptionalBackupTable(txn, 'agenda_preferences'),
       };
     });
   }
@@ -1009,6 +1038,7 @@ class DatabaseService {
       await txn.delete('user_memories');
       await txn.delete('personal_goals');
       await txn.delete('style_profiles');
+      await txn.delete('agenda_preferences');
 
       for (final row in data['garments']!) {
         await txn.insert('garments', row);
@@ -1036,6 +1066,9 @@ class DatabaseService {
       }
       for (final row in data['plannedOutfits'] ?? const []) {
         await txn.insert('planned_outfits', row);
+      }
+      for (final row in data['agendaPreferences'] ?? const []) {
+        await txn.insert('agenda_preferences', row);
       }
     });
   }

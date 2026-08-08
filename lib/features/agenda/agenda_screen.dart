@@ -32,6 +32,27 @@ class _AgendaScreenState extends State<AgendaScreen> {
             items: PlanningStrategy.values.map((v) => DropdownMenuItem(value: v, child: Text(v.label))).toList(), onChanged: (v) { if (v != null) c.setStrategy(v); })),
             const SizedBox(width: 8), FilledButton.icon(onPressed: c.loading ? null : c.proposeWeek,
               icon: const Icon(Icons.auto_awesome, size: 18), label: const Text('Proposer ma semaine'))]),
+          if (c.preferences.strategy == PlanningStrategy.minimal) ...[
+            SwitchListTile(contentPadding: EdgeInsets.zero, dense: true,
+              title: const Text('Réutiliser la même tenue'), value: c.preferences.allowCompleteOutfitReuse,
+              onChanged: c.setFullReuse),
+            DropdownButtonFormField<int>(initialValue: c.preferences.maximumConsecutiveDays,
+              decoration: const InputDecoration(labelText: 'Maximum de jours consécutifs', isDense: true),
+              items: [1,2,3,4,5,6,7].map((value) => DropdownMenuItem(value: value, child: Text('$value jour${value > 1 ? 's' : ''}'))).toList(),
+              onChanged: (value) { if (value != null) c.setMaximumConsecutiveDays(value); }),
+          ],
+          if (c.preferences.strategy == PlanningStrategy.variety)
+            DropdownButtonFormField<AgendaVarietyLevel>(initialValue: c.preferences.varietyLevel,
+              decoration: const InputDecoration(labelText: 'Niveau de variété', isDense: true),
+              items: const [DropdownMenuItem(value: AgendaVarietyLevel.low, child: Text('Faible')),
+                DropdownMenuItem(value: AgendaVarietyLevel.balanced, child: Text('Équilibré')),
+                DropdownMenuItem(value: AgendaVarietyLevel.high, child: Text('Élevé'))],
+              onChanged: (value) { if (value != null) c.setVarietyLevel(value); }),
+          if (c.preferences.strategy == PlanningStrategy.professional)
+            Align(alignment: Alignment.centerLeft, child: Wrap(spacing: 4, children: [
+              for (var day = 1; day <= 7; day++) FilterChip(label: Text(const ['L','M','M','J','V','S','D'][day - 1]),
+                selected: c.preferences.workDays.contains(day), onSelected: (_) => c.toggleWorkDay(day)),
+            ])),
           _CalendarSection(controller: c),
           if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: ContentState.error(
             title: 'Impossible de charger cette semaine',

@@ -42,12 +42,34 @@ void main() {
   });
 
   test('règle personnalisée conserve des paramètres extensibles', () {
-    const rule = AgendaRule(type: 'maximum_category_days', parameters: {
+    const rule = AgendaRule(type: AgendaRuleType.maximumCategoryDays, parameters: {
       'category': 'bottom', 'days': 3,
     });
     final restored = AgendaRule.fromJson(rule.toJson());
     expect(restored.type, rule.type);
     expect(restored.parameters['days'], 3);
+  });
+
+  test('préférences Agenda persistent et relisent tous les réglages', () {
+    const source = AgendaPreferences(strategy: PlanningStrategy.custom,
+      allowCompleteOutfitReuse: false, maximumConsecutiveDays: 5,
+      varietyLevel: AgendaVarietyLevel.high, workDays: {1, 3},
+      customRules: [AgendaRule(type: AgendaRuleType.refreshCategory,
+        parameters: {'category': 'top'})]);
+    final restored = AgendaPreferences.fromJson(source.toJson());
+    expect(restored.strategy, PlanningStrategy.custom);
+    expect(restored.allowCompleteOutfitReuse, isFalse);
+    expect(restored.maximumConsecutiveDays, 5);
+    expect(restored.varietyLevel, AgendaVarietyLevel.high);
+    expect(restored.workDays, {1, 3});
+    expect(restored.customRules.single.type, AgendaRuleType.refreshCategory);
+  });
+
+  test('ancien payload de préférences conserve les valeurs équilibrées', () {
+    final restored = AgendaPreferences.fromJson(const {});
+    expect(restored.strategy, PlanningStrategy.rotation);
+    expect(restored.varietyLevel, AgendaVarietyLevel.balanced);
+    expect(restored.dailyRefreshCategories, contains(OutfitCategory.top));
   });
 
   test('un échec Agenda distingue phase, résultat métier et index', () {

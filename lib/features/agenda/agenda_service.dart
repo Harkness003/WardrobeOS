@@ -33,9 +33,24 @@ class DefaultAgendaProposalSelector implements AgendaProposalSelector {
       required OutfitGenerationResult result, required List<PlannedOutfit> previous,
       required AgendaPreferences preferences}) {
     if (result.proposals.isEmpty) return null;
+    final prior = previous.isEmpty ? null : previous.last.outfit;
     final used = previous.map((plan) => _signature(plan.outfit)).whereType<String>().toSet();
-    return result.proposals.where((proposal) => !used.contains(_signature(proposal.outfit))).firstOrNull
-        ?? result.proposals.first;
+    double agendaScore(OutfitGenerationProposal proposal) {
+      final overlap = _overlap(prior, proposal.outfit);
+      final repeated = used.contains(_signature(proposal.outfit));
+      return switch (preferences.strategy) {
+        PlanningStrategy.minimal => proposal.score + overlap * .35,
+        PlanningStrategy.economical => proposal.score + _reusableOverlap(prior, proposal.outfit, preferences) * .25,
+        PlanningStrategy.rotation => proposal.score,
+        PlanningStrategy.variety => proposal.score - overlap * _varietyWeight(preferences.varietyLevel),
+        PlanningStrategy.elegance => proposal.score * 1.25,
+        PlanningStrategy.comfort => proposal.score + proposal.outfit.allGarments.where((g) => g.isFavorite).length * .04,
+        PlanningStrategy.weather => proposal.score,
+        PlanningStrategy.professional || PlanningStrategy.custom => proposal.score - (repeated ? .03 : 0),
+      };
+    }
+    final ranked = [...result.proposals]..sort((a, b) => agendaScore(b).compareTo(agendaScore(a)));
+    return ranked.first;
   }
 
   static String? _signature(Outfit? outfit) {
@@ -43,6 +58,20 @@ class DefaultAgendaProposalSelector implements AgendaProposalSelector {
     final ids = outfit.allGarments.map((garment) => garment.id).toList()..sort();
     return ids.join('|');
   }
+  static double _overlap(Outfit? a, Outfit b) {
+    if (a == null || b.allGarments.isEmpty) return 0;
+    final ids = a.allGarments.map((item) => item.id).toSet();
+    return b.allGarments.where((item) => ids.contains(item.id)).length / b.allGarments.length;
+  }
+  static double _reusableOverlap(Outfit? a, Outfit b, AgendaPreferences preferences) {
+    if (a == null) return 0;
+    final reusable = preferences.reusableCategories.expand(a.itemsFor).map((item) => item.id).toSet();
+    final candidates = preferences.reusableCategories.expand(b.itemsFor).toList();
+    return candidates.isEmpty ? 0 : candidates.where((item) => reusable.contains(item.id)).length / candidates.length;
+  }
+  static double _varietyWeight(AgendaVarietyLevel value) => switch (value) {
+    AgendaVarietyLevel.low => .08, AgendaVarietyLevel.balanced => .18, AgendaVarietyLevel.high => .30,
+  };
 }
 
 class AgendaService {
@@ -65,6 +94,8 @@ class AgendaService {
 
   Future<List<PlannedOutfit>> loadPeriod(DateTime from, DateTime to) =>
       database.getPlannedOutfits(_day(from), _day(to));
+  Future<AgendaPreferences> loadPreferences() => database.getAgendaPreferences();
+  Future<void> savePreferences(AgendaPreferences value) => database.saveAgendaPreferences(value);
 
   Future<PlannedOutfit> plan({required DateTime date, required Outfit outfit,
     PlanningStrategy strategy = PlanningStrategy.rotation,
@@ -183,11 +214,17 @@ class AgendaService {
           continue;
         }
         phase = AgendaDayPhase.outfitGeneration;
+        final context = _recommendationContext(date, events, weather, preferences: preferences);
         final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
-          wardrobe: wardrobe, context: _recommendationContext(date, events, weather),
+          wardrobe: wardrobe, context: context,
           preferences: _recommendationPreferences(preferences), proposalCount: 3));
         phase = AgendaDayPhase.proposalSelection;
-        final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
+        final reusable = _completeReuse(history, preferences);
+        final proposal = reusable == null
+          ? proposalSelector.select(date: date, result: result, previous: history, preferences: preferences)
+          : OutfitGenerationProposal(outfit: reusable,
+              score: reusable.score?.overallConfidence.value ?? 1,
+              reasons: const ['Tenue maintenue conformément au mode Minimal.']);
         if (proposal == null) {
           failures.add(AgendaDayFailure(dayIndex: offset + 1, date: date,
             phase: phase, result: AgendaDayResult.businessUnavailable,
@@ -197,6 +234,7 @@ class AgendaService {
         }
         phase = AgendaDayPhase.plannedOutfitConstruction;
         final value = await _saveProposal(date, preferences, proposal, weather, events.firstOrNull,
+          reuseKind: reusable == null ? _reuseKind(history.isEmpty ? null : history.last.outfit, proposal.outfit) : OutfitReuseKind.complete,
           calendarAvailable: calendar.available,
           beforePersistence: () => phase = AgendaDayPhase.persistOutfit);
         generated.add(value);
@@ -228,14 +266,19 @@ class AgendaService {
   }
 
   RecommendationContext _recommendationContext(DateTime date, List<CalendarEvent> events,
-      WeatherData? weather) => calendarEventContextMapper.map(
+      WeatherData? weather, {AgendaPreferences? preferences}) {
+    final mapped = calendarEventContextMapper.map(
     date: date,
     events: events,
     weather: weather == null ? null : RecommendationWeather(
       temperature: weather.temperature, condition: weather.description,
       windSpeed: weather.windSpeed,
       isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
-  );
+    );
+    if (preferences?.strategy != PlanningStrategy.professional || !preferences!.workDays.contains(date.weekday)) return mapped;
+    return RecommendationContext(season: mapped.season, occasion: 'travail', desiredStyle: mapped.desiredStyle,
+      weather: mapped.weather, metadata: {...mapped.metadata, 'agendaWorkDay': true});
+  }
 
   static RecommendationPreferences _recommendationPreferences(AgendaPreferences value) =>
       const RecommendationPreferences();
@@ -267,17 +310,41 @@ class AgendaService {
   }
   Future<PlannedOutfit> _saveProposal(DateTime date, AgendaPreferences preferences,
       OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event,
-      {required bool calendarAvailable, void Function()? beforePersistence}) async {
+      {required bool calendarAvailable, OutfitReuseKind reuseKind = OutfitReuseKind.none,
+      void Function()? beforePersistence}) async {
     final choice = _withAgendaId(proposal.outfit, date);
     final now = clock();
     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
       justification: _justification(proposal, calendarAvailable: calendarAvailable), weather: weather, event: event,
+      reuseKind: reuseKind,
       createdAt: now, updatedAt: now);
     beforePersistence?.call();
     await database.persistAgendaProposal(choice, value);
     return value;
+  }
+
+  static Outfit? _completeReuse(List<PlannedOutfit> history, AgendaPreferences preferences) {
+    if (preferences.strategy != PlanningStrategy.minimal || !preferences.allowCompleteOutfitReuse || history.isEmpty) return null;
+    final last = history.last.outfit;
+    if (last == null) return null;
+    final signature = DefaultAgendaProposalSelector._signature(last);
+    var consecutive = 0;
+    for (final plan in history.reversed) {
+      if (DefaultAgendaProposalSelector._signature(plan.outfit) != signature) break;
+      consecutive++;
+    }
+    return consecutive < preferences.maximumConsecutiveDays ? last : null;
+  }
+  static OutfitReuseKind _reuseKind(Outfit? previous, Outfit current) {
+    if (previous == null) return OutfitReuseKind.none;
+    final before = previous.allGarments.map((item) => item.id).toSet();
+    final after = current.allGarments.map((item) => item.id).toSet();
+    if (before.length == after.length && before.containsAll(after)) return OutfitReuseKind.complete;
+    final shared = before.intersection(after).length;
+    if (shared == 0) return OutfitReuseKind.none;
+    return shared >= after.length - 1 ? OutfitReuseKind.variant : OutfitReuseKind.partial;
   }
 
   static String _technicalReason(AgendaDayPhase phase, Object error) {

@@ -19,6 +19,7 @@ class AgendaController extends ChangeNotifier {
   bool calendarAvailable = true;
   GoogleCalendarService? googleCalendarService;
   bool _calendarInitialized = false;
+  bool _preferencesLoaded = false;
 
   AgendaController({required this.service, this.googleCalendarService, this.preferences = const AgendaPreferences(), DateTime? initialDay})
     : weekStart = _monday(initialDay ?? DateTime.now());
@@ -32,6 +33,10 @@ class AgendaController extends ChangeNotifier {
       correlationId: correlationId, details: {'weekStart': weekStart.toIso8601String().substring(0, 10)});
     loading = true; error = null; notifyListeners();
     try {
+      if (!_preferencesLoaded) {
+        preferences = await service.loadPreferences();
+        _preferencesLoaded = true;
+      }
       if (!_calendarInitialized && googleCalendarService != null) {
         await googleCalendarService!.loadConnection();
         _calendarInitialized = true;
@@ -78,7 +83,16 @@ class AgendaController extends ChangeNotifier {
   }
 
   Future<void> changeWeek(int offset) async { weekStart = weekStart.add(Duration(days: offset * 7)); await load(); }
-  void setStrategy(PlanningStrategy strategy) { preferences = preferences.copyWith(strategy: strategy); notifyListeners(); }
+  void setStrategy(PlanningStrategy strategy) { preferences = preferences.copyWith(strategy: strategy); _persistPreferences(); notifyListeners(); }
+  void setFullReuse(bool value) { preferences = preferences.copyWith(allowCompleteOutfitReuse: value); _persistPreferences(); notifyListeners(); }
+  void setMaximumConsecutiveDays(int value) { preferences = preferences.copyWith(maximumConsecutiveDays: value.clamp(1, 7)); _persistPreferences(); notifyListeners(); }
+  void toggleWorkDay(int day) {
+    final days = {...preferences.workDays};
+    days.contains(day) ? days.remove(day) : days.add(day);
+    preferences = preferences.copyWith(workDays: days); _persistPreferences(); notifyListeners();
+  }
+  void setVarietyLevel(AgendaVarietyLevel value) { preferences = preferences.copyWith(varietyLevel: value); _persistPreferences(); notifyListeners(); }
+  void _persistPreferences() { service.savePreferences(preferences); }
   PlannedOutfit? forDay(DateTime day) => plans.where((item) => _sameDay(item.date, day)).firstOrNull;
   AgendaDayState stateFor(DateTime day) => dayStates[_key(day)] ?? AgendaDayState.noOutfit;
 

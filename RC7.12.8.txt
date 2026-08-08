@@ -1,0 +1,1046 @@
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index 1106ce6ee499aae9818ba91b525746696dec4bc1..b06ecc1b7b8f9117e3dacde474dc2b976715b322 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -1,25 +1,26 @@
++import 'dart:convert';
+ import 'package:path/path.dart' as p;
+ import 'package:sqflite/sqflite.dart';
+ import '../models/garment.dart';
+ import '../models/outfit.dart';
+ import '../models/outfit_item.dart';
+ import '../models/wear_history.dart';
+ import '../features/agenda/agenda_models.dart';
+ import '../core/outfit_generation/outfit_generation_engine.dart';
+ import '../core/diagnostics/diagnostic_service.dart';
+ 
+ class StoredOutfitReadResult {
+   final List<Outfit> outfits;
+   final int decodeErrors;
+ 
+   const StoredOutfitReadResult(this.outfits, this.decodeErrors);
+ }
+ 
+ class _OutfitReferenceCheck {
+   final bool outfitExists;
+   final int selectedGarments;
+   final int existingGarments;
+ 
+   const _OutfitReferenceCheck({required this.outfitExists,
+     required this.selectedGarments, required this.existingGarments});
+ 
+@@ -43,51 +44,51 @@ class AgendaPersistenceException implements Exception {
+   final int? existingGarments;
+   final int? missingGarments;
+ 
+   const AgendaPersistenceException({required this.phase, required this.reason,
+     required this.table, this.constraint, required this.technicalType,
+     this.foreignKeyTarget, this.outfitExists, this.selectedGarments,
+     this.existingGarments, this.missingGarments});
+ 
+   @override
+   String toString() => 'AgendaPersistenceException($reason, ${phase.name})';
+ }
+ 
+ class DatabaseService {
+   DatabaseService._();
+   static final DatabaseService instance = DatabaseService._();
+   Database? _database;
+ 
+   Future<Database> get database async => _database ??= await _open();
+ 
+   Future<Database> _open() async {
+     final dbPath = await getDatabasesPath();
+     return openDatabase(
+       p.join(dbPath, 'wardrobeos.db'),
+       // Keep this monotonic with the historical schema, which reached v13
+       // before a refactor accidentally reset the value to v1 (then v2).
+-      version: 14,
++      version: 15,
+       onConfigure: (db) async {
+         await db.execute('PRAGMA foreign_keys = ON');
+       },
+       onCreate: (db, version) async {
+         await db.execute('''
+           CREATE TABLE garments(
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             category TEXT NOT NULL,
+             brand TEXT,
+             color TEXT,
+             material TEXT,
+             occasion TEXT,
+             condition TEXT,
+             purchase_price REAL,
+             purchase_date TEXT,
+             wear_count INTEGER NOT NULL DEFAULT 0,
+             last_worn TEXT,
+             size TEXT,
+             fit TEXT,
+             composition TEXT,
+             notes TEXT,
+             photos TEXT NOT NULL DEFAULT '[]',
+             last_analyzed_at TEXT,
+             ai_analysis_version TEXT,
+@@ -129,71 +130,98 @@ class DatabaseService {
+             points_faibles TEXT,
+             conseils TEXT,
+             verdict TEXT,
+             couleurs_compatibles TEXT,
+             couleurs_moins_adaptees TEXT,
+             bas_compatibles TEXT,
+             chaussures_compatibles TEXT,
+             explication_polyvalence TEXT,
+             occasions_deconseillees TEXT,
+             composition_estimee TEXT,
+             lavage TEXT,
+             sechage TEXT,
+             repassage TEXT,
+             nettoyage TEXT,
+             boulochage TEXT,
+             taches TEXT,
+             limites_analyse TEXT,
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL
+           )
+         ''');
+         await _createWearHistoryTable(db);
+         await _createOutfitTables(db);
+         await _createPersonalizationTables(db);
+         await _createAgendaTables(db);
++        await _createAgendaPreferencesTable(db);
+         await _createIndexes(db);
+         await _createWardrobeImportTable(db);
+       },
+       onUpgrade: (db, oldVersion, newVersion) async {
+         if (oldVersion < 2) await _createWardrobeImportTable(db);
+         // Agenda and outfit tables were added while the database was still at
+         // version 1. Devices which had already created that earlier v1 schema
+         // therefore never ran their CREATE statements. Re-applying all
+         // idempotent creators makes upgraded and fresh databases equivalent.
+         if (oldVersion < 14) {
+           await _createWearHistoryTable(db);
+           await _createOutfitTables(db);
+           await _createPersonalizationTables(db);
+           await _createAgendaTables(db);
+           await _createIndexes(db);
+           await _createWardrobeImportTable(db);
+         }
++        if (oldVersion < 15) await _createAgendaPreferencesTable(db);
+       },
+     );
+   }
+ 
++  Future<void> _createAgendaPreferencesTable(Database db) => db.execute('''
++    CREATE TABLE IF NOT EXISTS agenda_preferences(
++      id INTEGER PRIMARY KEY CHECK (id = 1),
++      payload TEXT NOT NULL,
++      updated_at TEXT NOT NULL
++    )
++  ''');
++
++  Future<AgendaPreferences> getAgendaPreferences() async {
++    final db = await database;
++    final rows = await db.query('agenda_preferences', where: 'id = 1', limit: 1);
++    if (rows.isEmpty) return const AgendaPreferences();
++    try {
++      return AgendaPreferences.fromJson((jsonDecode(rows.single['payload'] as String) as Map).cast<String, Object?>());
++    } on Object {
++      return const AgendaPreferences();
++    }
++  }
++
++  Future<void> saveAgendaPreferences(AgendaPreferences value) async {
++    final db = await database;
++    await db.insert('agenda_preferences', {'id': 1, 'payload': jsonEncode(value.toJson()),
++      'updated_at': DateTime.now().toIso8601String()}, conflictAlgorithm: ConflictAlgorithm.replace);
++  }
++
+   Future<void> _createWardrobeImportTable(Database db) => db.execute('''
+     CREATE TABLE IF NOT EXISTS wardrobe_import_tasks(
+       id TEXT PRIMARY KEY,
+       photo_path TEXT NOT NULL,
+       captured_at TEXT NOT NULL,
+       status TEXT NOT NULL,
+       attempt INTEGER NOT NULL DEFAULT 0,
+       garment_id TEXT,
+       quick_result TEXT,
+       enrichment_result TEXT,
+       user_message TEXT,
+       timings TEXT NOT NULL DEFAULT '{}',
+       updated_at TEXT NOT NULL
+     )
+   ''');
+ 
+   Future<List<Map<String, Object?>>> getWardrobeImportTasks() async {
+     final db = await database;
+     await _createWardrobeImportTable(db);
+     return db.query('wardrobe_import_tasks', orderBy: 'captured_at ASC');
+   }
+ 
+   Future<void> putWardrobeImportTask(Map<String, Object?> value) async {
+     final db = await database;
+     await _createWardrobeImportTable(db);
+@@ -951,92 +979,97 @@ class DatabaseService {
+     );
+   }
+ 
+   /// Returns a consistent, JSON-ready view of every persisted wardrobe table.
+   Future<Map<String, List<Map<String, Object?>>>> exportBackupData() async {
+     final db = await database;
+     return db.transaction((txn) async {
+       return {
+         'garments': await txn.query('garments'),
+         'outfits': await _queryOptionalBackupTable(txn, 'outfits'),
+         'outfitItems': await _queryOptionalBackupTable(txn, 'outfit_items'),
+         // Wishlist V1 is currently UI-only and therefore has no persisted rows.
+         'wishlist': <Map<String, Object?>>[],
+         'wearHistory': await _queryOptionalBackupTable(txn, 'wear_history'),
+         'userMemories': await _queryOptionalBackupTable(txn, 'user_memories'),
+         'userMemoryRevisions': await _queryOptionalBackupTable(
+           txn,
+           'user_memory_revisions',
+         ),
+         'personalGoals': await _queryOptionalBackupTable(txn, 'personal_goals'),
+         'styleProfiles': await _queryOptionalBackupTable(txn, 'style_profiles'),
+         'plannedOutfits': await _queryOptionalBackupTable(
+           txn,
+           'planned_outfits',
+         ),
++        'agendaPreferences': await _queryOptionalBackupTable(txn, 'agenda_preferences'),
+       };
+     });
+   }
+ 
+   Future<List<Map<String, Object?>>> _queryOptionalBackupTable(
+     Transaction txn,
+     String tableName,
+   ) async {
+     final exists = await txn.query(
+       'sqlite_master',
+       columns: const ['name'],
+       where: 'type = ? AND name = ?',
+       whereArgs: ['table', tableName],
+       limit: 1,
+     );
+     if (exists.isEmpty) {
+       return <Map<String, Object?>>[];
+     }
+     return txn.query(tableName);
+   }
+ 
+   /// Atomically replaces all persisted wardrobe data with a validated backup.
+   Future<void> restoreBackupData(
+     Map<String, List<Map<String, Object?>>> data,
+   ) async {
+     final db = await database;
+     await db.transaction((txn) async {
+       await txn.delete('planned_outfits');
+       await txn.delete('outfit_items');
+       await txn.delete('wear_history');
+       await txn.delete('outfits');
+       await txn.delete('garments');
+       await txn.delete('user_memory_revisions');
+       await txn.delete('user_memories');
+       await txn.delete('personal_goals');
+       await txn.delete('style_profiles');
++      await txn.delete('agenda_preferences');
+ 
+       for (final row in data['garments']!) {
+         await txn.insert('garments', row);
+       }
+       for (final row in data['outfits']!) {
+         await txn.insert('outfits', row);
+       }
+       for (final row in data['outfitItems']!) {
+         await txn.insert('outfit_items', row);
+       }
+       for (final row in data['wearHistory']!) {
+         await txn.insert('wear_history', row);
+       }
+       for (final row in data['userMemories'] ?? const []) {
+         await txn.insert('user_memories', row);
+       }
+       for (final row in data['userMemoryRevisions'] ?? const []) {
+         await txn.insert('user_memory_revisions', row);
+       }
+       for (final row in data['personalGoals'] ?? const []) {
+         await txn.insert('personal_goals', row);
+       }
+       for (final row in data['styleProfiles'] ?? const []) {
+         await txn.insert('style_profiles', row);
+       }
+       for (final row in data['plannedOutfits'] ?? const []) {
+         await txn.insert('planned_outfits', row);
+       }
++      for (final row in data['agendaPreferences'] ?? const []) {
++        await txn.insert('agenda_preferences', row);
++      }
+     });
+   }
+ }
+diff --git a/lib/features/agenda/agenda_controller.dart b/lib/features/agenda/agenda_controller.dart
+index b7a6c1f19bc37b3c714954ffb4397257d89065ee..faecf342d50c2b87f0e5be0ab11a06506b09ee25 100644
+--- a/lib/features/agenda/agenda_controller.dart
++++ b/lib/features/agenda/agenda_controller.dart
+@@ -1,106 +1,120 @@
+ import 'package:flutter/foundation.dart';
+ import '../../models/outfit.dart';
+ import '../calendar/google_calendar_service.dart';
+ import 'agenda_models.dart';
+ import 'agenda_service.dart';
+ import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ class AgendaController extends ChangeNotifier {
+   final AgendaService service;
+   DateTime weekStart;
+   AgendaPreferences preferences;
+   List<PlannedOutfit> plans = const [];
+   bool loading = false;
+   bool calendarBusy = false;
+   Object? error;
+   final Map<DateTime, AgendaDayState> dayStates = {};
+   final Map<DateTime, String> dayErrors = {};
+   final Map<DateTime, String> dayBusinessReasons = {};
+   bool calendarAvailable = true;
+   GoogleCalendarService? googleCalendarService;
+   bool _calendarInitialized = false;
++  bool _preferencesLoaded = false;
+ 
+   AgendaController({required this.service, this.googleCalendarService, this.preferences = const AgendaPreferences(), DateTime? initialDay})
+     : weekStart = _monday(initialDay ?? DateTime.now());
+ 
+   Future<void> load() async {
+     final stopwatch = Stopwatch()..start();
+     final diagnostics = DiagnosticService.instance;
+     final correlationId = diagnostics.newCorrelationId('agenda-week');
+     diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.info,
+       state: 'Démarré', summary: 'Semaine Agenda demandée', source: 'AgendaController.load',
+       correlationId: correlationId, details: {'weekStart': weekStart.toIso8601String().substring(0, 10)});
+     loading = true; error = null; notifyListeners();
+     try {
++      if (!_preferencesLoaded) {
++        preferences = await service.loadPreferences();
++        _preferencesLoaded = true;
++      }
+       if (!_calendarInitialized && googleCalendarService != null) {
+         await googleCalendarService!.loadConnection();
+         _calendarInitialized = true;
+       }
+       plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
+       _syncStates();
+       final missing = _days.where((day) => forDay(day) == null).toList();
+       if (missing.isNotEmpty) {
+         for (final day in missing) { dayStates[_key(day)] = AgendaDayState.generating; }
+         notifyListeners();
+         await service.proposePeriod(weekStart, 7, preferences, existing: plans);
+         _applyReport();
+         plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7)));
+         _syncStates();
+       }
+       final technicalFailures = service.lastReport.failures
+         .where((failure) => failure.result == AgendaDayResult.technicalFailure).length;
+       diagnostics.publish(module: DiagnosticModule.agenda,
+         level: technicalFailures > 0 ? AppDiagnosticLevel.error
+           : calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
+         state: 'Rendu', summary: '${plans.length} journée(s) planifiée(s)', source: 'AgendaController.load',
+         correlationId: correlationId, duration: stopwatch.elapsed,
+         reason: technicalFailures > 0 ? 'generationFailures'
+           : calendarAvailable ? null : 'calendarUnavailableFallbackWithoutEvents',
+         warning: calendarAvailable ? null : 'Calendrier indisponible : génération de repli sans événements.',
+         details: {'calendarAvailable': calendarAvailable, 'plans': plans.length,
+           'dayFailures': technicalFailures,
+           'dayBusinessUnavailable': service.lastReport.failures
+             .where((failure) => failure.result == AgendaDayResult.businessUnavailable).length}, pipeline: [
+           const DiagnosticStep('loadStoredWeek'),
+           DiagnosticStep('calendar', level: calendarAvailable ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+           const DiagnosticStep('wardrobeContext'), const DiagnosticStep('weather'),
+           DiagnosticStep('generationByDay', level: dayErrors.isEmpty ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning),
+           const DiagnosticStep('render')]);
+     }
+     catch (value) {
+       diagnostics.publish(module: DiagnosticModule.agenda, level: AppDiagnosticLevel.error,
+         state: 'Échec', summary: 'Chargement Agenda interrompu', source: 'AgendaController.load',
+         correlationId: correlationId, duration: stopwatch.elapsed, reason: 'agendaWeekLoadFailure',
+         details: {'technical': value.runtimeType.toString()});
+       error = value;
+     }
+     finally { loading = false; notifyListeners(); }
+   }
+ 
+   Future<void> changeWeek(int offset) async { weekStart = weekStart.add(Duration(days: offset * 7)); await load(); }
+-  void setStrategy(PlanningStrategy strategy) { preferences = preferences.copyWith(strategy: strategy); notifyListeners(); }
++  void setStrategy(PlanningStrategy strategy) { preferences = preferences.copyWith(strategy: strategy); _persistPreferences(); notifyListeners(); }
++  void setFullReuse(bool value) { preferences = preferences.copyWith(allowCompleteOutfitReuse: value); _persistPreferences(); notifyListeners(); }
++  void setMaximumConsecutiveDays(int value) { preferences = preferences.copyWith(maximumConsecutiveDays: value.clamp(1, 7)); _persistPreferences(); notifyListeners(); }
++  void toggleWorkDay(int day) {
++    final days = {...preferences.workDays};
++    days.contains(day) ? days.remove(day) : days.add(day);
++    preferences = preferences.copyWith(workDays: days); _persistPreferences(); notifyListeners();
++  }
++  void setVarietyLevel(AgendaVarietyLevel value) { preferences = preferences.copyWith(varietyLevel: value); _persistPreferences(); notifyListeners(); }
++  void _persistPreferences() { service.savePreferences(preferences); }
+   PlannedOutfit? forDay(DateTime day) => plans.where((item) => _sameDay(item.date, day)).firstOrNull;
+   AgendaDayState stateFor(DateTime day) => dayStates[_key(day)] ?? AgendaDayState.noOutfit;
+ 
+   Future<void> proposeWeek() async {
+     loading = true; error = null; notifyListeners();
+     try { await service.proposePeriod(weekStart, 7, preferences, existing: plans); _applyReport(); plans = await service.loadPeriod(weekStart, weekStart.add(const Duration(days: 7))); _syncStates(); }
+     catch (value) { error = value; }
+     finally { loading = false; notifyListeners(); }
+   }
+ 
+   Future<void> plan(DateTime date, Outfit outfit) async { await service.plan(date: date, outfit: outfit, strategy: preferences.strategy); await load(); }
+   Future<void> replace(PlannedOutfit value, Outfit outfit, {OutfitReuseKind kind = OutfitReuseKind.none}) async { await service.replace(value, outfit, reuseKind: kind); await load(); }
+   Future<void> another(DateTime date, PlannedOutfit? current) async {
+     dayStates[_key(date)] = AgendaDayState.generating; notifyListeners();
+     try {
+       // The same stable plan id is overwritten only after generation succeeds.
+       await service.proposeDay(date, preferences,
+         previous: plans.where((item) => item.date.isBefore(date)).toList());
+       await load();
+     } catch (value) {
+       error = value; dayStates[_key(date)] = AgendaDayState.error; notifyListeners();
+     }
+   }
+   Future<void> confirm(PlannedOutfit value) async { await service.confirm(value); await load(); }
+   Future<void> markWorn(PlannedOutfit value) async { await service.markWorn(value); await load(); }
+diff --git a/lib/features/agenda/agenda_models.dart b/lib/features/agenda/agenda_models.dart
+index 5f79b3dc60f412ce0826ebbee1c1dc85d2578968..b6c90dede16b2e4a1f59886f97e7acc84a7ac273 100644
+--- a/lib/features/agenda/agenda_models.dart
++++ b/lib/features/agenda/agenda_models.dart
+@@ -1,33 +1,35 @@
+ import '../../features/calendar/calendar_event.dart';
+ import '../../models/outfit.dart';
+ import '../../weather/models/weather_data.dart';
+ 
+ enum PlanningStrategy { minimal, economical, rotation, variety, elegance, comfort, weather, professional, custom }
+ enum PlannedOutfitStatus { proposed, confirmed, worn, ignored, cancelled }
+ enum PlanningOrigin { manual, automatic, assistant }
+ enum OutfitReuseKind { complete, partial, variant, none }
++enum AgendaVarietyLevel { low, balanced, high }
++enum AgendaRuleType { maximumCategoryDays, maximumFullOutfitDays, refreshCategory, alternateCategory }
+ 
+ class AgendaDayFailure {
+   final int dayIndex;
+   final DateTime date;
+   final AgendaDayPhase phase;
+   final AgendaDayResult result;
+   final String reason;
+   final String? technicalType;
+   final String? databaseTable;
+   final String? databaseConstraint;
+   final String? foreignKeyTarget;
+   final bool? outfitExists;
+   final int? selectedGarments;
+   final int? existingGarments;
+   final int? missingGarments;
+   const AgendaDayFailure({required this.dayIndex, required this.date,
+     required this.phase, required this.result, required this.reason,
+     this.technicalType, this.databaseTable, this.databaseConstraint,
+     this.foreignKeyTarget, this.outfitExists, this.selectedGarments,
+     this.existingGarments, this.missingGarments});
+ }
+ 
+ enum AgendaDayPhase {
+   agendaContext,
+   outfitGeneration,
+@@ -36,91 +38,127 @@ enum AgendaDayPhase {
+   persistOutfit,
+   persistOutfitItems,
+   persistPlannedOutfit,
+ }
+ 
+ enum AgendaDayResult { businessUnavailable, technicalFailure }
+ 
+ class AgendaGenerationReport {
+   final List<PlannedOutfit> generated;
+   final List<AgendaDayFailure> failures;
+   final bool calendarAvailable;
+   const AgendaGenerationReport({this.generated = const [], this.failures = const [], this.calendarAvailable = true});
+ }
+ 
+ extension PlanningStrategyLabel on PlanningStrategy {
+   String get label => switch (this) {
+     PlanningStrategy.minimal => 'Minimal', PlanningStrategy.economical => 'Économique',
+     PlanningStrategy.rotation => 'Rotation', PlanningStrategy.variety => 'Variété',
+     PlanningStrategy.elegance => 'Élégance', PlanningStrategy.comfort => 'Confort',
+     PlanningStrategy.weather => 'Météo', PlanningStrategy.professional => 'Professionnel',
+     PlanningStrategy.custom => 'Personnalisé',
+   };
+ }
+ 
+ class AgendaRule {
+-  final String type;
++  final AgendaRuleType type;
+   final Map<String, Object?> parameters;
+   final bool enabled;
+   const AgendaRule({required this.type, this.parameters = const {}, this.enabled = true});
+ 
+-  Map<String, Object?> toJson() => {'type': type, 'parameters': parameters, 'enabled': enabled};
++  Map<String, Object?> toJson() => {'type': type.name, 'parameters': parameters, 'enabled': enabled};
+   factory AgendaRule.fromJson(Map<String, Object?> json) => AgendaRule(
+-    type: json['type'] as String? ?? 'unknown',
++    type: AgendaRuleType.values.where((value) => value.name == json['type']).firstOrNull
++      ?? AgendaRuleType.maximumCategoryDays,
+     parameters: (json['parameters'] as Map?)?.cast<String, Object?>() ?? const {},
+     enabled: json['enabled'] as bool? ?? true,
+   );
+ }
+ 
+ class AgendaPreferences {
+   final PlanningStrategy strategy;
+   final List<AgendaRule> customRules;
+   final bool allowCompleteOutfitReuse;
+   final int maximumConsecutiveDays;
+   final Set<OutfitCategory> reusableCategories;
+   final Set<OutfitCategory> dailyRefreshCategories;
+   final Set<int> workDays;
+-  final double varietyLevel;
++  final AgendaVarietyLevel varietyLevel;
+ 
+   const AgendaPreferences({
+     this.strategy = PlanningStrategy.rotation,
+     this.customRules = const [],
+     this.allowCompleteOutfitReuse = true,
+     this.maximumConsecutiveDays = 2,
+     this.reusableCategories = const {OutfitCategory.bottom, OutfitCategory.shoes, OutfitCategory.jacket, OutfitCategory.coat},
+     this.dailyRefreshCategories = const {OutfitCategory.top},
+     this.workDays = const {DateTime.monday, DateTime.tuesday, DateTime.wednesday, DateTime.thursday, DateTime.friday},
+-    this.varietyLevel = .5,
++    this.varietyLevel = AgendaVarietyLevel.balanced,
+   });
+ 
+-  AgendaPreferences copyWith({PlanningStrategy? strategy, int? maximumConsecutiveDays}) => AgendaPreferences(
+-    strategy: strategy ?? this.strategy, customRules: customRules,
+-    allowCompleteOutfitReuse: allowCompleteOutfitReuse,
++  AgendaPreferences copyWith({PlanningStrategy? strategy, List<AgendaRule>? customRules,
++    bool? allowCompleteOutfitReuse, int? maximumConsecutiveDays,
++    Set<OutfitCategory>? reusableCategories, Set<OutfitCategory>? dailyRefreshCategories,
++    Set<int>? workDays, AgendaVarietyLevel? varietyLevel}) => AgendaPreferences(
++    strategy: strategy ?? this.strategy, customRules: customRules ?? this.customRules,
++    allowCompleteOutfitReuse: allowCompleteOutfitReuse ?? this.allowCompleteOutfitReuse,
+     maximumConsecutiveDays: maximumConsecutiveDays ?? this.maximumConsecutiveDays,
+-    reusableCategories: reusableCategories, dailyRefreshCategories: dailyRefreshCategories,
+-    workDays: workDays, varietyLevel: varietyLevel,
++    reusableCategories: reusableCategories ?? this.reusableCategories,
++    dailyRefreshCategories: dailyRefreshCategories ?? this.dailyRefreshCategories,
++    workDays: workDays ?? this.workDays, varietyLevel: varietyLevel ?? this.varietyLevel,
+   );
++
++  Map<String, Object?> toJson() => {
++    'strategy': strategy.name,
++    'customRules': customRules.map((rule) => rule.toJson()).toList(),
++    'allowCompleteOutfitReuse': allowCompleteOutfitReuse,
++    'maximumConsecutiveDays': maximumConsecutiveDays,
++    'reusableCategories': reusableCategories.map((value) => value.name).toList(),
++    'dailyRefreshCategories': dailyRefreshCategories.map((value) => value.name).toList(),
++    'workDays': workDays.toList(), 'varietyLevel': varietyLevel.name,
++  };
++
++  factory AgendaPreferences.fromJson(Map<String, Object?> json) {
++    T named<T extends Enum>(List<T> values, Object? raw, T fallback) =>
++      values.where((value) => value.name == raw).firstOrNull ?? fallback;
++    Set<OutfitCategory> categories(Object? raw, Set<OutfitCategory> fallback) {
++      if (raw is! List) return fallback;
++      return raw.map((item) => named(OutfitCategory.values, item, OutfitCategory.otherLayer)).toSet();
++    }
++    const defaults = AgendaPreferences();
++    return AgendaPreferences(
++      strategy: named(PlanningStrategy.values, json['strategy'], defaults.strategy),
++      customRules: (json['customRules'] as List? ?? const []).whereType<Map>()
++        .map((value) => AgendaRule.fromJson(value.cast<String, Object?>())).toList(),
++      allowCompleteOutfitReuse: json['allowCompleteOutfitReuse'] as bool? ?? defaults.allowCompleteOutfitReuse,
++      maximumConsecutiveDays: (json['maximumConsecutiveDays'] as num?)?.toInt() ?? defaults.maximumConsecutiveDays,
++      reusableCategories: categories(json['reusableCategories'], defaults.reusableCategories),
++      dailyRefreshCategories: categories(json['dailyRefreshCategories'], defaults.dailyRefreshCategories),
++      workDays: (json['workDays'] as List? ?? defaults.workDays).whereType<num>().map((v) => v.toInt()).toSet(),
++      varietyLevel: named(AgendaVarietyLevel.values, json['varietyLevel'], defaults.varietyLevel),
++    );
++  }
+ }
+ 
+ class PlannedOutfit {
+   final String id;
+   final DateTime date;
+   final String outfitId;
+   final Outfit? outfit;
+   final PlanningOrigin origin;
+   final PlanningStrategy strategy;
+   final PlannedOutfitStatus status;
+   final String justification;
+   final WeatherData? weather;
+   final CalendarEvent? event;
+   final OutfitReuseKind reuseKind;
+   final DateTime createdAt;
+   final DateTime updatedAt;
+   final DateTime? wearRecordedAt;
+ 
+   const PlannedOutfit({required this.id, required this.date, required this.outfitId,
+     this.outfit, this.origin = PlanningOrigin.manual, this.strategy = PlanningStrategy.rotation,
+     this.status = PlannedOutfitStatus.proposed, this.justification = '', this.weather,
+     this.event, this.reuseKind = OutfitReuseKind.none, required this.createdAt,
+     required this.updatedAt, this.wearRecordedAt});
+ 
+   PlannedOutfit copyWith({Outfit? outfit, String? outfitId, PlannedOutfitStatus? status,
+diff --git a/lib/features/agenda/agenda_screen.dart b/lib/features/agenda/agenda_screen.dart
+index fcfccb656417353f36e585e04f00ec54b88e1ea0..d568e4feeddac533270946d09eda158a08089dae 100644
+--- a/lib/features/agenda/agenda_screen.dart
++++ b/lib/features/agenda/agenda_screen.dart
+@@ -10,50 +10,71 @@ import 'agenda_models.dart';
+ class AgendaScreen extends StatefulWidget {
+   final AgendaController controller;
+   final OutfitsController outfitsController;
+   const AgendaScreen({super.key, required this.controller, required this.outfitsController});
+   @override State<AgendaScreen> createState() => _AgendaScreenState();
+ }
+ 
+ class _AgendaScreenState extends State<AgendaScreen> {
+   @override void initState() { super.initState(); widget.controller.addListener(_refresh); widget.controller.load(); widget.outfitsController.load(); }
+   void _refresh() { if (mounted) setState(() {}); }
+   @override void dispose() { widget.controller.removeListener(_refresh); super.dispose(); }
+ 
+   @override Widget build(BuildContext context) {
+     final c = widget.controller;
+     return Scaffold(appBar: AppBar(title: const Text('Agenda vestimentaire')),
+       body: SafeArea(child: Column(children: [
+         Padding(padding: const EdgeInsets.fromLTRB(12, 4, 12, 8), child: Column(children: [
+           Row(children: [IconButton(onPressed: c.loading ? null : () => c.changeWeek(-1), icon: const Icon(Icons.chevron_left)),
+             Expanded(child: Text('${_date(c.weekStart)} — ${_date(c.weekStart.add(const Duration(days: 6)))}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleMedium)),
+             IconButton(onPressed: c.loading ? null : () => c.changeWeek(1), icon: const Icon(Icons.chevron_right))]),
+           Row(children: [Expanded(child: DropdownButtonFormField<PlanningStrategy>(initialValue: c.preferences.strategy,
+             decoration: const InputDecoration(labelText: 'Stratégie', isDense: true),
+             items: PlanningStrategy.values.map((v) => DropdownMenuItem(value: v, child: Text(v.label))).toList(), onChanged: (v) { if (v != null) c.setStrategy(v); })),
+             const SizedBox(width: 8), FilledButton.icon(onPressed: c.loading ? null : c.proposeWeek,
+               icon: const Icon(Icons.auto_awesome, size: 18), label: const Text('Proposer ma semaine'))]),
++          if (c.preferences.strategy == PlanningStrategy.minimal) ...[
++            SwitchListTile(contentPadding: EdgeInsets.zero, dense: true,
++              title: const Text('Réutiliser la même tenue'), value: c.preferences.allowCompleteOutfitReuse,
++              onChanged: c.setFullReuse),
++            DropdownButtonFormField<int>(initialValue: c.preferences.maximumConsecutiveDays,
++              decoration: const InputDecoration(labelText: 'Maximum de jours consécutifs', isDense: true),
++              items: [1,2,3,4,5,6,7].map((value) => DropdownMenuItem(value: value, child: Text('$value jour${value > 1 ? 's' : ''}'))).toList(),
++              onChanged: (value) { if (value != null) c.setMaximumConsecutiveDays(value); }),
++          ],
++          if (c.preferences.strategy == PlanningStrategy.variety)
++            DropdownButtonFormField<AgendaVarietyLevel>(initialValue: c.preferences.varietyLevel,
++              decoration: const InputDecoration(labelText: 'Niveau de variété', isDense: true),
++              items: const [DropdownMenuItem(value: AgendaVarietyLevel.low, child: Text('Faible')),
++                DropdownMenuItem(value: AgendaVarietyLevel.balanced, child: Text('Équilibré')),
++                DropdownMenuItem(value: AgendaVarietyLevel.high, child: Text('Élevé'))],
++              onChanged: (value) { if (value != null) c.setVarietyLevel(value); }),
++          if (c.preferences.strategy == PlanningStrategy.professional)
++            Align(alignment: Alignment.centerLeft, child: Wrap(spacing: 4, children: [
++              for (var day = 1; day <= 7; day++) FilterChip(label: Text(const ['L','M','M','J','V','S','D'][day - 1]),
++                selected: c.preferences.workDays.contains(day), onSelected: (_) => c.toggleWorkDay(day)),
++            ])),
+           _CalendarSection(controller: c),
+           if (c.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: ContentState.error(
+             title: 'Impossible de charger cette semaine',
+             message: 'L’agenda n’a pas pu être actualisé. Vérifie l’accès au calendrier puis réessaie.',
+             onAction: c.load)),
+         ])),
+         if (c.loading) const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: ContentState.loading(
+           title: 'Chargement de l’agenda', message: 'Préparation des événements et des tenues de la semaine…')),
+         Expanded(child: ListView.builder(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), itemCount: 7, itemBuilder: (_, i) {
+           final day = c.weekStart.add(Duration(days: i)); return _DayCard(date: day,
+             plan: c.forDay(day), state: c.stateFor(day),
+             failure: c.dayErrors[DateTime(day.year, day.month, day.day)],
+             onDetails: () => _showDetails(c.forDay(day)),
+             onAction: (action) => _act(day, c.forDay(day), action));
+         })),
+       ])));
+   }
+ 
+   Future<void> _showDetails(PlannedOutfit? plan) async {
+     if (plan == null) { return; }
+     await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+       builder: (context) => SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(20),
+         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+           if (plan.outfit case final outfit?)
+             OutfitProposalCard(proposal: OutfitGenerationProposal(
+diff --git a/lib/features/agenda/agenda_service.dart b/lib/features/agenda/agenda_service.dart
+index c9744334f9a58beff6725bb3a45a3904cb8b917e..5caa0255eef54838413ad74fcf9bfbe8f2a3b103 100644
+--- a/lib/features/agenda/agenda_service.dart
++++ b/lib/features/agenda/agenda_service.dart
+@@ -11,82 +11,113 @@ import '../calendar/calendar_event_context_mapper.dart';
+ import '../calendar/calendar_service.dart';
+ import 'agenda_models.dart';
+ import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ typedef AgendaClock = DateTime Function();
+ 
+ /// Selection policy kept separate from generation so future work/weekend/travel
+ /// planners can select among central-engine proposals without duplicating it.
+ abstract interface class AgendaProposalSelector {
+   OutfitGenerationProposal? select({
+     required DateTime date,
+     required OutfitGenerationResult result,
+     required List<PlannedOutfit> previous,
+     required AgendaPreferences preferences,
+   });
+ }
+ 
+ class DefaultAgendaProposalSelector implements AgendaProposalSelector {
+   const DefaultAgendaProposalSelector();
+ 
+   @override
+   OutfitGenerationProposal? select({required DateTime date,
+       required OutfitGenerationResult result, required List<PlannedOutfit> previous,
+       required AgendaPreferences preferences}) {
+     if (result.proposals.isEmpty) return null;
++    final prior = previous.isEmpty ? null : previous.last.outfit;
+     final used = previous.map((plan) => _signature(plan.outfit)).whereType<String>().toSet();
+-    return result.proposals.where((proposal) => !used.contains(_signature(proposal.outfit))).firstOrNull
+-        ?? result.proposals.first;
++    double agendaScore(OutfitGenerationProposal proposal) {
++      final overlap = _overlap(prior, proposal.outfit);
++      final repeated = used.contains(_signature(proposal.outfit));
++      return switch (preferences.strategy) {
++        PlanningStrategy.minimal => proposal.score + overlap * .35,
++        PlanningStrategy.economical => proposal.score + _reusableOverlap(prior, proposal.outfit, preferences) * .25,
++        PlanningStrategy.rotation => proposal.score,
++        PlanningStrategy.variety => proposal.score - overlap * _varietyWeight(preferences.varietyLevel),
++        PlanningStrategy.elegance => proposal.score * 1.25,
++        PlanningStrategy.comfort => proposal.score + proposal.outfit.allGarments.where((g) => g.isFavorite).length * .04,
++        PlanningStrategy.weather => proposal.score,
++        PlanningStrategy.professional || PlanningStrategy.custom => proposal.score - (repeated ? .03 : 0),
++      };
++    }
++    final ranked = [...result.proposals]..sort((a, b) => agendaScore(b).compareTo(agendaScore(a)));
++    return ranked.first;
+   }
+ 
+   static String? _signature(Outfit? outfit) {
+     if (outfit == null) return null;
+     final ids = outfit.allGarments.map((garment) => garment.id).toList()..sort();
+     return ids.join('|');
+   }
++  static double _overlap(Outfit? a, Outfit b) {
++    if (a == null || b.allGarments.isEmpty) return 0;
++    final ids = a.allGarments.map((item) => item.id).toSet();
++    return b.allGarments.where((item) => ids.contains(item.id)).length / b.allGarments.length;
++  }
++  static double _reusableOverlap(Outfit? a, Outfit b, AgendaPreferences preferences) {
++    if (a == null) return 0;
++    final reusable = preferences.reusableCategories.expand(a.itemsFor).map((item) => item.id).toSet();
++    final candidates = preferences.reusableCategories.expand(b.itemsFor).toList();
++    return candidates.isEmpty ? 0 : candidates.where((item) => reusable.contains(item.id)).length / candidates.length;
++  }
++  static double _varietyWeight(AgendaVarietyLevel value) => switch (value) {
++    AgendaVarietyLevel.low => .08, AgendaVarietyLevel.balanced => .18, AgendaVarietyLevel.high => .30,
++  };
+ }
+ 
+ class AgendaService {
+   final DatabaseService database;
+   final OutfitGenerationEngine outfitGenerationEngine;
+   final AgendaProposalSelector proposalSelector;
+   final CalendarService calendarService;
+   final WeatherService? weatherService;
+   final AgendaClock clock;
+   final WardrobeAiContextService aiContextService;
+   final CalendarEventContextMapper calendarEventContextMapper;
+   AgendaGenerationReport lastReport = const AgendaGenerationReport();
+ 
+   AgendaService({required this.database, required this.calendarService,
+     required this.aiContextService, this.weatherService,
+     this.outfitGenerationEngine = const OutfitGenerationEngine(),
+     this.proposalSelector = const DefaultAgendaProposalSelector(),
+     this.calendarEventContextMapper = const CalendarEventContextMapper(),
+     this.clock = DateTime.now});
+ 
+   Future<List<PlannedOutfit>> loadPeriod(DateTime from, DateTime to) =>
+       database.getPlannedOutfits(_day(from), _day(to));
++  Future<AgendaPreferences> loadPreferences() => database.getAgendaPreferences();
++  Future<void> savePreferences(AgendaPreferences value) => database.saveAgendaPreferences(value);
+ 
+   Future<PlannedOutfit> plan({required DateTime date, required Outfit outfit,
+     PlanningStrategy strategy = PlanningStrategy.rotation,
+     PlanningOrigin origin = PlanningOrigin.manual, String justification = 'Tenue choisie par vous.'}) async {
+     await _ensureStored(outfit);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: outfit.id, outfit: outfit, origin: origin, strategy: strategy,
+       status: origin == PlanningOrigin.manual ? PlannedOutfitStatus.confirmed : PlannedOutfitStatus.proposed,
+       justification: justification, createdAt: now, updatedAt: now);
+     await database.savePlannedOutfit(value);
+     return value;
+   }
+ 
+   Future<PlannedOutfit> replace(PlannedOutfit current, Outfit replacement,
+       {OutfitReuseKind reuseKind = OutfitReuseKind.none, String? justification}) async {
+     await _ensureStored(replacement);
+     final changed = current.copyWith(outfit: replacement, outfitId: replacement.id,
+       status: PlannedOutfitStatus.proposed, reuseKind: reuseKind,
+       justification: justification ?? 'Tenue remplacée selon votre choix.', updatedAt: clock());
+     await database.savePlannedOutfit(changed);
+     return changed;
+   }
+ 
+   Future<void> remove(PlannedOutfit value) => database.deletePlannedOutfit(value.id);
+@@ -161,147 +192,183 @@ class AgendaService {
+     final generated = <PlannedOutfit>[];
+     final failures = <AgendaDayFailure>[];
+     var calendarAvailable = true;
+     final history = [...existing]..sort((a, b) => a.date.compareTo(b.date));
+     // One immutable wardrobe snapshot and one weather request per generation.
+     final wardrobe = (await aiContextService.build()).garments;
+     final weather = await _optionalWeather();
+     for (var offset = 0; offset < days; offset++) {
+       final date = _day(from).add(Duration(days: offset));
+       if (history.any((item) => _sameDay(item.date, date))) continue;
+       var phase = AgendaDayPhase.agendaContext;
+       try {
+         final calendar = await _events(date);
+         calendarAvailable = calendarAvailable && calendar.available;
+         final events = calendar.available ? calendar.events : const <CalendarEvent>[];
+         final conflict = _eventConflict(events);
+         if (conflict != null) {
+           failures.add(AgendaDayFailure(dayIndex: offset + 1, date: date,
+             phase: AgendaDayPhase.agendaContext,
+             result: AgendaDayResult.businessUnavailable,
+             reason: 'incompatibleEventContexts'));
+           _publishDayFailure(offset, date, failures.last);
+           continue;
+         }
+         phase = AgendaDayPhase.outfitGeneration;
++        final context = _recommendationContext(date, events, weather, preferences: preferences);
+         final result = outfitGenerationEngine.generate(OutfitGenerationRequest(
+-          wardrobe: wardrobe, context: _recommendationContext(date, events, weather),
++          wardrobe: wardrobe, context: context,
+           preferences: _recommendationPreferences(preferences), proposalCount: 3));
+         phase = AgendaDayPhase.proposalSelection;
+-        final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
++        final reusable = _completeReuse(history, preferences);
++        final proposal = reusable == null
++          ? proposalSelector.select(date: date, result: result, previous: history, preferences: preferences)
++          : OutfitGenerationProposal(outfit: reusable,
++              score: reusable.score?.overallConfidence.value ?? 1,
++              reasons: const ['Tenue maintenue conformément au mode Minimal.']);
+         if (proposal == null) {
+           failures.add(AgendaDayFailure(dayIndex: offset + 1, date: date,
+             phase: phase, result: AgendaDayResult.businessUnavailable,
+             reason: result.diagnostic.failure?.name ?? 'noCompleteOutfit'));
+           _publishDayFailure(offset, date, failures.last);
+           continue;
+         }
+         phase = AgendaDayPhase.plannedOutfitConstruction;
+         final value = await _saveProposal(date, preferences, proposal, weather, events.firstOrNull,
++          reuseKind: reusable == null ? _reuseKind(history.isEmpty ? null : history.last.outfit, proposal.outfit) : OutfitReuseKind.complete,
+           calendarAvailable: calendar.available,
+           beforePersistence: () => phase = AgendaDayPhase.persistOutfit);
+         generated.add(value);
+         history.add(value);
+       } catch (error) {
+         final engineError = error is OutfitGenerationException ? error : null;
+         final persistenceError = error is AgendaPersistenceException ? error : null;
+         phase = persistenceError?.phase ?? phase;
+         final failure = AgendaDayFailure(dayIndex: offset + 1, date: date,
+           phase: phase, result: AgendaDayResult.technicalFailure,
+           reason: _technicalReason(phase, error),
+           technicalType: engineError?.exceptionType ??
+             persistenceError?.technicalType ?? error.runtimeType.toString(),
+           databaseTable: persistenceError?.table,
+           databaseConstraint: persistenceError?.constraint,
+           foreignKeyTarget: persistenceError?.foreignKeyTarget,
+           outfitExists: persistenceError?.outfitExists,
+           selectedGarments: persistenceError?.selectedGarments,
+           existingGarments: persistenceError?.existingGarments,
+           missingGarments: persistenceError?.missingGarments);
+         failures.add(failure);
+         _publishDayFailure(offset, date, failure,
+           enginePhase: engineError?.phase.name);
+       }
+     }
+     lastReport = AgendaGenerationReport(generated: List.unmodifiable(generated),
+       failures: List.unmodifiable(failures), calendarAvailable: calendarAvailable);
+     return List.unmodifiable(generated);
+   }
+ 
+   RecommendationContext _recommendationContext(DateTime date, List<CalendarEvent> events,
+-      WeatherData? weather) => calendarEventContextMapper.map(
++      WeatherData? weather, {AgendaPreferences? preferences}) {
++    final mapped = calendarEventContextMapper.map(
+     date: date,
+     events: events,
+     weather: weather == null ? null : RecommendationWeather(
+       temperature: weather.temperature, condition: weather.description,
+       windSpeed: weather.windSpeed,
+       isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
+-  );
++    );
++    if (preferences?.strategy != PlanningStrategy.professional || !preferences!.workDays.contains(date.weekday)) return mapped;
++    return RecommendationContext(season: mapped.season, occasion: 'travail', desiredStyle: mapped.desiredStyle,
++      weather: mapped.weather, metadata: {...mapped.metadata, 'agendaWorkDay': true});
++  }
+ 
+   static RecommendationPreferences _recommendationPreferences(AgendaPreferences value) =>
+       const RecommendationPreferences();
+ 
+   Future<void> _ensureStored(Outfit outfit) async {
+     if (await database.getOutfitById(outfit.id) == null) await database.createOutfit(outfit);
+     final garments = List<Garment>.from(outfit.allGarments, growable: false);
+     for (final garment in garments) {
+       await database.addGarmentToOutfit(outfit.id, garment.id);
+     }
+   }
+ 
+   Future<({bool available, List<CalendarEvent> events})> _events(DateTime date) async {
+     try { return (events: await calendarService.getTodayEvents(day: date),
+       available: calendarService is! CalendarAvailability ||
+           (calendarService as CalendarAvailability).isCalendarAvailable); }
+     catch (_) { return (events: const <CalendarEvent>[], available: false); }
+   }
+   Future<WeatherData?> _optionalWeather() async {
+     try { return await weatherService?.getCurrentWeather(); } catch (_) { return null; }
+   }
+ 
+   Outfit _withAgendaId(Outfit source, DateTime date) {
+     final now = clock();
+     return Outfit(id: 'agenda-${_day(date).millisecondsSinceEpoch}-${now.microsecondsSinceEpoch}',
+       name: source.name, season: source.season, favorite: source.favorite,
+       createdAt: now, updatedAt: now, garments: source.garments,
+       score: source.score, justification: source.justification);
+   }
+   Future<PlannedOutfit> _saveProposal(DateTime date, AgendaPreferences preferences,
+       OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event,
+-      {required bool calendarAvailable, void Function()? beforePersistence}) async {
++      {required bool calendarAvailable, OutfitReuseKind reuseKind = OutfitReuseKind.none,
++      void Function()? beforePersistence}) async {
+     final choice = _withAgendaId(proposal.outfit, date);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+       justification: _justification(proposal, calendarAvailable: calendarAvailable), weather: weather, event: event,
++      reuseKind: reuseKind,
+       createdAt: now, updatedAt: now);
+     beforePersistence?.call();
+     await database.persistAgendaProposal(choice, value);
+     return value;
+   }
+ 
++  static Outfit? _completeReuse(List<PlannedOutfit> history, AgendaPreferences preferences) {
++    if (preferences.strategy != PlanningStrategy.minimal || !preferences.allowCompleteOutfitReuse || history.isEmpty) return null;
++    final last = history.last.outfit;
++    if (last == null) return null;
++    final signature = DefaultAgendaProposalSelector._signature(last);
++    var consecutive = 0;
++    for (final plan in history.reversed) {
++      if (DefaultAgendaProposalSelector._signature(plan.outfit) != signature) break;
++      consecutive++;
++    }
++    return consecutive < preferences.maximumConsecutiveDays ? last : null;
++  }
++  static OutfitReuseKind _reuseKind(Outfit? previous, Outfit current) {
++    if (previous == null) return OutfitReuseKind.none;
++    final before = previous.allGarments.map((item) => item.id).toSet();
++    final after = current.allGarments.map((item) => item.id).toSet();
++    if (before.length == after.length && before.containsAll(after)) return OutfitReuseKind.complete;
++    final shared = before.intersection(after).length;
++    if (shared == 0) return OutfitReuseKind.none;
++    return shared >= after.length - 1 ? OutfitReuseKind.variant : OutfitReuseKind.partial;
++  }
++
+   static String _technicalReason(AgendaDayPhase phase, Object error) {
+     if (error is AgendaPersistenceException) return error.reason;
+     if (error is OutfitGenerationException) return 'outfitGenerationFailure';
+     return switch (phase) {
+       AgendaDayPhase.agendaContext => 'agendaContextFailure',
+       AgendaDayPhase.outfitGeneration => 'outfitGenerationFailure',
+       AgendaDayPhase.proposalSelection => 'proposalSelectionFailure',
+       AgendaDayPhase.plannedOutfitConstruction => 'mappingFailure',
+       AgendaDayPhase.persistOutfit ||
+       AgendaDayPhase.persistOutfitItems ||
+       AgendaDayPhase.persistPlannedOutfit => 'databaseWriteFailure',
+     };
+   }
+ 
+   static void _publishDayFailure(int offset, DateTime date,
+       AgendaDayFailure failure, {String? enginePhase}) {
+     DiagnosticService.instance.publish(module: DiagnosticModule.agenda,
+       level: failure.result == AgendaDayResult.businessUnavailable
+         ? AppDiagnosticLevel.warning : AppDiagnosticLevel.error,
+       state: failure.result == AgendaDayResult.businessUnavailable
+         ? 'Impossible' : 'Échec',
+       summary: 'Journée Agenda non planifiée',
+       source: 'AgendaService.proposePeriod', reason: failure.reason,
+       details: {
+         'dayIndex': offset + 1,
+diff --git a/test/features/agenda/agenda_models_test.dart b/test/features/agenda/agenda_models_test.dart
+index 0d8930e42fc2c4006a2f75a05e0a58a1fc45c3cb..4c20ee3a6e24353f2251e92cf55e013d80ff685d 100644
+--- a/test/features/agenda/agenda_models_test.dart
++++ b/test/features/agenda/agenda_models_test.dart
+@@ -20,48 +20,70 @@ void main() {
+       PlanningStrategy.minimal, PlanningStrategy.economical,
+       PlanningStrategy.rotation, PlanningStrategy.variety,
+       PlanningStrategy.elegance, PlanningStrategy.comfort,
+       PlanningStrategy.weather, PlanningStrategy.professional,
+       PlanningStrategy.custom,
+     ]));
+   });
+ 
+   test('mode minimal autorise explicitement cinq jours consécutifs', () {
+     const value = AgendaPreferences(strategy: PlanningStrategy.minimal,
+       allowCompleteOutfitReuse: true, maximumConsecutiveDays: 5);
+     expect(value.allowCompleteOutfitReuse, isTrue);
+     expect(value.maximumConsecutiveDays, 5);
+   });
+ 
+   test('mode économique configure une réutilisation partielle sûre', () {
+     const value = AgendaPreferences(strategy: PlanningStrategy.economical);
+     expect(value.reusableCategories, containsAll(<OutfitCategory>[
+       OutfitCategory.bottom, OutfitCategory.jacket,
+       OutfitCategory.coat, OutfitCategory.shoes,
+     ]));
+     expect(value.dailyRefreshCategories, contains(OutfitCategory.top));
+   });
+ 
+   test('règle personnalisée conserve des paramètres extensibles', () {
+-    const rule = AgendaRule(type: 'maximum_category_days', parameters: {
++    const rule = AgendaRule(type: AgendaRuleType.maximumCategoryDays, parameters: {
+       'category': 'bottom', 'days': 3,
+     });
+     final restored = AgendaRule.fromJson(rule.toJson());
+     expect(restored.type, rule.type);
+     expect(restored.parameters['days'], 3);
+   });
+ 
++  test('préférences Agenda persistent et relisent tous les réglages', () {
++    const source = AgendaPreferences(strategy: PlanningStrategy.custom,
++      allowCompleteOutfitReuse: false, maximumConsecutiveDays: 5,
++      varietyLevel: AgendaVarietyLevel.high, workDays: {1, 3},
++      customRules: [AgendaRule(type: AgendaRuleType.refreshCategory,
++        parameters: {'category': 'top'})]);
++    final restored = AgendaPreferences.fromJson(source.toJson());
++    expect(restored.strategy, PlanningStrategy.custom);
++    expect(restored.allowCompleteOutfitReuse, isFalse);
++    expect(restored.maximumConsecutiveDays, 5);
++    expect(restored.varietyLevel, AgendaVarietyLevel.high);
++    expect(restored.workDays, {1, 3});
++    expect(restored.customRules.single.type, AgendaRuleType.refreshCategory);
++  });
++
++  test('ancien payload de préférences conserve les valeurs équilibrées', () {
++    final restored = AgendaPreferences.fromJson(const {});
++    expect(restored.strategy, PlanningStrategy.rotation);
++    expect(restored.varietyLevel, AgendaVarietyLevel.balanced);
++    expect(restored.dailyRefreshCategories, contains(OutfitCategory.top));
++  });
++
+   test('un échec Agenda distingue phase, résultat métier et index', () {
+     final failure = AgendaDayFailure(
+       dayIndex: 3,
+       date: DateTime(2026, 8, 5),
+       phase: AgendaDayPhase.proposalSelection,
+       result: AgendaDayResult.businessUnavailable,
+       reason: 'missingBottom',
+     );
+ 
+     expect(failure.dayIndex, 3);
+     expect(failure.phase, AgendaDayPhase.proposalSelection);
+     expect(failure.result, AgendaDayResult.businessUnavailable);
+     expect(failure.technicalType, isNull);
+   });
+ }
