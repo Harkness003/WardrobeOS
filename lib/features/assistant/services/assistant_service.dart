@@ -240,6 +240,10 @@ class AssistantService {
       'Je ne peux pas encore créer une tenue complète : ton dressing contient des hauts, mais aucun bas compatible n’est enregistré.',
     OutfitGenerationFailure.incompatibleCombinations =>
       'Je ne peux pas composer une tenue complète avec ces pièces : toutes les combinaisons disponibles sont incompatibles. Ajoute un haut ou un bas différent.',
+    OutfitGenerationFailure.lockedGarmentUnavailable =>
+      'Je ne peux pas conserver cette pièce : une pièce verrouillée n’est pas disponible dans le dressing.',
+    OutfitGenerationFailure.noAlternative =>
+      'Je ne peux pas proposer une autre tenue : aucune autre tenue compatible n’est disponible avec les contraintes actuelles.',
   };
 
   static String _technicalReason(LlmException error) => switch (error) {

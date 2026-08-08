@@ -442,7 +442,9 @@ class AgendaService {
     if (preferences.strategy != PlanningStrategy.minimal || !preferences.allowCompleteOutfitReuse || history.isEmpty) return null;
     final active = preferences.customRules.where((rule) => rule.enabled);
     if (active.any((rule) => rule.type == AgendaRuleType.refreshCategory ||
-        rule.type == AgendaRuleType.alternateCategory)) return null;
+        rule.type == AgendaRuleType.alternateCategory)) {
+      return null;
+    }
     for (final rule in active.where((rule) => rule.type == AgendaRuleType.maximumCategoryDays)) {
       final category = DefaultAgendaProposalSelector._ruleCategory(rule);
       final maximum = (rule.parameters['days'] as num?)?.toInt() ?? 1;

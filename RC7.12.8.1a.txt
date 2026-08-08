@@ -1,0 +1,118 @@
+diff --git a/lib/features/agenda/agenda_service.dart b/lib/features/agenda/agenda_service.dart
+index 338f92ddda80a372bb120b69bcfcb7dbfc9990ab..df9bd2fbd944787c673dca71421ab98cad5ed6ef 100644
+--- a/lib/features/agenda/agenda_service.dart
++++ b/lib/features/agenda/agenda_service.dart
+@@ -420,51 +420,53 @@ class AgendaService {
+       name: source.name, season: source.season, favorite: source.favorite,
+       createdAt: now, updatedAt: now, garments: source.garments,
+       score: source.score, justification: source.justification);
+   }
+   Future<PlannedOutfit> _saveProposal(DateTime date, AgendaPreferences preferences,
+       OutfitGenerationProposal proposal, WeatherData? weather, CalendarEvent? event,
+       {required bool calendarAvailable, OutfitReuseKind reuseKind = OutfitReuseKind.none,
+       void Function()? beforePersistence}) async {
+     final choice = _withAgendaId(proposal.outfit, date);
+     final now = clock();
+     final value = PlannedOutfit(id: 'plan-${_day(date).millisecondsSinceEpoch}', date: _day(date),
+       outfitId: choice.id, outfit: choice, origin: PlanningOrigin.automatic,
+       strategy: preferences.strategy, status: PlannedOutfitStatus.proposed,
+       justification: _justification(proposal, calendarAvailable: calendarAvailable), weather: weather, event: event,
+       reuseKind: reuseKind,
+       createdAt: now, updatedAt: now);
+     beforePersistence?.call();
+     await database.persistAgendaProposal(choice, value);
+     return value;
+   }
+ 
+   static Outfit? _completeReuse(List<PlannedOutfit> history, AgendaPreferences preferences) {
+     if (preferences.strategy != PlanningStrategy.minimal || !preferences.allowCompleteOutfitReuse || history.isEmpty) return null;
+     final active = preferences.customRules.where((rule) => rule.enabled);
+     if (active.any((rule) => rule.type == AgendaRuleType.refreshCategory ||
+-        rule.type == AgendaRuleType.alternateCategory)) return null;
++        rule.type == AgendaRuleType.alternateCategory)) {
++      return null;
++    }
+     for (final rule in active.where((rule) => rule.type == AgendaRuleType.maximumCategoryDays)) {
+       final category = DefaultAgendaProposalSelector._ruleCategory(rule);
+       final maximum = (rule.parameters['days'] as num?)?.toInt() ?? 1;
+       if (category != null &&
+           DefaultAgendaProposalSelector._consecutiveCategory(history, category) >= maximum) {
+         return null;
+       }
+     }
+     final last = history.last.outfit;
+     if (last == null) return null;
+     final signature = DefaultAgendaProposalSelector._signature(last);
+     var consecutive = 0;
+     for (final plan in history.reversed) {
+       if (DefaultAgendaProposalSelector._signature(plan.outfit) != signature) break;
+       consecutive++;
+     }
+     final customMaximums = preferences.customRules.where((rule) => rule.enabled &&
+       rule.type == AgendaRuleType.maximumFullOutfitDays)
+       .map((rule) => (rule.parameters['days'] as num?)?.toInt())
+       .whereType<int>();
+     final maximum = customMaximums.isEmpty ? preferences.maximumConsecutiveDays
+       : customMaximums.reduce((a, b) => a < b ? a : b);
+     return consecutive < maximum ? last : null;
+   }
+   static OutfitReuseKind _reuseKind(Outfit? previous, Outfit current) {
+diff --git a/lib/features/assistant/services/assistant_service.dart b/lib/features/assistant/services/assistant_service.dart
+index 8abadf7abaf7bdebf0ae94c6f4ca00119e37e333..96393838c0f35c48b307b76ccb9479409a8f8586 100644
+--- a/lib/features/assistant/services/assistant_service.dart
++++ b/lib/features/assistant/services/assistant_service.dart
+@@ -218,50 +218,54 @@ class AssistantService {
+         source: 'AssistantService', duration: stopwatch.elapsed,
+         correlationId: correlationId,
+         reason: _technicalReason(error),
+         details: {'providerErrorType': error.runtimeType.toString()});
+       throw AssistantTechnicalException(_userMessageFor(error));
+     } catch (error) {
+       DiagnosticService.instance.publish(module: DiagnosticModule.wardrobeGpt,
+         level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Réponse non générée',
+         source: 'AssistantService', duration: stopwatch.elapsed,
+         correlationId: correlationId, reason: 'localContextProviderOrStreamFailure',
+         details: {'technical': error.runtimeType.toString(),
+           'intent': _lastIntent?.type.name ?? 'unknown', 'firstChunkReceived': firstChunkReceived});
+       throw const AssistantTechnicalException();
+     }
+   }
+ 
+   static String _outfitFailureResponse(OutfitGenerationFailure failure) => switch (failure) {
+     OutfitGenerationFailure.emptyWardrobe =>
+       'Je ne peux pas encore créer une tenue complète : ton dressing est vide. Ajoute au moins un haut et un bas.',
+     OutfitGenerationFailure.missingTop =>
+       'Je ne peux pas encore créer une tenue complète : aucun haut compatible n’est enregistré. Ajoute un haut puis réessaie.',
+     OutfitGenerationFailure.missingBottom =>
+       'Je ne peux pas encore créer une tenue complète : ton dressing contient des hauts, mais aucun bas compatible n’est enregistré.',
+     OutfitGenerationFailure.incompatibleCombinations =>
+       'Je ne peux pas composer une tenue complète avec ces pièces : toutes les combinaisons disponibles sont incompatibles. Ajoute un haut ou un bas différent.',
++    OutfitGenerationFailure.lockedGarmentUnavailable =>
++      'Je ne peux pas conserver cette pièce : une pièce verrouillée n’est pas disponible dans le dressing.',
++    OutfitGenerationFailure.noAlternative =>
++      'Je ne peux pas proposer une autre tenue : aucune autre tenue compatible n’est disponible avec les contraintes actuelles.',
+   };
+ 
+   static String _technicalReason(LlmException error) => switch (error) {
+     MissingApiKeyException() => 'missingApiKey',
+     LlmNetworkException() => 'technicalProviderUnavailable',
+     LlmTimeoutException() => 'technicalProviderTimeout',
+     LlmApiException() => 'technicalProviderRejectedResponse',
+   };
+ 
+   static String _userMessageFor(LlmException error) => switch (error) {
+     MissingApiKeyException() =>
+       'Configure ta clé OpenAI dans les réglages pour utiliser WardrobeGPT.',
+     LlmTimeoutException() =>
+       'Le service IA met trop de temps à répondre. Tu peux réessayer.',
+     _ => AssistantTechnicalException.defaultUserMessage,
+   };
+ }
+ 
+ class AssistantTechnicalException implements Exception {
+   const AssistantTechnicalException([
+     this.userMessage = defaultUserMessage,
+   ]);
+ 
+   static const defaultUserMessage =
+       'Je n’arrive pas à contacter le service IA pour le moment. Tu peux réessayer.';
