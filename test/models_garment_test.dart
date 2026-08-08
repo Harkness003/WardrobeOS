@@ -45,6 +45,21 @@ void main() {
     expect(garment.validate(), isNull);
   });
 
+  test('preserves a persisted legacy id as an opaque foreign-key value', () {
+    const persistedId = 'legacy-private-id';
+    final restored = Garment.fromMap({
+      'id': persistedId,
+      'name': 'Legacy',
+      'category': 'AUTRE',
+      'sous_categorie': '  T_SHIRT  ',
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+    });
+
+    expect(restored.id, persistedId);
+    expect(restored.copyWith(category: 'Hauts').id, persistedId);
+  });
+
   test('uses multiple canonical seasons', () {
     final persisted = Garment.fromMap({
       'id': 'persisted',

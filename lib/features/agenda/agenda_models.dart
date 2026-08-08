@@ -16,9 +16,16 @@ class AgendaDayFailure {
   final String? technicalType;
   final String? databaseTable;
   final String? databaseConstraint;
+  final String? foreignKeyTarget;
+  final bool? outfitExists;
+  final int? selectedGarments;
+  final int? existingGarments;
+  final int? missingGarments;
   const AgendaDayFailure({required this.dayIndex, required this.date,
     required this.phase, required this.result, required this.reason,
-    this.technicalType, this.databaseTable, this.databaseConstraint});
+    this.technicalType, this.databaseTable, this.databaseConstraint,
+    this.foreignKeyTarget, this.outfitExists, this.selectedGarments,
+    this.existingGarments, this.missingGarments});
 }
 
 enum AgendaDayPhase {

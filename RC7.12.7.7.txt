@@ -1,0 +1,811 @@
+diff --git a/lib/data/database_service.dart b/lib/data/database_service.dart
+index 91399054a7f13f6a887a081025d30a96d01c08e1..1106ce6ee499aae9818ba91b525746696dec4bc1 100644
+--- a/lib/data/database_service.dart
++++ b/lib/data/database_service.dart
+@@ -1,53 +1,74 @@
+ import 'package:path/path.dart' as p;
+ import 'package:sqflite/sqflite.dart';
+ import '../models/garment.dart';
+ import '../models/outfit.dart';
+ import '../models/outfit_item.dart';
+ import '../models/wear_history.dart';
+ import '../features/agenda/agenda_models.dart';
+ import '../core/outfit_generation/outfit_generation_engine.dart';
++import '../core/diagnostics/diagnostic_service.dart';
+ 
+ class StoredOutfitReadResult {
+   final List<Outfit> outfits;
+   final int decodeErrors;
+ 
+   const StoredOutfitReadResult(this.outfits, this.decodeErrors);
+ }
+ 
++class _OutfitReferenceCheck {
++  final bool outfitExists;
++  final int selectedGarments;
++  final int existingGarments;
++
++  const _OutfitReferenceCheck({required this.outfitExists,
++    required this.selectedGarments, required this.existingGarments});
++
++  int get missingGarments => selectedGarments - existingGarments;
++  String? get foreignKeyTarget => !outfitExists
++    ? 'outfit' : missingGarments > 0 ? 'garment' : null;
++}
++
+ /// A privacy-safe description of a failed Agenda write. The original database
+ /// message is deliberately not retained because sqflite messages can contain
+ /// SQL arguments and the database path.
+ class AgendaPersistenceException implements Exception {
+   final AgendaDayPhase phase;
+   final String reason;
+   final String table;
+   final String? constraint;
+   final String technicalType;
++  final String? foreignKeyTarget;
++  final bool? outfitExists;
++  final int? selectedGarments;
++  final int? existingGarments;
++  final int? missingGarments;
+ 
+   const AgendaPersistenceException({required this.phase, required this.reason,
+-    required this.table, this.constraint, required this.technicalType});
++    required this.table, this.constraint, required this.technicalType,
++    this.foreignKeyTarget, this.outfitExists, this.selectedGarments,
++    this.existingGarments, this.missingGarments});
+ 
+   @override
+   String toString() => 'AgendaPersistenceException($reason, ${phase.name})';
+ }
+ 
+ class DatabaseService {
+   DatabaseService._();
+   static final DatabaseService instance = DatabaseService._();
+   Database? _database;
+ 
+   Future<Database> get database async => _database ??= await _open();
+ 
+   Future<Database> _open() async {
+     final dbPath = await getDatabasesPath();
+     return openDatabase(
+       p.join(dbPath, 'wardrobeos.db'),
+       // Keep this monotonic with the historical schema, which reached v13
+       // before a refactor accidentally reset the value to v1 (then v2).
+       version: 14,
+       onConfigure: (db) async {
+         await db.execute('PRAGMA foreign_keys = ON');
+       },
+       onCreate: (db, version) async {
+         await db.execute('''
+           CREATE TABLE garments(
+@@ -363,107 +384,173 @@ class DatabaseService {
+       if (outfit != null) {
+         final garments = List<Garment>.from(await getGarmentsInOutfit(outfit.id), growable: false);
+         final grouped = <OutfitCategory, List<Garment>>{};
+         for (final garment in garments) {
+           final category = OutfitGenerationEngine.categoryFor(garment);
+           grouped.putIfAbsent(category, () => []).add(garment);
+         }
+         outfit = outfit.copyWith(garments: grouped);
+       }
+       result.add(PlannedOutfit.fromMap(row, outfit: outfit));
+     }
+     return result;
+   }
+ 
+   Future<void> savePlannedOutfit(PlannedOutfit value) async {
+     final db = await database;
+     await db.transaction((txn) => _upsertPlannedOutfit(txn, value));
+   }
+ 
+   /// Persists the three parts of an automatically generated Agenda proposal as
+   /// one unit. sqflite rolls the transaction back if any step throws, so a
+   /// missing/invalid planned_outfits table can no longer leak orphan outfits.
+   Future<void> persistAgendaProposal(Outfit outfit, PlannedOutfit plan) async {
+     final db = await database;
+     var phase = AgendaDayPhase.persistOutfit;
++    _OutfitReferenceCheck? references;
+     try {
+       await db.transaction((txn) async {
+-        await txn.insert('outfits', outfit.toMap());
++        final inserted = await txn.insert('outfits', outfit.toMap());
++        if (inserted <= 0) throw StateError('Outfit insert was not acknowledged');
+         phase = AgendaDayPhase.persistOutfitItems;
+-        for (final garment in outfit.allGarments) {
+-          await txn.insert('outfit_items',
+-            OutfitItem(outfitId: outfit.id, garmentId: garment.id).toMap(),
+-            conflictAlgorithm: ConflictAlgorithm.ignore);
++        references = await _checkOutfitReferences(txn, outfit);
++        _publishOutfitReferenceCheck(references!);
++        if (!references!.outfitExists || references!.missingGarments > 0) {
++          throw AgendaPersistenceException(
++            phase: phase, reason: 'databaseForeignKeyFailure',
++            table: 'outfit_items', constraint: 'foreignKey',
++            technicalType: 'AgendaReferenceIntegrityException',
++            foreignKeyTarget: references!.outfitExists ? 'garment' : 'outfit',
++            outfitExists: references!.outfitExists,
++            selectedGarments: references!.selectedGarments,
++            existingGarments: references!.existingGarments,
++            missingGarments: references!.missingGarments);
+         }
++        await _persistOutfitItems(txn, outfit);
+         phase = AgendaDayPhase.persistPlannedOutfit;
+         await _upsertPlannedOutfit(txn, plan);
+       });
++    } on AgendaPersistenceException {
++      rethrow;
+     } on DatabaseException catch (error) {
+-      throw _agendaDatabaseException(error, phase);
++      throw _agendaDatabaseException(error, phase, references: references);
+     }
+   }
+ 
++  /// Canonical outfit/item row writer. Callers provide the executor so Agenda
++  /// can keep outfit, items and plan in the same transaction.
++  static Future<void> _persistOutfitItems(
++      DatabaseExecutor db, Outfit outfit) async {
++    for (final garment in outfit.allGarments) {
++      await db.insert('outfit_items',
++        OutfitItem(outfitId: outfit.id, garmentId: garment.id).toMap(),
++        conflictAlgorithm: ConflictAlgorithm.ignore);
++    }
++  }
++
++  static Future<_OutfitReferenceCheck> _checkOutfitReferences(
++      DatabaseExecutor db, Outfit outfit) async {
++    final outfitRows = await db.query('outfits', columns: const ['id'],
++      where: 'id = ?', whereArgs: [outfit.id], limit: 1);
++    var existing = 0;
++    for (final garment in outfit.allGarments) {
++      final rows = await db.query('garments', columns: const ['id'],
++        where: 'id = ?', whereArgs: [garment.id], limit: 1);
++      if (rows.isNotEmpty) existing++;
++    }
++    return _OutfitReferenceCheck(outfitExists: outfitRows.isNotEmpty,
++      selectedGarments: outfit.allGarments.length, existingGarments: existing);
++  }
++
++  static void _publishOutfitReferenceCheck(_OutfitReferenceCheck value) {
++    DiagnosticService.instance.publish(module: DiagnosticModule.agenda,
++      level: value.outfitExists && value.missingGarments == 0
++        ? AppDiagnosticLevel.info : AppDiagnosticLevel.error,
++      state: value.outfitExists && value.missingGarments == 0
++        ? 'Vérifiée' : 'Échec',
++      summary: 'Intégrité des références de tenue Agenda',
++      source: 'DatabaseService.persistOutfitItems',
++      reason: value.foreignKeyTarget == null
++        ? null : 'databaseForeignKeyFailure',
++      details: {
++        'outfitExists': value.outfitExists,
++        'selectedGarments': value.selectedGarments,
++        'existingGarments': value.existingGarments,
++        'missingGarments': value.missingGarments,
++        if (value.foreignKeyTarget != null)
++          'foreignKeyTarget': value.foreignKeyTarget,
++      });
++  }
++
+   Future<void> _upsertPlannedOutfit(DatabaseExecutor db, PlannedOutfit value) async {
+     final map = value.toMap();
+     final updated = await db.update('planned_outfits', map,
+       where: 'planned_date = ?', whereArgs: [map['planned_date']]);
+     if (updated == 0) await db.insert('planned_outfits', map);
+   }
+ 
+   static AgendaPersistenceException _agendaDatabaseException(
+-      DatabaseException error, AgendaDayPhase phase) {
++      DatabaseException error, AgendaDayPhase phase,
++      {_OutfitReferenceCheck? references}) {
+     final message = error.toString().toLowerCase();
+     final table = switch (phase) {
+       AgendaDayPhase.persistOutfit => 'outfits',
+       AgendaDayPhase.persistOutfitItems => 'outfit_items',
+       AgendaDayPhase.persistPlannedOutfit => 'planned_outfits',
+       _ => 'agenda',
+     };
+     var reason = 'databaseWriteFailure';
+     String? constraint;
+     if (message.contains('no such table')) {
+       reason = 'databaseMissingTable';
+     } else if (message.contains('no column named') ||
+         message.contains('has no column named')) {
+       reason = 'databaseMissingColumn';
+       final match = RegExp(r'(?:no column named|has no column named) ([a-z0-9_]+)')
+           .firstMatch(message);
+       constraint = match?.group(1);
+     } else if (message.contains('foreign key constraint failed')) {
+       reason = 'databaseForeignKeyFailure';
+       constraint = 'foreignKey';
+     } else if (message.contains('unique constraint failed')) {
+       reason = 'databaseUniqueFailure';
+       constraint = 'unique';
+     } else if (message.contains('constraint failed') ||
+         message.contains('not null constraint failed')) {
+       reason = 'databaseConstraintFailure';
+       constraint = message.contains('not null') ? 'notNull' : 'constraint';
+     }
++    final foreignKeyTarget = constraint == 'foreignKey'
++      ? references?.foreignKeyTarget : null;
+     return AgendaPersistenceException(phase: phase, reason: reason,
+       table: table, constraint: constraint,
+-      technicalType: error.runtimeType.toString());
++      technicalType: error.runtimeType.toString(),
++      foreignKeyTarget: foreignKeyTarget,
++      outfitExists: references?.outfitExists,
++      selectedGarments: references?.selectedGarments,
++      existingGarments: references?.existingGarments,
++      missingGarments: references?.missingGarments);
+   }
+ 
+   Future<void> deletePlannedOutfit(String id) async {
+     final db = await database;
+     await db.delete('planned_outfits', where: 'id = ?', whereArgs: [id]);
+   }
+ 
+   static String _dateOnly(DateTime value) =>
+       DateTime(value.year, value.month, value.day).toIso8601String();
+ 
+   Future<List<Garment>> getGarments({
+     String search = '',
+     String category = 'Tout',
+     bool favoritesOnly = false,
+     String season = '',
+     String brand = '',
+     String color = '',
+     String material = '',
+     String style = '',
+     String occasion = '',
+   }) async {
+     final db = await database;
+     final where = <String>[];
+     final args = <Object?>[];
+     if (search.trim().isNotEmpty) {
+@@ -820,55 +907,58 @@ class DatabaseService {
+       INNER JOIN outfit_items ON outfit_items.garment_id = garments.id
+       WHERE outfit_items.outfit_id = ?
+       ORDER BY garments.name COLLATE NOCASE
+     ''',
+       [outfitId],
+     );
+     return rows.map(Garment.fromMap).toList();
+   }
+ 
+   Future<List<Outfit>> getOutfitsContainingGarment(String garmentId) async {
+     final db = await database;
+     final rows = await db.rawQuery(
+       '''
+       SELECT outfits.* FROM outfits
+       INNER JOIN outfit_items ON outfit_items.outfit_id = outfits.id
+       WHERE outfit_items.garment_id = ?
+       ORDER BY outfits.favorite DESC, outfits.name COLLATE NOCASE
+     ''',
+       [garmentId],
+     );
+     return rows.map(Outfit.fromMap).toList();
+   }
+ 
+   Future<void> addGarmentToOutfit(String outfitId, String garmentId) async {
+     final db = await database;
+-    await db.insert(
+-      'outfit_items',
+-      OutfitItem(outfitId: outfitId, garmentId: garmentId).toMap(),
+-      conflictAlgorithm: ConflictAlgorithm.ignore,
+-    );
++    final outfit = await getOutfitById(outfitId);
++    final garment = await getGarmentById(garmentId);
++    if (outfit == null || garment == null) {
++      throw StateError('Cannot persist an invalid outfit reference');
++    }
++    await _persistOutfitItems(db, outfit.copyWith(garments: {
++      OutfitCategory.otherLayer: [garment],
++    }));
+   }
+ 
+   Future<void> removeGarmentFromOutfit(
+     String outfitId,
+     String garmentId,
+   ) async {
+     final db = await database;
+     await db.delete(
+       'outfit_items',
+       where: 'outfit_id = ? AND garment_id = ?',
+       whereArgs: [outfitId, garmentId],
+     );
+   }
+ 
+   /// Returns a consistent, JSON-ready view of every persisted wardrobe table.
+   Future<Map<String, List<Map<String, Object?>>>> exportBackupData() async {
+     final db = await database;
+     return db.transaction((txn) async {
+       return {
+         'garments': await txn.query('garments'),
+         'outfits': await _queryOptionalBackupTable(txn, 'outfits'),
+         'outfitItems': await _queryOptionalBackupTable(txn, 'outfit_items'),
+         // Wishlist V1 is currently UI-only and therefore has no persisted rows.
+         'wishlist': <Map<String, Object?>>[],
+         'wearHistory': await _queryOptionalBackupTable(txn, 'wear_history'),
+diff --git a/lib/features/agenda/agenda_models.dart b/lib/features/agenda/agenda_models.dart
+index 762d22e27c482f9fab8b0e782aef43b45bc0a118..5f79b3dc60f412ce0826ebbee1c1dc85d2578968 100644
+--- a/lib/features/agenda/agenda_models.dart
++++ b/lib/features/agenda/agenda_models.dart
+@@ -1,46 +1,53 @@
+ import '../../features/calendar/calendar_event.dart';
+ import '../../models/outfit.dart';
+ import '../../weather/models/weather_data.dart';
+ 
+ enum PlanningStrategy { minimal, economical, rotation, variety, elegance, comfort, weather, professional, custom }
+ enum PlannedOutfitStatus { proposed, confirmed, worn, ignored, cancelled }
+ enum PlanningOrigin { manual, automatic, assistant }
+ enum OutfitReuseKind { complete, partial, variant, none }
+ 
+ class AgendaDayFailure {
+   final int dayIndex;
+   final DateTime date;
+   final AgendaDayPhase phase;
+   final AgendaDayResult result;
+   final String reason;
+   final String? technicalType;
+   final String? databaseTable;
+   final String? databaseConstraint;
++  final String? foreignKeyTarget;
++  final bool? outfitExists;
++  final int? selectedGarments;
++  final int? existingGarments;
++  final int? missingGarments;
+   const AgendaDayFailure({required this.dayIndex, required this.date,
+     required this.phase, required this.result, required this.reason,
+-    this.technicalType, this.databaseTable, this.databaseConstraint});
++    this.technicalType, this.databaseTable, this.databaseConstraint,
++    this.foreignKeyTarget, this.outfitExists, this.selectedGarments,
++    this.existingGarments, this.missingGarments});
+ }
+ 
+ enum AgendaDayPhase {
+   agendaContext,
+   outfitGeneration,
+   proposalSelection,
+   plannedOutfitConstruction,
+   persistOutfit,
+   persistOutfitItems,
+   persistPlannedOutfit,
+ }
+ 
+ enum AgendaDayResult { businessUnavailable, technicalFailure }
+ 
+ class AgendaGenerationReport {
+   final List<PlannedOutfit> generated;
+   final List<AgendaDayFailure> failures;
+   final bool calendarAvailable;
+   const AgendaGenerationReport({this.generated = const [], this.failures = const [], this.calendarAvailable = true});
+ }
+ 
+ extension PlanningStrategyLabel on PlanningStrategy {
+   String get label => switch (this) {
+     PlanningStrategy.minimal => 'Minimal', PlanningStrategy.economical => 'Économique',
+     PlanningStrategy.rotation => 'Rotation', PlanningStrategy.variety => 'Variété',
+diff --git a/lib/features/agenda/agenda_service.dart b/lib/features/agenda/agenda_service.dart
+index 9b77e31493c82f1402c1a58ff236f1b3c6ef2cad..c9744334f9a58beff6725bb3a45a3904cb8b917e 100644
+--- a/lib/features/agenda/agenda_service.dart
++++ b/lib/features/agenda/agenda_service.dart
+@@ -189,51 +189,56 @@ class AgendaService {
+         phase = AgendaDayPhase.proposalSelection;
+         final proposal = proposalSelector.select(date: date, result: result, previous: history, preferences: preferences);
+         if (proposal == null) {
+           failures.add(AgendaDayFailure(dayIndex: offset + 1, date: date,
+             phase: phase, result: AgendaDayResult.businessUnavailable,
+             reason: result.diagnostic.failure?.name ?? 'noCompleteOutfit'));
+           _publishDayFailure(offset, date, failures.last);
+           continue;
+         }
+         phase = AgendaDayPhase.plannedOutfitConstruction;
+         final value = await _saveProposal(date, preferences, proposal, weather, events.firstOrNull,
+           calendarAvailable: calendar.available,
+           beforePersistence: () => phase = AgendaDayPhase.persistOutfit);
+         generated.add(value);
+         history.add(value);
+       } catch (error) {
+         final engineError = error is OutfitGenerationException ? error : null;
+         final persistenceError = error is AgendaPersistenceException ? error : null;
+         phase = persistenceError?.phase ?? phase;
+         final failure = AgendaDayFailure(dayIndex: offset + 1, date: date,
+           phase: phase, result: AgendaDayResult.technicalFailure,
+           reason: _technicalReason(phase, error),
+           technicalType: engineError?.exceptionType ??
+             persistenceError?.technicalType ?? error.runtimeType.toString(),
+           databaseTable: persistenceError?.table,
+-          databaseConstraint: persistenceError?.constraint);
++          databaseConstraint: persistenceError?.constraint,
++          foreignKeyTarget: persistenceError?.foreignKeyTarget,
++          outfitExists: persistenceError?.outfitExists,
++          selectedGarments: persistenceError?.selectedGarments,
++          existingGarments: persistenceError?.existingGarments,
++          missingGarments: persistenceError?.missingGarments);
+         failures.add(failure);
+         _publishDayFailure(offset, date, failure,
+           enginePhase: engineError?.phase.name);
+       }
+     }
+     lastReport = AgendaGenerationReport(generated: List.unmodifiable(generated),
+       failures: List.unmodifiable(failures), calendarAvailable: calendarAvailable);
+     return List.unmodifiable(generated);
+   }
+ 
+   RecommendationContext _recommendationContext(DateTime date, List<CalendarEvent> events,
+       WeatherData? weather) => calendarEventContextMapper.map(
+     date: date,
+     events: events,
+     weather: weather == null ? null : RecommendationWeather(
+       temperature: weather.temperature, condition: weather.description,
+       windSpeed: weather.windSpeed,
+       isRaining: weather.weatherCode >= 51 && weather.weatherCode <= 82),
+   );
+ 
+   static RecommendationPreferences _recommendationPreferences(AgendaPreferences value) =>
+       const RecommendationPreferences();
+ 
+   Future<void> _ensureStored(Outfit outfit) async {
+     if (await database.getOutfitById(outfit.id) == null) await database.createOutfit(outfit);
+@@ -285,50 +290,59 @@ class AgendaService {
+       AgendaDayPhase.plannedOutfitConstruction => 'mappingFailure',
+       AgendaDayPhase.persistOutfit ||
+       AgendaDayPhase.persistOutfitItems ||
+       AgendaDayPhase.persistPlannedOutfit => 'databaseWriteFailure',
+     };
+   }
+ 
+   static void _publishDayFailure(int offset, DateTime date,
+       AgendaDayFailure failure, {String? enginePhase}) {
+     DiagnosticService.instance.publish(module: DiagnosticModule.agenda,
+       level: failure.result == AgendaDayResult.businessUnavailable
+         ? AppDiagnosticLevel.warning : AppDiagnosticLevel.error,
+       state: failure.result == AgendaDayResult.businessUnavailable
+         ? 'Impossible' : 'Échec',
+       summary: 'Journée Agenda non planifiée',
+       source: 'AgendaService.proposePeriod', reason: failure.reason,
+       details: {
+         'dayIndex': offset + 1,
+         'date': _day(date).toIso8601String(),
+         'phase': failure.phase.name,
+         'result': failure.result.name,
+         if (failure.technicalType != null) 'technicalType': failure.technicalType,
+         if (failure.databaseTable != null) 'databaseTable': failure.databaseTable,
+         if (failure.databaseConstraint != null)
+           'databaseConstraint': failure.databaseConstraint,
++        if (failure.foreignKeyTarget != null)
++          'foreignKeyTarget': failure.foreignKeyTarget,
++        if (failure.outfitExists != null) 'outfitExists': failure.outfitExists,
++        if (failure.selectedGarments != null)
++          'selectedGarments': failure.selectedGarments,
++        if (failure.existingGarments != null)
++          'existingGarments': failure.existingGarments,
++        if (failure.missingGarments != null)
++          'missingGarments': failure.missingGarments,
+         if (enginePhase != null) 'enginePhase': enginePhase,
+       });
+   }
+   static String _justification(OutfitGenerationProposal proposal, {required bool calendarAvailable}) {
+     final reasons = proposal.reasons.join(' ');
+     if (calendarAvailable) return reasons;
+     return [
+       'Calendrier indisponible, proposition générée sans contexte événement.',
+       if (reasons.trim().isNotEmpty) reasons,
+     ].join(' ');
+   }
+ 
+   static String? _eventConflict(List<CalendarEvent> events) {
+     final formalities = events.map((event) => event.formality).toSet();
+     if (formalities.contains(EventFormality.sport) &&
+         (formalities.contains(EventFormality.formal) || formalities.contains(EventFormality.business))) {
+       return 'Conflit entre un événement sportif et un événement formel : aucune tenue unique cohérente.';
+     }
+     return null;
+   }
+   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+   static DateTime _day(DateTime value) => DateTime(value.year, value.month, value.day);
+ }
+ 
+ extension<T> on Iterable<T> { T? get firstOrNull => isEmpty ? null : first; }
+diff --git a/lib/models/garment.dart b/lib/models/garment.dart
+index 43998f0cfabee8418fa1aea93a00544efd9d0c75..bff3db6665f13ee74a67774fc8954ada7c7e4d85 100644
+--- a/lib/models/garment.dart
++++ b/lib/models/garment.dart
+@@ -443,51 +443,54 @@ class Garment {
+     List<String>? list(String key) {
+       final value = map[key];
+       if (value == null) return null;
+       Object? decoded = value;
+       if (value is String) {
+         try {
+           decoded = jsonDecode(value);
+         } on FormatException {
+           return null;
+         }
+       }
+       if (decoded is! List) return null;
+       return GarmentNormalizer.values(decoded.map((e) => e.toString()));
+     }
+     double? number(String key) {
+       final value = map[key];
+       return value is num ? value.toDouble() : null;
+     }
+     bool? boolean(String key) {
+       final value = map[key];
+       if (value == null) return null;
+       return value == true || value == 1;
+     }
+ 
+     return Garment(
+-      id: text('id') ?? '',
++      // A database identity is opaque, unlike the user-facing classification
++      // fields below.  In particular, legacy textual ids may be case-sensitive
++      // foreign-key targets and must never pass through GarmentNormalizer.
++      id: map['id'] is String ? map['id'] as String : '',
+       name: text('name') ?? '',
+       category: text('category') ?? '',
+       brand: text('brand'),
+       color: text('color'),
+       material: text('material'),
+       occasion: text('occasion'),
+       condition: text('condition'),
+       purchasePrice: number('purchase_price'),
+       purchaseDate: _parseDate(map['purchase_date']),
+       lastWorn: _parseDate(map['last_worn']),
+       size: text('size'),
+       fit: text('fit'),
+       composition: text('composition'),
+       notes: text('notes'),
+       photos: GarmentPhoto.decode(map['photos']),
+       lastAnalyzedAt: _parseDate(map['last_analyzed_at']),
+       aiAnalysisVersion: text('ai_analysis_version'),
+       previousAnalysis: GarmentAnalysisSnapshot.decode(map['previous_analysis']),
+       currentAnalysis: GarmentAnalysisSnapshot.decode(map['current_analysis']),
+       userModifiedFields: (list('user_modified_fields') ?? const []).toSet(),
+       sousCategorie: text('sous_categorie'),
+       typePrecis: text('type_precis'),
+       descriptionIA: text('description_i_a'),
+       couleurPrincipale: text('couleur_principale'),
+       couleursSecondaires: list('couleurs_secondaires'),
+diff --git a/test/core/outfit_generation/outfit_generation_engine_test.dart b/test/core/outfit_generation/outfit_generation_engine_test.dart
+index 1c859dd127c5f6efb2e54988e7f340e4e09dce87..83104cc11b59b7a62d3e8efcfd156065464e42ef 100644
+--- a/test/core/outfit_generation/outfit_generation_engine_test.dart
++++ b/test/core/outfit_generation/outfit_generation_engine_test.dart
+@@ -191,50 +191,68 @@ void main() {
+         'primaryRole': category == 'Hauts' ? 'base' : 'mid',
+         'inputFingerprint': 'fixture',
+         'confidence': confidence,
+         'calculatedAt': '2026-08-08T00:00:00.000Z',
+       }),
+     };
+ 
+     final wardrobe = <Garment>[
+       Garment.fromMap(row('db-top', 'Hauts', 1, 1)),
+       Garment.fromMap(row('db-bottom', 'Pantalons', .5, .75)),
+       Garment.fromMap(row('db-shoes', 'Chaussures', 0, 0)),
+     ];
+     final result = engine().generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       proposalCount: 1,
+     ));
+ 
+     expect(result.proposals, hasLength(1));
+     expect(result.proposals.single.garmentIds,
+       containsAll(<String>['db-top', 'db-bottom', 'db-shoes']));
+     expect(result.proposals.single.outfit.garments,
+       isA<Map<OutfitCategory, List<Garment>>>());
+     expect(result.proposals.single.score, isA<double>());
+   });
+ 
++  test('conserve les identités DB legacy jusque dans la proposition', () {
++    Garment restored(String id, String category) => Garment.fromMap({
++      'id': id, 'name': 'Legacy', 'category': category,
++      'created_at': '2025-01-01T00:00:00.000Z',
++      'updated_at': '2025-01-01T00:00:00.000Z',
++    });
++    const ids = ['legacy-top-id', 'legacy-bottom-id', 'legacy-shoes-id'];
++    final result = engine().generate(OutfitGenerationRequest(wardrobe: [
++      restored(ids[0], 'Hauts'),
++      restored(ids[1], 'Pantalons'),
++      restored(ids[2], 'Chaussures'),
++    ], proposalCount: 1));
++
++    expect(result.proposals, hasLength(1));
++    expect(result.proposals.single.outfit.allGarments.map((item) => item.id),
++      containsAll(ids));
++  });
++
+   test('couvre les séparateurs legacy sans contains générique', () {
+     for (final value in ['tshirt', 't-shirt', 't_shirt', 'polo_shirt']) {
+       final restored = Garment.fromMap({
+         'id': 'legacy', 'name': 'Sans signal de type', 'category': 'Autre',
+         'sous_categorie': value, 'created_at': '2025-01-01',
+         'updated_at': '2025-01-01',
+       });
+       expect(OutfitGenerationEngine.categoryFor(restored), OutfitCategory.top,
+         reason: value);
+     }
+   });
+ 
+   test('borne la génération pour un dressing important', () {
+     final wardrobe = List.generate(300, (index) =>
+       garment('item-$index', index.isEven ? 'Hauts' : 'Pantalons'));
+     final result = engine().generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       proposalCount: 5,
+     ));
+     expect(result.proposals, hasLength(5));
+     expect(result.proposals.every((item) => item.outfit.allGarments.length == 2), isTrue);
+   });
+ 
+   test('refuse les tenues à une seule pièce', () {
+     final result = engine().generate(OutfitGenerationRequest(
+diff --git a/test/models_garment_test.dart b/test/models_garment_test.dart
+index d64546be4d2cfa76a03a26517be70bd6859f9fbe..f556cad1aa34347a49d705105e6808db1328a8bf 100644
+--- a/test/models_garment_test.dart
++++ b/test/models_garment_test.dart
+@@ -23,50 +23,65 @@ void main() {
+       category: 'Vestes',
+       occasion: 'Quotidien',
+       occasions: const ['Travail', 'Voyage', 'Travail'],
+       createdAt: now,
+       updatedAt: now,
+     );
+ 
+     expect(legacy.effectiveOccasions, isEmpty);
+     expect(multiple.effectiveOccasions, ['Travail', 'Voyage']);
+   });
+ 
+   final now = DateTime.utc(2026, 7, 20);
+ 
+   test('supports minimal creation and legacy maps', () {
+     final garment = Garment(
+       id: 'g1',
+       name: 'Chemise',
+       category: 'Chemises',
+       createdAt: now,
+       updatedAt: now,
+     );
+     expect(Garment.fromMap(garment.toMap()), garment);
+     expect(garment.validate(), isNull);
+   });
+ 
++  test('preserves a persisted legacy id as an opaque foreign-key value', () {
++    const persistedId = 'legacy-private-id';
++    final restored = Garment.fromMap({
++      'id': persistedId,
++      'name': 'Legacy',
++      'category': 'AUTRE',
++      'sous_categorie': '  T_SHIRT  ',
++      'created_at': now.toIso8601String(),
++      'updated_at': now.toIso8601String(),
++    });
++
++    expect(restored.id, persistedId);
++    expect(restored.copyWith(category: 'Hauts').id, persistedId);
++  });
++
+   test('uses multiple canonical seasons', () {
+     final persisted = Garment.fromMap({
+       'id': 'persisted',
+       'name': 'Manteau',
+       'category': 'Vestes',
+       'saisons': jsonEncode(['Hiver']),
+       'created_at': now.toIso8601String(),
+       'updated_at': now.toIso8601String(),
+     });
+     expect(persisted.effectiveSeasons, ['Hiver']);
+     expect(persisted.saisons, ['Hiver']);
+ 
+     final garment = persisted.copyWith(
+       saisons: const ['Automne', 'Hiver', 'Hiver'],
+     );
+     expect(garment.effectiveSeasons, ['Automne', 'Hiver']);
+     expect(
+       jsonDecode(garment.toMap()['saisons']! as String),
+       ['Automne', 'Hiver'],
+     );
+   });
+ 
+   test('serializes, copies and compares every rich field', () {
+     final garment = Garment(
+       id: 'g1',
+diff --git a/tool/rc7_12_7_6_sqlite_test.py b/tool/rc7_12_7_6_sqlite_test.py
+index ddd977be75472298b1adb85c026ae6cf6e49ae71..6e191dc34eb0ff0995adeb0d6995ddccb9769712 100644
+--- a/tool/rc7_12_7_6_sqlite_test.py
++++ b/tool/rc7_12_7_6_sqlite_test.py
+@@ -32,63 +32,96 @@ def base():
+     return db
+ 
+ 
+ def migrate_v14(db):
+     for statement in (OUTFITS, ITEMS, PLANS):
+         db.execute(statement)
+     db.execute("CREATE INDEX IF NOT EXISTS idx_planned_outfits_date "
+                "ON planned_outfits(planned_date)")
+     db.commit()
+ 
+ 
+ def persist(db, outfit_id="agenda-1", date="2026-08-03T00:00:00.000"):
+     with db:
+         db.execute("INSERT INTO outfits(id,name,created_at,updated_at) VALUES(?,?,?,?)",
+                    (outfit_id, "Agenda", date, date))
+         db.execute("INSERT INTO outfit_items VALUES(?,?)", (outfit_id, "garment-1"))
+         values = (f"plan-{date}", date, outfit_id, date, date)
+         changed = db.execute("UPDATE planned_outfits SET id=?,outfit_id=?,created_at=?,updated_at=? "
+                              "WHERE planned_date=?",
+                              (values[0], outfit_id, date, date, date)).rowcount
+         if not changed:
+             db.execute("INSERT INTO planned_outfits"
+                        "(id,planned_date,outfit_id,created_at,updated_at) VALUES(?,?,?,?,?)", values)
+ 
+ 
++def persist_with_garment(db, garment_id, outfit_id="agenda-invalid"):
++    """Mirrors the real transaction while allowing an intentional bad FK."""
++    with db:
++        db.execute("INSERT INTO outfits(id,name,created_at,updated_at) VALUES(?,?,?,?)",
++                   (outfit_id, "Agenda", "x", "x"))
++        db.execute("INSERT INTO outfit_items VALUES(?,?)", (outfit_id, garment_id))
++        db.execute("INSERT INTO planned_outfits"
++                   "(id,planned_date,outfit_id,created_at,updated_at) VALUES(?,?,?,?,?)",
++                   (f"plan-{outfit_id}", outfit_id, outfit_id, "x", "x"))
++
++
+ class AgendaSqliteContractTest(unittest.TestCase):
+     def test_fresh_database_persist_and_reload(self):
+         db = base()
+         migrate_v14(db)
+         persist(db)
+         self.assertEqual(db.execute("SELECT COUNT(*) FROM outfits").fetchone()[0], 1)
+         self.assertEqual(db.execute("SELECT COUNT(*) FROM outfit_items").fetchone()[0], 1)
+         self.assertEqual(db.execute("SELECT outfit_id FROM planned_outfits").fetchone()[0], "agenda-1")
+ 
+     def test_historical_database_migrates_non_destructively(self):
+         db = base()
+         db.execute(OUTFITS)
+         db.execute("INSERT INTO outfits(id,name,created_at,updated_at) VALUES('old','Old','x','x')")
+         migrate_v14(db)
+         persist(db)
+         self.assertEqual(db.execute("SELECT COUNT(*) FROM outfits").fetchone()[0], 2)
+ 
+     def test_same_date_is_updated_without_replace(self):
+         db = base()
+         migrate_v14(db)
+         persist(db, "agenda-1")
+         persist(db, "agenda-2")
+         self.assertEqual(db.execute("SELECT COUNT(*) FROM planned_outfits").fetchone()[0], 1)
+         self.assertEqual(db.execute("SELECT outfit_id FROM planned_outfits").fetchone()[0], "agenda-2")
+ 
+     def test_planned_outfit_failure_rolls_back_outfit_and_items(self):
+         db = base()
+         db.execute(OUTFITS)
+         db.execute(ITEMS)
+         db.commit()
+         with self.assertRaises(sqlite3.OperationalError):
+             persist(db)  # historical failure: planned_outfits does not exist
+         self.assertEqual(db.execute("SELECT COUNT(*) FROM outfits").fetchone()[0], 0)
+         self.assertEqual(db.execute("SELECT COUNT(*) FROM outfit_items").fetchone()[0], 0)
+ 
++    def test_invalid_garment_fk_rolls_back_all_three_tables(self):
++        db = base()
++        migrate_v14(db)
++        before = tuple(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
++                       for table in ("outfits", "outfit_items", "planned_outfits"))
++        with self.assertRaises(sqlite3.IntegrityError):
++            persist_with_garment(db, "missing-garment")
++        after = tuple(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
++                      for table in ("outfits", "outfit_items", "planned_outfits"))
++        self.assertEqual(after, before)
++
++    def test_legacy_case_sensitive_garment_identity_persists(self):
++        db = base()
++        migrate_v14(db)
++        legacy_id = "legacy-private-id"
++        db.execute("INSERT INTO garments VALUES (?)", (legacy_id,))
++        db.commit()
++        persist_with_garment(db, legacy_id, "agenda-legacy")
++        self.assertEqual(db.execute(
++            "SELECT garment_id FROM outfit_items WHERE outfit_id='agenda-legacy'"
++        ).fetchone()[0], legacy_id)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

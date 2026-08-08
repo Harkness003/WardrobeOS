@@ -54,6 +54,17 @@ def persist(db, outfit_id="agenda-1", date="2026-08-03T00:00:00.000"):
                        "(id,planned_date,outfit_id,created_at,updated_at) VALUES(?,?,?,?,?)", values)
 
 
+def persist_with_garment(db, garment_id, outfit_id="agenda-invalid"):
+    """Mirrors the real transaction while allowing an intentional bad FK."""
+    with db:
+        db.execute("INSERT INTO outfits(id,name,created_at,updated_at) VALUES(?,?,?,?)",
+                   (outfit_id, "Agenda", "x", "x"))
+        db.execute("INSERT INTO outfit_items VALUES(?,?)", (outfit_id, garment_id))
+        db.execute("INSERT INTO planned_outfits"
+                   "(id,planned_date,outfit_id,created_at,updated_at) VALUES(?,?,?,?,?)",
+                   (f"plan-{outfit_id}", outfit_id, outfit_id, "x", "x"))
+
+
 class AgendaSqliteContractTest(unittest.TestCase):
     def test_fresh_database_persist_and_reload(self):
         db = base()
@@ -88,6 +99,28 @@ class AgendaSqliteContractTest(unittest.TestCase):
             persist(db)  # historical failure: planned_outfits does not exist
         self.assertEqual(db.execute("SELECT COUNT(*) FROM outfits").fetchone()[0], 0)
         self.assertEqual(db.execute("SELECT COUNT(*) FROM outfit_items").fetchone()[0], 0)
+
+    def test_invalid_garment_fk_rolls_back_all_three_tables(self):
+        db = base()
+        migrate_v14(db)
+        before = tuple(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                       for table in ("outfits", "outfit_items", "planned_outfits"))
+        with self.assertRaises(sqlite3.IntegrityError):
+            persist_with_garment(db, "missing-garment")
+        after = tuple(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                      for table in ("outfits", "outfit_items", "planned_outfits"))
+        self.assertEqual(after, before)
+
+    def test_legacy_case_sensitive_garment_identity_persists(self):
+        db = base()
+        migrate_v14(db)
+        legacy_id = "legacy-private-id"
+        db.execute("INSERT INTO garments VALUES (?)", (legacy_id,))
+        db.commit()
+        persist_with_garment(db, legacy_id, "agenda-legacy")
+        self.assertEqual(db.execute(
+            "SELECT garment_id FROM outfit_items WHERE outfit_id='agenda-legacy'"
+        ).fetchone()[0], legacy_id)
 
 
 if __name__ == "__main__":

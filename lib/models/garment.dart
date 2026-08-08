@@ -465,7 +465,10 @@ class Garment {
     }
 
     return Garment(
-      id: text('id') ?? '',
+      // A database identity is opaque, unlike the user-facing classification
+      // fields below.  In particular, legacy textual ids may be case-sensitive
+      // foreign-key targets and must never pass through GarmentNormalizer.
+      id: map['id'] is String ? map['id'] as String : '',
       name: text('name') ?? '',
       category: text('category') ?? '',
       brand: text('brand'),

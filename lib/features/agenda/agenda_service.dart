@@ -211,7 +211,12 @@ class AgendaService {
           technicalType: engineError?.exceptionType ??
             persistenceError?.technicalType ?? error.runtimeType.toString(),
           databaseTable: persistenceError?.table,
-          databaseConstraint: persistenceError?.constraint);
+          databaseConstraint: persistenceError?.constraint,
+          foreignKeyTarget: persistenceError?.foreignKeyTarget,
+          outfitExists: persistenceError?.outfitExists,
+          selectedGarments: persistenceError?.selectedGarments,
+          existingGarments: persistenceError?.existingGarments,
+          missingGarments: persistenceError?.missingGarments);
         failures.add(failure);
         _publishDayFailure(offset, date, failure,
           enginePhase: engineError?.phase.name);
@@ -307,6 +312,15 @@ class AgendaService {
         if (failure.databaseTable != null) 'databaseTable': failure.databaseTable,
         if (failure.databaseConstraint != null)
           'databaseConstraint': failure.databaseConstraint,
+        if (failure.foreignKeyTarget != null)
+          'foreignKeyTarget': failure.foreignKeyTarget,
+        if (failure.outfitExists != null) 'outfitExists': failure.outfitExists,
+        if (failure.selectedGarments != null)
+          'selectedGarments': failure.selectedGarments,
+        if (failure.existingGarments != null)
+          'existingGarments': failure.existingGarments,
+        if (failure.missingGarments != null)
+          'missingGarments': failure.missingGarments,
         if (enginePhase != null) 'enginePhase': enginePhase,
       });
   }

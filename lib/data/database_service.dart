@@ -6,12 +6,26 @@ import '../models/outfit_item.dart';
 import '../models/wear_history.dart';
 import '../features/agenda/agenda_models.dart';
 import '../core/outfit_generation/outfit_generation_engine.dart';
+import '../core/diagnostics/diagnostic_service.dart';
 
 class StoredOutfitReadResult {
   final List<Outfit> outfits;
   final int decodeErrors;
 
   const StoredOutfitReadResult(this.outfits, this.decodeErrors);
+}
+
+class _OutfitReferenceCheck {
+  final bool outfitExists;
+  final int selectedGarments;
+  final int existingGarments;
+
+  const _OutfitReferenceCheck({required this.outfitExists,
+    required this.selectedGarments, required this.existingGarments});
+
+  int get missingGarments => selectedGarments - existingGarments;
+  String? get foreignKeyTarget => !outfitExists
+    ? 'outfit' : missingGarments > 0 ? 'garment' : null;
 }
 
 /// A privacy-safe description of a failed Agenda write. The original database
@@ -23,9 +37,16 @@ class AgendaPersistenceException implements Exception {
   final String table;
   final String? constraint;
   final String technicalType;
+  final String? foreignKeyTarget;
+  final bool? outfitExists;
+  final int? selectedGarments;
+  final int? existingGarments;
+  final int? missingGarments;
 
   const AgendaPersistenceException({required this.phase, required this.reason,
-    required this.table, this.constraint, required this.technicalType});
+    required this.table, this.constraint, required this.technicalType,
+    this.foreignKeyTarget, this.outfitExists, this.selectedGarments,
+    this.existingGarments, this.missingGarments});
 
   @override
   String toString() => 'AgendaPersistenceException($reason, ${phase.name})';
@@ -385,21 +406,79 @@ class DatabaseService {
   Future<void> persistAgendaProposal(Outfit outfit, PlannedOutfit plan) async {
     final db = await database;
     var phase = AgendaDayPhase.persistOutfit;
+    _OutfitReferenceCheck? references;
     try {
       await db.transaction((txn) async {
-        await txn.insert('outfits', outfit.toMap());
+        final inserted = await txn.insert('outfits', outfit.toMap());
+        if (inserted <= 0) throw StateError('Outfit insert was not acknowledged');
         phase = AgendaDayPhase.persistOutfitItems;
-        for (final garment in outfit.allGarments) {
-          await txn.insert('outfit_items',
-            OutfitItem(outfitId: outfit.id, garmentId: garment.id).toMap(),
-            conflictAlgorithm: ConflictAlgorithm.ignore);
+        references = await _checkOutfitReferences(txn, outfit);
+        _publishOutfitReferenceCheck(references!);
+        if (!references!.outfitExists || references!.missingGarments > 0) {
+          throw AgendaPersistenceException(
+            phase: phase, reason: 'databaseForeignKeyFailure',
+            table: 'outfit_items', constraint: 'foreignKey',
+            technicalType: 'AgendaReferenceIntegrityException',
+            foreignKeyTarget: references!.outfitExists ? 'garment' : 'outfit',
+            outfitExists: references!.outfitExists,
+            selectedGarments: references!.selectedGarments,
+            existingGarments: references!.existingGarments,
+            missingGarments: references!.missingGarments);
         }
+        await _persistOutfitItems(txn, outfit);
         phase = AgendaDayPhase.persistPlannedOutfit;
         await _upsertPlannedOutfit(txn, plan);
       });
+    } on AgendaPersistenceException {
+      rethrow;
     } on DatabaseException catch (error) {
-      throw _agendaDatabaseException(error, phase);
+      throw _agendaDatabaseException(error, phase, references: references);
     }
+  }
+
+  /// Canonical outfit/item row writer. Callers provide the executor so Agenda
+  /// can keep outfit, items and plan in the same transaction.
+  static Future<void> _persistOutfitItems(
+      DatabaseExecutor db, Outfit outfit) async {
+    for (final garment in outfit.allGarments) {
+      await db.insert('outfit_items',
+        OutfitItem(outfitId: outfit.id, garmentId: garment.id).toMap(),
+        conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+  }
+
+  static Future<_OutfitReferenceCheck> _checkOutfitReferences(
+      DatabaseExecutor db, Outfit outfit) async {
+    final outfitRows = await db.query('outfits', columns: const ['id'],
+      where: 'id = ?', whereArgs: [outfit.id], limit: 1);
+    var existing = 0;
+    for (final garment in outfit.allGarments) {
+      final rows = await db.query('garments', columns: const ['id'],
+        where: 'id = ?', whereArgs: [garment.id], limit: 1);
+      if (rows.isNotEmpty) existing++;
+    }
+    return _OutfitReferenceCheck(outfitExists: outfitRows.isNotEmpty,
+      selectedGarments: outfit.allGarments.length, existingGarments: existing);
+  }
+
+  static void _publishOutfitReferenceCheck(_OutfitReferenceCheck value) {
+    DiagnosticService.instance.publish(module: DiagnosticModule.agenda,
+      level: value.outfitExists && value.missingGarments == 0
+        ? AppDiagnosticLevel.info : AppDiagnosticLevel.error,
+      state: value.outfitExists && value.missingGarments == 0
+        ? 'Vérifiée' : 'Échec',
+      summary: 'Intégrité des références de tenue Agenda',
+      source: 'DatabaseService.persistOutfitItems',
+      reason: value.foreignKeyTarget == null
+        ? null : 'databaseForeignKeyFailure',
+      details: {
+        'outfitExists': value.outfitExists,
+        'selectedGarments': value.selectedGarments,
+        'existingGarments': value.existingGarments,
+        'missingGarments': value.missingGarments,
+        if (value.foreignKeyTarget != null)
+          'foreignKeyTarget': value.foreignKeyTarget,
+      });
   }
 
   Future<void> _upsertPlannedOutfit(DatabaseExecutor db, PlannedOutfit value) async {
@@ -410,7 +489,8 @@ class DatabaseService {
   }
 
   static AgendaPersistenceException _agendaDatabaseException(
-      DatabaseException error, AgendaDayPhase phase) {
+      DatabaseException error, AgendaDayPhase phase,
+      {_OutfitReferenceCheck? references}) {
     final message = error.toString().toLowerCase();
     final table = switch (phase) {
       AgendaDayPhase.persistOutfit => 'outfits',
@@ -439,9 +519,16 @@ class DatabaseService {
       reason = 'databaseConstraintFailure';
       constraint = message.contains('not null') ? 'notNull' : 'constraint';
     }
+    final foreignKeyTarget = constraint == 'foreignKey'
+      ? references?.foreignKeyTarget : null;
     return AgendaPersistenceException(phase: phase, reason: reason,
       table: table, constraint: constraint,
-      technicalType: error.runtimeType.toString());
+      technicalType: error.runtimeType.toString(),
+      foreignKeyTarget: foreignKeyTarget,
+      outfitExists: references?.outfitExists,
+      selectedGarments: references?.selectedGarments,
+      existingGarments: references?.existingGarments,
+      missingGarments: references?.missingGarments);
   }
 
   Future<void> deletePlannedOutfit(String id) async {
@@ -842,11 +929,14 @@ class DatabaseService {
 
   Future<void> addGarmentToOutfit(String outfitId, String garmentId) async {
     final db = await database;
-    await db.insert(
-      'outfit_items',
-      OutfitItem(outfitId: outfitId, garmentId: garmentId).toMap(),
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    final outfit = await getOutfitById(outfitId);
+    final garment = await getGarmentById(garmentId);
+    if (outfit == null || garment == null) {
+      throw StateError('Cannot persist an invalid outfit reference');
+    }
+    await _persistOutfitItems(db, outfit.copyWith(garments: {
+      OutfitCategory.otherLayer: [garment],
+    }));
   }
 
   Future<void> removeGarmentFromOutfit(

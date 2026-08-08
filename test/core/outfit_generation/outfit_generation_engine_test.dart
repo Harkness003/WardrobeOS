@@ -213,6 +213,24 @@ void main() {
     expect(result.proposals.single.score, isA<double>());
   });
 
+  test('conserve les identités DB legacy jusque dans la proposition', () {
+    Garment restored(String id, String category) => Garment.fromMap({
+      'id': id, 'name': 'Legacy', 'category': category,
+      'created_at': '2025-01-01T00:00:00.000Z',
+      'updated_at': '2025-01-01T00:00:00.000Z',
+    });
+    const ids = ['legacy-top-id', 'legacy-bottom-id', 'legacy-shoes-id'];
+    final result = engine().generate(OutfitGenerationRequest(wardrobe: [
+      restored(ids[0], 'Hauts'),
+      restored(ids[1], 'Pantalons'),
+      restored(ids[2], 'Chaussures'),
+    ], proposalCount: 1));
+
+    expect(result.proposals, hasLength(1));
+    expect(result.proposals.single.outfit.allGarments.map((item) => item.id),
+      containsAll(ids));
+  });
+
   test('couvre les séparateurs legacy sans contains générique', () {
     for (final value in ['tshirt', 't-shirt', 't_shirt', 'polo_shirt']) {
       final restored = Garment.fromMap({
