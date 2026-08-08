@@ -62,6 +62,9 @@ void main() {
   });
 
   test('une météo absente ne bloque jamais la recommandation', () async {
+    final diagnostics = DiagnosticService.instance
+      ..clear()
+      ..setEnabled(true);
     final brief = await _service(
       wardrobe: [_garment('top', 'T-shirt', 'Hauts'), _garment('bottom', 'Jean', 'Pantalons')],
       weather: _Weather(() => Future.error(StateError('indisponible'))),
@@ -71,6 +74,11 @@ void main() {
     expect(brief.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
     expect(brief.state, DailyBriefState.weatherError);
     expect(brief.detail, contains('indisponible'));
+    final generations = diagnostics.filtered(module: DiagnosticModule.outfits)
+        .where((entry) => entry.source == 'DailyBriefService').toList();
+    expect(generations, hasLength(1));
+    expect(generations.single.details['phase'], 'phaseInitial');
+    diagnostics.setEnabled(false);
   });
 
   test('sans météo ni calendrier, le dressing suffit à produire Daily', () async {

@@ -1,4 +1,5 @@
 import '../../models/garment.dart';
+import '../../models/garment_normalizer.dart';
 import '../../models/outfit.dart';
 import '../../models/thermal_profile.dart';
 import '../recommendation/recommendation_context.dart';
@@ -64,10 +65,13 @@ class OutfitGenerationDiagnostic {
   final OutfitGenerationFailure? failure;
   final Duration contextLoadDuration;
   final Duration generationDuration;
+  final Map<OutfitCategory, int> recognizedByRole;
+  final int unclassifiedCount;
 
   const OutfitGenerationDiagnostic({required this.garmentCount, required this.categories,
     required this.candidateCount, required this.producedCount, required this.rejectedCount,
-    this.failure, this.contextLoadDuration = Duration.zero, required this.generationDuration});
+    this.failure, this.contextLoadDuration = Duration.zero, required this.generationDuration,
+    this.recognizedByRole = const {}, this.unclassifiedCount = 0});
 
   String? get userReason => switch (failure) {
     OutfitGenerationFailure.emptyWardrobe => 'Le dressing est vide.',
@@ -108,11 +112,19 @@ class OutfitGenerationEngine {
     final stopwatch = Stopwatch()..start();
     final wardrobe = request.wardrobe.toList(growable: false);
     final availableCategories = wardrobe.map(categoryFor).toSet();
+    final recognizedByRole = <OutfitCategory, int>{};
+    for (final garment in wardrobe) {
+      final role = categoryFor(garment);
+      recognizedByRole[role] = (recognizedByRole[role] ?? 0) + 1;
+    }
+    final unclassifiedCount = recognizedByRole[OutfitCategory.otherLayer] ?? 0;
     OutfitGenerationResult failure(OutfitGenerationFailure reason) {
       final diagnostic = OutfitGenerationDiagnostic(garmentCount: wardrobe.length,
         categories: Set.unmodifiable(availableCategories), candidateCount: 0, producedCount: 0,
         rejectedCount: 0, failure: reason, contextLoadDuration: request.contextLoadDuration,
-        generationDuration: stopwatch.elapsed);
+        generationDuration: stopwatch.elapsed,
+        recognizedByRole: Map.unmodifiable(recognizedByRole),
+        unclassifiedCount: unclassifiedCount);
       final message = diagnostic.userReason;
       return OutfitGenerationResult._(
         const [], diagnostic, message == null ? const [] : [message]);
@@ -124,7 +136,8 @@ class OutfitGenerationEngine {
       return OutfitGenerationResult._(const [],
         OutfitGenerationDiagnostic(garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
           candidateCount: 0, producedCount: 0, rejectedCount: 0,
-          contextLoadDuration: request.contextLoadDuration, generationDuration: stopwatch.elapsed));
+          contextLoadDuration: request.contextLoadDuration, generationDuration: stopwatch.elapsed,
+          recognizedByRole: Map.unmodifiable(recognizedByRole), unclassifiedCount: unclassifiedCount));
     }
 
     // Rank each category once. This bounds work to O(n log n), rather than
@@ -186,7 +199,8 @@ class OutfitGenerationEngine {
       rejectedCount: generated.length - scored.length,
       failure: scored.isEmpty ? OutfitGenerationFailure.incompatibleCombinations : null,
       contextLoadDuration: request.contextLoadDuration,
-      generationDuration: stopwatch.elapsed), List.unmodifiable(messages));
+      generationDuration: stopwatch.elapsed, recognizedByRole: Map.unmodifiable(recognizedByRole),
+      unclassifiedCount: unclassifiedCount), List.unmodifiable(messages));
   }
 
   OutfitGenerationProposal _score(Outfit outfit, OutfitGenerationRequest request) {
@@ -318,7 +332,11 @@ class OutfitGenerationEngine {
   static ThermalProfile _thermal(Garment item) => item.thermalProfile ?? _outfitFallbackThermalProfile;
 
   static OutfitCategory categoryFor(Garment garment) {
-    final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.thermalProfile?.primaryRole.name ?? garment.layerType ?? ''}'.toLowerCase();
+    final normalized = GarmentNormalizer.normalizeType(name: garment.name,
+      category: garment.category, subcategory: garment.sousCategorie,
+      preciseType: garment.typePrecis);
+    final value = '${normalized.category ?? garment.category} ${normalized.subcategory ?? ''} '
+        '${normalized.preciseType ?? ''} ${garment.thermalProfile?.primaryRole.name ?? garment.layerType ?? ''}'.toLowerCase();
     if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) { return OutfitCategory.shoes; }
     if (value.contains('pantal') || value.contains('jean') || value.contains('jupe') || value.contains('short') || value.contains('bas') || value.contains('bottom')) { return OutfitCategory.bottom; }
     if (value.contains('manteau') || value.contains('parka') || value.contains('doudoune')) { return OutfitCategory.coat; }

@@ -7,6 +7,9 @@ import 'package:path_provider/path_provider.dart';
 import 'backup_file.dart';
 import 'backup_service.dart';
 import '../../models/garment_photo.dart';
+import '../../models/garment.dart';
+import '../../models/garment_normalizer.dart';
+import '../../core/diagnostics/diagnostic_service.dart';
 
 class RestoreReport {
   final BackupManifest manifest;
@@ -99,6 +102,11 @@ class RestoreService {
     final createdFiles = <File>[];
     Directory? directory;
     try {
+      DiagnosticService.instance.publish(module: DiagnosticModule.backup,
+        level: AppDiagnosticLevel.info, state: 'Format détecté',
+        summary: 'Sauvegarde compatible détectée', source: 'RestoreService',
+        reason: 'backupFormatDetected',
+        details: {'backupSchemaVersion': backup.manifest.schemaVersion});
       for (final entry in backup.photos.entries) {
         directory ??= await imageDirectory(); await directory.create(recursive: true);
         final target = File(p.join(directory.path, '${DateTime.now().microsecondsSinceEpoch}_${p.basename(entry.key)}'));
@@ -117,9 +125,26 @@ class RestoreService {
             createdAt: photo.createdAt, semanticType: photo.semanticType);
         }).toList();
         row['photos'] = GarmentPhoto.encode(restored);
-        return row;
+        // Reconcile persisted Scanner/legacy labels at the restore boundary.
+        // The original user fields remain intact except for canonical type IDs.
+        final garment = Garment.fromMap(row);
+        final type = GarmentNormalizer.normalizeType(name: garment.name,
+          category: garment.category, subcategory: garment.sousCategorie,
+          preciseType: garment.typePrecis);
+        return garment.copyWith(category: type.category ?? garment.category,
+          sousCategorie: type.subcategory ?? garment.sousCategorie,
+          typePrecis: type.preciseType ?? garment.typePrecis).toMap();
       }).toList();
       await repository.restoreData(data);
+      DiagnosticService.instance.publish(module: DiagnosticModule.backup,
+        level: AppDiagnosticLevel.success, state: 'Restauré',
+        summary: 'Données utilisateur restaurées et normalisées',
+        source: 'RestoreService', reason: 'restoreComplete', details: {
+          'backupSchemaVersion': backup.manifest.schemaVersion,
+          'userGarmentsImported': data['garments']?.length ?? 0,
+          'migration': 'canonicalTaxonomyReconciled',
+          'referenceData': 'preserved',
+        });
       return RestoreReport(backup.manifest,
         {for (final e in data.entries) e.key: e.value.length}, const []);
     } catch (error) {

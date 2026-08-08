@@ -3,6 +3,7 @@ import '../../data/database_service.dart';
 import '../../data/image_storage_service.dart';
 import '../../models/garment.dart';
 import '../../models/wear_history.dart';
+import '../../core/diagnostics/diagnostic_service.dart';
 
 class WardrobeController extends ChangeNotifier {
   final DatabaseService _db;
@@ -153,9 +154,30 @@ class WardrobeController extends ChangeNotifier {
   }
 
   Future<void> delete(Garment garment, {bool refresh = true}) async {
+    final diagnostics = DiagnosticService.instance;
+    final correlationId = diagnostics.newCorrelationId('garment-delete');
+    diagnostics.publish(module: DiagnosticModule.database,
+      level: AppDiagnosticLevel.info, state: 'Demandé',
+      summary: 'Suppression d’un vêtement demandée', source: 'WardrobeController.delete',
+      correlationId: correlationId, reason: 'garmentDeleteRequested');
     await _db.deleteGarment(garment.id);
-    await ImageStorageService.removeAll(garment.effectivePhotos.map((photo) => photo.path));
+    try {
+      await ImageStorageService.removeAll(garment.effectivePhotos.map((photo) => photo.path));
+    } on Object catch (error) {
+      // The database is authoritative. A stale/missing local photo must not
+      // turn a successful garment deletion into an apparent UI failure.
+      diagnostics.publish(module: DiagnosticModule.database,
+        level: AppDiagnosticLevel.warning, state: 'Supprimé',
+        summary: 'Vêtement supprimé, nettoyage photo incomplet',
+        source: 'WardrobeController.delete', correlationId: correlationId,
+        reason: 'garmentDeletePhotoCleanupFailure',
+        details: {'technical': error.runtimeType.toString()});
+    }
     if (refresh) await load();
+    diagnostics.publish(module: DiagnosticModule.database,
+      level: AppDiagnosticLevel.success, state: 'Supprimé',
+      summary: 'Vêtement supprimé', source: 'WardrobeController.delete',
+      correlationId: correlationId, reason: 'garmentDeleteSucceeded');
   }
 
   void _notifyListenersIfActive() {

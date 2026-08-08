@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- User wardrobe data is restored explicitly through WardrobeOS backups. -->
+    <exclude domain="database" path="." />
+    <exclude domain="file" path="garment_images/" />
+</full-backup-content>

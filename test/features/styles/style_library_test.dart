@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/features/styles/style_library_screen.dart';
 import 'package:wardrobeos/features/styles/style_repository.dart';
 import 'package:wardrobeos/models/personal_style.dart';
+import 'package:wardrobeos/models/style_analysis.dart';
 
 class FakeStyles implements StyleRepository {
   final values = <LibraryStyle>[
@@ -24,6 +25,16 @@ void main() {
   test('traduit les identifiants internes en libellés français', () {
     expect(StyleCatalog.displayName('smart_casual'), 'Chic décontracté');
     expect(StyleCatalog.displayName('dressy'), 'Habillé');
+  });
+  test('catalogue canonique sans doublon ni définition placeholder', () {
+    expect(StyleTaxonomy.entries, hasLength(65));
+    expect(StyleTaxonomy.entries.entries.every((entry) =>
+      entry.key == entry.value.id &&
+      entry.value.name.trim().isNotEmpty &&
+      entry.value.definition.trim().isNotEmpty &&
+      entry.value.description.trim().isNotEmpty &&
+      entry.value.characteristics.isNotEmpty &&
+      entry.value.typicalPieces.isNotEmpty), isTrue);
   });
 
   testWidgets('library opens, searches and displays a definition', (tester) async {

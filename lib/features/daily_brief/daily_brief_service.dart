@@ -63,16 +63,20 @@ class DailyBriefService {
           : liveContext?.personalization ?? const PersonalizationSnapshot();
 
       var brief = _compose(garments, memory, weather: null,
+        phase: 'phaseInitial',
         correlationId: correlationId,
         contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
       yield brief;
 
       final weather = await weatherFuture;
       brief = weather.data == null
-          ? _compose(garments, memory, weather: null, weatherError: weather.error,
-              correlationId: correlationId,
-              contextLoadDuration: liveContext?.loadDuration ?? Duration.zero)
+          ? DailyBrief(generatedAt: brief.generatedAt, cards: brief.cards,
+              outfitProposals: brief.outfitProposals,
+              state: brief.state == DailyBriefState.available
+                  ? DailyBriefState.weatherError : brief.state,
+              detail: brief.detail ?? 'Météo indisponible. La tenue est générée sans météo.')
           : _compose(garments, memory, weather: weather.data,
+              phase: 'phaseWeatherEnriched',
               correlationId: correlationId,
               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
       yield brief;
@@ -131,6 +135,7 @@ class DailyBriefService {
     List<Garment> garments,
     PersonalizationSnapshot memory, {
     required WeatherData? weather,
+    required String phase,
     Object? weatherError,
     String? correlationId,
     Duration contextLoadDuration = Duration.zero,
@@ -174,10 +179,18 @@ class DailyBriefService {
       reason: generation.diagnostic.failure?.name,
       duration: generation.diagnostic.generationDuration,
       details: {
+        'phase': phase,
         'garments': generation.diagnostic.garmentCount,
         'candidates': generation.diagnostic.candidateCount,
         'proposals': generation.diagnostic.producedCount,
         'rejected': generation.diagnostic.rejectedCount,
+        'topsRecognized': generation.diagnostic.recognizedByRole[OutfitCategory.top] ?? 0,
+        'bottomsRecognized': generation.diagnostic.recognizedByRole[OutfitCategory.bottom] ?? 0,
+        'shoesRecognized': generation.diagnostic.recognizedByRole[OutfitCategory.shoes] ?? 0,
+        'outerwearRecognized':
+            (generation.diagnostic.recognizedByRole[OutfitCategory.jacket] ?? 0) +
+            (generation.diagnostic.recognizedByRole[OutfitCategory.coat] ?? 0),
+        'unclassified': generation.diagnostic.unclassifiedCount,
       },
       pipeline: [
         DiagnosticStep(

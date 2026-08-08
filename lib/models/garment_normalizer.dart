@@ -81,7 +81,14 @@ class GarmentNormalizer {
 
   static const _typeRules = <_GarmentTypeRule>[
     _GarmentTypeRule(['trench'], 'Vestes', 'Trench'),
+    _GarmentTypeRule(['manteau', 'coat', 'parka', 'doudoune'], 'Vestes', 'Manteau'),
+    _GarmentTypeRule(['veste', 'jacket', 'blazer'], 'Vestes', 'Veste'),
+    _GarmentTypeRule(['chemise', 'shirt', 'blouse'], 'Chemises', 'Chemise'),
+    _GarmentTypeRule(['t-shirt', 'tshirt', 'tee shirt', 'tee-shirt'], 'Hauts', 'T-shirt'),
     _GarmentTypeRule(['polo'], 'Hauts', 'Polo'),
+    _GarmentTypeRule(['pull', 'sweater', 'sweatshirt', 'hoodie', 'cardigan'], 'Hauts', 'Pull'),
+    _GarmentTypeRule(['pantalon', 'pants', 'trousers', 'jean', 'chino', 'jupe', 'short'], 'Bas', 'Pantalon'),
+    _GarmentTypeRule(['chaussure', 'shoe', 'sneaker', 'basket', 'botte', 'boot', 'sandale'], 'Chaussures', 'Chaussures'),
   ];
 }
 

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/weather/api/weather_api.dart';
 import 'package:wardrobeos/weather/location/location_service.dart';
 import 'package:wardrobeos/weather/services/cached_weather_service.dart';
+import 'package:wardrobeos/core/diagnostics/diagnostic_service.dart';
 
 void main() {
   late _FakeLocationService location;
@@ -54,6 +55,38 @@ void main() {
     expect(api.calls, 1);
     expect(location.calls, 1);
   });
+
+  test('distingue une panne de localisation sans appeler l API', () async {
+    final diagnostics = DiagnosticService.instance..clear()..setEnabled(true);
+    final failed = CachedWeatherService(
+      locationService: _DeniedLocationService(), weatherApi: api);
+    await expectLater(failed.getCurrentWeather(), throwsA(isA<LocationPermissionDeniedException>()));
+    expect(api.calls, 0);
+    expect(diagnostics.filtered(module: DiagnosticModule.weather).last.reason,
+      'locationPermissionDenied');
+    diagnostics.setEnabled(false);
+  });
+
+  test('distingue une panne API après résolution des coordonnées', () async {
+    final diagnostics = DiagnosticService.instance..clear()..setEnabled(true);
+    final failed = CachedWeatherService(
+      locationService: location, weatherApi: _FailingWeatherApi());
+    await expectLater(failed.getCurrentWeather(), throwsStateError);
+    final event = diagnostics.filtered(module: DiagnosticModule.weather).last;
+    expect(event.reason, 'weatherApiUnavailable');
+    expect(event.details['phase'], 'weatherApi');
+    diagnostics.setEnabled(false);
+  });
+}
+
+class _DeniedLocationService implements LocationService {
+  @override Future<LocationData> getCurrentLocation() =>
+      Future.error(const LocationPermissionDeniedException());
+}
+
+class _FailingWeatherApi implements WeatherApi {
+  @override Future<Map<String, dynamic>> fetchCurrent({required double latitude,
+    required double longitude}) => Future.error(StateError('offline'));
 }
 
 class _FakeLocationService implements LocationService {

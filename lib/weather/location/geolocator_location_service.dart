@@ -2,6 +2,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'location_service.dart';
+import '../../core/diagnostics/diagnostic_service.dart';
 
 class GeolocatorLocationService implements LocationService {
   @override
@@ -20,14 +21,23 @@ class GeolocatorLocationService implements LocationService {
       throw const LocationPermissionPermanentlyDeniedException();
     }
     final position = await Geolocator.getCurrentPosition();
-    final places = await placemarkFromCoordinates(
-      position.latitude,
-      position.longitude,
-    );
-    final city =
-        places.isEmpty
-            ? 'Position actuelle'
-            : (places.first.locality ?? 'Position actuelle');
+    // Reverse geocoding is only a label enrichment. Some Android geocoding
+    // implementations throw PlatformException even though coordinates are
+    // valid; that must not prevent Open-Meteo from receiving those coordinates.
+    var city = 'Position actuelle';
+    try {
+      final places = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+      if (places.isNotEmpty) city = places.first.locality ?? city;
+    } on Object catch (error) {
+      DiagnosticService.instance.publish(module: DiagnosticModule.weather,
+        level: AppDiagnosticLevel.warning, state: 'Coordonnées disponibles',
+        summary: 'Nom de ville indisponible', source: 'GeolocatorLocationService',
+        reason: 'reverseGeocodingUnavailable',
+        details: {'technical': error.runtimeType.toString()});
+    }
     return LocationData(
       latitude: position.latitude,
       longitude: position.longitude,

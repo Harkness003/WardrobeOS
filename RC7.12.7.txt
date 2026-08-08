@@ -1,0 +1,1295 @@
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
+index 535661af1bf203202fcf2d874fe3d56ddc7efea6..01175edd110fb3d53790444f079ddb8b0171993e 100644
+--- a/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
+@@ -1,35 +1,38 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+     <uses-permission android:name="android.permission.INTERNET" />
+     <uses-permission android:name="android.permission.CAMERA" />
+     <uses-feature android:name="android.hardware.camera" android:required="false" />
+-    <application
+-        android:label="wardrobeos"
+-        android:name="${applicationName}"
+-        android:icon="@mipmap/ic_launcher">
++    <application
++        android:label="wardrobeos"
++        android:name="${applicationName}"
++        android:allowBackup="true"
++        android:fullBackupContent="@xml/backup_rules"
++        android:dataExtractionRules="@xml/data_extraction_rules"
++        android:icon="@mipmap/ic_launcher">
+         <activity
+             android:name=".MainActivity"
+             android:exported="true"
+             android:launchMode="singleTop"
+             android:taskAffinity=""
+             android:theme="@style/LaunchTheme"
+             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+             android:hardwareAccelerated="true"
+             android:windowSoftInputMode="adjustResize">
+             <!-- Specifies an Android theme to apply to this Activity as soon as
+                  the Android process has started. This theme is visible to the user
+                  while the Flutter UI initializes. After that, this theme continues
+                  to determine the Window background behind the Flutter UI. -->
+             <meta-data
+               android:name="io.flutter.embedding.android.NormalTheme"
+               android:resource="@style/NormalTheme"
+               />
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN"/>
+                 <category android:name="android.intent.category.LAUNCHER"/>
+             </intent-filter>
+         </activity>
+         <!-- Don't delete the meta-data below.
+              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+         <meta-data
+diff --git a/android/app/src/main/res/xml/backup_rules.xml b/android/app/src/main/res/xml/backup_rules.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..6e96610ae1a8fd2aba8bfe24ada76a9e406214e0
+--- /dev/null
++++ b/android/app/src/main/res/xml/backup_rules.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<full-backup-content>
++    <!-- User wardrobe data is restored explicitly through WardrobeOS backups. -->
++    <exclude domain="database" path="." />
++    <exclude domain="file" path="garment_images/" />
++</full-backup-content>
+diff --git a/android/app/src/main/res/xml/data_extraction_rules.xml b/android/app/src/main/res/xml/data_extraction_rules.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..312e9bc5893832897bb9135f92d1a340223c5bb3
+--- /dev/null
++++ b/android/app/src/main/res/xml/data_extraction_rules.xml
+@@ -0,0 +1,12 @@
++<?xml version="1.0" encoding="utf-8"?>
++<data-extraction-rules>
++    <cloud-backup>
++        <!-- Avoid a silent partial wardrobe restore on a nominally fresh install. -->
++        <exclude domain="database" path="." />
++        <exclude domain="file" path="garment_images/" />
++    </cloud-backup>
++    <device-transfer>
++        <exclude domain="database" path="." />
++        <exclude domain="file" path="garment_images/" />
++    </device-transfer>
++</data-extraction-rules>
+diff --git a/lib/core/outfit_generation/outfit_generation_engine.dart b/lib/core/outfit_generation/outfit_generation_engine.dart
+index 99ae2becb3c69fe3808290f0858972debe6774fb..356217e47b8730c3b9d2baefef249ebda0d4837e 100644
+--- a/lib/core/outfit_generation/outfit_generation_engine.dart
++++ b/lib/core/outfit_generation/outfit_generation_engine.dart
+@@ -1,26 +1,27 @@
+ import '../../models/garment.dart';
++import '../../models/garment_normalizer.dart';
+ import '../../models/outfit.dart';
+ import '../../models/thermal_profile.dart';
+ import '../recommendation/recommendation_context.dart';
+ import '../recommendation/recommendation_engine.dart';
+ import '../../features/styles/style_repository.dart';
+ 
+ /// Immutable input snapshot for outfit generation. StyleAnalysis and thermal
+ /// profiles are deliberately read through each garment's `effective*` getters,
+ /// so callers can reuse the profiles already computed by the AI context.
+ class OutfitGenerationRequest {
+   final Iterable<Garment> wardrobe;
+   final RecommendationContext context;
+   final RecommendationPreferences preferences;
+   final Iterable<GarmentRecommendationCorrection> corrections;
+   final int proposalCount;
+   final Duration contextLoadDuration;
+ 
+   const OutfitGenerationRequest({
+     required this.wardrobe,
+     this.context = const RecommendationContext(),
+     this.preferences = const RecommendationPreferences(),
+     this.corrections = const [],
+     this.proposalCount = 3,
+     this.contextLoadDuration = Duration.zero,
+   }) : assert(proposalCount >= 0);
+@@ -42,111 +43,123 @@ class OutfitGenerationProposal {
+   List<Garment> get garments => outfit.allGarments;
+   List<String> get garmentIds =>
+       List.unmodifiable(garments.map((garment) => garment.id));
+ }
+ 
+ class OutfitGenerationResult {
+   static const incompleteOutfitMessage = 'Il manque des éléments pour constituer une tenue complète.';
+ 
+   final List<OutfitGenerationProposal> proposals;
+   final List<String> messages;
+   final OutfitGenerationDiagnostic diagnostic;
+   const OutfitGenerationResult._(this.proposals, this.diagnostic, [this.messages = const []]);
+ }
+ 
+ enum OutfitGenerationFailure { emptyWardrobe, missingTop, missingBottom, incompatibleCombinations }
+ 
+ class OutfitGenerationDiagnostic {
+   final int garmentCount;
+   final Set<OutfitCategory> categories;
+   final int candidateCount;
+   final int producedCount;
+   final int rejectedCount;
+   final OutfitGenerationFailure? failure;
+   final Duration contextLoadDuration;
+   final Duration generationDuration;
++  final Map<OutfitCategory, int> recognizedByRole;
++  final int unclassifiedCount;
+ 
+   const OutfitGenerationDiagnostic({required this.garmentCount, required this.categories,
+     required this.candidateCount, required this.producedCount, required this.rejectedCount,
+-    this.failure, this.contextLoadDuration = Duration.zero, required this.generationDuration});
++    this.failure, this.contextLoadDuration = Duration.zero, required this.generationDuration,
++    this.recognizedByRole = const {}, this.unclassifiedCount = 0});
+ 
+   String? get userReason => switch (failure) {
+     OutfitGenerationFailure.emptyWardrobe => 'Le dressing est vide.',
+     OutfitGenerationFailure.missingTop => 'Aucun haut compatible n’est enregistré.',
+     OutfitGenerationFailure.missingBottom => 'Aucun bas compatible n’est enregistré.',
+     OutfitGenerationFailure.incompatibleCombinations => 'Toutes les combinaisons disponibles sont incompatibles.',
+     null => null,
+   };
+ }
+ 
+ enum OutfitCompleteness { incomplete, acceptable, recommended }
+ 
+ enum ThermalVerdict { ideal, tooWarm, tooLight, rainInsufficient, missingOuterLayer, excessiveInsulation }
+ 
+ class OutfitThermalAssessment {
+   final double score;
+   final ThermalVerdict verdict;
+   final double accumulatedInsulation;
+   final double accumulatedBreathability;
+   final List<String> reasons;
+   const OutfitThermalAssessment({required this.score, required this.verdict,
+     required this.accumulatedInsulation, required this.accumulatedBreathability,
+     required this.reasons});
+ }
+ 
+ /// Central, UI-independent two-stage engine: bounded candidate generation,
+ /// followed by deterministic scoring and explanation.
+ class OutfitGenerationEngine {
+   final RecommendationEngine recommendationEngine;
+   final DateTime Function() clock;
+ 
+   const OutfitGenerationEngine({
+     this.recommendationEngine = const RecommendationEngine(),
+     this.clock = DateTime.now,
+   });
+ 
+   OutfitGenerationResult generate(OutfitGenerationRequest request) {
+     final stopwatch = Stopwatch()..start();
+     final wardrobe = request.wardrobe.toList(growable: false);
+     final availableCategories = wardrobe.map(categoryFor).toSet();
++    final recognizedByRole = <OutfitCategory, int>{};
++    for (final garment in wardrobe) {
++      final role = categoryFor(garment);
++      recognizedByRole[role] = (recognizedByRole[role] ?? 0) + 1;
++    }
++    final unclassifiedCount = recognizedByRole[OutfitCategory.otherLayer] ?? 0;
+     OutfitGenerationResult failure(OutfitGenerationFailure reason) {
+       final diagnostic = OutfitGenerationDiagnostic(garmentCount: wardrobe.length,
+         categories: Set.unmodifiable(availableCategories), candidateCount: 0, producedCount: 0,
+         rejectedCount: 0, failure: reason, contextLoadDuration: request.contextLoadDuration,
+-        generationDuration: stopwatch.elapsed);
++        generationDuration: stopwatch.elapsed,
++        recognizedByRole: Map.unmodifiable(recognizedByRole),
++        unclassifiedCount: unclassifiedCount);
+       final message = diagnostic.userReason;
+       return OutfitGenerationResult._(
+         const [], diagnostic, message == null ? const [] : [message]);
+     }
+     if (wardrobe.isEmpty) { return failure(OutfitGenerationFailure.emptyWardrobe); }
+     if (!availableCategories.contains(OutfitCategory.top)) { return failure(OutfitGenerationFailure.missingTop); }
+     if (!availableCategories.contains(OutfitCategory.bottom)) { return failure(OutfitGenerationFailure.missingBottom); }
+     if (request.proposalCount == 0) {
+       return OutfitGenerationResult._(const [],
+         OutfitGenerationDiagnostic(garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
+           candidateCount: 0, producedCount: 0, rejectedCount: 0,
+-          contextLoadDuration: request.contextLoadDuration, generationDuration: stopwatch.elapsed));
++          contextLoadDuration: request.contextLoadDuration, generationDuration: stopwatch.elapsed,
++          recognizedByRole: Map.unmodifiable(recognizedByRole), unclassifiedCount: unclassifiedCount));
+     }
+ 
+     // Rank each category once. This bounds work to O(n log n), rather than
+     // enumerating the Cartesian product (which does not scale to large closets).
+     final pools = <OutfitCategory, List<Garment>>{};
+     for (final category in OutfitCategory.values) {
+       final items = wardrobe.where((item) => categoryFor(item) == category);
+       final ranked = recommendationEngine.recommend(
+         wardrobe: items,
+         context: request.context,
+         preferences: request.preferences,
+         corrections: request.corrections,
+         alternativeCount: request.proposalCount + 2,
+       );
+       if (ranked.choices.isNotEmpty) {
+         pools[category] = ranked.choices.map((item) => item.garment).toList(growable: false);
+       }
+     }
+ 
+     final generated = <Outfit>[];
+     final signatures = <String>{};
+     // Rotating offsets create alternatives without allowing one category with
+     // many similar garments to monopolise all proposals.
+     for (var offset = 0; offset < request.proposalCount * 3 && generated.length < request.proposalCount; offset++) {
+       final selected = <OutfitCategory, List<Garment>>{};
+@@ -164,51 +177,52 @@ class OutfitGenerationEngine {
+         createdAt: now,
+         updatedAt: now,
+         garments: _freeze(selected),
+       ));
+     }
+ 
+     final messages = <String>[];
+     final validGenerated = generated.where((outfit) {
+       final valid = validateOutfit(outfit) != OutfitCompleteness.incomplete;
+       if (!valid && !messages.contains(OutfitGenerationResult.incompleteOutfitMessage)) {
+         messages.add(OutfitGenerationResult.incompleteOutfitMessage);
+       }
+       return valid;
+     }).toList(growable: false);
+     final scored = validGenerated.map((outfit) => _score(outfit, request)).toList()
+       ..sort((a, b) {
+         final score = b.score.compareTo(a.score);
+         return score != 0 ? score : _signature(a.outfit).compareTo(_signature(b.outfit));
+       });
+     return OutfitGenerationResult._(List.unmodifiable(scored), OutfitGenerationDiagnostic(
+       garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
+       candidateCount: generated.length, producedCount: scored.length,
+       rejectedCount: generated.length - scored.length,
+       failure: scored.isEmpty ? OutfitGenerationFailure.incompatibleCombinations : null,
+       contextLoadDuration: request.contextLoadDuration,
+-      generationDuration: stopwatch.elapsed), List.unmodifiable(messages));
++      generationDuration: stopwatch.elapsed, recognizedByRole: Map.unmodifiable(recognizedByRole),
++      unclassifiedCount: unclassifiedCount), List.unmodifiable(messages));
+   }
+ 
+   OutfitGenerationProposal _score(Outfit outfit, OutfitGenerationRequest request) {
+     final items = outfit.allGarments;
+     final details = <String, List<double>>{};
+     for (var index = 0; index < items.length; index++) {
+       final evaluated = recommendationEngine.recommend(
+         wardrobe: [items[index]],
+         anchor: index == 0 ? null : items.first,
+         context: request.context,
+         preferences: request.preferences,
+         corrections: request.corrections,
+         alternativeCount: 0,
+       ).bestChoice;
+       for (final detail in evaluated?.details ?? const []) {
+         details.putIfAbsent(detail.criterion, () => []).add(detail.score);
+       }
+     }
+     double average(String key, [double fallback = .7]) {
+       final values = details[key];
+       return values == null || values.isEmpty ? fallback : values.reduce((a, b) => a + b) / values.length;
+     }
+     final style = (average('style') + average('couleurs')) / 2;
+     final thermalAssessment = evaluateThermal(items, request.context);
+     final thermal = thermalAssessment?.score ?? average('température');
+@@ -296,51 +310,55 @@ class OutfitGenerationEngine {
+       verdict = ThermalVerdict.missingOuterLayer; score = score.clamp(0, .5).toDouble();
+       reasons.add('Cette tenue manque d’une couche extérieure contre le vent.');
+     }
+     if ((context.weather?.humidity ?? 0) >= 75 && apparent >= 20 && breathability < .65) {
+       score = (score - .2).clamp(0, 1).toDouble(); reasons.add('La respirabilité cumulée est faible pour cette forte humidité.');
+     }
+     if (verdict == ThermalVerdict.tooWarm) { reasons.add('Cette tenue est trop chaude pour la température ressentie.'); }
+     if (verdict == ThermalVerdict.excessiveInsulation) { reasons.add('L’isolation cumulée est excessive.'); }
+     if (verdict == ThermalVerdict.tooLight) { reasons.add('Cette tenue est trop légère : une couche isolante est nécessaire.'); }
+     if (verdict == ThermalVerdict.ideal && reasons.isEmpty) { reasons.add('L’isolation et la respirabilité cumulées sont adaptées.'); }
+     return OutfitThermalAssessment(score: score, verdict: verdict,
+       accumulatedInsulation: insulation, accumulatedBreathability: breathability,
+       reasons: List.unmodifiable(reasons));
+   }
+ 
+   static OutfitCompleteness validateOutfit(Outfit outfit) {
+     final count = outfit.allGarments.length;
+     if (count <= 1) { return OutfitCompleteness.incomplete; }
+     if (count == 2) { return OutfitCompleteness.acceptable; }
+     return OutfitCompleteness.recommended;
+   }
+ 
+   static ThermalProfile _thermal(Garment item) => item.thermalProfile ?? _outfitFallbackThermalProfile;
+ 
+   static OutfitCategory categoryFor(Garment garment) {
+-    final value = '${garment.category} ${garment.sousCategorie ?? ''} ${garment.thermalProfile?.primaryRole.name ?? garment.layerType ?? ''}'.toLowerCase();
++    final normalized = GarmentNormalizer.normalizeType(name: garment.name,
++      category: garment.category, subcategory: garment.sousCategorie,
++      preciseType: garment.typePrecis);
++    final value = '${normalized.category ?? garment.category} ${normalized.subcategory ?? ''} '
++        '${normalized.preciseType ?? ''} ${garment.thermalProfile?.primaryRole.name ?? garment.layerType ?? ''}'.toLowerCase();
+     if (value.contains('chauss') || value.contains('basket') || value.contains('botte')) { return OutfitCategory.shoes; }
+     if (value.contains('pantal') || value.contains('jean') || value.contains('jupe') || value.contains('short') || value.contains('bas') || value.contains('bottom')) { return OutfitCategory.bottom; }
+     if (value.contains('manteau') || value.contains('parka') || value.contains('doudoune')) { return OutfitCategory.coat; }
+     if (value.contains('veste') || value.contains('blazer') || value.contains('trench') || value.contains('outer') || value.contains('outerwear')) { return OutfitCategory.jacket; }
+     if (value.contains('sac')) { return OutfitCategory.bag; }
+     if (value.contains('bijou') || value.contains('collier') || value.contains('bracelet')) { return OutfitCategory.jewelry; }
+     if (value.contains('access')) { return OutfitCategory.accessory; }
+     if (value.contains('haut') || value.contains('top') || value.contains('chemise') || value.contains('pull') || value.contains('polo') || value.contains('t-shirt') || value.contains('tshirt')) { return OutfitCategory.top; }
+     return OutfitCategory.otherLayer;
+   }
+ 
+   static String _signature(Outfit value) {
+     final ids = value.allGarments.map((item) => item.id).toList()..sort();
+     return ids.join('|');
+   }
+   static Map<OutfitCategory, List<Garment>> _freeze(Map<OutfitCategory, List<Garment>> source) =>
+       Map.unmodifiable(source.map((key, value) => MapEntry(key, List.unmodifiable(value))));
+ }
+ 
+ final _outfitFallbackThermalProfile = ThermalProfile(
+   insulation: InsulationLevel.low,
+   thickness: ThicknessLevel.medium,
+   breathability: BreathabilityLevel.medium,
+   windProtection: WeatherProtection.none,
+   rainProtection: WeatherProtection.none,
+diff --git a/lib/features/backup/restore_service.dart b/lib/features/backup/restore_service.dart
+index 6dff13d9124abc604bd68da7088617fa6ef06048..87e04009f64103b8e679cf3b8f32d2341585a18c 100644
+--- a/lib/features/backup/restore_service.dart
++++ b/lib/features/backup/restore_service.dart
+@@ -1,34 +1,37 @@
+ import 'dart:convert';
+ import 'dart:io';
+ import 'package:archive/archive.dart';
+ import 'package:crypto/crypto.dart';
+ import 'package:path/path.dart' as p;
+ import 'package:path_provider/path_provider.dart';
+ import 'backup_file.dart';
+ import 'backup_service.dart';
+ import '../../models/garment_photo.dart';
++import '../../models/garment.dart';
++import '../../models/garment_normalizer.dart';
++import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ class RestoreReport {
+   final BackupManifest manifest;
+   final Map<String, int> restored;
+   final List<String> warnings;
+   const RestoreReport(this.manifest, this.restored, this.warnings);
+ }
+ 
+ class RestoreService {
+   static const sections = ['garments','outfits','outfitItems','wishlist','wearHistory',
+     'userMemories','userMemoryRevisions','personalGoals','styleProfiles','plannedOutfits'];
+   final BackupRepository repository;
+   final Future<Directory> Function() imageDirectory;
+   RestoreService({required this.repository, Future<Directory> Function()? imageDirectory})
+       : imageDirectory = imageDirectory ?? _defaultImageDirectory;
+   static Future<Directory> _defaultImageDirectory() async => Directory(
+     p.join((await getApplicationDocumentsDirectory()).path, 'garment_images'));
+ 
+   Future<BackupArchive> inspectFile(String path) async => inspect(await File(path).readAsBytes());
+   BackupArchive inspect(List<int> bytes) {
+     final Archive zip;
+     try { zip = ZipDecoder().decodeBytes(bytes, verify: true); }
+     catch (_) { throw const BackupFormatException('Archive ZIP corrompue ou illisible.'); }
+     final files = {for (final file in zip.files.where((f) => f.isFile)) file.name: file};
+     final manifestFile = files['manifest.json'];
+@@ -77,60 +80,82 @@ class RestoreService {
+         }
+         if (!referencedPhotos.add(photo.path)) {
+           throw BackupFormatException('Référence de photo dupliquée : ${photo.path}.');
+         }
+       }
+     }
+     if (photos.length != manifest.photoCount || photos.keys.toSet().difference(referencedPhotos).isNotEmpty) {
+       throw const BackupFormatException('Le nombre de photos ne correspond pas au manifeste.');
+     }
+     if (data['garments']!.length != manifest.garmentCount) {
+       throw const BackupFormatException('Le nombre de vêtements ne correspond pas au manifeste.');
+     }
+     return BackupArchive(manifest: manifest, sections: data, photos: photos);
+   }
+ 
+   Future<RestoreReport> restoreFile(String path) async => restore(await inspectFile(path));
+   Future<RestoreReport> restore(BackupArchive backup) async {
+     // Re-validate archives constructed in memory as strictly as ZIP imports.
+     if (backup.manifest.schemaVersion != BackupManifest.currentSchemaVersion) {
+       throw const BackupFormatException('Version de sauvegarde incompatible.');
+     }
+     final imagePaths = <String, String>{};
+     final createdFiles = <File>[];
+     Directory? directory;
+     try {
++      DiagnosticService.instance.publish(module: DiagnosticModule.backup,
++        level: AppDiagnosticLevel.info, state: 'Format détecté',
++        summary: 'Sauvegarde compatible détectée', source: 'RestoreService',
++        reason: 'backupFormatDetected',
++        details: {'backupSchemaVersion': backup.manifest.schemaVersion});
+       for (final entry in backup.photos.entries) {
+         directory ??= await imageDirectory(); await directory.create(recursive: true);
+         final target = File(p.join(directory.path, '${DateTime.now().microsecondsSinceEpoch}_${p.basename(entry.key)}'));
+         await target.writeAsBytes(entry.value, flush: true);
+         createdFiles.add(target); imagePaths[entry.key] = target.path;
+       }
+       final data = Map<String, List<Map<String, Object?>>>.from(backup.sections);
+       data['garments'] = (data['garments'] ?? const []).map((source) {
+         final row = Map<String, Object?>.from(source);
+         final restored = GarmentPhoto.decodeStrict(row['photos']).map((photo) {
+           final localPath = imagePaths[photo.path];
+           if (localPath == null) {
+             throw BackupFormatException('Photo manquante pour le vêtement ${row['id']}.');
+           }
+           return GarmentPhoto(id: photo.id, path: localPath, type: photo.type,
+             createdAt: photo.createdAt, semanticType: photo.semanticType);
+         }).toList();
+         row['photos'] = GarmentPhoto.encode(restored);
+-        return row;
++        // Reconcile persisted Scanner/legacy labels at the restore boundary.
++        // The original user fields remain intact except for canonical type IDs.
++        final garment = Garment.fromMap(row);
++        final type = GarmentNormalizer.normalizeType(name: garment.name,
++          category: garment.category, subcategory: garment.sousCategorie,
++          preciseType: garment.typePrecis);
++        return garment.copyWith(category: type.category ?? garment.category,
++          sousCategorie: type.subcategory ?? garment.sousCategorie,
++          typePrecis: type.preciseType ?? garment.typePrecis).toMap();
+       }).toList();
+       await repository.restoreData(data);
++      DiagnosticService.instance.publish(module: DiagnosticModule.backup,
++        level: AppDiagnosticLevel.success, state: 'Restauré',
++        summary: 'Données utilisateur restaurées et normalisées',
++        source: 'RestoreService', reason: 'restoreComplete', details: {
++          'backupSchemaVersion': backup.manifest.schemaVersion,
++          'userGarmentsImported': data['garments']?.length ?? 0,
++          'migration': 'canonicalTaxonomyReconciled',
++          'referenceData': 'preserved',
++        });
+       return RestoreReport(backup.manifest,
+         {for (final e in data.entries) e.key: e.value.length}, const []);
+     } catch (error) {
+       for (final file in createdFiles) {
+         try {
+           if (await file.exists()) await file.delete();
+         } on FileSystemException {
+           // Best-effort cleanup; the database transaction was not partially restored.
+         }
+       }
+       rethrow;
+     }
+   }
+ }
+diff --git a/lib/features/daily_brief/daily_brief_service.dart b/lib/features/daily_brief/daily_brief_service.dart
+index 58719147bf1485371a5b1656d8b2bd63f89ca620..f8bc5d9f7471067ea1a40688bfd6d1a52ea11c78 100644
+--- a/lib/features/daily_brief/daily_brief_service.dart
++++ b/lib/features/daily_brief/daily_brief_service.dart
+@@ -41,60 +41,64 @@ class DailyBriefService {
+        _clock = clock ?? DateTime.now;
+ 
+   /// Emits wardrobe/outfit content first, then weather-enriched content. A
+   /// weather failure is an explicit state and never prevents a wardrobe result.
+   Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
+     final stopwatch = Stopwatch()..start();
+     final diagnostics = DiagnosticService.instance;
+     final correlationId = diagnostics.newCorrelationId('daily');
+     diagnostics.publish(module: DiagnosticModule.daily, level: AppDiagnosticLevel.info,
+       state: 'Démarré', summary: 'Préparation du Daily demandée', source: 'DailyBriefService',
+       correlationId: correlationId, pipeline: const [DiagnosticStep('dailyStarted', level: AppDiagnosticLevel.info)]);
+     final weatherFuture = _optionalWeather();
+     try {
+       final liveContext = await aiContextService?.build(correlationId: correlationId);
+       final garments = liveContext?.garments ??
+           List<Garment>.unmodifiable(wardrobe);
+       // WardrobeAiContextService already treats personalization as optional.
+       // Do not retry the same failed optional read here: that used to turn a
+       // preferences failure into a fatal Daily failure after the dressing had
+       // successfully loaded.
+       final memory = aiContextService == null
+           ? await _optionalMemory(correlationId)
+           : liveContext?.personalization ?? const PersonalizationSnapshot();
+ 
+       var brief = _compose(garments, memory, weather: null,
++        phase: 'phaseInitial',
+         correlationId: correlationId,
+         contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
+       yield brief;
+ 
+       final weather = await weatherFuture;
+       brief = weather.data == null
+-          ? _compose(garments, memory, weather: null, weatherError: weather.error,
+-              correlationId: correlationId,
+-              contextLoadDuration: liveContext?.loadDuration ?? Duration.zero)
++          ? DailyBrief(generatedAt: brief.generatedAt, cards: brief.cards,
++              outfitProposals: brief.outfitProposals,
++              state: brief.state == DailyBriefState.available
++                  ? DailyBriefState.weatherError : brief.state,
++              detail: brief.detail ?? 'Météo indisponible. La tenue est générée sans météo.')
+           : _compose(garments, memory, weather: weather.data,
++              phase: 'phaseWeatherEnriched',
+               correlationId: correlationId,
+               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
+       yield brief;
+       diagnostics.publish(
+         module: DiagnosticModule.weather,
+         level: weather.data == null
+             ? AppDiagnosticLevel.warning
+             : AppDiagnosticLevel.success,
+         state: weather.data == null ? 'Indisponible' : 'Prêt',
+         summary: weather.data == null
+             ? 'Daily continue sans météo'
+             : 'Contexte météo ajouté au Daily',
+         source: 'DailyBriefService',
+         correlationId: correlationId,
+         reason: weather.data == null ? 'optionalWeatherUnavailable' : null,
+         details: weather.data == null
+             ? {'technical': weather.error.runtimeType.toString()}
+             : const {},
+       );
+       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
+         level: brief.state == DailyBriefState.available ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
+         state: brief.state.name, summary: '${brief.outfitProposals.length} proposition(s)',
+         source: 'DailyBriefService', duration: stopwatch.elapsed, reason: brief.detail,
+         correlationId: correlationId,
+         details: {'vêtements': garments.length, 'cartes': brief.cards.length},
+@@ -109,97 +113,106 @@ class DailyBriefService {
+       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
+         level: AppDiagnosticLevel.error, state: 'Interrompu', summary: 'Daily non généré',
+         source: 'DailyBriefService', duration: stopwatch.elapsed,
+         correlationId: correlationId, reason: 'wardrobeContextFailure',
+         details: {'technical': error.runtimeType.toString()},
+         pipeline: [DiagnosticStep('wardrobeContext', level: AppDiagnosticLevel.error,
+           duration: stopwatch.elapsed, detail: error.runtimeType.toString())]);
+       // Stream errors are converted into an explicit UI state by the screen.
+       rethrow;
+     }
+   }
+ 
+   /// Compatibility API for non-progressive consumers.
+   Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
+     DailyBrief? latest;
+     await for (final brief in watch(wardrobe)) {
+       latest = brief;
+     }
+     return latest ?? DailyBrief(generatedAt: _clock(), cards: const [], outfitProposals: const []);
+   }
+ 
+   DailyBrief _compose(
+     List<Garment> garments,
+     PersonalizationSnapshot memory, {
+     required WeatherData? weather,
++    required String phase,
+     Object? weatherError,
+     String? correlationId,
+     Duration contextLoadDuration = Duration.zero,
+   }) {
+     final preferences = _preferences(memory);
+     final report = intelligenceEngine.analyze(garments);
+     final generation = outfitEngine.generate(OutfitGenerationRequest(
+       wardrobe: garments,
+       proposalCount: 3,
+       preferences: preferences,
+       contextLoadDuration: contextLoadDuration,
+       context: RecommendationContext(
+         desiredStyle: preferences.preferredStyles.firstOrNull,
+         weather: weather == null
+             ? null
+             : RecommendationWeather(
+                 temperature: weather.temperature,
+                 isRaining: _isRaining(weather),
+                 condition: weather.description,
+                 windSpeed: weather.windSpeed,
+                 humidity: weather.humidity,
+               ),
+         metadata: {
+           'momentOfDay': _clock().hour >= 18 ? 'evening' : 'day',
+           'activityLevel': 0,
+         },
+       ),
+     ));
+     final proposals = generation.proposals;
+     DiagnosticService.instance.publish(
+       module: DiagnosticModule.outfits,
+       level: proposals.isEmpty
+           ? AppDiagnosticLevel.warning
+           : AppDiagnosticLevel.success,
+       state: proposals.isEmpty ? 'Impossible' : 'Générée',
+       summary: proposals.isEmpty
+           ? generation.diagnostic.userReason ?? 'Aucune combinaison valide'
+           : 'Tenue Daily générée par le moteur partagé',
+       source: 'DailyBriefService',
+       correlationId: correlationId,
+       reason: generation.diagnostic.failure?.name,
+       duration: generation.diagnostic.generationDuration,
+       details: {
++        'phase': phase,
+         'garments': generation.diagnostic.garmentCount,
+         'candidates': generation.diagnostic.candidateCount,
+         'proposals': generation.diagnostic.producedCount,
+         'rejected': generation.diagnostic.rejectedCount,
++        'topsRecognized': generation.diagnostic.recognizedByRole[OutfitCategory.top] ?? 0,
++        'bottomsRecognized': generation.diagnostic.recognizedByRole[OutfitCategory.bottom] ?? 0,
++        'shoesRecognized': generation.diagnostic.recognizedByRole[OutfitCategory.shoes] ?? 0,
++        'outerwearRecognized':
++            (generation.diagnostic.recognizedByRole[OutfitCategory.jacket] ?? 0) +
++            (generation.diagnostic.recognizedByRole[OutfitCategory.coat] ?? 0),
++        'unclassified': generation.diagnostic.unclassifiedCount,
+       },
+       pipeline: [
+         DiagnosticStep(
+           'outfitGeneration',
+           level: proposals.isEmpty
+               ? AppDiagnosticLevel.warning
+               : AppDiagnosticLevel.success,
+           duration: generation.diagnostic.generationDuration,
+         ),
+       ],
+     );
+ 
+     final cards = <DailyBriefCard<Object>>[];
+     if (proposals.isNotEmpty) {
+       cards.add(DailyBriefCard(type: DailyBriefCardType.outfit, priority: 0, data: proposals.first));
+     }
+     if (weather != null) {
+       cards.add(DailyBriefCard(
+         type: DailyBriefCardType.weather,
+         priority: 1,
+         data: DailyWeatherBrief(weather: weather, impact: _weatherImpact(weather), isRaining: _isRaining(weather)),
+       ));
+     }
+     if (report.insights.isNotEmpty) {
+       final now = _clock();
+diff --git a/lib/features/wardrobe/wardrobe_controller.dart b/lib/features/wardrobe/wardrobe_controller.dart
+index c03947bdc08f72f448f8e716eb1d3cf76923a5d3..854c30b64b0bef76d196b1e0c603234a8bf60750 100644
+--- a/lib/features/wardrobe/wardrobe_controller.dart
++++ b/lib/features/wardrobe/wardrobe_controller.dart
+@@ -1,30 +1,31 @@
+ import 'package:flutter/foundation.dart';
+ import '../../data/database_service.dart';
+ import '../../data/image_storage_service.dart';
+ import '../../models/garment.dart';
+ import '../../models/wear_history.dart';
++import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ class WardrobeController extends ChangeNotifier {
+   final DatabaseService _db;
+   WardrobeController({DatabaseService? database})
+     : _db = database ?? DatabaseService.instance;
+ 
+   List<Garment> garments = [];
+   bool loading = true;
+   Object? error;
+   String search = '';
+   String category = 'Tout';
+   bool favoritesOnly = false;
+   String season = '';
+   String brand = '';
+   String color = '';
+   String material = '';
+   String style = '';
+   String occasion = '';
+   bool _disposed = false;
+ 
+   int get advancedFilterCount =>
+       [
+         season,
+         brand,
+         color,
+@@ -131,40 +132,61 @@ class WardrobeController extends ChangeNotifier {
+     return _db.getFirstWear(garmentId);
+   }
+ 
+   Future<WearHistory> recordWear(Garment garment, {DateTime? wornAt}) async {
+     final wear = await _db.recordWear(garment.id, wornAt: wornAt);
+     await load();
+     return wear;
+   }
+ 
+   Future<bool> removeLastWear(Garment garment) async {
+     final removed = await _db.removeLastWear(garment.id);
+     if (removed) await load();
+     return removed;
+   }
+ 
+   Future<bool> deleteWear(Garment garment, WearHistory wear) async {
+     final wearId = wear.id;
+     if (wearId == null) return false;
+ 
+     final removed = await _db.deleteWear(garment.id, wearId);
+     if (removed) await load();
+     return removed;
+   }
+ 
+   Future<void> delete(Garment garment, {bool refresh = true}) async {
++    final diagnostics = DiagnosticService.instance;
++    final correlationId = diagnostics.newCorrelationId('garment-delete');
++    diagnostics.publish(module: DiagnosticModule.database,
++      level: AppDiagnosticLevel.info, state: 'Demandé',
++      summary: 'Suppression d’un vêtement demandée', source: 'WardrobeController.delete',
++      correlationId: correlationId, reason: 'garmentDeleteRequested');
+     await _db.deleteGarment(garment.id);
+-    await ImageStorageService.removeAll(garment.effectivePhotos.map((photo) => photo.path));
++    try {
++      await ImageStorageService.removeAll(garment.effectivePhotos.map((photo) => photo.path));
++    } on Object catch (error) {
++      // The database is authoritative. A stale/missing local photo must not
++      // turn a successful garment deletion into an apparent UI failure.
++      diagnostics.publish(module: DiagnosticModule.database,
++        level: AppDiagnosticLevel.warning, state: 'Supprimé',
++        summary: 'Vêtement supprimé, nettoyage photo incomplet',
++        source: 'WardrobeController.delete', correlationId: correlationId,
++        reason: 'garmentDeletePhotoCleanupFailure',
++        details: {'technical': error.runtimeType.toString()});
++    }
+     if (refresh) await load();
++    diagnostics.publish(module: DiagnosticModule.database,
++      level: AppDiagnosticLevel.success, state: 'Supprimé',
++      summary: 'Vêtement supprimé', source: 'WardrobeController.delete',
++      correlationId: correlationId, reason: 'garmentDeleteSucceeded');
+   }
+ 
+   void _notifyListenersIfActive() {
+     if (!_disposed) notifyListeners();
+   }
+ 
+   @override
+   void dispose() {
+     _disposed = true;
+     super.dispose();
+   }
+ }
+diff --git a/lib/models/garment_normalizer.dart b/lib/models/garment_normalizer.dart
+index a51bb56ab9e9354f3613aaec5aef239b0bbf620a..77e6cf8c1f8a223228cc6d08c175229556cc9054 100644
+--- a/lib/models/garment_normalizer.dart
++++ b/lib/models/garment_normalizer.dart
+@@ -59,43 +59,50 @@ class GarmentNormalizer {
+ 
+   /// Reconciles all type signals without restricting AI values to a catalogue.
+   /// An explicit subcategory always wins over inferred text.
+   static GarmentTypeNormalization normalizeType({String? name, String? category,
+     String? subcategory, String? preciseType}) {
+     final explicit = value(subcategory) ?? value(preciseType);
+     final evidence = [explicit, preciseType, name, category]
+         .whereType<String>().join(' ').toLowerCase();
+     String? inferredSubcategory, inferredCategory;
+     for (final rule in _typeRules) {
+       if (rule.tokens.any(evidence.contains)) {
+         inferredSubcategory = rule.subcategory;
+         inferredCategory = rule.category;
+         break;
+       }
+     }
+     return GarmentTypeNormalization(
+       category: inferredCategory ?? value(category),
+       subcategory: explicit ?? inferredSubcategory,
+       preciseType: value(preciseType) ?? explicit ?? inferredSubcategory,
+     );
+   }
+ 
+   static const _typeRules = <_GarmentTypeRule>[
+     _GarmentTypeRule(['trench'], 'Vestes', 'Trench'),
++    _GarmentTypeRule(['manteau', 'coat', 'parka', 'doudoune'], 'Vestes', 'Manteau'),
++    _GarmentTypeRule(['veste', 'jacket', 'blazer'], 'Vestes', 'Veste'),
++    _GarmentTypeRule(['chemise', 'shirt', 'blouse'], 'Chemises', 'Chemise'),
++    _GarmentTypeRule(['t-shirt', 'tshirt', 'tee shirt', 'tee-shirt'], 'Hauts', 'T-shirt'),
+     _GarmentTypeRule(['polo'], 'Hauts', 'Polo'),
++    _GarmentTypeRule(['pull', 'sweater', 'sweatshirt', 'hoodie', 'cardigan'], 'Hauts', 'Pull'),
++    _GarmentTypeRule(['pantalon', 'pants', 'trousers', 'jean', 'chino', 'jupe', 'short'], 'Bas', 'Pantalon'),
++    _GarmentTypeRule(['chaussure', 'shoe', 'sneaker', 'basket', 'botte', 'boot', 'sandale'], 'Chaussures', 'Chaussures'),
+   ];
+ }
+ 
+ extension on String {
+   String? get nullIfEmpty => isEmpty ? null : this;
+ }
+ 
+ class GarmentTypeNormalization {
+   final String? category, subcategory, preciseType;
+   const GarmentTypeNormalization({this.category, this.subcategory, this.preciseType});
+ }
+ 
+ class _GarmentTypeRule {
+   final List<String> tokens;
+   final String category, subcategory;
+   const _GarmentTypeRule(this.tokens, this.category, this.subcategory);
+ }
+diff --git a/lib/weather/location/geolocator_location_service.dart b/lib/weather/location/geolocator_location_service.dart
+index 91eed6614e9905178c33cc36ec48af7df7f2a1ad..d2fc5de43daf12fa08f9cbe850708526ad6596b9 100644
+--- a/lib/weather/location/geolocator_location_service.dart
++++ b/lib/weather/location/geolocator_location_service.dart
+@@ -1,37 +1,47 @@
+ import 'package:geocoding/geocoding.dart';
+ import 'package:geolocator/geolocator.dart';
+ 
+ import 'location_service.dart';
++import '../../core/diagnostics/diagnostic_service.dart';
+ 
+ class GeolocatorLocationService implements LocationService {
+   @override
+   Future<LocationData> getCurrentLocation() async {
+     if (!await Geolocator.isLocationServiceEnabled()) {
+       throw const LocationServicesDisabledException();
+     }
+     var permission = await Geolocator.checkPermission();
+     if (permission == LocationPermission.denied) {
+       permission = await Geolocator.requestPermission();
+     }
+     if (permission == LocationPermission.denied) {
+       throw const LocationPermissionDeniedException();
+     }
+     if (permission == LocationPermission.deniedForever) {
+       throw const LocationPermissionPermanentlyDeniedException();
+     }
+     final position = await Geolocator.getCurrentPosition();
+-    final places = await placemarkFromCoordinates(
+-      position.latitude,
+-      position.longitude,
+-    );
+-    final city =
+-        places.isEmpty
+-            ? 'Position actuelle'
+-            : (places.first.locality ?? 'Position actuelle');
++    // Reverse geocoding is only a label enrichment. Some Android geocoding
++    // implementations throw PlatformException even though coordinates are
++    // valid; that must not prevent Open-Meteo from receiving those coordinates.
++    var city = 'Position actuelle';
++    try {
++      final places = await placemarkFromCoordinates(
++        position.latitude,
++        position.longitude,
++      );
++      if (places.isNotEmpty) city = places.first.locality ?? city;
++    } on Object catch (error) {
++      DiagnosticService.instance.publish(module: DiagnosticModule.weather,
++        level: AppDiagnosticLevel.warning, state: 'Coordonnées disponibles',
++        summary: 'Nom de ville indisponible', source: 'GeolocatorLocationService',
++        reason: 'reverseGeocodingUnavailable',
++        details: {'technical': error.runtimeType.toString()});
++    }
+     return LocationData(
+       latitude: position.latitude,
+       longitude: position.longitude,
+       city: city,
+     );
+   }
+ }
+diff --git a/lib/weather/services/cached_weather_service.dart b/lib/weather/services/cached_weather_service.dart
+index c8e1eba488023b9b30215525b001cde78c3ecb6b..e0ae79815e61bff7be7a8c62e2cdcb7785e3c66b 100644
+--- a/lib/weather/services/cached_weather_service.dart
++++ b/lib/weather/services/cached_weather_service.dart
+@@ -20,55 +20,74 @@ class CachedWeatherService implements WeatherService {
+     DateTime Function()? now,
+   }) : _now = now ?? DateTime.now;
+ 
+   @override
+   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) async {
+     final cached = _cached;
+     final cachedAt = _cachedAt;
+     if (!forceRefresh &&
+         cached != null &&
+         cachedAt != null &&
+         _now().difference(cachedAt) < cacheDuration) {
+       return cached;
+     }
+     if (!forceRefresh && _inFlight != null) return _inFlight!;
+     final request = _fetch();
+     _inFlight = request;
+     try {
+       return await request;
+     } finally {
+       if (identical(_inFlight, request)) _inFlight = null;
+     }
+   }
+ 
+   Future<WeatherData> _fetch() async {
+     final stopwatch = Stopwatch()..start();
++    late final LocationData location;
++    try {
++      location = await locationService.getCurrentLocation();
++    } catch (error) {
++      DiagnosticService.instance.publish(module: DiagnosticModule.weather,
++        level: AppDiagnosticLevel.error, state: 'Localisation indisponible',
++        summary: 'Coordonnées météo indisponibles',
++        source: locationService.runtimeType.toString(), duration: stopwatch.elapsed,
++        reason: _locationReason(error),
++        details: {'technical': error.runtimeType.toString(), 'phase': 'location'});
++      rethrow;
++    }
+     try {
+-      final location = await locationService.getCurrentLocation();
+       final json = await weatherApi.fetchCurrent(
+         latitude: location.latitude, longitude: location.longitude,
+       );
+       final parsed = WeatherData.fromOpenMeteoJson(json, city: location.city);
+       final result = parsed.copyWith(description: WeatherCodeMapper.description(parsed.weatherCode));
+       _cached = result;
+       _cachedAt = _now();
+       DiagnosticService.instance.publish(module: DiagnosticModule.weather,
+         level: AppDiagnosticLevel.success, state: 'Disponible', summary: 'Météo actualisée',
+         source: weatherApi.runtimeType.toString(), duration: stopwatch.elapsed,
+         details: {'ville': location.city, 'température': result.temperature, 'cache': false});
+       return result;
+     } catch (error) {
+       DiagnosticService.instance.publish(module: DiagnosticModule.weather,
+-        level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Actualisation météo impossible',
++        level: AppDiagnosticLevel.error, state: 'API indisponible', summary: 'Réponse météo indisponible',
+         source: weatherApi.runtimeType.toString(), duration: stopwatch.elapsed,
+-        reason: 'La source météo ou la localisation n’a pas répondu.');
++        reason: 'weatherApiUnavailable',
++        details: {'technical': error.runtimeType.toString(), 'phase': 'weatherApi'});
+       rethrow;
+     }
+   }
+ 
++  static String _locationReason(Object error) => switch (error) {
++    LocationServicesDisabledException() => 'locationServicesDisabled',
++    LocationPermissionPermanentlyDeniedException() => 'locationPermissionDeniedForever',
++    LocationPermissionDeniedException() => 'locationPermissionDenied',
++    _ => 'locationPlatformFailure',
++  };
++
+   @override
+   void clearCache() {
+     _cached = null;
+     _cachedAt = null;
+     _inFlight = null;
+   }
+ }
+diff --git a/test/core/outfit_generation/outfit_generation_engine_test.dart b/test/core/outfit_generation/outfit_generation_engine_test.dart
+index 6dc05c5eaf56c117d0a0dc3b30e559aca0a726ac..32a3abe79f410778097a22715be1102429b8e1d6 100644
+--- a/test/core/outfit_generation/outfit_generation_engine_test.dart
++++ b/test/core/outfit_generation/outfit_generation_engine_test.dart
+@@ -21,50 +21,85 @@ void main() {
+     required double max,
+     required LayerRole role,
+     required double contribution,
+     WeatherProtection rain = WeatherProtection.none,
+     WeatherProtection wind = WeatherProtection.none,
+   }) => ThermalProfile(
+     insulation: contribution >= 10 ? InsulationLevel.veryHigh : contribution >= 5 ? InsulationLevel.medium : InsulationLevel.veryLow, thickness: ThicknessLevel.medium, breathability: BreathabilityLevel.medium,
+     windProtection: wind, rainProtection: rain, primaryRole: role,
+     acceptsUnder: role == LayerRole.outer ? const [LayerRole.base, LayerRole.mid] : const [],
+     acceptsOver: role == LayerRole.base ? const [LayerRole.mid, LayerRole.outer] : role == LayerRole.mid ? const [LayerRole.outer] : const [],
+     inputFingerprint: 'fixture', calculatedAt: now,
+   );
+ 
+   Garment thermalGarment(String id, String category, ThermalProfile profile) =>
+       garment(id, category).copyWith(thermalProfile: profile);
+ 
+   test('gère un dressing très réduit sans inventer de pièce', () {
+     final result = engine().generate(OutfitGenerationRequest(
+       wardrobe: [garment('top', 'Hauts')],
+       proposalCount: 3,
+     ));
+     expect(result.proposals, isEmpty);
+     expect(result.messages, contains(OutfitGenerationResult.incompleteOutfitMessage));
+   });
+ 
++  test('reconnaît la taxonomie Scanner et les valeurs historiques', () {
++    final cases = <String, OutfitCategory>{
++      'Chemise': OutfitCategory.top,
++      'T-shirt': OutfitCategory.top,
++      'Polo': OutfitCategory.top,
++      'Jean': OutfitCategory.bottom,
++      'Pantalon': OutfitCategory.bottom,
++      'Chino': OutfitCategory.bottom,
++      'Chaussures': OutfitCategory.shoes,
++      'Veste': OutfitCategory.jacket,
++      'Manteau': OutfitCategory.coat,
++      // Values persisted by older/foreign Scanner responses remain readable.
++      'shirt': OutfitCategory.top,
++      'pants': OutfitCategory.bottom,
++      'shoes': OutfitCategory.shoes,
++      'coat': OutfitCategory.coat,
++    };
++    for (final entry in cases.entries) {
++      expect(OutfitGenerationEngine.categoryFor(
++        garment(entry.key, 'Autre').copyWith(typePrecis: entry.key),
++      ), entry.value, reason: entry.key);
++    }
++  });
++
++  test('diagnostique les rôles reconnus sans exposer les vêtements', () {
++    final result = engine().generate(OutfitGenerationRequest(wardrobe: [
++      garment('shirt', 'Chemises'), garment('jean', 'Bas'),
++      garment('shoes', 'Chaussures'), garment('unknown', 'Autre'),
++    ]));
++    expect(result.diagnostic.recognizedByRole[OutfitCategory.top], 1);
++    expect(result.diagnostic.recognizedByRole[OutfitCategory.bottom], 1);
++    expect(result.diagnostic.recognizedByRole[OutfitCategory.shoes], 1);
++    expect(result.diagnostic.unclassifiedCount, 1);
++  });
++
+   test('borne la génération pour un dressing important', () {
+     final wardrobe = List.generate(300, (index) =>
+       garment('item-$index', index.isEven ? 'Hauts' : 'Pantalons'));
+     final result = engine().generate(OutfitGenerationRequest(
+       wardrobe: wardrobe,
+       proposalCount: 5,
+     ));
+     expect(result.proposals, hasLength(5));
+     expect(result.proposals.every((item) => item.outfit.allGarments.length == 2), isTrue);
+   });
+ 
+   test('refuse les tenues à une seule pièce', () {
+     final result = engine().generate(OutfitGenerationRequest(
+       wardrobe: List.generate(6, (index) => garment('pull-$index', 'Hauts')),
+       proposalCount: 4,
+     ));
+     expect(result.proposals, isEmpty);
+     expect(result.messages, contains(OutfitGenerationResult.incompleteOutfitMessage));
+   });
+ 
+   test('accepte une météo absente et fournit des explications', () {
+     final result = engine().generate(OutfitGenerationRequest(
+       wardrobe: [garment('top', 'Hauts'), garment('bottom', 'Pantalons')],
+     ));
+     expect(result.proposals.single.reasons, isNotEmpty);
+diff --git a/test/features/daily_brief/daily_brief_service_test.dart b/test/features/daily_brief/daily_brief_service_test.dart
+index 1dec8e9db49e2bee653eef8a29bfe3948d2a37c4..92d4329e0bc5aeaccfed8a238577a61c600d816a 100644
+--- a/test/features/daily_brief/daily_brief_service_test.dart
++++ b/test/features/daily_brief/daily_brief_service_test.dart
+@@ -40,59 +40,67 @@ Garment _garment(String id, String name, String category) => Garment(
+   updatedAt: DateTime(2026),
+ );
+ 
+ void main() {
+   test('propose une tenue avant la météo puis enrichit le même brief', () async {
+     final weather = Completer<WeatherData>();
+     final service = _service(
+       wardrobe: [_garment('top', 'Chemise', 'Hauts'), _garment('bottom', 'Jean', 'Pantalons')],
+       weather: _Weather(() => weather.future),
+     );
+     final events = <DailyBrief>[];
+     final done = service.watch().listen(events.add).asFuture<void>();
+ 
+     await Future<void>.delayed(Duration.zero);
+     expect(events, hasLength(1));
+     expect(events.single.outfitProposals, isNotEmpty);
+     expect(events.single.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
+ 
+     weather.complete(_weatherData);
+     await done;
+     expect(events, hasLength(2));
+     expect(events.last.cards.any((card) => card.type == DailyBriefCardType.weather), isTrue);
+   });
+ 
+   test('une météo absente ne bloque jamais la recommandation', () async {
++    final diagnostics = DiagnosticService.instance
++      ..clear()
++      ..setEnabled(true);
+     final brief = await _service(
+       wardrobe: [_garment('top', 'T-shirt', 'Hauts'), _garment('bottom', 'Jean', 'Pantalons')],
+       weather: _Weather(() => Future.error(StateError('indisponible'))),
+     ).build();
+ 
+     expect(brief.outfitProposals, isNotEmpty);
+     expect(brief.cards.any((card) => card.type == DailyBriefCardType.weather), isFalse);
+     expect(brief.state, DailyBriefState.weatherError);
+     expect(brief.detail, contains('indisponible'));
++    final generations = diagnostics.filtered(module: DiagnosticModule.outfits)
++        .where((entry) => entry.source == 'DailyBriefService').toList();
++    expect(generations, hasLength(1));
++    expect(generations.single.details['phase'], 'phaseInitial');
++    diagnostics.setEnabled(false);
+   });
+ 
+   test('sans météo ni calendrier, le dressing suffit à produire Daily', () async {
+     final brief = await _service(
+       wardrobe: [
+         _garment('top', 'T-shirt', 'Hauts'),
+         _garment('bottom', 'Jean', 'Pantalons'),
+       ],
+       weather: _Weather(() => Future.error(StateError('hors ligne'))),
+     ).build();
+ 
+     expect(brief.outfitProposals, isNotEmpty);
+     expect(brief.state, DailyBriefState.weatherError);
+   });
+ 
+   test('des préférences illisibles restent un contexte optionnel', () async {
+     final diagnostics = DiagnosticService.instance
+       ..clear()
+       ..setEnabled(true);
+     final memory = MemoryService(repository: _FailingMemoryRepository());
+     final service = DailyBriefService(
+       weatherService: _Weather(() => Future.error(StateError('hors ligne'))),
+       memoryService: memory,
+       aiContextService: WardrobeAiContextService(
+         loadCurrentGarments: () async => [
+diff --git a/test/features/styles/style_library_test.dart b/test/features/styles/style_library_test.dart
+index a476b316a87878c0e86cbb929ed7baef4b936da3..6105c4acacea218daab23a3d0a643380a61182ed 100644
+--- a/test/features/styles/style_library_test.dart
++++ b/test/features/styles/style_library_test.dart
+@@ -1,51 +1,62 @@
+ import 'package:flutter/material.dart';
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/features/styles/style_library_screen.dart';
+ import 'package:wardrobeos/features/styles/style_repository.dart';
+ import 'package:wardrobeos/models/personal_style.dart';
++import 'package:wardrobeos/models/style_analysis.dart';
+ 
+ class FakeStyles implements StyleRepository {
+   final values = <LibraryStyle>[
+     const LibraryStyle(id: 'system', name: 'Élégant', definition: 'Une allure soignée',
+       description: 'Cérémonies et belles matières', isSystem: true,
+       synonyms: ['habillé'], characteristics: ['raffiné']),
+   ];
+   bool deleteCalled = false;
+   @override Future<List<LibraryStyle>> all() async => values;
+   @override Future<LibraryStyle?> find(String id) async => values.where((e) => e.id == id).isEmpty ? null : values.firstWhere((e) => e.id == id);
+   @override Future<void> save(PersonalStyle style) async { values.removeWhere((e) => e.id == style.id); values.add(LibraryStyle.personal(style)); }
+   @override Future<void> delete(String id) async { deleteCalled = true; values.removeWhere((e) => e.id == id); }
+ }
+ void main() {
+   test('search normalizes accents, case and simple separators', () {
+     expect(StyleCatalog.normalize('  CHIC-Décontracté '), 'chic decontracte');
+     expect(StyleCatalog.matches(const LibraryStyle(id: 'x', name: 'Élégant', definition: '', description: '', isSystem: true), 'elegant'), isTrue);
+   });
+   test('traduit les identifiants internes en libellés français', () {
+     expect(StyleCatalog.displayName('smart_casual'), 'Chic décontracté');
+     expect(StyleCatalog.displayName('dressy'), 'Habillé');
+   });
++  test('catalogue canonique sans doublon ni définition placeholder', () {
++    expect(StyleTaxonomy.entries, hasLength(65));
++    expect(StyleTaxonomy.entries.entries.every((entry) =>
++      entry.key == entry.value.id &&
++      entry.value.name.trim().isNotEmpty &&
++      entry.value.definition.trim().isNotEmpty &&
++      entry.value.description.trim().isNotEmpty &&
++      entry.value.characteristics.isNotEmpty &&
++      entry.value.typicalPieces.isNotEmpty), isTrue);
++  });
+ 
+   testWidgets('library opens, searches and displays a definition', (tester) async {
+     await tester.pumpWidget(MaterialApp(home: StyleLibraryScreen(repository: FakeStyles())));
+     await tester.pumpAndSettle();
+     expect(find.text('Bibliothèque des styles'), findsOneWidget);
+     await tester.enterText(find.byType(SearchBar), 'habille'); await tester.pump();
+     expect(find.text('Élégant'), findsOneWidget);
+     await tester.tap(find.text('Élégant')); await tester.pumpAndSettle();
+     expect(find.text('Une allure soignée'), findsOneWidget);
+   });
+   testWidgets('system styles expose no destructive menu', (tester) async {
+     await tester.pumpWidget(MaterialApp(home: StyleLibraryScreen(repository: FakeStyles())));
+     await tester.pumpAndSettle();
+     expect(find.byType(PopupMenuButton<String>), findsNothing);
+   });
+   testWidgets('personal style creation is available', (tester) async {
+     final repository = FakeStyles();
+     await tester.pumpWidget(MaterialApp(home: StyleLibraryScreen(repository: repository)));
+     await tester.pumpAndSettle(); await tester.tap(find.text('Style personnel')); await tester.pumpAndSettle();
+     await tester.enterText(find.byKey(const Key('personal-style-name')), 'Mon style');
+     await tester.tap(find.text('Enregistrer')); await tester.pumpAndSettle();
+     expect(repository.values.any((e) => e.name == 'Mon style'), isTrue);
+   });
+ }
+diff --git a/test/weather/cached_weather_service_test.dart b/test/weather/cached_weather_service_test.dart
+index d3382829430b8de371683a57e177bcf8382ea9c4..8985e724b3c8d5c3a90c9c6d34de0917c6c14089 100644
+--- a/test/weather/cached_weather_service_test.dart
++++ b/test/weather/cached_weather_service_test.dart
+@@ -1,29 +1,30 @@
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/weather/api/weather_api.dart';
+ import 'package:wardrobeos/weather/location/location_service.dart';
+ import 'package:wardrobeos/weather/services/cached_weather_service.dart';
++import 'package:wardrobeos/core/diagnostics/diagnostic_service.dart';
+ 
+ void main() {
+   late _FakeLocationService location;
+   late _FakeWeatherApi api;
+   late DateTime now;
+   late CachedWeatherService service;
+ 
+   setUp(() {
+     location = _FakeLocationService();
+     api = _FakeWeatherApi();
+     now = DateTime(2026, 7, 18, 10);
+     service = CachedWeatherService(
+       locationService: location,
+       weatherApi: api,
+       now: () => now,
+     );
+   });
+ 
+   test('réutilise la météo pendant moins de quinze minutes', () async {
+     final first = await service.getCurrentWeather();
+     now = now.add(const Duration(minutes: 14, seconds: 59));
+     final second = await service.getCurrentWeather();
+     expect(identical(first, second), isTrue);
+     expect(api.calls, 1);
+     expect(location.calls, 1);
+@@ -32,50 +33,82 @@ void main() {
+   test('rafraîchit un cache arrivé à expiration', () async {
+     await service.getCurrentWeather();
+     now = now.add(const Duration(minutes: 15));
+     await service.getCurrentWeather();
+     expect(api.calls, 2);
+   });
+ 
+   test('force le rafraîchissement et permet de vider le cache', () async {
+     await service.getCurrentWeather();
+     await service.getCurrentWeather(forceRefresh: true);
+     service.clearCache();
+     await service.getCurrentWeather();
+     expect(api.calls, 3);
+   });
+ 
+   test('mutualise les appels simultanés', () async {
+     final results = await Future.wait([
+       service.getCurrentWeather(),
+       service.getCurrentWeather(),
+       service.getCurrentWeather(),
+     ]);
+     expect(results.toSet(), hasLength(1));
+     expect(api.calls, 1);
+     expect(location.calls, 1);
+   });
++
++  test('distingue une panne de localisation sans appeler l API', () async {
++    final diagnostics = DiagnosticService.instance..clear()..setEnabled(true);
++    final failed = CachedWeatherService(
++      locationService: _DeniedLocationService(), weatherApi: api);
++    await expectLater(failed.getCurrentWeather(), throwsA(isA<LocationPermissionDeniedException>()));
++    expect(api.calls, 0);
++    expect(diagnostics.filtered(module: DiagnosticModule.weather).last.reason,
++      'locationPermissionDenied');
++    diagnostics.setEnabled(false);
++  });
++
++  test('distingue une panne API après résolution des coordonnées', () async {
++    final diagnostics = DiagnosticService.instance..clear()..setEnabled(true);
++    final failed = CachedWeatherService(
++      locationService: location, weatherApi: _FailingWeatherApi());
++    await expectLater(failed.getCurrentWeather(), throwsStateError);
++    final event = diagnostics.filtered(module: DiagnosticModule.weather).last;
++    expect(event.reason, 'weatherApiUnavailable');
++    expect(event.details['phase'], 'weatherApi');
++    diagnostics.setEnabled(false);
++  });
++}
++
++class _DeniedLocationService implements LocationService {
++  @override Future<LocationData> getCurrentLocation() =>
++      Future.error(const LocationPermissionDeniedException());
++}
++
++class _FailingWeatherApi implements WeatherApi {
++  @override Future<Map<String, dynamic>> fetchCurrent({required double latitude,
++    required double longitude}) => Future.error(StateError('offline'));
+ }
+ 
+ class _FakeLocationService implements LocationService {
+   int calls = 0;
+   @override
+   Future<LocationData> getCurrentLocation() async {
+     calls++;
+     return const LocationData(latitude: 48.86, longitude: 2.35, city: 'Paris');
+   }
+ }
+ 
+ class _FakeWeatherApi implements WeatherApi {
+   int calls = 0;
+   @override
+   Future<Map<String, dynamic>> fetchCurrent({
+     required double latitude,
+     required double longitude,
+   }) async {
+     calls++;
+     return {
+       'latitude': latitude,
+       'longitude': longitude,
+       'current': {
+         'temperature_2m': 20,
+         'apparent_temperature': 19,

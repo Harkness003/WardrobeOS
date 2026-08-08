@@ -42,8 +42,19 @@ class CachedWeatherService implements WeatherService {
 
   Future<WeatherData> _fetch() async {
     final stopwatch = Stopwatch()..start();
+    late final LocationData location;
     try {
-      final location = await locationService.getCurrentLocation();
+      location = await locationService.getCurrentLocation();
+    } catch (error) {
+      DiagnosticService.instance.publish(module: DiagnosticModule.weather,
+        level: AppDiagnosticLevel.error, state: 'Localisation indisponible',
+        summary: 'Coordonnées météo indisponibles',
+        source: locationService.runtimeType.toString(), duration: stopwatch.elapsed,
+        reason: _locationReason(error),
+        details: {'technical': error.runtimeType.toString(), 'phase': 'location'});
+      rethrow;
+    }
+    try {
       final json = await weatherApi.fetchCurrent(
         latitude: location.latitude, longitude: location.longitude,
       );
@@ -58,12 +69,20 @@ class CachedWeatherService implements WeatherService {
       return result;
     } catch (error) {
       DiagnosticService.instance.publish(module: DiagnosticModule.weather,
-        level: AppDiagnosticLevel.error, state: 'Indisponible', summary: 'Actualisation météo impossible',
+        level: AppDiagnosticLevel.error, state: 'API indisponible', summary: 'Réponse météo indisponible',
         source: weatherApi.runtimeType.toString(), duration: stopwatch.elapsed,
-        reason: 'La source météo ou la localisation n’a pas répondu.');
+        reason: 'weatherApiUnavailable',
+        details: {'technical': error.runtimeType.toString(), 'phase': 'weatherApi'});
       rethrow;
     }
   }
+
+  static String _locationReason(Object error) => switch (error) {
+    LocationServicesDisabledException() => 'locationServicesDisabled',
+    LocationPermissionPermanentlyDeniedException() => 'locationPermissionDeniedForever',
+    LocationPermissionDeniedException() => 'locationPermissionDenied',
+    _ => 'locationPlatformFailure',
+  };
 
   @override
   void clearCache() {

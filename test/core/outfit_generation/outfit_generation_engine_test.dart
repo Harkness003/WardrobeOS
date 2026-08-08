@@ -43,6 +43,41 @@ void main() {
     expect(result.messages, contains(OutfitGenerationResult.incompleteOutfitMessage));
   });
 
+  test('reconnaît la taxonomie Scanner et les valeurs historiques', () {
+    final cases = <String, OutfitCategory>{
+      'Chemise': OutfitCategory.top,
+      'T-shirt': OutfitCategory.top,
+      'Polo': OutfitCategory.top,
+      'Jean': OutfitCategory.bottom,
+      'Pantalon': OutfitCategory.bottom,
+      'Chino': OutfitCategory.bottom,
+      'Chaussures': OutfitCategory.shoes,
+      'Veste': OutfitCategory.jacket,
+      'Manteau': OutfitCategory.coat,
+      // Values persisted by older/foreign Scanner responses remain readable.
+      'shirt': OutfitCategory.top,
+      'pants': OutfitCategory.bottom,
+      'shoes': OutfitCategory.shoes,
+      'coat': OutfitCategory.coat,
+    };
+    for (final entry in cases.entries) {
+      expect(OutfitGenerationEngine.categoryFor(
+        garment(entry.key, 'Autre').copyWith(typePrecis: entry.key),
+      ), entry.value, reason: entry.key);
+    }
+  });
+
+  test('diagnostique les rôles reconnus sans exposer les vêtements', () {
+    final result = engine().generate(OutfitGenerationRequest(wardrobe: [
+      garment('shirt', 'Chemises'), garment('jean', 'Bas'),
+      garment('shoes', 'Chaussures'), garment('unknown', 'Autre'),
+    ]));
+    expect(result.diagnostic.recognizedByRole[OutfitCategory.top], 1);
+    expect(result.diagnostic.recognizedByRole[OutfitCategory.bottom], 1);
+    expect(result.diagnostic.recognizedByRole[OutfitCategory.shoes], 1);
+    expect(result.diagnostic.unclassifiedCount, 1);
+  });
+
   test('borne la génération pour un dressing important', () {
     final wardrobe = List.generate(300, (index) =>
       garment('item-$index', index.isEven ? 'Hauts' : 'Pantalons'));
