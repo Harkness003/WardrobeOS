@@ -51,10 +51,14 @@ class DailyBriefService {
       state: 'Démarré', summary: 'Préparation du Daily demandée', source: 'DailyBriefService',
       correlationId: correlationId, pipeline: const [DiagnosticStep('dailyStarted', level: AppDiagnosticLevel.info)]);
     final weatherFuture = _optionalWeather();
+    var phase = 'loadWardrobeContext';
+    var garmentsCount = 0;
     try {
       final liveContext = await aiContextService?.build(correlationId: correlationId);
       final garments = liveContext?.garments ??
           List<Garment>.unmodifiable(wardrobe);
+      garmentsCount = garments.length;
+      phase = 'generateOutfit';
       // WardrobeAiContextService already treats personalization as optional.
       // Do not retry the same failed optional read here: that used to turn a
       // preferences failure into a fatal Daily failure after the dressing had
@@ -70,6 +74,7 @@ class DailyBriefService {
       yield brief;
 
       final weather = await weatherFuture;
+      phase = 'weather';
       brief = weather.data == null
           ? DailyBrief(generatedAt: brief.generatedAt, cards: brief.cards,
               outfitProposals: brief.outfitProposals,
@@ -81,6 +86,7 @@ class DailyBriefService {
               correlationId: correlationId,
               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
       yield brief;
+      phase = 'render';
       diagnostics.publish(
         module: DiagnosticModule.weather,
         level: weather.data == null
@@ -111,13 +117,25 @@ class DailyBriefService {
           DiagnosticStep('Résultat', level: brief.outfitProposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
         ]);
     } catch (error) {
+      final engineError = error is OutfitGenerationException ? error : null;
+      final contextFailed = phase == 'loadWardrobeContext';
       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
         level: AppDiagnosticLevel.error, state: 'Interrompu', summary: 'Daily non généré',
         source: 'DailyBriefService', duration: stopwatch.elapsed,
-        correlationId: correlationId, reason: 'wardrobeContextFailure',
-        details: {'technical': error.runtimeType.toString()},
-        pipeline: [DiagnosticStep('wardrobeContext', level: AppDiagnosticLevel.error,
-          duration: stopwatch.elapsed, detail: error.runtimeType.toString())]);
+        correlationId: correlationId,
+        reason: contextFailed ? 'wardrobeContextFailure' : 'outfitGenerationFailure',
+        details: {
+          'exceptionType': engineError?.exceptionType ?? error.runtimeType.toString(),
+          'phase': engineError?.phase.name ?? phase,
+          'garmentsCount': engineError?.garmentsCount ?? garmentsCount,
+        },
+        pipeline: [
+          DiagnosticStep('loadWardrobeContext',
+            level: contextFailed ? AppDiagnosticLevel.error : AppDiagnosticLevel.success),
+          DiagnosticStep(engineError?.phase.name ?? phase,
+            level: AppDiagnosticLevel.error, duration: stopwatch.elapsed,
+            detail: engineError?.exceptionType ?? error.runtimeType.toString()),
+        ]);
       // Stream errors are converted into an explicit UI state by the screen.
       rethrow;
     }

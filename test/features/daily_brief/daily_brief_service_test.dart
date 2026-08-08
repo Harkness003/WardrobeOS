@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
 import 'package:wardrobeos/core/diagnostics/diagnostic_service.dart';
+import 'package:wardrobeos/core/outfit_generation/outfit_generation_engine.dart';
 import 'package:wardrobeos/features/assistant/memory/memory_repository.dart';
 import 'package:wardrobeos/features/assistant/memory/memory_service.dart';
 import 'package:wardrobeos/features/assistant/memory/personal_goal.dart';
@@ -168,6 +169,30 @@ void main() {
     expect(before.outfitProposals.single.garments.firstWhere((item) => item.id == 'stable').name, 'Avant modification');
     expect(after.outfitProposals.single.garments.firstWhere((item) => item.id == 'stable').name, 'Après modification');
   });
+
+  test('attribue une panne moteur à outfitGenerationFailure après contexte réussi', () async {
+    final diagnostics = DiagnosticService.instance
+      ..clear()
+      ..setEnabled(true);
+    final service = DailyBriefService(
+      weatherService: _Weather(() => Future.error(StateError('offline'))),
+      memoryService: MemoryService(repository: _EmptyMemoryRepository()),
+      outfitEngine: const _FailingOutfitEngine(),
+      aiContextService: WardrobeAiContextService(loadCurrentGarments: () async => [
+        _garment('top', 'Chemise', 'Hauts'),
+        _garment('bottom', 'Jean', 'Pantalons'),
+      ]),
+    );
+
+    await expectLater(service.build(), throwsA(isA<OutfitGenerationException>()));
+    final failure = diagnostics.filtered(module: DiagnosticModule.daily)
+        .where((entry) => entry.level == AppDiagnosticLevel.error).single;
+    expect(failure.reason, 'outfitGenerationFailure');
+    expect(failure.reason, isNot('wardrobeContextFailure'));
+    expect(failure.details['phase'], 'recommendation');
+    expect(failure.details['garmentsCount'], 2);
+    diagnostics.setEnabled(false);
+  });
 }
 
 DailyBriefService _service({required List<Garment> wardrobe, required WeatherService weather}) =>
@@ -209,4 +234,17 @@ class _FailingMemoryRepository extends _EmptyMemoryRepository {
   @override
   Future<List<UserMemory>> getMemories({UserMemoryKind? kind}) =>
       Future.error(const FormatException('legacy preferences'));
+}
+
+class _FailingOutfitEngine extends OutfitGenerationEngine {
+  const _FailingOutfitEngine();
+
+  @override
+  OutfitGenerationResult generate(OutfitGenerationRequest request) {
+    throw OutfitGenerationException(
+      phase: OutfitGenerationPhase.recommendation,
+      exceptionType: '_TypeError',
+      garmentsCount: request.wardrobe.length,
+    );
+  }
 }

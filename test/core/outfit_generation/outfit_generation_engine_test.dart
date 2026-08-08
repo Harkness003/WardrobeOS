@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wardrobeos/core/diagnostics/diagnostic_service.dart';
 import 'package:wardrobeos/core/outfit_generation/outfit_generation_engine.dart';
 import 'package:wardrobeos/core/recommendation/recommendation_context.dart';
 import 'package:wardrobeos/models/garment.dart';
@@ -76,6 +79,8 @@ void main() {
     expect(result.diagnostic.recognizedByRole[OutfitCategory.top], 1);
     expect(result.diagnostic.recognizedByRole[OutfitCategory.bottom], 1);
     expect(result.diagnostic.recognizedByRole[OutfitCategory.shoes], 1);
+    expect(result.diagnostic.recognizedByRole,
+      isA<Map<OutfitCategory, int>>());
     expect(result.diagnostic.unclassifiedCount, 1);
     expect(result.diagnostic.topsRecognized, 1);
     expect(result.diagnostic.topsEligible, 1);
@@ -90,6 +95,48 @@ void main() {
     });
     expect(result.diagnostic.classifications.first.toSafeMap().keys,
       isNot(contains(anyOf('id', 'name', 'brand', 'photos', 'notes'))));
+  });
+
+  test('classe une taxonomie nulle ou partielle sans erreur de type', () {
+    final nullable = Garment.fromMap({
+      'id': 'nullable', 'name': 'Legacy', 'category': null,
+      'sous_categorie': null, 'type_precis': null,
+      'created_at': '2025-01-01', 'updated_at': '2025-01-01',
+    });
+    final unclassified = OutfitGenerationEngine.classificationFor(nullable);
+    expect(unclassified.roleResolved, OutfitCategory.otherLayer);
+    expect(unclassified.reasonIfUnclassified, 'missingCategory');
+
+    for (final fields in <Map<String, Object?>>[
+      {'category': 'Hauts'},
+      {'sous_categorie': 'T_SHIRT'},
+      {'type_precis': 'shirt'},
+    ]) {
+      final partial = Garment.fromMap({
+        'id': 'partial', 'name': 'Legacy', ...fields,
+        'created_at': '2025-01-01', 'updated_at': '2025-01-01',
+      });
+      expect(OutfitGenerationEngine.categoryFor(partial), OutfitCategory.top,
+        reason: fields.toString());
+    }
+  });
+
+  test('sérialise le diagnostic anonymisé réellement produit', () {
+    final diagnostics = DiagnosticService.instance
+      ..clear()
+      ..setEnabled(true);
+    final result = engine().generate(OutfitGenerationRequest(wardrobe: [
+      garment('top', 'Hauts'), garment('bottom', 'Bas'),
+    ]));
+    diagnostics.publish(module: DiagnosticModule.outfits,
+      level: AppDiagnosticLevel.success, state: 'Prêt', summary: 'Test',
+      source: 'outfit_generation_engine_test', details: {
+        'classification': result.diagnostic.classifications
+            .map((item) => item.toSafeMap()).toList(growable: false),
+      });
+
+    expect(() => jsonDecode(diagnostics.exportReport()), returnsNormally);
+    diagnostics.setEnabled(false);
   });
 
   test('classe comme le Scanner une ligne réellement restaurée', () {

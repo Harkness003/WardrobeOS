@@ -56,6 +56,25 @@ class OutfitGenerationResult {
 
 enum OutfitGenerationFailure { emptyWardrobe, missingTop, missingBottom, incompatibleCombinations }
 
+enum OutfitGenerationPhase {
+  roleClassification,
+  candidateConstruction,
+  recommendation,
+  proposalConstruction,
+  diagnosticSerialization,
+}
+
+/// Privacy-safe boundary error: callers can locate a failure without exposing
+/// garment data or a stack trace.
+class OutfitGenerationException implements Exception {
+  final OutfitGenerationPhase phase;
+  final String exceptionType;
+  final int garmentsCount;
+
+  const OutfitGenerationException({required this.phase,
+    required this.exceptionType, required this.garmentsCount});
+}
+
 class OutfitGenerationDiagnostic {
   final int garmentCount;
   final Set<OutfitCategory> categories;
@@ -144,8 +163,22 @@ class OutfitGenerationEngine {
   });
 
   OutfitGenerationResult generate(OutfitGenerationRequest request) {
+    final tracker = _GenerationPhaseTracker();
+    try {
+      return _generate(request, tracker);
+    } catch (error) {
+      if (error is OutfitGenerationException) rethrow;
+      throw OutfitGenerationException(phase: tracker.phase,
+        exceptionType: error.runtimeType.toString(),
+        garmentsCount: tracker.garmentsCount);
+    }
+  }
+
+  OutfitGenerationResult _generate(OutfitGenerationRequest request,
+      _GenerationPhaseTracker tracker) {
     final stopwatch = Stopwatch()..start();
     final wardrobe = request.wardrobe.toList(growable: false);
+    tracker.garmentsCount = wardrobe.length;
     final classifications = <GarmentClassificationDiagnostic>[
       for (var index = 0; index < wardrobe.length; index++)
         classificationFor(wardrobe[index], index: index + 1),
@@ -168,7 +201,7 @@ class OutfitGenerationEngine {
         categories: Set.unmodifiable(availableCategories), candidateCount: 0, producedCount: 0,
         rejectedCount: 0, failure: reason, contextLoadDuration: request.contextLoadDuration,
         generationDuration: stopwatch.elapsed,
-        recognizedByRole: Map.unmodifiable(recognizedByRole),
+        recognizedByRole: Map<OutfitCategory, int>.unmodifiable(recognizedByRole),
         unclassifiedCount: unclassifiedCount, topsRecognized: topsRecognized,
         topsEligible: topsEligible,
         topsRejectedBeforeGeneration: topsRecognized - topsEligible,
@@ -185,7 +218,7 @@ class OutfitGenerationEngine {
         OutfitGenerationDiagnostic(garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
           candidateCount: 0, producedCount: 0, rejectedCount: 0,
           contextLoadDuration: request.contextLoadDuration, generationDuration: stopwatch.elapsed,
-          recognizedByRole: Map.unmodifiable(recognizedByRole), unclassifiedCount: unclassifiedCount,
+          recognizedByRole: Map<OutfitCategory, int>.unmodifiable(recognizedByRole), unclassifiedCount: unclassifiedCount,
           topsRecognized: topsRecognized, topsEligible: topsEligible,
           topsRejectedBeforeGeneration: topsRecognized - topsEligible,
           classifications: List.unmodifiable(classifications)));
@@ -193,9 +226,11 @@ class OutfitGenerationEngine {
 
     // Rank each category once. This bounds work to O(n log n), rather than
     // enumerating the Cartesian product (which does not scale to large closets).
+    tracker.phase = OutfitGenerationPhase.candidateConstruction;
     final pools = <OutfitCategory, List<Garment>>{};
     for (final category in OutfitCategory.values) {
       final items = wardrobe.where((item) => categoryFor(item) == category);
+      tracker.phase = OutfitGenerationPhase.recommendation;
       final ranked = recommendationEngine.recommend(
         wardrobe: items,
         context: request.context,
@@ -208,6 +243,7 @@ class OutfitGenerationEngine {
       }
     }
 
+    tracker.phase = OutfitGenerationPhase.proposalConstruction;
     final generated = <Outfit>[];
     final signatures = <String>{};
     // Rotating offsets create alternatives without allowing one category with
@@ -244,13 +280,15 @@ class OutfitGenerationEngine {
         final score = b.score.compareTo(a.score);
         return score != 0 ? score : _signature(a.outfit).compareTo(_signature(b.outfit));
       });
+    tracker.phase = OutfitGenerationPhase.diagnosticSerialization;
     return OutfitGenerationResult._(List.unmodifiable(scored), OutfitGenerationDiagnostic(
       garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
       candidateCount: generated.length, producedCount: scored.length,
       rejectedCount: generated.length - scored.length,
       failure: scored.isEmpty ? OutfitGenerationFailure.incompatibleCombinations : null,
       contextLoadDuration: request.contextLoadDuration,
-      generationDuration: stopwatch.elapsed, recognizedByRole: Map.unmodifiable(recognizedByRole),
+      generationDuration: stopwatch.elapsed,
+      recognizedByRole: Map<OutfitCategory, int>.unmodifiable(recognizedByRole),
       unclassifiedCount: unclassifiedCount, topsRecognized: topsRecognized,
       topsEligible: topsEligible,
       topsRejectedBeforeGeneration: topsRecognized - topsEligible,
@@ -451,6 +489,11 @@ class OutfitGenerationEngine {
   }
   static Map<OutfitCategory, List<Garment>> _freeze(Map<OutfitCategory, List<Garment>> source) =>
       Map.unmodifiable(source.map((key, value) => MapEntry(key, List.unmodifiable(value))));
+}
+
+class _GenerationPhaseTracker {
+  OutfitGenerationPhase phase = OutfitGenerationPhase.roleClassification;
+  int garmentsCount = 0;
 }
 
 final _outfitFallbackThermalProfile = ThermalProfile(

@@ -81,10 +81,16 @@ class OutfitsController extends ChangeNotifier {
           DiagnosticStep('result', level: proposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
         ]);
     } catch (exception) {
+      final engineError = exception is OutfitGenerationException ? exception : null;
       diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.error,
         state: 'Échec', summary: 'Génération interrompue', source: 'OutfitsController.generate',
         correlationId: correlationId, duration: stopwatch.elapsed,
-        reason: 'outfitGenerationFailure', details: {'technical': exception.runtimeType.toString(), 'pipeline': 'generate'});
+        reason: 'outfitGenerationFailure', details: {
+          'exceptionType': engineError?.exceptionType ?? exception.runtimeType.toString(),
+          'phase': engineError?.phase.name ?? 'candidateConstruction',
+          'garmentsCount': engineError?.garmentsCount ?? 0,
+          'pipeline': 'generate',
+        });
       error = exception;
     } finally {
       generating = false;

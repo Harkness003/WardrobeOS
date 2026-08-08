@@ -1,0 +1,792 @@
+diff --git a/lib/core/outfit_generation/outfit_generation_engine.dart b/lib/core/outfit_generation/outfit_generation_engine.dart
+index 4d71833c429862eb1ee1ab7fbd4c3889372b7632..94f8338f8b10666c6f2262f47c355a9f5c800ddf 100644
+--- a/lib/core/outfit_generation/outfit_generation_engine.dart
++++ b/lib/core/outfit_generation/outfit_generation_engine.dart
+@@ -34,50 +34,69 @@ class OutfitGenerationProposal {
+   final List<String> respectedConstraints;
+ 
+   const OutfitGenerationProposal({
+     required this.outfit,
+     required this.score,
+     required this.reasons,
+     this.respectedConstraints = const [],
+   });
+ 
+   List<Garment> get garments => outfit.allGarments;
+   List<String> get garmentIds =>
+       List.unmodifiable(garments.map((garment) => garment.id));
+ }
+ 
+ class OutfitGenerationResult {
+   static const incompleteOutfitMessage = 'Il manque des éléments pour constituer une tenue complète.';
+ 
+   final List<OutfitGenerationProposal> proposals;
+   final List<String> messages;
+   final OutfitGenerationDiagnostic diagnostic;
+   const OutfitGenerationResult._(this.proposals, this.diagnostic, [this.messages = const []]);
+ }
+ 
+ enum OutfitGenerationFailure { emptyWardrobe, missingTop, missingBottom, incompatibleCombinations }
+ 
++enum OutfitGenerationPhase {
++  roleClassification,
++  candidateConstruction,
++  recommendation,
++  proposalConstruction,
++  diagnosticSerialization,
++}
++
++/// Privacy-safe boundary error: callers can locate a failure without exposing
++/// garment data or a stack trace.
++class OutfitGenerationException implements Exception {
++  final OutfitGenerationPhase phase;
++  final String exceptionType;
++  final int garmentsCount;
++
++  const OutfitGenerationException({required this.phase,
++    required this.exceptionType, required this.garmentsCount});
++}
++
+ class OutfitGenerationDiagnostic {
+   final int garmentCount;
+   final Set<OutfitCategory> categories;
+   final int candidateCount;
+   final int producedCount;
+   final int rejectedCount;
+   final OutfitGenerationFailure? failure;
+   final Duration contextLoadDuration;
+   final Duration generationDuration;
+   final Map<OutfitCategory, int> recognizedByRole;
+   final int unclassifiedCount;
+   final int topsRecognized;
+   final int topsEligible;
+   final int topsRejectedBeforeGeneration;
+   final List<GarmentClassificationDiagnostic> classifications;
+ 
+   const OutfitGenerationDiagnostic({required this.garmentCount, required this.categories,
+     required this.candidateCount, required this.producedCount, required this.rejectedCount,
+     this.failure, this.contextLoadDuration = Duration.zero, required this.generationDuration,
+     this.recognizedByRole = const {}, this.unclassifiedCount = 0,
+     this.topsRecognized = 0, this.topsEligible = 0,
+     this.topsRejectedBeforeGeneration = 0, this.classifications = const []});
+ 
+   String? get userReason => switch (failure) {
+     OutfitGenerationFailure.emptyWardrobe => 'Le dressing est vide.',
+@@ -122,157 +141,176 @@ enum OutfitCompleteness { incomplete, acceptable, recommended }
+ enum ThermalVerdict { ideal, tooWarm, tooLight, rainInsufficient, missingOuterLayer, excessiveInsulation }
+ 
+ class OutfitThermalAssessment {
+   final double score;
+   final ThermalVerdict verdict;
+   final double accumulatedInsulation;
+   final double accumulatedBreathability;
+   final List<String> reasons;
+   const OutfitThermalAssessment({required this.score, required this.verdict,
+     required this.accumulatedInsulation, required this.accumulatedBreathability,
+     required this.reasons});
+ }
+ 
+ /// Central, UI-independent two-stage engine: bounded candidate generation,
+ /// followed by deterministic scoring and explanation.
+ class OutfitGenerationEngine {
+   final RecommendationEngine recommendationEngine;
+   final DateTime Function() clock;
+ 
+   const OutfitGenerationEngine({
+     this.recommendationEngine = const RecommendationEngine(),
+     this.clock = DateTime.now,
+   });
+ 
+   OutfitGenerationResult generate(OutfitGenerationRequest request) {
++    final tracker = _GenerationPhaseTracker();
++    try {
++      return _generate(request, tracker);
++    } catch (error) {
++      if (error is OutfitGenerationException) rethrow;
++      throw OutfitGenerationException(phase: tracker.phase,
++        exceptionType: error.runtimeType.toString(),
++        garmentsCount: tracker.garmentsCount);
++    }
++  }
++
++  OutfitGenerationResult _generate(OutfitGenerationRequest request,
++      _GenerationPhaseTracker tracker) {
+     final stopwatch = Stopwatch()..start();
+     final wardrobe = request.wardrobe.toList(growable: false);
++    tracker.garmentsCount = wardrobe.length;
+     final classifications = <GarmentClassificationDiagnostic>[
+       for (var index = 0; index < wardrobe.length; index++)
+         classificationFor(wardrobe[index], index: index + 1),
+     ];
+     final availableCategories = classifications
+         .where((item) => item.availableForOutfit)
+         .map((item) => item.roleResolved).toSet();
+     final recognizedByRole = <OutfitCategory, int>{};
+     for (final item in classifications.where((item) => item.availableForOutfit)) {
+       final role = item.roleResolved;
+       recognizedByRole[role] = (recognizedByRole[role] ?? 0) + 1;
+     }
+     final unclassifiedCount = recognizedByRole[OutfitCategory.otherLayer] ?? 0;
+     final topsRecognized = classifications.where((item) =>
+       item.roleResolved == OutfitCategory.top).length;
+     final topsEligible = classifications.where((item) =>
+       item.roleResolved == OutfitCategory.top && item.availableForOutfit).length;
+     OutfitGenerationResult failure(OutfitGenerationFailure reason) {
+       final diagnostic = OutfitGenerationDiagnostic(garmentCount: wardrobe.length,
+         categories: Set.unmodifiable(availableCategories), candidateCount: 0, producedCount: 0,
+         rejectedCount: 0, failure: reason, contextLoadDuration: request.contextLoadDuration,
+         generationDuration: stopwatch.elapsed,
+-        recognizedByRole: Map.unmodifiable(recognizedByRole),
++        recognizedByRole: Map<OutfitCategory, int>.unmodifiable(recognizedByRole),
+         unclassifiedCount: unclassifiedCount, topsRecognized: topsRecognized,
+         topsEligible: topsEligible,
+         topsRejectedBeforeGeneration: topsRecognized - topsEligible,
+         classifications: List.unmodifiable(classifications));
+       final message = diagnostic.userReason;
+       return OutfitGenerationResult._(
+         const [], diagnostic, message == null ? const [] : [message]);
+     }
+     if (wardrobe.isEmpty) { return failure(OutfitGenerationFailure.emptyWardrobe); }
+     if (!availableCategories.contains(OutfitCategory.top)) { return failure(OutfitGenerationFailure.missingTop); }
+     if (!availableCategories.contains(OutfitCategory.bottom)) { return failure(OutfitGenerationFailure.missingBottom); }
+     if (request.proposalCount == 0) {
+       return OutfitGenerationResult._(const [],
+         OutfitGenerationDiagnostic(garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
+           candidateCount: 0, producedCount: 0, rejectedCount: 0,
+           contextLoadDuration: request.contextLoadDuration, generationDuration: stopwatch.elapsed,
+-          recognizedByRole: Map.unmodifiable(recognizedByRole), unclassifiedCount: unclassifiedCount,
++          recognizedByRole: Map<OutfitCategory, int>.unmodifiable(recognizedByRole), unclassifiedCount: unclassifiedCount,
+           topsRecognized: topsRecognized, topsEligible: topsEligible,
+           topsRejectedBeforeGeneration: topsRecognized - topsEligible,
+           classifications: List.unmodifiable(classifications)));
+     }
+ 
+     // Rank each category once. This bounds work to O(n log n), rather than
+     // enumerating the Cartesian product (which does not scale to large closets).
++    tracker.phase = OutfitGenerationPhase.candidateConstruction;
+     final pools = <OutfitCategory, List<Garment>>{};
+     for (final category in OutfitCategory.values) {
+       final items = wardrobe.where((item) => categoryFor(item) == category);
++      tracker.phase = OutfitGenerationPhase.recommendation;
+       final ranked = recommendationEngine.recommend(
+         wardrobe: items,
+         context: request.context,
+         preferences: request.preferences,
+         corrections: request.corrections,
+         alternativeCount: request.proposalCount + 2,
+       );
+       if (ranked.choices.isNotEmpty) {
+         pools[category] = ranked.choices.map((item) => item.garment).toList(growable: false);
+       }
+     }
+ 
++    tracker.phase = OutfitGenerationPhase.proposalConstruction;
+     final generated = <Outfit>[];
+     final signatures = <String>{};
+     // Rotating offsets create alternatives without allowing one category with
+     // many similar garments to monopolise all proposals.
+     for (var offset = 0; offset < request.proposalCount * 3 && generated.length < request.proposalCount; offset++) {
+       final selected = <OutfitCategory, List<Garment>>{};
+       for (final category in OutfitCategory.values) {
+         final pool = pools[category];
+         if (pool == null || pool.isEmpty) { continue; }
+         selected[category] = [pool[offset % pool.length]];
+       }
+       final ids = selected.values.expand((items) => items).map((item) => item.id).toList()..sort();
+       if (ids.isEmpty || !signatures.add(ids.join('|'))) { continue; }
+       final now = clock();
+       generated.add(Outfit(
+         id: 'generated-${now.microsecondsSinceEpoch}-${generated.length}',
+         name: generated.isEmpty ? 'Tenue recommandée' : 'Tenue recommandée — ${generated.length + 1}',
+         createdAt: now,
+         updatedAt: now,
+         garments: _freeze(selected),
+       ));
+     }
+ 
+     final messages = <String>[];
+     final validGenerated = generated.where((outfit) {
+       final valid = validateOutfit(outfit) != OutfitCompleteness.incomplete;
+       if (!valid && !messages.contains(OutfitGenerationResult.incompleteOutfitMessage)) {
+         messages.add(OutfitGenerationResult.incompleteOutfitMessage);
+       }
+       return valid;
+     }).toList(growable: false);
+     final scored = validGenerated.map((outfit) => _score(outfit, request)).toList()
+       ..sort((a, b) {
+         final score = b.score.compareTo(a.score);
+         return score != 0 ? score : _signature(a.outfit).compareTo(_signature(b.outfit));
+       });
++    tracker.phase = OutfitGenerationPhase.diagnosticSerialization;
+     return OutfitGenerationResult._(List.unmodifiable(scored), OutfitGenerationDiagnostic(
+       garmentCount: wardrobe.length, categories: Set.unmodifiable(availableCategories),
+       candidateCount: generated.length, producedCount: scored.length,
+       rejectedCount: generated.length - scored.length,
+       failure: scored.isEmpty ? OutfitGenerationFailure.incompatibleCombinations : null,
+       contextLoadDuration: request.contextLoadDuration,
+-      generationDuration: stopwatch.elapsed, recognizedByRole: Map.unmodifiable(recognizedByRole),
++      generationDuration: stopwatch.elapsed,
++      recognizedByRole: Map<OutfitCategory, int>.unmodifiable(recognizedByRole),
+       unclassifiedCount: unclassifiedCount, topsRecognized: topsRecognized,
+       topsEligible: topsEligible,
+       topsRejectedBeforeGeneration: topsRecognized - topsEligible,
+       classifications: List.unmodifiable(classifications)), List.unmodifiable(messages));
+   }
+ 
+   OutfitGenerationProposal _score(Outfit outfit, OutfitGenerationRequest request) {
+     final items = outfit.allGarments;
+     final details = <String, List<double>>{};
+     for (var index = 0; index < items.length; index++) {
+       final evaluated = recommendationEngine.recommend(
+         wardrobe: [items[index]],
+         anchor: index == 0 ? null : items.first,
+         context: request.context,
+         preferences: request.preferences,
+         corrections: request.corrections,
+         alternativeCount: 0,
+       ).bestChoice;
+       for (final detail in evaluated?.details ?? const []) {
+         details.putIfAbsent(detail.criterion, () => []).add(detail.score);
+       }
+     }
+     double average(String key, [double fallback = .7]) {
+       final values = details[key];
+       return values == null || values.isEmpty ? fallback : values.reduce((a, b) => a + b) / values.length;
+@@ -431,36 +469,41 @@ class OutfitGenerationEngine {
+     'tee-shirt' || 'polo' || 'polos' || 'polo-shirt' || 'pull' || 'pulls' ||
+     'sweater' || 'sweatshirt' || 'hoodie' || 'cardigan' || 'blouse' => OutfitCategory.top,
+     'bas' || 'bottom' || 'bottoms' || 'pantalon' || 'pantalons' || 'pants' ||
+     'trousers' || 'pantalon-habille' || 'jean' || 'jeans' || 'chino' ||
+     'jupe' || 'jupes' || 'short' || 'shorts' => OutfitCategory.bottom,
+     'chaussure' || 'chaussures' || 'shoe' || 'shoes' || 'sneaker' ||
+     'sneakers' || 'basket' || 'baskets' || 'botte' || 'bottes' || 'boot' ||
+     'boots' || 'sandale' || 'sandales' => OutfitCategory.shoes,
+     'manteau' || 'manteaux' || 'coat' || 'coats' || 'parka' || 'doudoune' => OutfitCategory.coat,
+     'veste' || 'vestes' || 'jacket' || 'jackets' || 'blazer' || 'trench' ||
+     'outer' || 'outerwear' => OutfitCategory.jacket,
+     'sac' || 'sacs' || 'bag' || 'bags' => OutfitCategory.bag,
+     'bijou' || 'bijoux' || 'collier' || 'bracelet' || 'jewelry' => OutfitCategory.jewelry,
+     'accessoire' || 'accessoires' || 'accessory' || 'accessories' => OutfitCategory.accessory,
+     _ => null,
+   };
+ 
+   static String _signature(Outfit value) {
+     final ids = value.allGarments.map((item) => item.id).toList()..sort();
+     return ids.join('|');
+   }
+   static Map<OutfitCategory, List<Garment>> _freeze(Map<OutfitCategory, List<Garment>> source) =>
+       Map.unmodifiable(source.map((key, value) => MapEntry(key, List.unmodifiable(value))));
+ }
+ 
++class _GenerationPhaseTracker {
++  OutfitGenerationPhase phase = OutfitGenerationPhase.roleClassification;
++  int garmentsCount = 0;
++}
++
+ final _outfitFallbackThermalProfile = ThermalProfile(
+   insulation: InsulationLevel.low,
+   thickness: ThicknessLevel.medium,
+   breathability: BreathabilityLevel.medium,
+   windProtection: WeatherProtection.none,
+   rainProtection: WeatherProtection.none,
+   primaryRole: LayerRole.mid,
+   inputFingerprint: 'outfit-fallback',
+   calculatedAt: DateTime.fromMillisecondsSinceEpoch(0),
+   confidence: .3,
+ );
+diff --git a/lib/features/daily_brief/daily_brief_service.dart b/lib/features/daily_brief/daily_brief_service.dart
+index bed5ab3175af77431ce7a63feb594ba7808991bd..cac548bd6570097903905beda909e6b7d03f46e7 100644
+--- a/lib/features/daily_brief/daily_brief_service.dart
++++ b/lib/features/daily_brief/daily_brief_service.dart
+@@ -29,117 +29,135 @@ class DailyBriefService {
+ 
+   DailyBriefService({
+     required this.weatherService,
+     required this.memoryService,
+     Object? assistantService, // Kept source-compatible; Daily no longer calls GPT.
+     this.recommendationEngine = const RecommendationEngine(),
+     WardrobeIntelligenceEngine? intelligenceEngine,
+     OutfitGenerationEngine? outfitEngine,
+     DateTime Function()? clock,
+     this.aiContextService,
+   }) : intelligenceEngine = intelligenceEngine ?? WardrobeIntelligenceEngine(),
+        outfitEngine = outfitEngine ??
+            OutfitGenerationEngine(recommendationEngine: recommendationEngine),
+        _clock = clock ?? DateTime.now;
+ 
+   /// Emits wardrobe/outfit content first, then weather-enriched content. A
+   /// weather failure is an explicit state and never prevents a wardrobe result.
+   Stream<DailyBrief> watch([Iterable<Garment> wardrobe = const []]) async* {
+     final stopwatch = Stopwatch()..start();
+     final diagnostics = DiagnosticService.instance;
+     final correlationId = diagnostics.newCorrelationId('daily');
+     diagnostics.publish(module: DiagnosticModule.daily, level: AppDiagnosticLevel.info,
+       state: 'Démarré', summary: 'Préparation du Daily demandée', source: 'DailyBriefService',
+       correlationId: correlationId, pipeline: const [DiagnosticStep('dailyStarted', level: AppDiagnosticLevel.info)]);
+     final weatherFuture = _optionalWeather();
++    var phase = 'loadWardrobeContext';
++    var garmentsCount = 0;
+     try {
+       final liveContext = await aiContextService?.build(correlationId: correlationId);
+       final garments = liveContext?.garments ??
+           List<Garment>.unmodifiable(wardrobe);
++      garmentsCount = garments.length;
++      phase = 'generateOutfit';
+       // WardrobeAiContextService already treats personalization as optional.
+       // Do not retry the same failed optional read here: that used to turn a
+       // preferences failure into a fatal Daily failure after the dressing had
+       // successfully loaded.
+       final memory = aiContextService == null
+           ? await _optionalMemory(correlationId)
+           : liveContext?.personalization ?? const PersonalizationSnapshot();
+ 
+       var brief = _compose(garments, memory, weather: null,
+         phase: 'phaseInitial',
+         correlationId: correlationId,
+         contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
+       yield brief;
+ 
+       final weather = await weatherFuture;
++      phase = 'weather';
+       brief = weather.data == null
+           ? DailyBrief(generatedAt: brief.generatedAt, cards: brief.cards,
+               outfitProposals: brief.outfitProposals,
+               state: brief.state == DailyBriefState.available
+                   ? DailyBriefState.weatherError : brief.state,
+               detail: brief.detail ?? 'Météo indisponible. La tenue est générée sans météo.')
+           : _compose(garments, memory, weather: weather.data,
+               phase: 'phaseWeatherEnriched',
+               correlationId: correlationId,
+               contextLoadDuration: liveContext?.loadDuration ?? Duration.zero);
+       yield brief;
++      phase = 'render';
+       diagnostics.publish(
+         module: DiagnosticModule.weather,
+         level: weather.data == null
+             ? AppDiagnosticLevel.warning
+             : AppDiagnosticLevel.success,
+         state: weather.data == null ? 'Indisponible' : 'Prêt',
+         summary: weather.data == null
+             ? 'Daily continue sans météo'
+             : 'Contexte météo ajouté au Daily',
+         source: 'DailyBriefService',
+         correlationId: correlationId,
+         reason: weather.data == null ? 'optionalWeatherUnavailable' : null,
+         details: weather.data == null
+             ? {'technical': weather.error.runtimeType.toString()}
+             : const {},
+       );
+       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
+         level: brief.state == DailyBriefState.available ? AppDiagnosticLevel.success : AppDiagnosticLevel.warning,
+         state: brief.state.name, summary: '${brief.outfitProposals.length} proposition(s)',
+         source: 'DailyBriefService', duration: stopwatch.elapsed, reason: brief.detail,
+         correlationId: correlationId,
+         details: {'vêtements': garments.length, 'cartes': brief.cards.length},
+         pipeline: [
+           DiagnosticStep('Weather', level: weather.data == null ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
+           DiagnosticStep('WardrobeContext', duration: liveContext?.loadDuration ?? Duration.zero),
+           const DiagnosticStep('Generation'),
+           const DiagnosticStep('Recommendation'),
+           DiagnosticStep('Résultat', level: brief.outfitProposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
+         ]);
+     } catch (error) {
++      final engineError = error is OutfitGenerationException ? error : null;
++      final contextFailed = phase == 'loadWardrobeContext';
+       DiagnosticService.instance.publish(module: DiagnosticModule.daily,
+         level: AppDiagnosticLevel.error, state: 'Interrompu', summary: 'Daily non généré',
+         source: 'DailyBriefService', duration: stopwatch.elapsed,
+-        correlationId: correlationId, reason: 'wardrobeContextFailure',
+-        details: {'technical': error.runtimeType.toString()},
+-        pipeline: [DiagnosticStep('wardrobeContext', level: AppDiagnosticLevel.error,
+-          duration: stopwatch.elapsed, detail: error.runtimeType.toString())]);
++        correlationId: correlationId,
++        reason: contextFailed ? 'wardrobeContextFailure' : 'outfitGenerationFailure',
++        details: {
++          'exceptionType': engineError?.exceptionType ?? error.runtimeType.toString(),
++          'phase': engineError?.phase.name ?? phase,
++          'garmentsCount': engineError?.garmentsCount ?? garmentsCount,
++        },
++        pipeline: [
++          DiagnosticStep('loadWardrobeContext',
++            level: contextFailed ? AppDiagnosticLevel.error : AppDiagnosticLevel.success),
++          DiagnosticStep(engineError?.phase.name ?? phase,
++            level: AppDiagnosticLevel.error, duration: stopwatch.elapsed,
++            detail: engineError?.exceptionType ?? error.runtimeType.toString()),
++        ]);
+       // Stream errors are converted into an explicit UI state by the screen.
+       rethrow;
+     }
+   }
+ 
+   /// Compatibility API for non-progressive consumers.
+   Future<DailyBrief> build([Iterable<Garment> wardrobe = const []]) async {
+     DailyBrief? latest;
+     await for (final brief in watch(wardrobe)) {
+       latest = brief;
+     }
+     return latest ?? DailyBrief(generatedAt: _clock(), cards: const [], outfitProposals: const []);
+   }
+ 
+   DailyBrief _compose(
+     List<Garment> garments,
+     PersonalizationSnapshot memory, {
+     required WeatherData? weather,
+     required String phase,
+     Object? weatherError,
+     String? correlationId,
+     Duration contextLoadDuration = Duration.zero,
+   }) {
+     final preferences = _preferences(memory);
+     final report = intelligenceEngine.analyze(garments);
+diff --git a/lib/features/outfits/outfits_controller.dart b/lib/features/outfits/outfits_controller.dart
+index 36738ccce34b264d33de8ac92871bc72049345fd..025847c35b7ee2095d45f871590dce03967380cb 100644
+--- a/lib/features/outfits/outfits_controller.dart
++++ b/lib/features/outfits/outfits_controller.dart
+@@ -59,54 +59,60 @@ class OutfitsController extends ChangeNotifier {
+     error = null;
+     _notifyListenersIfActive();
+     try {
+       final context = await _aiContextService?.build(correlationId: correlationId);
+       final wardrobe = context?.garments ?? await _wardrobeLoader();
+       final result = _generationEngine.generate(OutfitGenerationRequest(
+         wardrobe: wardrobe, proposalCount: 3,
+         contextLoadDuration: context?.loadDuration ?? Duration.zero,
+       ));
+       proposals = result.proposals;
+       generationDiagnostic = result.diagnostic;
+       generationMessage = result.diagnostic.userReason;
+       diagnostics.publish(module: DiagnosticModule.outfits,
+         level: proposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success,
+         state: proposals.isEmpty ? 'Sans proposition' : 'Prêt',
+         summary: '${proposals.length} proposition(s)', source: 'OutfitsController.generate',
+         correlationId: correlationId, duration: stopwatch.elapsed,
+         reason: proposals.isEmpty ? result.diagnostic.userReason : null,
+         details: {'garments': wardrobe.length, 'proposals': proposals.length,
+           'pipeline': 'generate'}, pipeline: [
+           DiagnosticStep('wardrobeContext', duration: context?.loadDuration ?? Duration.zero),
+           const DiagnosticStep('outfitGeneration'),
+           DiagnosticStep('result', level: proposals.isEmpty ? AppDiagnosticLevel.warning : AppDiagnosticLevel.success),
+         ]);
+     } catch (exception) {
++      final engineError = exception is OutfitGenerationException ? exception : null;
+       diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.error,
+         state: 'Échec', summary: 'Génération interrompue', source: 'OutfitsController.generate',
+         correlationId: correlationId, duration: stopwatch.elapsed,
+-        reason: 'outfitGenerationFailure', details: {'technical': exception.runtimeType.toString(), 'pipeline': 'generate'});
++        reason: 'outfitGenerationFailure', details: {
++          'exceptionType': engineError?.exceptionType ?? exception.runtimeType.toString(),
++          'phase': engineError?.phase.name ?? 'candidateConstruction',
++          'garmentsCount': engineError?.garmentsCount ?? 0,
++          'pipeline': 'generate',
++        });
+       error = exception;
+     } finally {
+       generating = false;
+       _notifyListenersIfActive();
+     }
+   }
+ 
+   Future<void> saveProposal(OutfitGenerationProposal proposal) async {
+     await create(proposal.outfit, proposal.outfit.allGarments.map((item) => item.id));
+   }
+ 
+   Future<void> load() async {
+     final stopwatch = Stopwatch()..start();
+     final diagnostics = DiagnosticService.instance;
+     final correlationId = diagnostics.newCorrelationId('outfits-load');
+     diagnostics.publish(module: DiagnosticModule.outfits, level: AppDiagnosticLevel.info,
+       state: 'Démarré', summary: 'Chargement des tenues demandé', source: 'OutfitsController.load',
+       correlationId: correlationId, details: const {'pipeline': 'load'});
+     loading = true;
+     error = null;
+     _notifyListenersIfActive();
+     try {
+       final stored = await _storedOutfitsLoader();
+       outfits = stored.outfits;
+       final entries = <MapEntry<String, List<Garment>>>[];
+diff --git a/test/core/outfit_generation/outfit_generation_engine_test.dart b/test/core/outfit_generation/outfit_generation_engine_test.dart
+index a6c17ebc8c806f3a27feb54bc15601c5a18b5dd4..dd2e3659fd86e52853631af7299fc2f6e03a10cd 100644
+--- a/test/core/outfit_generation/outfit_generation_engine_test.dart
++++ b/test/core/outfit_generation/outfit_generation_engine_test.dart
+@@ -1,26 +1,29 @@
++import 'dart:convert';
++
+ import 'package:flutter_test/flutter_test.dart';
++import 'package:wardrobeos/core/diagnostics/diagnostic_service.dart';
+ import 'package:wardrobeos/core/outfit_generation/outfit_generation_engine.dart';
+ import 'package:wardrobeos/core/recommendation/recommendation_context.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/outfit.dart';
+ import 'package:wardrobeos/models/thermal_profile.dart';
+ 
+ void main() {
+   final now = DateTime(2026, 8, 4);
+   Garment garment(String id, String category, {int wearCount = 0}) => Garment(
+     id: id,
+     name: id,
+     category: category,
+     wearCount: wearCount,
+     createdAt: now,
+     updatedAt: now,
+   );
+   OutfitGenerationEngine engine() => OutfitGenerationEngine(clock: () => now);
+ 
+   ThermalProfile thermal({
+     required double min,
+     required double max,
+     required LayerRole role,
+     required double contribution,
+     WeatherProtection rain = WeatherProtection.none,
+     WeatherProtection wind = WeatherProtection.none,
+@@ -54,66 +57,110 @@ void main() {
+       'Chino': OutfitCategory.bottom,
+       'Chaussures': OutfitCategory.shoes,
+       'Veste': OutfitCategory.jacket,
+       'Manteau': OutfitCategory.coat,
+       // Values persisted by older/foreign Scanner responses remain readable.
+       'shirt': OutfitCategory.top,
+       'pants': OutfitCategory.bottom,
+       'shoes': OutfitCategory.shoes,
+       'coat': OutfitCategory.coat,
+     };
+     for (final entry in cases.entries) {
+       expect(OutfitGenerationEngine.categoryFor(
+         garment(entry.key, 'Autre').copyWith(typePrecis: entry.key),
+       ), entry.value, reason: entry.key);
+     }
+   });
+ 
+   test('diagnostique les rôles reconnus sans exposer les vêtements', () {
+     final result = engine().generate(OutfitGenerationRequest(wardrobe: [
+       garment('shirt', 'Chemises'), garment('jean', 'Bas'),
+       garment('shoes', 'Chaussures'), garment('unknown', 'Autre'),
+     ]));
+     expect(result.diagnostic.recognizedByRole[OutfitCategory.top], 1);
+     expect(result.diagnostic.recognizedByRole[OutfitCategory.bottom], 1);
+     expect(result.diagnostic.recognizedByRole[OutfitCategory.shoes], 1);
++    expect(result.diagnostic.recognizedByRole,
++      isA<Map<OutfitCategory, int>>());
+     expect(result.diagnostic.unclassifiedCount, 1);
+     expect(result.diagnostic.topsRecognized, 1);
+     expect(result.diagnostic.topsEligible, 1);
+     expect(result.diagnostic.topsRejectedBeforeGeneration, 0);
+     expect(result.diagnostic.classifications.first.toSafeMap(), {
+       'index': 1,
+       'categoryRaw': 'Chemises',
+       'categoryCanonical': 'chemises',
+       'subcategoryCanonical': 'chemise',
+       'roleResolved': 'top',
+       'availableForOutfit': true,
+     });
+     expect(result.diagnostic.classifications.first.toSafeMap().keys,
+       isNot(contains(anyOf('id', 'name', 'brand', 'photos', 'notes'))));
+   });
+ 
++  test('classe une taxonomie nulle ou partielle sans erreur de type', () {
++    final nullable = Garment.fromMap({
++      'id': 'nullable', 'name': 'Legacy', 'category': null,
++      'sous_categorie': null, 'type_precis': null,
++      'created_at': '2025-01-01', 'updated_at': '2025-01-01',
++    });
++    final unclassified = OutfitGenerationEngine.classificationFor(nullable);
++    expect(unclassified.roleResolved, OutfitCategory.otherLayer);
++    expect(unclassified.reasonIfUnclassified, 'missingCategory');
++
++    for (final fields in <Map<String, Object?>>[
++      {'category': 'Hauts'},
++      {'sous_categorie': 'T_SHIRT'},
++      {'type_precis': 'shirt'},
++    ]) {
++      final partial = Garment.fromMap({
++        'id': 'partial', 'name': 'Legacy', ...fields,
++        'created_at': '2025-01-01', 'updated_at': '2025-01-01',
++      });
++      expect(OutfitGenerationEngine.categoryFor(partial), OutfitCategory.top,
++        reason: fields.toString());
++    }
++  });
++
++  test('sérialise le diagnostic anonymisé réellement produit', () {
++    final diagnostics = DiagnosticService.instance
++      ..clear()
++      ..setEnabled(true);
++    final result = engine().generate(OutfitGenerationRequest(wardrobe: [
++      garment('top', 'Hauts'), garment('bottom', 'Bas'),
++    ]));
++    diagnostics.publish(module: DiagnosticModule.outfits,
++      level: AppDiagnosticLevel.success, state: 'Prêt', summary: 'Test',
++      source: 'outfit_generation_engine_test', details: {
++        'classification': result.diagnostic.classifications
++            .map((item) => item.toSafeMap()).toList(growable: false),
++      });
++
++    expect(() => jsonDecode(diagnostics.exportReport()), returnsNormally);
++    diagnostics.setEnabled(false);
++  });
++
+   test('classe comme le Scanner une ligne réellement restaurée', () {
+     final restored = Garment.fromMap({
+       'id': 'legacy-private-id',
+       'name': 'Texte utilisateur non consommé',
+       'category': 'AUTRE',
+       'sous_categorie': '  T_SHIRT  ',
+       'type_precis': 'T_SHIRT',
+       'created_at': '2025-01-01T00:00:00.000Z',
+       'updated_at': '2025-01-01T00:00:00.000Z',
+     });
+     final recentlyImported = garment('new', 'Hauts').copyWith(
+       sousCategorie: 'T-shirt', typePrecis: 'T-shirt');
+ 
+     expect(OutfitGenerationEngine.categoryFor(restored), OutfitCategory.top);
+     expect(OutfitGenerationEngine.categoryFor(recentlyImported), OutfitCategory.top);
+     final result = engine().generate(OutfitGenerationRequest(wardrobe: [
+       restored,
+       garment('bottom', 'Bas'),
+     ]));
+     expect(result.diagnostic.topsRecognized, 1);
+     expect(result.diagnostic.topsEligible, 1);
+     expect(result.diagnostic.topsRejectedBeforeGeneration, 0);
+     expect(result.diagnostic.classifications.first.subcategoryRaw, 'T_SHIRT');
+     expect(result.diagnostic.classifications.first.subcategoryCanonical, 't-shirt');
+   });
+diff --git a/test/features/daily_brief/daily_brief_service_test.dart b/test/features/daily_brief/daily_brief_service_test.dart
+index 92d4329e0bc5aeaccfed8a238577a61c600d816a..263aeb9dbf3da54ab442ceff4d38610e4debc3ee 100644
+--- a/test/features/daily_brief/daily_brief_service_test.dart
++++ b/test/features/daily_brief/daily_brief_service_test.dart
+@@ -1,30 +1,31 @@
+ import 'dart:async';
+ 
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:wardrobeos/core/ai_context/wardrobe_ai_context_service.dart';
+ import 'package:wardrobeos/core/diagnostics/diagnostic_service.dart';
++import 'package:wardrobeos/core/outfit_generation/outfit_generation_engine.dart';
+ import 'package:wardrobeos/features/assistant/memory/memory_repository.dart';
+ import 'package:wardrobeos/features/assistant/memory/memory_service.dart';
+ import 'package:wardrobeos/features/assistant/memory/personal_goal.dart';
+ import 'package:wardrobeos/features/assistant/memory/style_profile.dart';
+ import 'package:wardrobeos/features/assistant/memory/user_memory.dart';
+ import 'package:wardrobeos/features/daily_brief/daily_brief_models.dart';
+ import 'package:wardrobeos/features/daily_brief/daily_brief_service.dart';
+ import 'package:wardrobeos/models/garment.dart';
+ import 'package:wardrobeos/models/style_analysis.dart';
+ import 'package:wardrobeos/models/thermal_profile.dart';
+ import 'package:wardrobeos/weather/models/weather_data.dart';
+ import 'package:wardrobeos/weather/services/weather_service.dart';
+ 
+ Garment _garment(String id, String name, String category) => Garment(
+   id: id,
+   name: name,
+   category: category,
+   couleurPrincipale: 'Bleu',
+   matierePrincipale: 'Coton',
+   styleAnalysis: StyleAnalysis(
+     inputFingerprint: 'style-fixture',
+     suggestedRegister: 'casual',
+     calculatedAt: DateTime(2026),
+   ),
+   thermalProfile: ThermalProfile(
+@@ -146,67 +147,104 @@ void main() {
+     expect(weather.weather.city, 'Paris');
+     expect(weather.weather.description, 'Clair');
+   });
+ 
+   test('chaque relance relit le dressing actuel', () async {
+     var name = 'Avant modification';
+     var reads = 0;
+     final context = WardrobeAiContextService(loadCurrentGarments: () async {
+       reads++;
+       return [_garment('stable', name, 'Hauts'), _garment('bottom', 'Jean', 'Pantalons')];
+     });
+     final service = DailyBriefService(
+       weatherService: _Weather(() => Future.error(StateError('offline'))),
+       memoryService: MemoryService(repository: _EmptyMemoryRepository()),
+       aiContextService: context,
+     );
+ 
+     final before = await service.build();
+     name = 'Après modification';
+     final after = await service.build();
+ 
+     expect(reads, 2);
+     expect(before.outfitProposals.single.garments.firstWhere((item) => item.id == 'stable').name, 'Avant modification');
+     expect(after.outfitProposals.single.garments.firstWhere((item) => item.id == 'stable').name, 'Après modification');
+   });
++
++  test('attribue une panne moteur à outfitGenerationFailure après contexte réussi', () async {
++    final diagnostics = DiagnosticService.instance
++      ..clear()
++      ..setEnabled(true);
++    final service = DailyBriefService(
++      weatherService: _Weather(() => Future.error(StateError('offline'))),
++      memoryService: MemoryService(repository: _EmptyMemoryRepository()),
++      outfitEngine: const _FailingOutfitEngine(),
++      aiContextService: WardrobeAiContextService(loadCurrentGarments: () async => [
++        _garment('top', 'Chemise', 'Hauts'),
++        _garment('bottom', 'Jean', 'Pantalons'),
++      ]),
++    );
++
++    await expectLater(service.build(), throwsA(isA<OutfitGenerationException>()));
++    final failure = diagnostics.filtered(module: DiagnosticModule.daily)
++        .where((entry) => entry.level == AppDiagnosticLevel.error).single;
++    expect(failure.reason, 'outfitGenerationFailure');
++    expect(failure.reason, isNot('wardrobeContextFailure'));
++    expect(failure.details['phase'], 'recommendation');
++    expect(failure.details['garmentsCount'], 2);
++    diagnostics.setEnabled(false);
++  });
+ }
+ 
+ DailyBriefService _service({required List<Garment> wardrobe, required WeatherService weather}) =>
+     DailyBriefService(
+       weatherService: weather,
+       memoryService: MemoryService(repository: _EmptyMemoryRepository()),
+       aiContextService: WardrobeAiContextService(loadCurrentGarments: () async => wardrobe),
+     );
+ 
+ final _weatherData = WeatherData(
+   city: 'Paris', latitude: 0, longitude: 0, temperature: 18,
+   apparentTemperature: 18, humidity: 50, windSpeed: 8, windDirection: 0,
+   weatherCode: 0, description: 'Clair', measuredAt: DateTime(2026),
+ );
+ 
+ class _Weather implements WeatherService {
+   final Future<WeatherData> Function() loader;
+   _Weather(this.loader);
+   @override
+   Future<WeatherData> getCurrentWeather({bool forceRefresh = false}) => loader();
+   @override
+   void clearCache() {}
+ }
+ 
+ class _EmptyMemoryRepository implements MemoryRepository {
+   @override Future<void> deleteMemory(String id) async {}
+   @override Future<void> deleteGoal(String id) async {}
+   @override Future<void> deleteStyleProfile() async {}
+   @override Future<List<PersonalGoal>> getGoals() async => [];
+   @override Future<List<UserMemoryRevision>> getMemoryHistory(String memoryId) async => [];
+   @override Future<List<UserMemory>> getMemories({UserMemoryKind? kind}) async => [];
+   @override Future<StyleProfile?> getStyleProfile() async => null;
+   @override Future<void> saveGoal(PersonalGoal goal) async {}
+   @override Future<void> saveMemory(UserMemory memory, {bool recordRevision = true}) async {}
+   @override Future<void> saveStyleProfile(StyleProfile profile) async {}
+ }
+ 
+ class _FailingMemoryRepository extends _EmptyMemoryRepository {
+   @override
+   Future<List<UserMemory>> getMemories({UserMemoryKind? kind}) =>
+       Future.error(const FormatException('legacy preferences'));
+ }
++
++class _FailingOutfitEngine extends OutfitGenerationEngine {
++  const _FailingOutfitEngine();
++
++  @override
++  OutfitGenerationResult generate(OutfitGenerationRequest request) {
++    throw OutfitGenerationException(
++      phase: OutfitGenerationPhase.recommendation,
++      exceptionType: '_TypeError',
++      garmentsCount: request.wardrobe.length,
++    );
++  }
++}
