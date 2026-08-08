@@ -185,13 +185,17 @@ class DailyBriefService {
         'candidates': generation.diagnostic.candidateCount,
         'proposals': generation.diagnostic.producedCount,
         'rejected': generation.diagnostic.rejectedCount,
-        'topsRecognized': generation.diagnostic.recognizedByRole[OutfitCategory.top] ?? 0,
+        'topsRecognized': generation.diagnostic.topsRecognized,
+        'topsEligible': generation.diagnostic.topsEligible,
+        'topsRejectedBeforeGeneration': generation.diagnostic.topsRejectedBeforeGeneration,
         'bottomsRecognized': generation.diagnostic.recognizedByRole[OutfitCategory.bottom] ?? 0,
         'shoesRecognized': generation.diagnostic.recognizedByRole[OutfitCategory.shoes] ?? 0,
         'outerwearRecognized':
             (generation.diagnostic.recognizedByRole[OutfitCategory.jacket] ?? 0) +
             (generation.diagnostic.recognizedByRole[OutfitCategory.coat] ?? 0),
         'unclassified': generation.diagnostic.unclassifiedCount,
+        'classification': generation.diagnostic.classifications
+            .map((item) => item.toSafeMap()).toList(growable: false),
       },
       pipeline: [
         DiagnosticStep(

@@ -128,7 +128,7 @@ class RestoreService {
         // Reconcile persisted Scanner/legacy labels at the restore boundary.
         // The original user fields remain intact except for canonical type IDs.
         final garment = Garment.fromMap(row);
-        final type = GarmentNormalizer.normalizeType(name: garment.name,
+        final type = GarmentNormalizer.normalizeType(
           category: garment.category, subcategory: garment.sousCategorie,
           preciseType: garment.typePrecis);
         return garment.copyWith(category: type.category ?? garment.category,

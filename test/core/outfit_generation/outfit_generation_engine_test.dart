@@ -77,6 +77,57 @@ void main() {
     expect(result.diagnostic.recognizedByRole[OutfitCategory.bottom], 1);
     expect(result.diagnostic.recognizedByRole[OutfitCategory.shoes], 1);
     expect(result.diagnostic.unclassifiedCount, 1);
+    expect(result.diagnostic.topsRecognized, 1);
+    expect(result.diagnostic.topsEligible, 1);
+    expect(result.diagnostic.topsRejectedBeforeGeneration, 0);
+    expect(result.diagnostic.classifications.first.toSafeMap(), {
+      'index': 1,
+      'categoryRaw': 'Chemises',
+      'categoryCanonical': 'chemises',
+      'subcategoryCanonical': 'chemise',
+      'roleResolved': 'top',
+      'availableForOutfit': true,
+    });
+    expect(result.diagnostic.classifications.first.toSafeMap().keys,
+      isNot(contains(anyOf('id', 'name', 'brand', 'photos', 'notes'))));
+  });
+
+  test('classe comme le Scanner une ligne réellement restaurée', () {
+    final restored = Garment.fromMap({
+      'id': 'legacy-private-id',
+      'name': 'Texte utilisateur non consommé',
+      'category': 'AUTRE',
+      'sous_categorie': '  T_SHIRT  ',
+      'type_precis': 'T_SHIRT',
+      'created_at': '2025-01-01T00:00:00.000Z',
+      'updated_at': '2025-01-01T00:00:00.000Z',
+    });
+    final recentlyImported = garment('new', 'Hauts').copyWith(
+      sousCategorie: 'T-shirt', typePrecis: 'T-shirt');
+
+    expect(OutfitGenerationEngine.categoryFor(restored), OutfitCategory.top);
+    expect(OutfitGenerationEngine.categoryFor(recentlyImported), OutfitCategory.top);
+    final result = engine().generate(OutfitGenerationRequest(wardrobe: [
+      restored,
+      garment('bottom', 'Bas'),
+    ]));
+    expect(result.diagnostic.topsRecognized, 1);
+    expect(result.diagnostic.topsEligible, 1);
+    expect(result.diagnostic.topsRejectedBeforeGeneration, 0);
+    expect(result.diagnostic.classifications.first.subcategoryRaw, 'T_SHIRT');
+    expect(result.diagnostic.classifications.first.subcategoryCanonical, 't-shirt');
+  });
+
+  test('couvre les séparateurs legacy sans contains générique', () {
+    for (final value in ['tshirt', 't-shirt', 't_shirt', 'polo_shirt']) {
+      final restored = Garment.fromMap({
+        'id': 'legacy', 'name': 'Sans signal de type', 'category': 'Autre',
+        'sous_categorie': value, 'created_at': '2025-01-01',
+        'updated_at': '2025-01-01',
+      });
+      expect(OutfitGenerationEngine.categoryFor(restored), OutfitCategory.top,
+        reason: value);
+    }
   });
 
   test('borne la génération pour un dressing important', () {
